@@ -5,18 +5,17 @@ Contains application-layer simulation state, results, and experiment definitions
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
-from typing import Sequence
 
 from engine.application.simulation_context import SimulationContext
 from engine.domain.model.allocation import Allocation, AllocationTarget
-from engine.domain.model.dataset import Dataset
+from engine.domain.model.decision_context import DecisionContext
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import Portfolio
-from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
 
 
 @dataclass
@@ -103,19 +102,51 @@ class SimulationResult:
 
 @dataclass(frozen=True)
 class ExperimentDefinition:
-    """Immutable description of an experiment."""
+    """Immutable, ordered request for a scientific experiment."""
 
     name: str
     description: str
-    dataset: Dataset
-    horizon_months: int
-    allocation_policy: AllocationPolicy
-    withdrawal_policy: WithdrawalPolicy
+    simulation_contexts: tuple[SimulationContext, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("ExperimentDefinition.name must be non-empty")
+        if self.description is None:
+            raise ValueError("ExperimentDefinition.description is required")
+        if not isinstance(self.simulation_contexts, tuple):
+            raise TypeError("ExperimentDefinition.simulation_contexts must be a tuple")
+        if any(
+            not isinstance(context, SimulationContext)
+            for context in self.simulation_contexts
+        ):
+            raise ValueError(
+                "ExperimentDefinition.simulation_contexts must contain SimulationContext values"
+            )
+        if len({id(context) for context in self.simulation_contexts}) != len(
+            self.simulation_contexts
+        ):
+            raise ValueError(
+                "ExperimentDefinition.simulation_contexts must not contain duplicates"
+            )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExperimentRun:
-    """Execution representation for a single ExperimentDefinition."""
+    """Immutable aggregate result of a completed ExperimentDefinition."""
 
     definition: ExperimentDefinition
-    result: SimulationResult | None = None
+    simulation_results: tuple[SimulationResult, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.definition, ExperimentDefinition):
+            raise TypeError("ExperimentRun.definition must be an ExperimentDefinition")
+        if not isinstance(self.simulation_results, tuple):
+            raise TypeError("ExperimentRun.simulation_results must be a tuple")
+        if len(self.simulation_results) != len(self.definition.simulation_contexts):
+            raise ValueError(
+                "ExperimentRun.simulation_results must match the definition context count"
+            )
+        if any(not isinstance(result, SimulationResult) for result in self.simulation_results):
+            raise TypeError(
+                "ExperimentRun.simulation_results must contain SimulationResult values"
+            )

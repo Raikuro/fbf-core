@@ -6,30 +6,26 @@ Verifies orchestration logic, lifecycle management, and result construction.
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import MagicMock, Mock, patch
-from typing import Sequence
+from decimal import Decimal
+from unittest.mock import Mock
 
 import pytest
 
-from engine.application.runner import SimulationRunner, DefaultSimulationStatisticsBuilder
+from engine.application.pipeline import PipelineStep, SimulationPipeline
+from engine.application.runner import DefaultSimulationStatisticsBuilder, SimulationRunner
 from engine.application.simulation import (
     ExecutionStatus,
-    SimulationState,
     MonthlyResult,
     SimulationResult,
+    SimulationState,
     SimulationStatistics,
     SimulationTimeline,
 )
 from engine.application.simulation_context import SimulationContext
-from engine.application.pipeline import SimulationPipeline, PipelineStep
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Money
-from engine.domain.model.portfolio import Portfolio
-from engine.domain.model.allocation import Allocation
+from engine.domain.model.money import Currency, Money
 
 
-class MockMarketSnapshot(MarketSnapshot):
+class MockMarketSnapshot:
     """Test double for MarketSnapshot."""
 
     def __init__(self, snapshot_date: date, value: float = 100.0):
@@ -37,20 +33,20 @@ class MockMarketSnapshot(MarketSnapshot):
         self.value = value
 
 
-class MockPortfolio(Portfolio):
+class MockPortfolio:
     """Test double for Portfolio."""
 
     def __init__(self):
         self.positions = {}
 
 
-class MockDataset(Dataset):
+class MockDataset:
     """Test double for Dataset supporting indexing."""
 
-    def __init__(self, snapshots: list[MarketSnapshot]):
+    def __init__(self, snapshots: list[MockMarketSnapshot]):
         self._snapshots = snapshots
 
-    def __getitem__(self, index: int) -> MarketSnapshot:
+    def __getitem__(self, index: int) -> MockMarketSnapshot:
         if index < 0 or index >= len(self._snapshots):
             raise IndexError("Dataset index out of range")
         return self._snapshots[index]
@@ -90,6 +86,14 @@ class MockPipelineStep(PipelineStep):
         )
         state.monthly_results.append(monthly_result)
         return state
+
+
+class SecondaryMockPipelineStep(MockPipelineStep):
+    """Distinct pipeline-step type for multi-step ordering tests."""
+
+
+def money(amount: str) -> Money:
+    return Money(Decimal(amount), Currency.EUR)
 
 
 # ============================================================================
@@ -224,7 +228,7 @@ class TestInitialStateConstruction:
             cohort="test",
             start_date=start_date,
             horizon_months=horizon_months,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=MockPortfolio(),
             dataset=MockDataset(snapshots),
             allocation_policy=Mock(),
@@ -309,7 +313,7 @@ class TestInitialStateConstruction:
             cohort="test",
             start_date=mismatched_date,
             horizon_months=10,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=MockPortfolio(),
             dataset=MockDataset(snapshots),
             allocation_policy=Mock(),
@@ -337,7 +341,7 @@ class TestExecutionLoop:
             cohort="test",
             start_date=start_date,
             horizon_months=horizon_months,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=MockPortfolio(),
             dataset=MockDataset(snapshots),
             allocation_policy=Mock(),
@@ -376,7 +380,7 @@ class TestExecutionLoop:
                 s,
             )[1],
         )
-        step2 = MockPipelineStep(
+        step2 = SecondaryMockPipelineStep(
             sequence_order=1,
             side_effect=lambda s: (
                 call_order.append(2),
@@ -405,7 +409,7 @@ class TestExecutionLoop:
     def test_execution_stops_on_completed_status(self):
         """Verify execution stops when status becomes COMPLETED."""
         step1 = MockPipelineStep(sequence_order=0)
-        step2 = MockPipelineStep(sequence_order=1)
+        step2 = SecondaryMockPipelineStep(sequence_order=1)
 
         # Make step1 complete the simulation
         def step1_complete(s):
@@ -426,7 +430,7 @@ class TestExecutionLoop:
     def test_execution_stops_on_failure_state(self):
         """Verify execution stops when failure_state is set."""
         step1 = MockPipelineStep(sequence_order=0)
-        step2 = MockPipelineStep(sequence_order=1)
+        step2 = SecondaryMockPipelineStep(sequence_order=1)
 
         # Make step1 fail
         def step1_fail(s):
@@ -457,7 +461,7 @@ class TestResultConstruction:
             cohort="test",
             start_date=start_date,
             horizon_months=0,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=MockPortfolio(),
             dataset=MockDataset(snapshots),
             allocation_policy=Mock(),
@@ -530,7 +534,7 @@ class TestResultConstruction:
             cohort="test",
             start_date=date(2020, 1, 1),
             horizon_months=1,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=MockPortfolio(),
             dataset=MockDataset([MockMarketSnapshot(date(2020, 1, 1))]),
             allocation_policy=Mock(),
@@ -551,7 +555,7 @@ class TestResultConstruction:
             cohort="test",
             start_date=date(2020, 1, 1),
             horizon_months=1,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=MockPortfolio(),
             dataset=MockDataset([MockMarketSnapshot(date(2020, 1, 1))]),
             allocation_policy=Mock(),
@@ -599,7 +603,7 @@ class TestDeterminism:
                 cohort="test",
                 start_date=date(2020, 1, 1),
                 horizon_months=1,
-                initial_wealth=Money("1000000"),
+                initial_wealth=money("1000000"),
                 initial_portfolio=MockPortfolio(),
                 dataset=MockDataset([MockMarketSnapshot(date(2020, 1, 1))]),
                 allocation_policy=Mock(),

@@ -11,8 +11,8 @@ from engine.application.simulation import (
 )
 from engine.application.simulation_context import SimulationContext
 from engine.application.statistics_builder import (
-    SimulationStatisticsBuilder,
     DefaultSimulationStatisticsBuilder,
+    SimulationStatisticsBuilder,
 )
 
 
@@ -73,14 +73,20 @@ class SimulationRunner:
     def _initialize_state(self, context: SimulationContext) -> SimulationState:
         if context.horizon_months == 0:
             status = ExecutionStatus.COMPLETED
+            market_snapshot = None
         else:
             status = ExecutionStatus.RUNNING
-
-        market_snapshot = context.dataset[0]
-        if market_snapshot.date != context.start_date:
-            raise ValueError(
-                "SimulationContext.start_date must match the first dataset snapshot date"
-            )
+            try:
+                market_snapshot = context.dataset[0]
+            except IndexError as exc:
+                raise ValueError(
+                    "SimulationContext.dataset must provide an initial MarketSnapshot "
+                    "for a positive horizon"
+                ) from exc
+            if market_snapshot.date != context.start_date:
+                raise ValueError(
+                    "SimulationContext.start_date must match the first dataset snapshot date"
+                )
 
         return SimulationState(
             context=context,

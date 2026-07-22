@@ -6,40 +6,37 @@ End-to-end tests verifying complete simulation execution across multiple months.
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from unittest.mock import Mock
-from typing import Sequence
 
 import pytest
 
+from engine.application.pipeline import PipelineStep, SimulationPipeline
 from engine.application.runner import SimulationRunner
 from engine.application.simulation import (
     ExecutionStatus,
-    SimulationState,
     MonthlyResult,
+    SimulationState,
 )
 from engine.application.simulation_context import SimulationContext
-from engine.application.pipeline import SimulationPipeline, PipelineStep
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Money
-from engine.domain.model.portfolio import Portfolio
+from engine.domain.model.money import Currency, Money
 
 
-class IntegrationMarketSnapshot(MarketSnapshot):
+class IntegrationMarketSnapshot:
     """Market snapshot for integration tests."""
 
     def __init__(self, snapshot_date: date):
         self.date = snapshot_date
 
 
-class IntegrationPortfolio(Portfolio):
+class IntegrationPortfolio:
     """Portfolio stub for integration tests."""
 
     def __init__(self):
         self.positions = {}
 
 
-class IntegrationDataset(Dataset):
+class IntegrationDataset:
     """Dataset supporting multi-month snapshots."""
 
     def __init__(self, num_months: int, start_date: date = date(2020, 1, 1)):
@@ -54,7 +51,7 @@ class IntegrationDataset(Dataset):
             for i in range(num_months)
         ]
 
-    def __getitem__(self, index: int) -> MarketSnapshot:
+    def __getitem__(self, index: int) -> IntegrationMarketSnapshot:
         if index < 0 or index >= len(self._snapshots):
             raise IndexError("Dataset index out of range")
         return self._snapshots[index]
@@ -117,6 +114,10 @@ class MonthlyProgressionStep(PipelineStep):
         return state
 
 
+def money(amount: str) -> Money:
+    return Money(Decimal(amount), Currency.EUR)
+
+
 # ============================================================================
 # Integration Tests
 # ============================================================================
@@ -133,7 +134,7 @@ class TestSimulationRunnerIntegration:
             cohort="2020-01",
             start_date=date(2020, 1, 1),
             horizon_months=1,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=IntegrationPortfolio(),
             dataset=dataset,
             allocation_policy=Mock(),
@@ -160,7 +161,7 @@ class TestSimulationRunnerIntegration:
             cohort="2020-01",
             start_date=date(2020, 1, 1),
             horizon_months=3,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=IntegrationPortfolio(),
             dataset=dataset,
             allocation_policy=Mock(),
@@ -187,7 +188,7 @@ class TestSimulationRunnerIntegration:
             cohort="2020-01",
             start_date=date(2020, 1, 1),
             horizon_months=12,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=IntegrationPortfolio(),
             dataset=dataset,
             allocation_policy=Mock(),
@@ -214,7 +215,7 @@ class TestSimulationRunnerIntegration:
             cohort="2020-03",
             start_date=date(2020, 3, 15),
             horizon_months=3,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=IntegrationPortfolio(),
             dataset=dataset,
             allocation_policy=Mock(),
@@ -248,7 +249,7 @@ class TestSimulationRunnerIntegration:
             cohort="2020-01",
             start_date=date(2020, 1, 1),
             horizon_months=2,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=IntegrationPortfolio(),
             dataset=dataset,
             allocation_policy=Mock(),
@@ -307,9 +308,15 @@ class TestSimulationRunnerIntegration:
 
                 return state
 
+        class FirstLoggingStep(LoggingStep):
+            """Distinct first logging step type for pipeline validation."""
+
+        class SecondLoggingStep(LoggingStep):
+            """Distinct second logging step type for pipeline validation."""
+
         steps = [
-            LoggingStep(0, "Step1"),
-            LoggingStep(1, "Step2"),
+            FirstLoggingStep(0, "Step1"),
+            SecondLoggingStep(1, "Step2"),
             FinalProgressionStep(),
         ]
         pipeline = SimulationPipeline(steps)
@@ -332,7 +339,7 @@ class TestSimulationRunnerIntegration:
             cohort="2020-01",
             start_date=date(2020, 1, 1),
             horizon_months=12,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=IntegrationPortfolio(),
             dataset=dataset,
             allocation_policy=Mock(),
@@ -408,7 +415,7 @@ class TestSimulationRunnerIntegration:
             cohort="2020-01",
             start_date=date(2020, 1, 1),
             horizon_months=1,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=IntegrationPortfolio(),
             dataset=dataset,
             allocation_policy=Mock(),
@@ -429,14 +436,14 @@ class TestSimulationRunnerIntegration:
             result.statistics = None
 
     def test_zero_horizon_completes_without_execution(self):
-        """Verify zero-horizon simulation completes without executing steps."""
+        """Verify zero horizon completes without a dataset snapshot or step execution."""
         dataset = IntegrationDataset(num_months=0)
         context = SimulationContext(
             experiment_name="test_zero",
             cohort="2020-01",
             start_date=date(2020, 1, 1),
             horizon_months=0,
-            initial_wealth=Money("1000000"),
+            initial_wealth=money("1000000"),
             initial_portfolio=IntegrationPortfolio(),
             dataset=dataset,
             allocation_policy=Mock(),
@@ -453,4 +460,45 @@ class TestSimulationRunnerIntegration:
         assert result.statistics.success is True
         assert result.statistics.months_simulated == 0
         assert len(result.timeline.monthly_results) == 0
+        assert step.execution_count == 0
+
+    def test_zero_horizon_with_initial_snapshot_completes_without_execution(self):
+        """Verify zero horizon ignores an available initial snapshot."""
+        context = SimulationContext(
+            experiment_name="test_zero_with_snapshot",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=0,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=IntegrationDataset(num_months=1),
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+        step = MonthlyProgressionStep(sequence_order=0)
+
+        result = SimulationRunner(SimulationPipeline([step])).run(context)
+
+        assert result.statistics.success is True
+        assert result.statistics.months_simulated == 0
+        assert step.execution_count == 0
+
+    def test_positive_horizon_requires_an_initial_snapshot(self):
+        """Verify a positive horizon rejects an empty dataset before execution."""
+        context = SimulationContext(
+            experiment_name="test_positive_empty_dataset",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=1,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=IntegrationDataset(num_months=0),
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+        step = MonthlyProgressionStep(sequence_order=0)
+
+        with pytest.raises(ValueError, match="must provide an initial MarketSnapshot"):
+            SimulationRunner(SimulationPipeline([step])).run(context)
+
         assert step.execution_count == 0
