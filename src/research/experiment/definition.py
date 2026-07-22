@@ -1,21 +1,8 @@
-"""Experiment definition placeholder for the Research package."""
+"""Legacy experiment definition module placeholder.
 
-from __future__ import annotations
+Re-exports ExperimentDefinition from research.domain.
+"""
 
-from dataclasses import dataclass
-from typing import Sequence
+from research.domain.experiment.definition import ExperimentDefinition
 
-from engine.domain.model.dataset import Dataset
-
-
-@dataclass(frozen=True)
-class ExperimentDefinition:
-    name: str
-    description: str
-    dataset: Dataset
-    horizon_months: int
-    cohorts: Sequence[str]
-    allocation_policies: Sequence[object]
-    withdrawal_policies: Sequence[object]
-    targets: Sequence[float]
-    optimizer: str | None = None
+__all__ = ["ExperimentDefinition"]
