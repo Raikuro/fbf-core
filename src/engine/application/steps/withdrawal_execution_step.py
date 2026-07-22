@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from engine.application.pipeline import PipelineStep
 from engine.application.simulation import SimulationState
 from engine.domain.services.portfolio_withdrawal_service import (
     PortfolioWithdrawalService,
 )
 
 
-class WithdrawalExecutionStep:
+class WithdrawalExecutionStep(PipelineStep):
     """PipelineStep that applies the withdrawal decision to the portfolio."""
 
     sequence_order = 30

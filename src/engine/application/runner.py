@@ -4,12 +4,16 @@ from datetime import date
 
 from engine.application.pipeline import SimulationPipeline
 from engine.application.simulation import (
+    ExecutionStatus,
     SimulationResult,
-    SimulationStatistics,
     SimulationTimeline,
     SimulationState,
 )
 from engine.application.simulation_context import SimulationContext
+from engine.application.statistics_builder import (
+    SimulationStatisticsBuilder,
+    DefaultSimulationStatisticsBuilder,
+)
 
 
 def _advance_month(current_date: date) -> date:
@@ -21,35 +25,76 @@ def _advance_month(current_date: date) -> date:
 class SimulationRunner:
     """Executes a single Simulation using the Engine application services."""
 
-    def __init__(self, pipeline: SimulationPipeline) -> None:
+    def __init__(
+        self,
+        pipeline: SimulationPipeline,
+        statistics_builder: SimulationStatisticsBuilder | None = None,
+    ) -> None:
         self.pipeline = pipeline
+        self.statistics_builder = (
+            statistics_builder
+            if statistics_builder is not None
+            else DefaultSimulationStatisticsBuilder()
+        )
 
     def run(self, context: SimulationContext) -> SimulationResult:
-        state = SimulationState(
+        self._validate_context(context)
+        state = self._initialize_state(context)
+
+        while state.status == ExecutionStatus.RUNNING:
+            for step in self.pipeline.steps:
+                state = step.execute(state)
+                if state.failure_state is not None:
+                    state.status = ExecutionStatus.FAILED
+                    break
+                if state.status != ExecutionStatus.RUNNING:
+                    break
+            if state.status != ExecutionStatus.RUNNING:
+                break
+
+        return self._build_result(state)
+
+    def _validate_context(self, context: SimulationContext) -> None:
+        if context is None:
+            raise ValueError("SimulationContext is required")
+        if context.dataset is None:
+            raise ValueError("SimulationContext.dataset is required")
+        if context.horizon_months is None:
+            raise ValueError("SimulationContext.horizon_months is required")
+        if context.horizon_months < 0:
+            raise ValueError("SimulationContext.horizon_months must not be negative")
+        if context.initial_portfolio is None:
+            raise ValueError("SimulationContext.initial_portfolio is required")
+        if context.initial_wealth is None:
+            raise ValueError("SimulationContext.initial_wealth is required")
+        if context.start_date is None:
+            raise ValueError("SimulationContext.start_date is required")
+
+    def _initialize_state(self, context: SimulationContext) -> SimulationState:
+        if context.horizon_months == 0:
+            status = ExecutionStatus.COMPLETED
+        else:
+            status = ExecutionStatus.RUNNING
+
+        market_snapshot = context.dataset[0]
+        if market_snapshot.date != context.start_date:
+            raise ValueError(
+                "SimulationContext.start_date must match the first dataset snapshot date"
+            )
+
+        return SimulationState(
             context=context,
             current_date=context.start_date,
             period_index=0,
             portfolio=context.initial_portfolio,
+            market_snapshot=market_snapshot,
             current_wealth=context.initial_wealth,
             peak_wealth=context.initial_wealth,
+            status=status,
         )
 
-        for _ in range(context.horizon_months):
-            state = self.pipeline.execute(state)
-            if state.failure_state is not None:
-                break
-            state.current_date = _advance_month(state.current_date)
-            state.period_index += 1
-
-        final_wealth = state.current_wealth or context.initial_wealth
-        statistics = SimulationStatistics(
-            final_wealth=final_wealth,
-            max_drawdown=0.0,
-            success=state.failure_state is None,
-            failure_month=state.period_index if state.failure_state else None,
-            months_simulated=len(state.monthly_results),
-            execution_time_seconds=0.0,
-        )
+    def _build_result(self, state: SimulationState) -> SimulationResult:
+        statistics = self.statistics_builder.build(state)
 
         return SimulationResult(
             timeline=SimulationTimeline(monthly_results=tuple(state.monthly_results)),

@@ -16,6 +16,10 @@ from .simulation import (
     SimulationTimeline,
 )
 from .simulation_context import SimulationContext
+from .statistics_builder import (
+    SimulationStatisticsBuilder,
+    DefaultSimulationStatisticsBuilder,
+)
 
 __all__ = [
     "SimulationContext",
@@ -30,4 +34,6 @@ __all__ = [
     "PipelineStep",
     "SimulationRunner",
     "SimulationExecutor",
+    "SimulationStatisticsBuilder",
+    "DefaultSimulationStatisticsBuilder",
 ]

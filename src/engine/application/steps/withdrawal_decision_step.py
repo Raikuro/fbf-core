@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from engine.application.pipeline import PipelineStep
 from engine.application.simulation import SimulationState
 from engine.domain.policies.decisions import WithdrawalDecision
 from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
 
 
-class WithdrawalDecisionStep:
+class WithdrawalDecisionStep(PipelineStep):
     """PipelineStep that requests the monthly withdrawal decision."""
 
     sequence_order = 20

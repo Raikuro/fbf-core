@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from engine.application.pipeline import PipelineStep
 from engine.application.simulation import SimulationState
 from engine.domain.model.decision_context import DecisionContext
 
 
-class BuildDecisionContextStep:
+class BuildDecisionContextStep(PipelineStep):
     """PipelineStep that builds the domain DecisionContext."""
 
     sequence_order = 10

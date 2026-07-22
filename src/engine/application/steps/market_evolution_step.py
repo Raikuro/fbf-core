@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from engine.application.pipeline import PipelineStep
 from engine.application.simulation import SimulationState
 from engine.domain.services.portfolio_market_evolution_service import (
     PortfolioMarketEvolutionService,
 )
 
 
-class MarketEvolutionStep:
+class MarketEvolutionStep(PipelineStep):
     """PipelineStep that applies market evolution to the portfolio."""
 
     sequence_order = 60

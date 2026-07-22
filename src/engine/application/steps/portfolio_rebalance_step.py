@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from engine.application.pipeline import PipelineStep
 from engine.application.simulation import SimulationState
 from engine.domain.services.portfolio_rebalance_service import (
     PortfolioRebalanceService,
 )
 
 
-class PortfolioRebalanceStep:
+class PortfolioRebalanceStep(PipelineStep):
     """PipelineStep that applies an allocation decision to the portfolio."""
 
     sequence_order = 50

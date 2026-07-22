@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from enum import Enum
 from typing import Sequence
 
 from engine.application.simulation_context import SimulationContext
@@ -40,10 +41,18 @@ class SimulationState:
     market_snapshot: MarketSnapshot | None = None
     current_wealth: Money | None = None
     peak_wealth: Money | None = None
-    status: str | None = None
     failure_state: str | None = None
+    status: ExecutionStatus | None = None
     decision_context: DecisionContext | None = None
     monthly_results: list[MonthlyResult] = field(default_factory=list)
+
+
+class ExecutionStatus(Enum):
+    """Enumeration of simulation execution states."""
+
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 @dataclass(frozen=True)

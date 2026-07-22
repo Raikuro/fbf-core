@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from engine.application.pipeline import PipelineStep
 from engine.application.simulation import MonthlyResult, SimulationState
 
 
-class MonthlyResultBuilderStep:
+class MonthlyResultBuilderStep(PipelineStep):
     """PipelineStep that captures the current state into a MonthlyResult."""
 
     sequence_order = 70
