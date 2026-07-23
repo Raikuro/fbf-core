@@ -10,6 +10,13 @@ from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.axis import ParameterAxis
 from research.domain.parameter.configuration import ParameterConfiguration
 from research.domain.parameter.engine import ParameterSweepEngine
+from research.domain.plan import PlannedSimulationUnit, ResearchPlan
+from research.orchestration import (
+    InvalidResearchPlanError,
+    ResearchExecutionError,
+    ResearchExecutionResult,
+    ResearchExecutor,
+)
 
 __all__ = [
     "CohortSpecification",
@@ -18,4 +25,10 @@ __all__ = [
     "ParameterConfiguration",
     "ParameterAxis",
     "ParameterSweepEngine",
+    "ResearchPlan",
+    "PlannedSimulationUnit",
+    "ResearchExecutor",
+    "ResearchExecutionResult",
+    "ResearchExecutionError",
+    "InvalidResearchPlanError",
 ]

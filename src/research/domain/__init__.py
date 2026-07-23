@@ -6,6 +6,7 @@ from .experiment.definition import ExperimentDefinition
 from .parameter.axis import ParameterAxis
 from .parameter.configuration import ParameterConfiguration
 from .parameter.engine import ParameterSweepEngine
+from .plan import PlannedSimulationUnit, ResearchPlan
 
 __all__ = [
     "CohortSpecification",
@@ -14,4 +15,6 @@ __all__ = [
     "ParameterConfiguration",
     "ParameterAxis",
     "ParameterSweepEngine",
+    "ResearchPlan",
+    "PlannedSimulationUnit",
 ]
