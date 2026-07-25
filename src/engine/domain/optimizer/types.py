@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Mapping, Protocol, Sequence, Literal
 
 
@@ -11,7 +12,7 @@ class EvaluationResult:
     """Evaluation result for a strategy label."""
 
     label: str
-    metrics: Mapping[str, float]
+    metrics: Mapping[str, Decimal]
     provenance: Mapping[str, Sequence[str]]
 
 
@@ -48,7 +49,7 @@ GroupingDimension = Literal["parameter_config", "cohort", "global"]
 class StrategyComparisonReport:
     """Immutable report containing aggregated metrics, ranking, provenance, and diagnostics."""
 
-    aggregated_metrics: Mapping[str, Mapping[str, Mapping[str, float]]]
+    aggregated_metrics: Mapping[str, Mapping[str, Mapping[str, Decimal]]]
     ranking: Mapping[str, Sequence[str]]
     provenance: Mapping[str, Mapping[str, Sequence[str]]]
     diagnostics: Mapping[str, Mapping[str, str]]

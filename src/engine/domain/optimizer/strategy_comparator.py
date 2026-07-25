@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Mapping, Sequence, Union, MutableMapping
+from decimal import Decimal
 
 from .types import (
     EvaluationResult,
@@ -72,10 +73,11 @@ class StrategyComparator:
 
             raise InvalidInputError("strategy source must be an Evaluator or a sequence of EvaluationResult")
 
-        # Aggregation structures
-        aggregated: MutableMapping[str, MutableMapping[str, MutableMapping[str, float]]] = {}
+        # Aggregation structures (use Decimal for numeric sums)
+        aggregated: MutableMapping[str, MutableMapping[str, MutableMapping[str, Decimal]]] = {}
         provenance_map: MutableMapping[str, MutableMapping[str, Sequence[str]]] = {}
         diagnostics: MutableMapping[str, MutableMapping[str, str]] = {}
+        counts: MutableMapping[str, MutableMapping[str, MutableMapping[str, int]]] = {}
 
         for label, source in strategy_map.items():
             evaluations = _materialise(label, source)
@@ -86,43 +88,60 @@ class StrategyComparator:
             for ev in evaluations:
                 if group_by == "global":
                     gkey = "global"
+                elif group_by == "cohort":
+                    ids = ev.provenance.get("cohort")
+                    if not ids or len(ids) == 0:
+                        raise InvalidInputError("missing cohort provenance for grouping")
+                    if len(ids) != 1:
+                        raise InvalidInputError("provenance['cohort'] must contain exactly one canonical identifier")
+                    gkey = ids[0]
+                elif group_by == "parameter_config":
+                    ids = ev.provenance.get("parameter_config")
+                    if not ids or len(ids) == 0:
+                        raise InvalidInputError("missing parameter_config provenance for grouping")
+                    if len(ids) != 1:
+                        raise InvalidInputError("provenance['parameter_config'] must contain exactly one canonical identifier")
+                    gkey = ids[0]
                 else:
-                    # pick first provenance key if present, otherwise fall back to global
-                    if ev.provenance:
-                        # choose a canonical provenance key if exists
-                        # use the first provenance mapping key as grouping key
-                        gkey = next(iter(ev.provenance))
-                    else:
-                        gkey = "global"
+                    raise InvalidInputError(f"invalid group_by: {group_by}")
 
                 aggregated.setdefault(gkey, {})
                 aggregated[gkey].setdefault(label, {})
                 provenance_map.setdefault(gkey, {})
                 provenance_map[gkey].setdefault(label, [])
                 diagnostics.setdefault(gkey, {})
+                counts.setdefault(gkey, {})
+                counts[gkey].setdefault(label, {})
 
                 # accumulate metrics (simple average across evaluations per label/group)
                 for m in self._metrics:
                     val = ev.metrics.get(m)
                     if val is None:
-                        # missing metric treated as 0.0 for aggregation
-                        val = 0.0
-                    # sum via storing cumulative and count in diagnostics keys
+                        # missing metric treated as Decimal(0)
+                        val_d = Decimal(0)
+                    else:
+                        # ensure Decimal arithmetic
+                        if isinstance(val, Decimal):
+                            val_d = val
+                        else:
+                            val_d = Decimal(str(val))
+
                     existing = aggregated[gkey][label].get(m)
                     if existing is None:
-                        aggregated[gkey][label][m] = float(val)
-                        # use diagnostics to track count
+                        aggregated[gkey][label][m] = val_d
+                        counts[gkey][label][m] = 1
                         diagnostics[gkey][f"{label}:{m}:count"] = "1"
                     else:
-                        aggregated[gkey][label][m] = existing + float(val)
-                        diagnostics[gkey][f"{label}:{m}:count"] = str(int(diagnostics[gkey][f"{label}:{m}:count"]) + 1)
+                        aggregated[gkey][label][m] = existing + val_d
+                        counts[gkey][label][m] = counts[gkey][label].get(m, 1) + 1
+                        diagnostics[gkey][f"{label}:{m}:count"] = str(counts[gkey][label][m])
 
                 # append provenance ids
                 for prov_vals in ev.provenance.values():
                     provenance_map[gkey][label] = list(provenance_map[gkey][label]) + list(prov_vals)
 
         # Finalize averages and prepare ranking
-        final_aggregated: MutableMapping[str, MutableMapping[str, MutableMapping[str, float]]] = {}
+        final_aggregated: MutableMapping[str, MutableMapping[str, MutableMapping[str, Decimal]]] = {}
         ranking_map: MutableMapping[str, Sequence[str]] = {}
 
         for gkey, per_label in aggregated.items():
@@ -131,17 +150,18 @@ class StrategyComparator:
             for label, metrics_map in per_label.items():
                 final_aggregated[gkey][label] = {}
                 for m, total in metrics_map.items():
-                    count = int(diagnostics[gkey].get(f"{label}:{m}:count", "1"))
-                    final_aggregated[gkey][label][m] = total / count if count > 0 else 0.0
+                    count = counts[gkey][label].get(m, 1)
+                    final_aggregated[gkey][label][m] = (total / Decimal(count)) if count > 0 else Decimal(0)
 
             # ranking: sort labels by primary metric descending, then tie_breakers, then label
             def sort_key(label_name: str):
-                primary = final_aggregated[gkey][label_name].get(self._ranking_rule.primary_metric, 0.0)
+                primary = final_aggregated[gkey][label_name].get(self._ranking_rule.primary_metric, Decimal(0))
                 tie_values = [
-                    final_aggregated[gkey][label_name].get(tb, 0.0) for tb in self._ranking_rule.tie_breakers
+                    final_aggregated[gkey][label_name].get(tb, Decimal(0)) for tb in self._ranking_rule.tie_breakers
                 ]
-                # negative label for deterministic final tie-break (ascending label)
-                return tuple([-primary] + [-v for v in tie_values] + [label_name])
+                # negative numeric values to sort descending; label_name ascending as final tiebreak
+                negs = [ -primary ] + [ -v for v in tie_values ]
+                return tuple(negs + [label_name])
 
             sorted_labels = sorted(final_aggregated[gkey].keys(), key=sort_key)
             ranking_map[gkey] = sorted_labels

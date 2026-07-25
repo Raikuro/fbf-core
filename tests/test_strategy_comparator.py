@@ -1,6 +1,7 @@
 """Tests for StrategyComparator."""
 
 from typing import Mapping
+from decimal import Decimal
 
 import pytest
 
@@ -65,13 +66,13 @@ def test_strategy_comparator_basic_functionality():
     results = {
         "strategy1": EvaluationResult(
             label="strategy1",
-            metrics={"sharpe_ratio": 1.5, "max_drawdown": -0.2},
-            provenance={"experiment1": ["unit1", "unit2"]},
+            metrics={"sharpe_ratio": Decimal("1.5"), "max_drawdown": Decimal("-0.2")},
+            provenance={"experiment1": ["unit1", "unit2"], "cohort": ["c1"], "parameter_config": ["p1"]},
         ),
         "strategy2": EvaluationResult(
             label="strategy2",
-            metrics={"sharpe_ratio": 2.0, "max_drawdown": -0.3},
-            provenance={"experiment1": ["unit3"]},
+            metrics={"sharpe_ratio": Decimal("2.0"), "max_drawdown": Decimal("-0.3")},
+            provenance={"experiment1": ["unit3"], "cohort": ["c1"], "parameter_config": ["p2"]},
         ),
     }
 
@@ -97,8 +98,8 @@ def test_strategy_comparator_deterministic_output():
     results = {
         "strategy1": EvaluationResult(
             label="strategy1",
-            metrics={"sharpe_ratio": 1.5, "max_drawdown": -0.2},
-            provenance={"experiment1": ["unit1"]},
+            metrics={"sharpe_ratio": Decimal("1.5"), "max_drawdown": Decimal("-0.2")},
+            provenance={"experiment1": ["unit1"], "cohort": ["c1"], "parameter_config": ["p1"]},
         ),
     }
 
@@ -125,8 +126,8 @@ def test_strategy_comparator_invalid_label():
     results = {
         "strategy1": EvaluationResult(
             label="strategy1",
-            metrics={"sharpe_ratio": 1.5},
-            provenance={"experiment1": ["unit1"]},
+            metrics={"sharpe_ratio": Decimal("1.5")},
+            provenance={"experiment1": ["unit1"], "cohort": ["c1"], "parameter_config": ["p1"]},
         ),
     }
 
