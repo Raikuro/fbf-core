@@ -91,7 +91,6 @@ CREATE TABLE IF NOT EXISTS planned_units (
     allocation_policy_id TEXT NOT NULL REFERENCES policies(policy_id),
     withdrawal_policy_id TEXT NOT NULL REFERENCES policies(policy_id),
     initial_portfolio_json TEXT NOT NULL,
-    created_at TEXT NOT NULL,
     UNIQUE(plan_id, unit_index),
     UNIQUE(plan_id, cohort_id, param_config_id)
 );
@@ -123,6 +122,7 @@ CREATE TABLE IF NOT EXISTS simulation_results (
 
 CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_cohorts ON cohorts(experiment_id, start_date);",
+    "CREATE INDEX IF NOT EXISTS idx_policies_type ON policies(policy_type);",
     "CREATE INDEX IF NOT EXISTS idx_plans_experiment ON research_plans(experiment_id);",
     "CREATE INDEX IF NOT EXISTS idx_units_plan ON planned_units(plan_id, unit_index);",
     "CREATE INDEX IF NOT EXISTS idx_results_plan ON execution_results(plan_id);",

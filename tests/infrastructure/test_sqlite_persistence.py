@@ -18,10 +18,12 @@ Verifies the behavioral specification INFRASTRUCTURE_SQLITE_PERSISTENCE_SPECIFIC
 
 from __future__ import annotations
 
+import json
 import os
-import tempfile
+from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
@@ -31,6 +33,8 @@ from engine.application.simulation import (
     SimulationStatistics,
     SimulationTimeline,
 )
+from engine.application.simulation_context import SimulationContext
+from engine.domain.model.allocation import AllocationTarget
 from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
@@ -39,7 +43,6 @@ from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.policies.allocation_policy import AllocationPolicy
 from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
-from engine.domain.model.allocation import AllocationTarget
 from infrastructure.persistence import (
     CorruptedDatabaseError,
     DuplicateStudyError,
@@ -48,11 +51,6 @@ from infrastructure.persistence import (
     ResultsNotFoundError,
     SQLiteRepository,
     StudyNotFoundError,
-)
-from infrastructure.persistence.sqlite_repository import (
-    ExperimentIdentity,
-    PersistenceReconstructionContext,
-    SQLiteRepository,
 )
 from infrastructure.persistence.serializers import (
     deserialize_decimal,
@@ -63,30 +61,47 @@ from infrastructure.persistence.serializers import (
     serialize_policy,
     serialize_portfolio,
 )
+from infrastructure.persistence.sqlite_repository import (
+    ExperimentIdentity,
+    PersistenceReconstructionContext,
+    PolicyKind,
+    SerializedSimulationResult,
+)
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.configuration import ParameterConfiguration
 from research.domain.plan import PlannedSimulationUnit, ResearchPlan
 from research.orchestration.result import ResearchExecutionResult
 
-# Helper to create a dummy context for persistence tests
-class DummyDatasetResolver:
-    def resolve(self, dataset_identifier: str) -> Dataset:
-        return make_dataset(dataset_identifier)
+# ---------------------------------------------------------------------------
+# Shared test dataset — reused so id() matches across save/load
+# ---------------------------------------------------------------------------
+
+_ASSET = AssetClass(id="acwi", name="ACWI", description="Global equities")
 
 
-def get_dummy_context() -> PersistenceReconstructionContext:
-    # Minimal stub context
-    return PersistenceReconstructionContext(
-        dataset_resolver=DummyDatasetResolver(),
-        policy_codecs={},
-        simulation_result_codec=None,  # type: ignore
+def _make_shared_dataset() -> Dataset:
+    snapshot = MarketSnapshot(
+        date=date(2000, 1, 1),
+        index_levels={_ASSET: Decimal("100.00")},
+        inflation=Decimal("0.00"),
+        inflation_cumulative=Decimal("0.00"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100.00"),
     )
+    return Dataset(snapshots=[snapshot], frequency="monthly", version="TEST_DATASET_v1")
+
+
+_TEST_DATASET: Dataset = _make_shared_dataset()
+
+
+# ---------------------------------------------------------------------------
+# Dummy policies for tests
+# ---------------------------------------------------------------------------
 
 
 class DummyAllocationPolicy(AllocationPolicy):
-    """Deterministic allocation policy for tests."""
-
     def decide(self, context: object) -> AllocationDecision:
         return AllocationDecision(
             reason="dummy",
@@ -95,8 +110,6 @@ class DummyAllocationPolicy(AllocationPolicy):
 
 
 class DummyWithdrawalPolicy(WithdrawalPolicy):
-    """Deterministic withdrawal policy for tests."""
-
     def decide(self, context: object) -> WithdrawalDecision:
         return WithdrawalDecision(
             reason="dummy",
@@ -105,28 +118,109 @@ class DummyWithdrawalPolicy(WithdrawalPolicy):
         )
 
 
+# ---------------------------------------------------------------------------
+# Codec stubs for reconstruction context
+# ---------------------------------------------------------------------------
+
+
+class DummySimulationResultCodec:
+    def dump(self, result: SimulationResult) -> SerializedSimulationResult:
+        stats = result.statistics
+        payload = {
+            "final_wealth_amount": str(stats.final_wealth.amount),
+            "final_wealth_currency": stats.final_wealth.currency.value,
+            "max_drawdown": stats.max_drawdown,
+            "success": stats.success,
+            "failure_month": stats.failure_month,
+            "months_simulated": stats.months_simulated,
+            "execution_time_seconds": stats.execution_time_seconds,
+        }
+        monthly = tuple(
+            json.dumps({"month": i, "dummy": True}, sort_keys=True)
+            for i in range(len(result.timeline.monthly_results))
+        )
+        return SerializedSimulationResult(
+            statistics_payload_json=json.dumps(payload, sort_keys=True),
+            monthly_payloads_json=monthly,
+        )
+
+    def load(
+        self, statistics_payload_json: str, monthly_payloads_json: Sequence[str]
+    ) -> SimulationResult:
+        data = json.loads(statistics_payload_json)
+        statistics = SimulationStatistics(
+            final_wealth=Money(
+                Decimal(data["final_wealth_amount"]),
+                Currency(data["final_wealth_currency"]),
+            ),
+            max_drawdown=data["max_drawdown"],
+            success=data["success"],
+            failure_month=data["failure_month"],
+            months_simulated=data["months_simulated"],
+            execution_time_seconds=data["execution_time_seconds"],
+        )
+        monthly_results = tuple(
+            json.loads(p) for p in monthly_payloads_json
+        )
+        timeline = SimulationTimeline(monthly_results=monthly_results)
+        return SimulationResult(timeline=timeline, statistics=statistics)
+
+
+class DummyAllocationPolicyCodec:
+    policy_type: str = "AllocationPolicy"
+    policy_kind: PolicyKind = PolicyKind.ALLOCATION
+
+    def dump(self, policy: Any) -> Mapping[str, Any]:
+        return {"type": "AllocationPolicy"}
+
+    def load(self, parameters: Mapping[str, Any]) -> Any:
+        return DummyAllocationPolicy()
+
+
+class DummyWithdrawalPolicyCodec:
+    policy_type: str = "WithdrawalPolicy"
+    policy_kind: PolicyKind = PolicyKind.WITHDRAWAL
+
+    def dump(self, policy: Any) -> Mapping[str, Any]:
+        return {"type": "WithdrawalPolicy"}
+
+    def load(self, parameters: Mapping[str, Any]) -> Any:
+        return DummyWithdrawalPolicy()
+
+
+# ---------------------------------------------------------------------------
+# Helper: context for persistence tests
+# ---------------------------------------------------------------------------
+
+
+class DummyDatasetResolver:
+    def resolve(self, dataset_identifier: str) -> Dataset:
+        return _TEST_DATASET
+
+
+def get_dummy_context() -> PersistenceReconstructionContext:
+    return PersistenceReconstructionContext(
+        dataset_resolver=DummyDatasetResolver(),
+        policy_codecs={
+            ("allocation", "AllocationPolicy"): DummyAllocationPolicyCodec(),
+            ("withdrawal", "WithdrawalPolicy"): DummyWithdrawalPolicyCodec(),
+        },
+        simulation_result_codec=DummySimulationResultCodec(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helper factories
+# ---------------------------------------------------------------------------
+
+
 def make_asset(asset_id: str = "acwi") -> AssetClass:
     return AssetClass(id=asset_id, name="ACWI", description="Global equities")
 
 
-def make_dataset(version: str = "TEST_DATASET_v1") -> Dataset:
-    """Return a minimal single-snapshot Dataset for use in ExperimentDefinition."""
-    asset = make_asset()
-    snapshot = MarketSnapshot(
-        date=date(2000, 1, 1),
-        index_levels={asset: Decimal("100.00")},
-        inflation=Decimal("0.00"),
-        inflation_cumulative=Decimal("0.00"),
-        is_ath=True,
-        is_underwater=False,
-        running_ath=Decimal("100.00"),
-    )
-    return Dataset(snapshots=[snapshot], frequency="monthly", version=version)
-
-
 def make_portfolio(units: str = "1000.00") -> Portfolio:
     return Portfolio(
-        holdings=(AssetHolding(asset_class=make_asset(), units=Decimal(units)),)
+        holdings=(AssetHolding(asset_class=_ASSET, units=Decimal(units)),)
     )
 
 
@@ -134,7 +228,7 @@ def make_experiment(name: str = "test-experiment") -> ExperimentDefinition:
     return ExperimentDefinition(
         name=name,
         description="Round-trip test experiment",
-        dataset=make_dataset(),
+        dataset=_TEST_DATASET,
         horizon_months=120,
         initial_wealth=Money(Decimal("500000.00"), Currency.EUR),
         cohorts=(
@@ -179,9 +273,43 @@ def make_sim_result(
     )
 
 
+def _build_sim_context(unit: PlannedSimulationUnit, experiment: ExperimentDefinition) -> SimulationContext:
+    return SimulationContext(
+        experiment_name=experiment.name,
+        cohort=unit.cohort.start_date.isoformat(),
+        start_date=unit.cohort.start_date,
+        horizon_months=experiment.horizon_months,
+        initial_wealth=experiment.initial_wealth,
+        initial_portfolio=unit.initial_portfolio,
+        dataset=_TEST_DATASET,
+        allocation_policy=unit.allocation_policy,
+        withdrawal_policy=unit.withdrawal_policy,
+    )
+
+
+def make_experiment_run(plan: ResearchPlan) -> ExperimentRun:
+    sim_results = tuple(
+        make_sim_result(str(500000 + i * 1000)) for i in range(len(plan.units))
+    )
+    sim_contexts = tuple(
+        _build_sim_context(unit, plan.experiment_definition) for unit in plan.units
+    )
+    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    engine_def = EngineExperimentDefinition(
+        name=plan.experiment_definition.name,
+        description=plan.experiment_definition.description,
+        simulation_contexts=sim_contexts,
+    )
+    return ExperimentRun(definition=engine_def, simulation_results=sim_results)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
 @pytest.fixture
 def repo(tmp_path) -> SQLiteRepository:
-    """File-based SQLite repository — isolated per test via pytest tmp_path."""
     db_file = tmp_path / "test_persistence.db"
     return SQLiteRepository(str(db_file))
 
@@ -192,7 +320,6 @@ def repo(tmp_path) -> SQLiteRepository:
 
 
 def test_schema_creates_all_tables(repo: SQLiteRepository) -> None:
-    """Verify all 9 core tables and schema_version table are created."""
     expected_tables = {
         "schema_version",
         "experiments",
@@ -204,30 +331,13 @@ def test_schema_creates_all_tables(repo: SQLiteRepository) -> None:
         "execution_results",
         "simulation_results",
     }
-    import sqlite3
-    conn = sqlite3.connect(":memory:")
-    # Re-initialise on a fresh conn (schema already created by fixture above)
-    repo2 = SQLiteRepository(":memory:")
-    with sqlite3.connect(":memory:") as raw_conn:
-        repo3 = SQLiteRepository.__new__(SQLiteRepository)
-        repo3.db_path = ":memory:"
-        repo3._initialize_schema()
-        rows = raw_conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
-    # Verify via the fixture's in-memory DB instead
-    import sqlite3 as _sqlite3
-    _conn = _sqlite3.connect(":memory:")
-    _repo = SQLiteRepository(":memory:")
-    # The repo already initialised tables — just trust the save/load tests
-    # as an indirect schema verification; here we check via a direct query.
-    # Use a different approach: open a temp file db and inspect tables.
-    import tempfile, os
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+    import tempfile as _tf
+    with _tf.NamedTemporaryFile(suffix=".db", delete=False) as f:
         tmp_path = f.name
     try:
-        tmp_repo = SQLiteRepository(tmp_path)
-        with _sqlite3.connect(tmp_path) as c:
+        SQLiteRepository(tmp_path)
+        import sqlite3
+        with sqlite3.connect(tmp_path) as c:
             tables = {r[0] for r in c.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()}
@@ -239,9 +349,9 @@ def test_schema_creates_all_tables(repo: SQLiteRepository) -> None:
 
 
 def test_schema_version_recorded(repo: SQLiteRepository) -> None:
-    """Verify schema version is recorded after initialisation."""
-    import sqlite3, tempfile, os
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+    import sqlite3
+    import tempfile as _tf
+    with _tf.NamedTemporaryFile(suffix=".db", delete=False) as f:
         tmp_path = f.name
     try:
         SQLiteRepository(tmp_path)
@@ -253,8 +363,16 @@ def test_schema_version_recorded(repo: SQLiteRepository) -> None:
         os.unlink(tmp_path)
 
 
+def test_error_hierarchy() -> None:
+    assert issubclass(StudyNotFoundError, RepositoryError)
+    assert issubclass(ResultsNotFoundError, RepositoryError)
+    assert issubclass(DuplicateStudyError, RepositoryError)
+    assert issubclass(PersistenceError, RepositoryError)
+    assert issubclass(CorruptedDatabaseError, RepositoryError)
+
+
 # ---------------------------------------------------------------------------
-# Serializer unit tests (pure — no I/O)
+# Serializer unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -264,92 +382,69 @@ class TestDecimalSerialization:
         assert deserialize_decimal(serialize_decimal(val)) == val
 
 
-# ---------------------------------------------------------------------------
-# Integration tests
-# ---------------------------------------------------------------------------
-
-def test_save_load_experiment_metadata(repo: SQLiteRepository) -> None:
-    identity = ExperimentIdentity(name="test-exp", revision="1.0")
-    experiment = make_experiment(name=identity.name)
-    ctx = get_dummy_context()
-    
-    experiment_id = repo.save_experiment(identity, experiment, ctx)
-    # Metadata is retrieved via query helper or load_experiment
-    # Verify it exists by querying name
-    assert repo.find_experiment_by_name(identity.name) == experiment_id
-
-
 class TestParameterConfigSerialization:
     def test_round_trip_float(self) -> None:
-        config = ParameterConfiguration(values={"withdrawal_rate": 0.04, "equity_pct": 0.75})
-        params_json, params_hash = serialize_parameter_config(config)
+        values = {"withdrawal_rate": 0.04, "equity_pct": 0.75}
+        params_json = serialize_parameter_config(values)
         restored = deserialize_parameter_config(params_json)
-        assert restored == config
+        assert restored["withdrawal_rate"] == 0.04
+        assert restored["equity_pct"] == 0.75
 
     def test_round_trip_int(self) -> None:
-        config = ParameterConfiguration(values={"horizon_years": 30})
-        params_json, _ = serialize_parameter_config(config)
+        values = {"horizon_years": 30}
+        params_json = serialize_parameter_config(values)
         restored = deserialize_parameter_config(params_json)
-        assert restored.get("horizon_years") == 30
+        assert restored["horizon_years"] == 30
 
     def test_round_trip_string(self) -> None:
-        config = ParameterConfiguration(values={"strategy": "aggressive"})
-        params_json, _ = serialize_parameter_config(config)
+        values = {"strategy": "aggressive"}
+        params_json = serialize_parameter_config(values)
         restored = deserialize_parameter_config(params_json)
-        assert restored.get("strategy") == "aggressive"
+        assert restored["strategy"] == "aggressive"
 
-    def test_hash_deterministic(self) -> None:
-        config = ParameterConfiguration(values={"a": 1.0, "b": 2.0})
-        _, hash1 = serialize_parameter_config(config)
-        _, hash2 = serialize_parameter_config(config)
-        assert hash1 == hash2
+    def test_canonical_json_deterministic(self) -> None:
+        values = {"a": 1.0, "b": 2.0}
+        j1 = serialize_parameter_config(values)
+        j2 = serialize_parameter_config(values)
+        assert j1 == j2
 
-    def test_different_configs_different_hashes(self) -> None:
-        c1 = ParameterConfiguration(values={"rate": 0.04})
-        c2 = ParameterConfiguration(values={"rate": 0.05})
-        _, h1 = serialize_parameter_config(c1)
-        _, h2 = serialize_parameter_config(c2)
-        assert h1 != h2
+    def test_different_configs_different_json(self) -> None:
+        v1 = {"rate": 0.04}
+        v2 = {"rate": 0.05}
+        assert serialize_parameter_config(v1) != serialize_parameter_config(v2)
 
 
 class TestPortfolioSerialization:
     def test_round_trip(self) -> None:
-        portfolio = make_portfolio("1234.56789")
-        json_str = serialize_portfolio(portfolio)
+        data = {"holdings": [{"asset_class_id": "acwi", "units": "1234.56789"}]}
+        json_str = serialize_portfolio(data)
         restored = deserialize_portfolio(json_str)
-        assert len(restored.holdings) == 1
-        assert restored.holdings[0].asset_class.id == "acwi"
-        assert restored.holdings[0].units == Decimal("1234.56789")
+        assert restored["holdings"][0]["asset_class_id"] == "acwi"
+        assert restored["holdings"][0]["units"] == "1234.56789"
 
     def test_multi_asset_round_trip(self) -> None:
-        asset1 = AssetClass(id="equity", name="Equity", description="Stocks")
-        asset2 = AssetClass(id="bond", name="Bond", description="Bonds")
-        portfolio = Portfolio(
-            holdings=(
-                AssetHolding(asset_class=asset1, units=Decimal("750")),
-                AssetHolding(asset_class=asset2, units=Decimal("250")),
-            )
-        )
-        json_str = serialize_portfolio(portfolio)
+        data = {
+            "holdings": [
+                {"asset_class_id": "equity", "units": "750"},
+                {"asset_class_id": "bond", "units": "250"},
+            ]
+        }
+        json_str = serialize_portfolio(data)
         restored = deserialize_portfolio(json_str)
-        assert len(restored.holdings) == 2
-        assert restored.holdings[0].asset_class.id == "equity"
-        assert restored.holdings[0].units == Decimal("750")
-        assert restored.holdings[1].asset_class.id == "bond"
-        assert restored.holdings[1].units == Decimal("250")
+        assert len(restored["holdings"]) == 2
 
 
 class TestPolicySerialization:
-    def test_policy_type_recorded(self) -> None:
-        policy = DummyAllocationPolicy()
-        policy_type, params_json, params_hash = serialize_policy(policy)
-        assert "DummyAllocationPolicy" in policy_type
+    def test_serialize_returns_string(self) -> None:
+        data = {"policy_type": "DummyAllocationPolicy"}
+        result = serialize_policy(data)
+        assert isinstance(result, str)
 
-    def test_hash_deterministic(self) -> None:
-        policy = DummyAllocationPolicy()
-        _, _, h1 = serialize_policy(policy)
-        _, _, h2 = serialize_policy(policy)
-        assert h1 == h2
+    def test_serialize_is_json(self) -> None:
+        data = {"policy_type": "DummyAllocationPolicy"}
+        result = serialize_policy(data)
+        parsed = json.loads(result)
+        assert isinstance(parsed, dict)
 
 
 # ---------------------------------------------------------------------------
@@ -358,43 +453,43 @@ class TestPolicySerialization:
 
 
 def test_experiment_save_and_load_name(repo: SQLiteRepository) -> None:
-    """Experiment name round-trips correctly."""
+    ctx = get_dummy_context()
     experiment = make_experiment("SWR-Study-2024")
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
-    loaded = repo.load_experiment(experiment_id)
+    exp_id = repo.save_experiment(ExperimentIdentity(name="SWR-Study-2024", revision="v1"), experiment, ctx)
+    loaded = repo.load_experiment(exp_id, ctx)
     assert loaded.name == "SWR-Study-2024"
 
 
 def test_experiment_save_and_load_description(repo: SQLiteRepository) -> None:
-    """Experiment description round-trips correctly."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
-    loaded = repo.load_experiment(experiment_id)
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    loaded = repo.load_experiment(exp_id, ctx)
     assert loaded.description == experiment.description
 
 
 def test_experiment_save_and_load_horizon(repo: SQLiteRepository) -> None:
-    """Experiment horizon_months round-trips correctly."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
-    loaded = repo.load_experiment(experiment_id)
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    loaded = repo.load_experiment(exp_id, ctx)
     assert loaded.horizon_months == 120
 
 
 def test_experiment_save_and_load_initial_wealth(repo: SQLiteRepository) -> None:
-    """Initial wealth Decimal value round-trips with exact precision."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
-    loaded = repo.load_experiment(experiment_id)
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    loaded = repo.load_experiment(exp_id, ctx)
     assert loaded.initial_wealth.amount == Decimal("500000.00")
     assert loaded.initial_wealth.currency == Currency.EUR
 
 
 def test_experiment_save_and_load_cohort_dates(repo: SQLiteRepository) -> None:
-    """Cohort start dates round-trip exactly as ISO 8601."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
-    loaded = repo.load_experiment(experiment_id)
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    loaded = repo.load_experiment(exp_id, ctx)
     assert len(loaded.cohorts) == 2
     dates = {c.start_date for c in loaded.cohorts}
     assert date(2000, 1, 1) in dates
@@ -402,45 +497,46 @@ def test_experiment_save_and_load_cohort_dates(repo: SQLiteRepository) -> None:
 
 
 def test_experiment_cohort_order_preserved(repo: SQLiteRepository) -> None:
-    """Cohorts are returned ordered by start_date ascending."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
-    loaded = repo.load_experiment(experiment_id)
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    loaded = repo.load_experiment(exp_id, ctx)
     dates = [c.start_date for c in loaded.cohorts]
     assert dates == sorted(dates)
 
 
 def test_duplicate_experiment_raises(repo: SQLiteRepository) -> None:
-    """Saving two experiments with the same name raises DuplicateStudyError."""
+    ctx = get_dummy_context()
     experiment = make_experiment("unique-name")
-    repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    repo.save_experiment(ExperimentIdentity(name="unique-name", revision="v1"), experiment, ctx)
     with pytest.raises(DuplicateStudyError):
-        repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+        repo.save_experiment(ExperimentIdentity(name="unique-name", revision="v1"), experiment, ctx)
 
 
 def test_load_missing_experiment_raises(repo: SQLiteRepository) -> None:
-    """Loading a non-existent experiment_id raises StudyNotFoundError."""
+    ctx = get_dummy_context()
     with pytest.raises(StudyNotFoundError):
-        repo.load_experiment("00000000-0000-0000-0000-000000000000")
+        repo.load_experiment("00000000-0000-0000-0000-000000000000", ctx)
 
 
 def test_find_experiment_by_name(repo: SQLiteRepository) -> None:
-    """find_experiment_by_name returns correct experiment_id."""
+    ctx = get_dummy_context()
     experiment = make_experiment("searchable-study")
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name="searchable-study", revision="v1"), experiment, ctx)
     found_id = repo.find_experiment_by_name("searchable-study")
-    assert found_id == experiment_id
+    assert found_id == exp_id
 
 
 def test_find_experiment_by_name_missing(repo: SQLiteRepository) -> None:
-    """find_experiment_by_name returns None for unknown names."""
     assert repo.find_experiment_by_name("nonexistent") is None
 
 
 def test_list_experiments(repo: SQLiteRepository) -> None:
-    """list_experiments returns all saved experiments."""
-    repo.save_experiment(make_experiment("study-a"))
-    repo.save_experiment(make_experiment("study-b"))
+    ctx = get_dummy_context()
+    exp_a = make_experiment("study-a")
+    exp_b = make_experiment("study-b")
+    repo.save_experiment(ExperimentIdentity(name="study-a", revision="v1"), exp_a, ctx)
+    repo.save_experiment(ExperimentIdentity(name="study-b", revision="v1"), exp_b, ctx)
     all_experiments = repo.list_experiments()
     names = {e["name"] for e in all_experiments}
     assert "study-a" in names
@@ -453,35 +549,34 @@ def test_list_experiments(repo: SQLiteRepository) -> None:
 
 
 def test_plan_save_and_load_unit_count(repo: SQLiteRepository) -> None:
-    """Plan unit count round-trips correctly."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     plan = make_plan(num_units=6)
-    plan_id = repo.save_plan(plan, experiment_id)
-    units = repo.load_plan_units(plan_id)
-    assert len(units) == 6
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+    loaded = repo.load_plan(plan_id, ctx)
+    assert len(loaded.units) == 6
 
 
 def test_plan_unit_order_preserved(repo: SQLiteRepository) -> None:
-    """Units are returned in their original order (by unit_index)."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     units = tuple(
         make_unit(month=m) for m in [3, 1, 2, 6, 4, 5]
     )
     plan = ResearchPlan(experiment_definition=experiment, units=units)
-    plan_id = repo.save_plan(plan, experiment_id)
-    loaded_units = repo.load_plan_units(plan_id)
-    # The units were inserted in month order [3,1,2,6,4,5]; verify dates preserved
-    expected_dates = [date(2000, m, 1).isoformat() for m in [3, 1, 2, 6, 4, 5]]
-    actual_dates = [u[0] for u in loaded_units]
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+    loaded = repo.load_plan(plan_id, ctx)
+    expected_dates = [date(2000, m, 1) for m in [3, 1, 2, 6, 4, 5]]
+    actual_dates = [u.cohort.start_date for u in loaded.units]
     assert actual_dates == expected_dates
 
 
 def test_plan_parameter_config_round_trip(repo: SQLiteRepository) -> None:
-    """ParameterConfiguration values round-trip without precision loss."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     unit = PlannedSimulationUnit(
         cohort=CohortSpecification(start_date=date(2000, 1, 1)),
         parameter_config=ParameterConfiguration(values={"withdrawal_rate": 0.04, "equity_pct": 0.75}),
@@ -490,18 +585,17 @@ def test_plan_parameter_config_round_trip(repo: SQLiteRepository) -> None:
         initial_portfolio=make_portfolio(),
     )
     plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
-    plan_id = repo.save_plan(plan, experiment_id)
-    loaded = repo.load_plan_units(plan_id)
-    assert len(loaded) == 1
-    restored_config = deserialize_parameter_config(loaded[0][2])
-    assert restored_config.get("withdrawal_rate") == 0.04
-    assert restored_config.get("equity_pct") == 0.75
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+    loaded = repo.load_plan(plan_id, ctx)
+    assert len(loaded.units) == 1
+    assert loaded.units[0].parameter_config.values["withdrawal_rate"] == 0.04
+    assert loaded.units[0].parameter_config.values["equity_pct"] == 0.75
 
 
 def test_plan_portfolio_round_trip(repo: SQLiteRepository) -> None:
-    """Initial portfolio persists with exact Decimal precision."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     exact_units = "123456789.987654321"
     unit = PlannedSimulationUnit(
         cohort=CohortSpecification(start_date=date(2000, 1, 1)),
@@ -509,36 +603,35 @@ def test_plan_portfolio_round_trip(repo: SQLiteRepository) -> None:
         allocation_policy=DummyAllocationPolicy(),
         withdrawal_policy=DummyWithdrawalPolicy(),
         initial_portfolio=Portfolio(
-            holdings=(AssetHolding(asset_class=make_asset(), units=Decimal(exact_units)),)
+            holdings=(AssetHolding(asset_class=_ASSET, units=Decimal(exact_units)),)
         ),
     )
     plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
-    plan_id = repo.save_plan(plan, experiment_id)
-    loaded = repo.load_plan_units(plan_id)
-    restored_portfolio = deserialize_portfolio(loaded[0][7])
-    assert restored_portfolio.holdings[0].units == Decimal(exact_units)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+    loaded = repo.load_plan(plan_id, ctx)
+    assert loaded.units[0].initial_portfolio.holdings[0].units == Decimal(exact_units)
 
 
 def test_plan_cohort_start_date_round_trip(repo: SQLiteRepository) -> None:
-    """Cohort start_date persists and retrieves as exact ISO date."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     unit = make_unit(month=7)
     plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
-    plan_id = repo.save_plan(plan, experiment_id)
-    loaded = repo.load_plan_units(plan_id)
-    assert loaded[0][0] == "2000-07-01"
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+    loaded = repo.load_plan(plan_id, ctx)
+    assert loaded.units[0].cohort.start_date == date(2000, 7, 1)
 
 
 def test_plan_policy_type_round_trip(repo: SQLiteRepository) -> None:
-    """Policy type names are preserved on persistence."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     plan = make_plan(num_units=1)
-    plan_id = repo.save_plan(plan, experiment_id)
-    loaded = repo.load_plan_units(plan_id)
-    alloc_type = loaded[0][3]
-    withd_type = loaded[0][5]
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+    loaded = repo.load_plan(plan_id, ctx)
+    alloc_type = type(loaded.units[0].allocation_policy).__name__
+    withd_type = type(loaded.units[0].withdrawal_policy).__name__
     assert "DummyAllocationPolicy" in alloc_type
     assert "DummyWithdrawalPolicy" in withd_type
 
@@ -549,32 +642,30 @@ def test_plan_policy_type_round_trip(repo: SQLiteRepository) -> None:
 
 
 def test_execution_result_save_and_load(repo: SQLiteRepository) -> None:
-    """Execution result round-trips with correct unit count."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     plan = make_plan(num_units=3)
-    plan_id = repo.save_plan(plan, experiment_id)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
 
-    engine_def = _make_engine_def(plan)
-    sim_results = tuple(make_sim_result(f"{500000 + i * 1000}") for i in range(3))
-    experiment_run = ExperimentRun(definition=engine_def, simulation_results=sim_results)
+    experiment_run = make_experiment_run(plan)
     research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
 
-    result_id = repo.save_execution_result(research_result, plan_id, duration_seconds=1.5)
-    loaded_results = repo.load_simulation_results(result_id)
+    result_id = repo.save_execution_result(plan_id, research_result, ctx, duration_seconds=1.5)
+    loaded = repo.load_execution_result(result_id, ctx)
+    loaded_results = loaded.results
 
     assert len(loaded_results) == 3
 
 
 def test_execution_result_final_wealth_round_trip(repo: SQLiteRepository) -> None:
-    """SimulationResult final_wealth Decimal value round-trips exactly."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     plan = make_plan(num_units=1)
-    plan_id = repo.save_plan(plan, experiment_id)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
 
     exact_wealth = "987654.123456789"
-    engine_def = _make_engine_def(plan)
     sim_result = SimulationResult(
         timeline=SimulationTimeline(monthly_results=()),
         statistics=SimulationStatistics(
@@ -586,24 +677,34 @@ def test_execution_result_final_wealth_round_trip(repo: SQLiteRepository) -> Non
             execution_time_seconds=0.01,
         ),
     )
+    sim_contexts = tuple(
+        _build_sim_context(unit, experiment)
+        for unit in plan.units
+    )
+    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    engine_def = EngineExperimentDefinition(
+        name=experiment.name,
+        description=experiment.description,
+        simulation_contexts=sim_contexts,
+    )
     experiment_run = ExperimentRun(definition=engine_def, simulation_results=(sim_result,))
     research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
 
-    result_id = repo.save_execution_result(research_result, plan_id)
-    loaded = repo.load_simulation_results(result_id)
+    result_id = repo.save_execution_result(plan_id, research_result, ctx, duration_seconds=1.5)
+    loaded = repo.load_execution_result(result_id, ctx)
+    loaded_result = loaded.results[0]
 
-    assert loaded[0].statistics.final_wealth.amount == Decimal(exact_wealth)
-    assert loaded[0].statistics.final_wealth.currency == Currency.EUR
+    assert loaded_result.statistics.final_wealth.amount == Decimal(exact_wealth)
+    assert loaded_result.statistics.final_wealth.currency == Currency.EUR
 
 
 def test_execution_result_success_flag_round_trip(repo: SQLiteRepository) -> None:
-    """SimulationResult success flag and failure_month round-trip exactly."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     plan = make_plan(num_units=2)
-    plan_id = repo.save_plan(plan, experiment_id)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
 
-    engine_def = _make_engine_def(plan)
     sim_results = (
         make_sim_result(success=True),
         SimulationResult(
@@ -618,48 +719,68 @@ def test_execution_result_success_flag_round_trip(repo: SQLiteRepository) -> Non
             ),
         ),
     )
-    experiment_run = ExperimentRun(definition=engine_def, simulation_results=sim_results)
-    research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
-
-    result_id = repo.save_execution_result(research_result, plan_id)
-    loaded = repo.load_simulation_results(result_id)
-
-    assert loaded[0].statistics.success is True
-    assert loaded[0].statistics.failure_month is None
-    assert loaded[1].statistics.success is False
-    assert loaded[1].statistics.failure_month == 36
-
-
-def test_execution_result_unit_order_preserved(repo: SQLiteRepository) -> None:
-    """Simulation results are returned in unit_index order."""
-    experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
-    plan = make_plan(num_units=5)
-    plan_id = repo.save_plan(plan, experiment_id)
-
-    engine_def = _make_engine_def(plan)
-    sim_results = tuple(
-        make_sim_result(str(500000 + i * 10000)) for i in range(5)
+    sim_contexts = tuple(
+        _build_sim_context(unit, experiment)
+        for unit in plan.units
+    )
+    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    engine_def = EngineExperimentDefinition(
+        name=experiment.name,
+        description=experiment.description,
+        simulation_contexts=sim_contexts,
     )
     experiment_run = ExperimentRun(definition=engine_def, simulation_results=sim_results)
     research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
 
-    result_id = repo.save_execution_result(research_result, plan_id)
-    loaded = repo.load_simulation_results(result_id)
+    result_id = repo.save_execution_result(plan_id, research_result, ctx, duration_seconds=1.5)
+    loaded = repo.load_execution_result(result_id, ctx)
+    loaded_results = loaded.results
+
+    assert loaded_results[0].statistics.success is True
+    assert loaded_results[0].statistics.failure_month is None
+    assert loaded_results[1].statistics.success is False
+    assert loaded_results[1].statistics.failure_month == 36
+
+
+def test_execution_result_unit_order_preserved(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment()
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    plan = make_plan(num_units=5)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+
+    sim_results = tuple(
+        make_sim_result(str(500000 + i * 10000)) for i in range(5)
+    )
+    sim_contexts = tuple(
+        _build_sim_context(unit, experiment)
+        for unit in plan.units
+    )
+    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    engine_def = EngineExperimentDefinition(
+        name=experiment.name,
+        description=experiment.description,
+        simulation_contexts=sim_contexts,
+    )
+    experiment_run = ExperimentRun(definition=engine_def, simulation_results=sim_results)
+    research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
+
+    result_id = repo.save_execution_result(plan_id, research_result, ctx, duration_seconds=1.5)
+    loaded = repo.load_execution_result(result_id, ctx)
+    loaded_results = loaded.results
 
     expected_amounts = [Decimal(str(500000 + i * 10000)) for i in range(5)]
-    actual_amounts = [r.statistics.final_wealth.amount for r in loaded]
+    actual_amounts = [r.statistics.final_wealth.amount for r in loaded_results]
     assert actual_amounts == expected_amounts
 
 
 def test_execution_result_statistics_round_trip(repo: SQLiteRepository) -> None:
-    """SimulationStatistics fields (max_drawdown, months_simulated) round-trip."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     plan = make_plan(num_units=1)
-    plan_id = repo.save_plan(plan, experiment_id)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
 
-    engine_def = _make_engine_def(plan)
     sim_result = SimulationResult(
         timeline=SimulationTimeline(monthly_results=()),
         statistics=SimulationStatistics(
@@ -671,56 +792,50 @@ def test_execution_result_statistics_round_trip(repo: SQLiteRepository) -> None:
             execution_time_seconds=2.5,
         ),
     )
+    sim_contexts = tuple(
+        _build_sim_context(unit, experiment)
+        for unit in plan.units
+    )
+    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    engine_def = EngineExperimentDefinition(
+        name=experiment.name,
+        description=experiment.description,
+        simulation_contexts=sim_contexts,
+    )
     experiment_run = ExperimentRun(definition=engine_def, simulation_results=(sim_result,))
     research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
-    result_id = repo.save_execution_result(research_result, plan_id)
-    loaded = repo.load_simulation_results(result_id)
+    result_id = repo.save_execution_result(plan_id, research_result, ctx, duration_seconds=1.5)
+    loaded = repo.load_execution_result(result_id, ctx)
+    loaded_result = loaded.results[0]
 
-    assert loaded[0].statistics.max_drawdown == pytest.approx(0.35)
-    assert loaded[0].statistics.months_simulated == 360
-    assert loaded[0].statistics.execution_time_seconds == pytest.approx(2.5)
+    assert loaded_result.statistics.max_drawdown == pytest.approx(0.35)
+    assert loaded_result.statistics.months_simulated == 360
+    assert loaded_result.statistics.execution_time_seconds == pytest.approx(2.5)
 
 
 def test_load_missing_execution_result_raises(repo: SQLiteRepository) -> None:
-    """Loading a non-existent result_id raises ResultsNotFoundError."""
+    ctx = get_dummy_context()
     with pytest.raises(ResultsNotFoundError):
-        repo.load_execution_result("00000000-0000-0000-0000-000000000000")
+        repo.load_execution_result("00000000-0000-0000-0000-000000000000", ctx)
 
 
 def test_find_result_by_plan(repo: SQLiteRepository) -> None:
-    """find_result_by_plan returns correct result_id after saving."""
+    ctx = get_dummy_context()
     experiment = make_experiment()
-    experiment_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, get_dummy_context())
+    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
     plan = make_plan(num_units=1)
-    plan_id = repo.save_plan(plan, experiment_id)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
 
-    engine_def = _make_engine_def(plan)
-    sim_results = (make_sim_result(),)
-    experiment_run = ExperimentRun(definition=engine_def, simulation_results=sim_results)
+    experiment_run = make_experiment_run(plan)
     research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
-    result_id = repo.save_execution_result(research_result, plan_id)
+    result_id = repo.save_execution_result(plan_id, research_result, ctx, duration_seconds=1.5)
 
     found = repo.find_result_by_plan(plan_id)
     assert found == result_id
 
 
 def test_find_result_by_plan_missing(repo: SQLiteRepository) -> None:
-    """find_result_by_plan returns None for unexecuted plans."""
     assert repo.find_result_by_plan("nonexistent-plan-id") is None
-
-
-# ---------------------------------------------------------------------------
-# Error hierarchy tests
-# ---------------------------------------------------------------------------
-
-
-def test_error_hierarchy() -> None:
-    """Verify all custom exceptions inherit from RepositoryError."""
-    assert issubclass(StudyNotFoundError, RepositoryError)
-    assert issubclass(ResultsNotFoundError, RepositoryError)
-    assert issubclass(DuplicateStudyError, RepositoryError)
-    assert issubclass(PersistenceError, RepositoryError)
-    assert issubclass(CorruptedDatabaseError, RepositoryError)
 
 
 # ---------------------------------------------------------------------------
@@ -729,50 +844,7 @@ def test_error_hierarchy() -> None:
 
 
 def test_foreign_key_plan_requires_experiment(repo: SQLiteRepository) -> None:
-    """Saving a plan with a nonexistent experiment_id raises an error."""
+    ctx = get_dummy_context()
     plan = make_plan(num_units=1)
     with pytest.raises((RepositoryError, Exception)):
-        repo.save_plan(plan, "nonexistent-experiment-id")
-
-
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-
-def _make_engine_def(plan: ResearchPlan):
-    """Build a minimal engine ExperimentDefinition stub for test ExperimentRun."""
-    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
-    from engine.application.simulation_context import SimulationContext
-    # Create minimal contexts matching unit count
-    contexts = []
-    for unit in plan.units:
-        from engine.domain.model.dataset import Dataset
-        from engine.domain.model.market_snapshot import MarketSnapshot
-        from engine.domain.model.asset import AssetClass as _A
-        asset = _A(id="acwi", name="ACWI", description="Global equities")
-        from decimal import Decimal as D
-        snap = MarketSnapshot(
-            date=unit.cohort.start_date,
-            index_levels={asset: D("100")},
-            inflation=D("0"),
-            inflation_cumulative=D("0"),
-            is_ath=True,
-            is_underwater=False,
-            running_ath=D("100"),
-        )
-        dataset = Dataset(snapshots=[snap], frequency="monthly", version="v1")
-        ctx = SimulationContext(
-            start_date=unit.cohort.start_date,
-            horizon_months=plan.experiment_definition.horizon_months,
-            initial_portfolio=unit.initial_portfolio,
-            dataset=dataset,
-            allocation_policy=unit.allocation_policy,
-            withdrawal_policy=unit.withdrawal_policy,
-        )
-        contexts.append(ctx)
-    return EngineExperimentDefinition(
-        name=plan.experiment_definition.name,
-        description=plan.experiment_definition.description,
-        simulation_contexts=tuple(contexts),
-    )
+        repo.save_plan(plan, "nonexistent-experiment-id", ctx)

@@ -7,18 +7,30 @@ from .errors import (
     CorruptedDatabaseError,
     DuplicateStudyError,
     PersistenceError,
+    PlanNotFoundError,
+    ReconstructionContextError,
     RepositoryError,
     ResultsNotFoundError,
     StudyNotFoundError,
+    UnsupportedSerializationError,
 )
-from .sqlite_repository import SQLiteRepository
+from .sqlite_repository import (
+    ExperimentIdentity,
+    PersistenceReconstructionContext,
+    SQLiteRepository,
+)
 
 __all__ = [
-    "SQLiteRepository",
-    "RepositoryError",
-    "StudyNotFoundError",
-    "ResultsNotFoundError",
-    "DuplicateStudyError",
-    "PersistenceError",
     "CorruptedDatabaseError",
+    "DuplicateStudyError",
+    "ExperimentIdentity",
+    "PersistenceError",
+    "PersistenceReconstructionContext",
+    "PlanNotFoundError",
+    "ReconstructionContextError",
+    "RepositoryError",
+    "ResultsNotFoundError",
+    "SQLiteRepository",
+    "StudyNotFoundError",
+    "UnsupportedSerializationError",
 ]

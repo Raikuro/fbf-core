@@ -4,7 +4,10 @@ class RepositoryError(Exception):
     """Base class for all persistence-related errors."""
 
 class StudyNotFoundError(RepositoryError):
-    """Raised when an experiment or plan is not found."""
+    """Raised when an experiment is not found."""
+
+class PlanNotFoundError(RepositoryError):
+    """Raised when a research plan is not found."""
 
 class ResultsNotFoundError(RepositoryError):
     """Raised when execution results are not found."""
