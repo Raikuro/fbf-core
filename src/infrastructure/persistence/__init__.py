@@ -1,4 +1,24 @@
-"""Infrastructure persistence package.
+"""Infrastructure persistence package (v0.4).
 
-Contains future persistence adapters such as SQLite repositories.
+Public API for the SQLite persistence layer.
 """
+
+from .errors import (
+    CorruptedDatabaseError,
+    DuplicateStudyError,
+    PersistenceError,
+    RepositoryError,
+    ResultsNotFoundError,
+    StudyNotFoundError,
+)
+from .sqlite_repository import SQLiteRepository
+
+__all__ = [
+    "SQLiteRepository",
+    "RepositoryError",
+    "StudyNotFoundError",
+    "ResultsNotFoundError",
+    "DuplicateStudyError",
+    "PersistenceError",
+    "CorruptedDatabaseError",
+]
