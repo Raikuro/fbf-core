@@ -9,6 +9,7 @@ from .codecs import (
     SimulationResultCodec,
     WithdrawalPolicyCodec,
 )
+from .context import create_persistence_context
 from .errors import (
     CorruptedDatabaseError,
     DuplicateStudyError,
@@ -29,6 +30,7 @@ from .sqlite_repository import (
 __all__ = [
     "AllocationPolicyCodec",
     "CorruptedDatabaseError",
+    "create_persistence_context",
     "DefaultDatasetResolver",
     "DuplicateStudyError",
     "ExperimentIdentity",

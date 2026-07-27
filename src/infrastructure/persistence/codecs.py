@@ -43,6 +43,11 @@ class DefaultDatasetResolver:
     def __init__(self, datasets: Mapping[str, Dataset] | None = None) -> None:
         self._datasets = dict(datasets) if datasets else {}
 
+    @classmethod
+    def from_data_dir(cls, data_dir: str) -> DefaultDatasetResolver:
+        from .context import _load_datasets_from_dir
+        return cls(datasets=_load_datasets_from_dir(data_dir))
+
     def resolve(self, dataset_identifier: str) -> Dataset:
         dataset = self._datasets.get(dataset_identifier)
         if dataset is not None:
