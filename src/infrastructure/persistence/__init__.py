@@ -3,6 +3,12 @@
 Public API for the SQLite persistence layer.
 """
 
+from .codecs import (
+    AllocationPolicyCodec,
+    DefaultDatasetResolver,
+    SimulationResultCodec,
+    WithdrawalPolicyCodec,
+)
 from .errors import (
     CorruptedDatabaseError,
     DuplicateStudyError,
@@ -21,7 +27,9 @@ from .sqlite_repository import (
 )
 
 __all__ = [
+    "AllocationPolicyCodec",
     "CorruptedDatabaseError",
+    "DefaultDatasetResolver",
     "DuplicateStudyError",
     "ExperimentIdentity",
     "PersistenceError",
@@ -30,7 +38,9 @@ __all__ = [
     "ReconstructionContextError",
     "RepositoryError",
     "ResultsNotFoundError",
+    "SimulationResultCodec",
     "SQLiteRepository",
     "StudyNotFoundError",
     "UnsupportedSerializationError",
+    "WithdrawalPolicyCodec",
 ]
