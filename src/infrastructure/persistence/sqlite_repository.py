@@ -175,6 +175,16 @@ def validate_context(context: PersistenceReconstructionContext) -> None:
         raise ReconstructionContextError("Simulation result codec is required")
 
 
+def _compute_portfolio_value(monthly_payload: Mapping[str, Any]) -> str:
+    holdings = monthly_payload.get("portfolio_holdings", [])
+    total = sum(float(h["units"]) for h in holdings)
+    return f"{total:.2f}"
+
+
+def _compute_withdrawal_amount(monthly_payload: Mapping[str, Any]) -> str:
+    return str(monthly_payload.get("withdrawal_decision", "0"))
+
+
 class SQLiteRepository:
     """SQLite persistence adapter implementing v0.4 specifications.
     
@@ -188,7 +198,10 @@ class SQLiteRepository:
 
     def _connect(self, timeout: int = 5) -> sqlite3.Connection:
         """Create a SQLite connection with v0.4 required pragmas."""
-        conn = sqlite3.connect(self.db_path, timeout=timeout)
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=timeout)
+        except sqlite3.Error as exc:
+            raise PersistenceError(f"Database connection failed: {exc}") from exc
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
@@ -196,7 +209,10 @@ class SQLiteRepository:
 
     def _connect_immediate(self) -> sqlite3.Connection:
         """Create an immediate transaction connection."""
-        conn = sqlite3.connect(self.db_path)
+        try:
+            conn = sqlite3.connect(self.db_path)
+        except sqlite3.Error as exc:
+            raise PersistenceError(f"Database connection failed: {exc}") from exc
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
@@ -617,6 +633,140 @@ class SQLiteRepository:
                 "SELECT result_id FROM execution_results WHERE plan_id = ?", (plan_id,)
             ).fetchone()
             return row[0] if row else None
+
+    def find_plan_by_experiment(self, experiment_id: str) -> str | None:
+        """Find the latest completed plan for an experiment."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT plan_id FROM research_plans
+                WHERE experiment_id = ? AND status = 'completed'
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (experiment_id,),
+            ).fetchone()
+            return row[0] if row else None
+
+    def get_export_data(self, experiment_id: str) -> dict[str, Any] | None:
+        """Return flat export dict with metadata + rows, or None.
+
+        Joins across experiments, research_plans, planned_units, cohorts,
+        parameter_configurations, execution_results, and simulation_results
+        to produce flat rows. Does NOT use PersistenceReconstructionContext.
+        """
+        with self._connect() as conn:
+            exp_row = conn.execute(
+                """
+                SELECT name, revision, created_at
+                FROM experiments WHERE experiment_id = ?
+                """,
+                (experiment_id,),
+            ).fetchone()
+            if not exp_row:
+                return None
+            name, revision, created_at = exp_row
+
+            plan_id = self.find_plan_by_experiment(experiment_id)
+            if not plan_id:
+                return None
+
+            result_row = conn.execute(
+                """
+                SELECT result_id, executed_at, duration_seconds,
+                       success_count, failure_count, total_units
+                FROM execution_results WHERE plan_id = ?
+                """,
+                (plan_id,),
+            ).fetchone()
+            if not result_row:
+                return None
+            result_id, executed_at, duration_seconds, success_count, failure_count, total_units = result_row
+
+            unit_rows = conn.execute(
+                """
+                SELECT pu.unit_index, c.start_date AS cohort_start_date, pc.params_json
+                FROM planned_units pu
+                JOIN cohorts c ON pu.cohort_id = c.cohort_id
+                JOIN parameter_configurations pc ON pu.param_config_id = pc.param_config_id
+                WHERE pu.plan_id = ?
+                ORDER BY pu.unit_index
+                """,
+                (plan_id,),
+            ).fetchall()
+
+            param_keys_set: set[str] = set()
+            unit_info: dict[int, dict[str, Any]] = {}
+            for unit_index, cohort_start_date, params_json in unit_rows:
+                params = json.loads(params_json)
+                param_keys_set.update(params.keys())
+                unit_info[unit_index] = {
+                    "cohort_start_date": cohort_start_date,
+                    "params": params,
+                }
+
+            sim_rows = conn.execute(
+                """
+                SELECT unit_index, month_index, monthly_payload_json,
+                       statistics_payload_json, final_month
+                FROM simulation_results
+                WHERE execution_result_id = ?
+                ORDER BY unit_index, month_index
+                """,
+                (result_id,),
+            ).fetchall()
+
+            unit_success: dict[int, bool] = {}
+            for unit_index, month_index, monthly_payload_json, statistics_payload_json, final_month in sim_rows:
+                if final_month and statistics_payload_json:
+                    stats = json.loads(statistics_payload_json)
+                    unit_success[unit_index] = bool(stats.get("success", False))
+
+            rows: list[dict[str, Any]] = []
+            for unit_index, month_index, monthly_payload_json, statistics_payload_json, final_month in sim_rows:
+                info = unit_info.get(unit_index, {})
+                cohort_start_date = info.get("cohort_start_date", "")
+                params = info.get("params", {})
+
+                monthly = json.loads(monthly_payload_json)
+                row: dict[str, Any] = {
+                    "cohort_start_date": cohort_start_date,
+                    "month_index": month_index,
+                    "portfolio_value": _compute_portfolio_value(monthly),
+                    "withdrawal": _compute_withdrawal_amount(monthly),
+                    "success": 1 if unit_success.get(unit_index, False) else 0,
+                }
+                row.update(params)
+                rows.append(row)
+
+            if not rows:
+                return {
+                    "study_id": experiment_id,
+                    "name": name,
+                    "revision": revision,
+                    "created_at": created_at,
+                    "executed_at": executed_at,
+                    "duration_seconds": duration_seconds,
+                    "success_rate": round(success_count / total_units, 4) if total_units > 0 else 0.0,
+                    "total_units": total_units,
+                    "success_count": success_count,
+                    "failure_count": failure_count,
+                    "parameter_keys": sorted(param_keys_set),
+                }
+
+            return {
+                "study_id": experiment_id,
+                "name": name,
+                "revision": revision,
+                "created_at": created_at,
+                "executed_at": executed_at,
+                "duration_seconds": duration_seconds,
+                "success_rate": round(success_count / total_units, 4) if total_units > 0 else 0.0,
+                "total_units": total_units,
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "parameter_keys": sorted(param_keys_set),
+                "rows": rows,
+            }
 
     # --- Private Implementation Methods ---
 
