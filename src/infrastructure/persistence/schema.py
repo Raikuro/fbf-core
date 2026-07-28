@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS simulation_results (
 );
 """
 
+
+
 CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_cohorts ON cohorts(experiment_id, start_date);",
     "CREATE INDEX IF NOT EXISTS idx_policies_type ON policies(policy_type);",
