@@ -17,6 +17,8 @@ class PortfolioRebalanceStep(PipelineStep):
 
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
+        assert state.allocation_decision is not None
+        assert state.market_snapshot is not None
 
         result = self.rebalance_service.execute_rebalance(
             portfolio=state.portfolio,

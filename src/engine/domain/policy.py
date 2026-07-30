@@ -38,7 +38,7 @@ class Policy(ABC):
         raise NotImplementedError
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class PolicyDecision(ABC):
     """Immutable result produced by a Policy.
 
@@ -53,14 +53,14 @@ class PolicyDecision(ABC):
     metadata: dict[str, Any] | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class AllocationDecision(PolicyDecision):
     """Allocation decision returned by an AllocationPolicy."""
 
     allocation_target: Any
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class WithdrawalDecision(PolicyDecision):
     """Withdrawal decision returned by a WithdrawalPolicy."""
 

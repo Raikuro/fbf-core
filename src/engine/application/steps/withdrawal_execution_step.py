@@ -19,6 +19,8 @@ class WithdrawalExecutionStep(PipelineStep):
 
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
+        assert state.withdrawal_decision is not None
+        assert state.market_snapshot is not None
 
         result = self.withdrawal_service.execute_withdrawal(
             portfolio=state.portfolio,

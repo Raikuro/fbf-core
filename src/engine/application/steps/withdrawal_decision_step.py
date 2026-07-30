@@ -15,6 +15,7 @@ class WithdrawalDecisionStep(PipelineStep):
 
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
+        assert state.decision_context is not None
 
         decision = state.context.withdrawal_policy.decide(state.decision_context)
         self._validate_decision(decision)

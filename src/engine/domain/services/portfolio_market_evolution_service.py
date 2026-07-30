@@ -86,7 +86,7 @@ class PortfolioMarketEvolutionService:
                 weights[holding.asset_class] = holding.units / total_units
             return Allocation(weights=weights)
 
-        weights: dict[AssetClass, Decimal] = {}
+        weights = {}
         for holding in portfolio.holdings:
             price = self._fetch_price(holding.asset_class, market_snapshot)
             holding_value = Money(holding.units * price, portfolio_value.currency)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence, Union, MutableMapping
+from typing import Any, Mapping, Sequence, Union, MutableMapping, cast
 from decimal import Decimal
 
 from .types import (
@@ -58,18 +58,18 @@ class StrategyComparator:
             raise InvalidInputError(f"invalid group_by: {group_by}")
 
         # Helper to materialise evaluations for a strategy label
-        def _materialise(label: str, source) -> Sequence[EvaluationResult]:
+        def _materialise(label: str, source: Any) -> Sequence[EvaluationResult]:
             # Evaluator
             if hasattr(source, "get_evaluations") and callable(source.get_evaluations):
                 try:
-                    vals = source.get_evaluations(label)
+                    vals: Sequence[EvaluationResult] = source.get_evaluations(label)
                 except Exception as exc:  # wrap any evaluator error
                     raise EvaluationError(str(exc)) from exc
                 return vals
 
             # Assume it's an iterable of EvaluationResult
             if isinstance(source, Sequence):
-                return source  # type: ignore[return-value]
+                return cast(Sequence[EvaluationResult], source)
 
             raise InvalidInputError("strategy source must be an Evaluator or a sequence of EvaluationResult")
 
@@ -154,7 +154,7 @@ class StrategyComparator:
                     final_aggregated[gkey][label][m] = (total / Decimal(count)) if count > 0 else Decimal(0)
 
             # ranking: sort labels by primary metric descending, then tie_breakers, then label
-            def sort_key(label_name: str):
+            def sort_key(label_name: str) -> tuple[Any, ...]:
                 primary = final_aggregated[gkey][label_name].get(self._ranking_rule.primary_metric, Decimal(0))
                 tie_values = [
                     final_aggregated[gkey][label_name].get(tb, Decimal(0)) for tb in self._ranking_rule.tie_breakers

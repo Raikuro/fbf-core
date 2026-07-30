@@ -11,6 +11,7 @@ class MonthlyResultBuilderStep(PipelineStep):
 
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
+        assert state.market_snapshot is not None
 
         monthly_result = MonthlyResult(
             date=state.current_date,

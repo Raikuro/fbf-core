@@ -17,6 +17,7 @@ class MarketEvolutionStep(PipelineStep):
 
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
+        assert state.market_snapshot is not None
 
         result = self.evolution_service.apply_market_evolution(
             portfolio=state.portfolio,

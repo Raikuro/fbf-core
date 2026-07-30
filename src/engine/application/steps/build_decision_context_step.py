@@ -14,6 +14,9 @@ class BuildDecisionContextStep(PipelineStep):
 
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
+        assert state.allocation is not None
+        assert state.allocation_target is not None
+        assert state.market_snapshot is not None
 
         decision_context = DecisionContext(
             date=state.current_date,

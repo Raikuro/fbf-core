@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .portfolio import Portfolio
+from engine.domain.model.portfolio import Portfolio
 
 
 class PortfolioValuationService:

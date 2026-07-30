@@ -16,6 +16,7 @@ from engine.domain.model.decision_context import DecisionContext
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import Portfolio
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 
 
 @dataclass
@@ -34,8 +35,8 @@ class SimulationState:
     allocation: Allocation | None = None
     allocation_target: AllocationTarget | None = None
     allocation_drift: object | None = None
-    withdrawal_decision: object | None = None
-    allocation_decision: object | None = None
+    withdrawal_decision: WithdrawalDecision | None = None
+    allocation_decision: AllocationDecision | None = None
     current_withdrawal: Money | None = None
     market_snapshot: MarketSnapshot | None = None
     current_wealth: Money | None = None
@@ -65,7 +66,7 @@ class MonthlyResult:
     allocation: Allocation | None
     allocation_target: AllocationTarget | None
     allocation_drift: object | None
-    withdrawal_decision: object | None
+    withdrawal_decision: WithdrawalDecision | None
     rebalance_result: object | None
     drawdown: float
     cumulative_return: float

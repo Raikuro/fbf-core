@@ -15,6 +15,7 @@ class AllocationDecisionStep(PipelineStep):
 
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
+        assert state.decision_context is not None
 
         decision = state.context.allocation_policy.decide(state.decision_context)
         if not isinstance(decision, AllocationDecision):
