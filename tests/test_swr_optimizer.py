@@ -1,6 +1,6 @@
 from decimal import Decimal
 import pytest
-from src.research.optimization.swr_optimizer import SWROptimizer, Evaluator, EvaluationOutcome
+from research.optimization.swr_optimizer import SWROptimizer, Evaluator, EvaluationOutcome
 
 class MockEvaluator:
     def __init__(self, threshold: Decimal):

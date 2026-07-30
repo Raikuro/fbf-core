@@ -5,7 +5,7 @@ from typing import Mapping, Sequence
 
 import pytest
 
-from src.engine.domain.optimizer import (
+from engine.domain.optimizer import (
     EvaluationResult,
     Evaluator,
     EvaluationError,
