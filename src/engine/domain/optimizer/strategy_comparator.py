@@ -160,8 +160,8 @@ class StrategyComparator:
                     final_aggregated[gkey][label_name].get(tb, Decimal(0)) for tb in self._ranking_rule.tie_breakers
                 ]
                 # negative numeric values to sort descending; label_name ascending as final tiebreak
-                negs = [ -primary ] + [ -v for v in tie_values ]
-                return tuple(negs + [label_name])
+                negs = (-primary, ) + tuple(-v for v in tie_values)
+                return negs + (label_name,)
 
             sorted_labels = sorted(final_aggregated[gkey].keys(), key=sort_key)
             ranking_map[gkey] = sorted_labels
