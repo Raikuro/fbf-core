@@ -179,7 +179,7 @@ class ResearchExecutor:
             )
 
         # CohortSpecification.__post_init__ always sets a non-None id; assert for mypy.
-        cohort_id: str = unit.cohort.id  # type: ignore[assignment]
+        cohort_id = unit.cohort.id
         assert (
             cohort_id is not None
         ), f"CohortSpecification.id must not be None (cohort={unit.cohort.start_date!r})"

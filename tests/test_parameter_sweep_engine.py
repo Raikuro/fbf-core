@@ -3,6 +3,7 @@
 from dataclasses import FrozenInstanceError
 from math import inf, nan
 from types import MappingProxyType
+from typing import Any
 
 import pytest
 
@@ -48,14 +49,14 @@ class TestParameterConfiguration:
         assert {first: "result"}[second] == "result"
 
     @pytest.mark.parametrize("values", [{}, {"": 1}, {"   ": 1}, {1: 1}])
-    def test_rejects_empty_or_invalid_names(self, values: object) -> None:
+    def test_rejects_empty_or_invalid_names(self, values: Any) -> None:
         with pytest.raises(ValueError):
-            ParameterConfiguration(values)  # type: ignore[arg-type]
+            ParameterConfiguration(values)
 
     @pytest.mark.parametrize("value", [None, object(), [1], {"nested": 1}, lambda: 1])
-    def test_rejects_non_primitive_values(self, value: object) -> None:
+    def test_rejects_non_primitive_values(self, value: Any) -> None:
         with pytest.raises(ValueError, match="int, float, bool, or str"):
-            ParameterConfiguration({"parameter": value})  # type: ignore[dict-item]
+            ParameterConfiguration({"parameter": value})
 
     @pytest.mark.parametrize("value", [1, 1.5, True, "static"])
     def test_accepts_every_scalar_kind(self, value: int | float | bool | str) -> None:
@@ -73,9 +74,9 @@ class TestParameterAxis:
             axis.name = "other"  # type: ignore[misc]
 
     @pytest.mark.parametrize("name", ["", "   ", 1])
-    def test_rejects_blank_or_non_string_name(self, name: object) -> None:
+    def test_rejects_blank_or_non_string_name(self, name: Any) -> None:
         with pytest.raises(ValueError, match="name cannot be empty or whitespace"):
-            ParameterAxis(name, (1,))  # type: ignore[arg-type]
+            ParameterAxis(name, (1,))
 
     def test_rejects_empty_duplicate_and_heterogeneous_values(self) -> None:
         with pytest.raises(ValueError, match="cannot be empty"):
@@ -88,9 +89,9 @@ class TestParameterAxis:
             ParameterAxis("rate", (1, 1.0))
 
     @pytest.mark.parametrize("value", [None, object(), (1,), {"value": 1}])
-    def test_rejects_non_scalar_values(self, value: object) -> None:
+    def test_rejects_non_scalar_values(self, value: Any) -> None:
         with pytest.raises(ValueError, match="int, float, bool, or str"):
-            ParameterAxis("rate", (value,))  # type: ignore[arg-type]
+            ParameterAxis("rate", (value,))
 
 
 class TestParameterSweepEngine:
@@ -178,9 +179,9 @@ class TestParameterSweepEngine:
         )
 
     @pytest.mark.parametrize("axes", [[], [None], [ParameterAxis("x", (1,)), "bad"]])
-    def test_rejects_empty_or_invalid_product_axes(self, axes: object) -> None:
+    def test_rejects_empty_or_invalid_product_axes(self, axes: Any) -> None:
         with pytest.raises(ValueError):
-            ParameterSweepEngine.cartesian_product(axes)  # type: ignore[arg-type]
+            ParameterSweepEngine.cartesian_product(axes)
 
     def test_rejects_duplicate_axis_names(self) -> None:
         with pytest.raises(ValueError, match="names must be unique"):
