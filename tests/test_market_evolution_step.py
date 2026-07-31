@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import NoReturn
 
 import pytest
 
@@ -16,6 +17,7 @@ from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
 from engine.domain.services.portfolio_market_evolution_service import (
+    PortfolioMarketEvolutionResult,
     PortfolioMarketEvolutionService,
 )
 
@@ -29,12 +31,12 @@ class DummyMarketSnapshot(MarketSnapshot):
 
 
 class DummyAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object):
+    def decide(self, context: object) -> NoReturn:
         raise AssertionError("Should not be called")
 
 
 class DummyWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object):
+    def decide(self, context: object) -> NoReturn:
         raise AssertionError("Should not be called")
 
 
@@ -42,7 +44,11 @@ class RecordingMarketEvolutionService(PortfolioMarketEvolutionService):
     def __init__(self) -> None:
         self.calls = 0
 
-    def apply_market_evolution(self, portfolio: Portfolio, market_snapshot: MarketSnapshot):
+    def apply_market_evolution(
+        self,
+        portfolio: Portfolio,
+        market_snapshot: MarketSnapshot,
+    ) -> PortfolioMarketEvolutionResult:
         self.calls += 1
         return super().apply_market_evolution(portfolio, market_snapshot)
 
@@ -134,7 +140,7 @@ def test_market_evolution_step_requires_required_state() -> None:
         step.execute(state)
 
     state.portfolio = portfolio
-    state.market_snapshot = None  # type: ignore[assignment]
+    state.market_snapshot = None
     with pytest.raises(ValueError, match="SimulationState.market_snapshot is required"):
         step.execute(state)
 

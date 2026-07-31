@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import NoReturn
 
 import pytest
 
@@ -16,7 +17,10 @@ from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.policies.decisions import AllocationDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
-from engine.domain.services.portfolio_rebalance_service import PortfolioRebalanceService
+from engine.domain.services.portfolio_rebalance_service import (
+    PortfolioRebalanceResult,
+    PortfolioRebalanceService,
+)
 
 
 class DummyDataset(Dataset):
@@ -28,12 +32,12 @@ class DummyMarketSnapshot(MarketSnapshot):
 
 
 class DummyWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object):
+    def decide(self, context: object) -> NoReturn:
         raise AssertionError("Should not be called")
 
 
 class DummyAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object):
+    def decide(self, context: object) -> NoReturn:
         raise AssertionError("Should not be called")
 
 
@@ -41,7 +45,12 @@ class RecordingRebalanceService(PortfolioRebalanceService):
     def __init__(self) -> None:
         self.calls = 0
 
-    def execute_rebalance(self, portfolio: Portfolio, allocation_decision: AllocationDecision, market_snapshot: MarketSnapshot):
+    def execute_rebalance(
+        self,
+        portfolio: Portfolio,
+        allocation_decision: AllocationDecision,
+        market_snapshot: MarketSnapshot,
+    ) -> PortfolioRebalanceResult:
         self.calls += 1
         return super().execute_rebalance(portfolio, allocation_decision, market_snapshot)
 

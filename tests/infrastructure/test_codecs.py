@@ -17,6 +17,7 @@ import json
 from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -33,7 +34,7 @@ from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Currency, Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.policies.allocation_policy import AllocationPolicy
-from engine.domain.policies.decisions import AllocationDecision
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
 from infrastructure.persistence import (
     AllocationPolicyCodec,
@@ -97,8 +98,7 @@ class _TestWithdrawalPolicy(WithdrawalPolicy):
     def __init__(self, withdrawal_rate: str = "0.04") -> None:
         self.withdrawal_rate = withdrawal_rate
 
-    def decide(self, context: object) -> object:
-        from engine.domain.policies.decisions import WithdrawalDecision
+    def decide(self, context: object) -> WithdrawalDecision:
         return WithdrawalDecision(
             reason="test",
             nominal_amount=Money(Decimal("1000"), Currency.EUR),
@@ -510,7 +510,7 @@ class TestSimulationResultCodec:
 # ---------------------------------------------------------------------------
 
 
-def _make_experiment(dataset: Dataset, name: str = "codec-test-exp"):
+def _make_experiment(dataset: Dataset, name: str = "codec-test-exp") -> Any:
     from research.domain.cohort.specification import CohortSpecification
     from research.domain.experiment.definition import ExperimentDefinition
 
@@ -561,7 +561,7 @@ def _make_plan(experiment: Any, num_units: int = 2) -> Any:
 
 
 def test_sqlite_repository_integration_with_concrete_codecs(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     from infrastructure.persistence import SQLiteRepository
     from infrastructure.persistence.sqlite_repository import (

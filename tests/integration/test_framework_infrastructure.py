@@ -290,7 +290,7 @@ class TestFrameworkCliSmoke:
             main(["--help"])
         assert exc_info.value.code == ExitCode.SUCCESS
 
-    def test_cli_version_succeeds(self, capsys: pytest.CaptureFixture) -> None:
+    def test_cli_version_succeeds(self, capsys: pytest.CaptureFixture[str]) -> None:
         rc = main(["--version"])
         assert rc == ExitCode.SUCCESS
 

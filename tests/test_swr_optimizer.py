@@ -10,7 +10,7 @@ class MockEvaluator:
         # Success if candidate <= threshold
         return EvaluationOutcome(success=candidate <= self.threshold, provenance={"id": "mock"})
 
-def test_swr_optimizer_finds_correct_rate():
+def test_swr_optimizer_finds_correct_rate() -> None:
     optimizer = SWROptimizer()
     threshold = Decimal("0.04")
     evaluator = MockEvaluator(threshold)
@@ -25,7 +25,7 @@ def test_swr_optimizer_finds_correct_rate():
     assert abs(result.candidate_value - threshold) < Decimal("0.0002")
     assert result.provenance == {"id": "mock"}
 
-def test_swr_optimizer_returns_none_if_no_success():
+def test_swr_optimizer_returns_none_if_no_success() -> None:
     optimizer = SWROptimizer()
     # threshold is 0.0, everything above 0.0 fails
     evaluator = MockEvaluator(Decimal("-0.01"))
@@ -39,7 +39,7 @@ def test_swr_optimizer_returns_none_if_no_success():
     assert result.candidate_value is None
     assert "No candidate" in result.diagnostic
 
-def test_swr_optimizer_validation_error():
+def test_swr_optimizer_validation_error() -> None:
     optimizer = SWROptimizer()
     evaluator = MockEvaluator(Decimal("0.0"))
     

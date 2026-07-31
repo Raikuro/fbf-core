@@ -15,13 +15,16 @@ from decimal import Decimal
 import pytest
 
 from engine.domain.model.asset import AssetClass
+from engine.domain.model.allocation import AllocationTarget
 from engine.domain.model.money import Currency, Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.policies.allocation_policy import AllocationPolicy
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.configuration import ParameterConfiguration
+from research.domain.parameter.types import ParameterScalar
 from research.domain.plan import PlannedSimulationUnit, ResearchPlan
 
 # ---------------------------------------------------------------------------
@@ -30,13 +33,21 @@ from research.domain.plan import PlannedSimulationUnit, ResearchPlan
 
 
 class StubAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object) -> object:
-        return None
+    def decide(self, context: object) -> AllocationDecision:
+        asset = AssetClass(id="stub", name="Stub", description="Stub allocation")
+        return AllocationDecision(
+            reason="dummy",
+            allocation_target=AllocationTarget(weights={asset: Decimal("1")}),
+        )
 
 
 class StubWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object) -> object:
-        return None
+    def decide(self, context: object) -> WithdrawalDecision:
+        return WithdrawalDecision(
+            reason="dummy",
+            nominal_amount=Money(Decimal("0"), Currency.EUR),
+            real_amount=Money(Decimal("0"), Currency.EUR),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +59,7 @@ def make_cohort(year: int = 2000, month: int = 1, day: int = 1) -> CohortSpecifi
     return CohortSpecification(start_date=date(year, month, day))
 
 
-def make_param_config(**kwargs: object) -> ParameterConfiguration:
+def make_param_config(**kwargs: ParameterScalar) -> ParameterConfiguration:
     values = {"withdrawal_rate": 0.04, **kwargs}
     return ParameterConfiguration(values=values)
 
@@ -62,7 +73,7 @@ def make_portfolio() -> Portfolio:
 def make_unit(
     year: int = 2000,
     month: int = 1,
-    param_override: dict | None = None,
+    param_override: dict[str, ParameterScalar] | None = None,
     alloc: AllocationPolicy | None = None,
     withd: WithdrawalPolicy | None = None,
     portfolio: Portfolio | None = None,
@@ -200,20 +211,20 @@ class TestPlannedSimulationUnitIdentity:
 
 
 class TestResearchPlanConstruction:
-    def test_constructs_with_single_unit(self, minimal_experiment_def) -> None:
+    def test_constructs_with_single_unit(self, minimal_experiment_def: ExperimentDefinition) -> None:
         unit = make_unit()
         plan = ResearchPlan(experiment_definition=minimal_experiment_def, units=(unit,))
 
         assert len(plan) == 1
         assert plan[0] is unit
 
-    def test_constructs_with_multiple_distinct_units(self, minimal_experiment_def) -> None:
+    def test_constructs_with_multiple_distinct_units(self, minimal_experiment_def: ExperimentDefinition) -> None:
         units = (make_unit(year=2000), make_unit(year=2001))
         plan = ResearchPlan(experiment_definition=minimal_experiment_def, units=units)
 
         assert len(plan) == 2
 
-    def test_coerces_list_of_units_to_tuple(self, minimal_experiment_def) -> None:
+    def test_coerces_list_of_units_to_tuple(self, minimal_experiment_def: ExperimentDefinition) -> None:
         units_list = [make_unit(year=2000), make_unit(year=2001)]
         plan = ResearchPlan(
             experiment_definition=minimal_experiment_def,
@@ -225,7 +236,7 @@ class TestResearchPlanConstruction:
 
 
 class TestResearchPlanValidation:
-    def test_rejects_empty_units_tuple(self, minimal_experiment_def) -> None:
+    def test_rejects_empty_units_tuple(self, minimal_experiment_def: ExperimentDefinition) -> None:
         with pytest.raises(ValueError, match="cannot be empty"):
             ResearchPlan(experiment_definition=minimal_experiment_def, units=())
 
@@ -236,7 +247,7 @@ class TestResearchPlanValidation:
                 units=(make_unit(),),
             )
 
-    def test_rejects_non_planned_unit_element(self, minimal_experiment_def) -> None:
+    def test_rejects_non_planned_unit_element(self, minimal_experiment_def: ExperimentDefinition) -> None:
         with pytest.raises(TypeError, match="not a PlannedSimulationUnit"):
             ResearchPlan(
                 experiment_definition=minimal_experiment_def,
@@ -244,7 +255,7 @@ class TestResearchPlanValidation:
             )
 
     def test_rejects_duplicate_identity_same_cohort_same_config(
-        self, minimal_experiment_def
+        self, minimal_experiment_def: ExperimentDefinition
     ) -> None:
         cohort = make_cohort(2000)
         config = make_param_config()
@@ -269,7 +280,7 @@ class TestResearchPlanValidation:
                 units=(unit_a, unit_b),
             )
 
-    def test_allows_same_cohort_with_different_config(self, minimal_experiment_def) -> None:
+    def test_allows_same_cohort_with_different_config(self, minimal_experiment_def: ExperimentDefinition) -> None:
         cohort = make_cohort(2000)
         config_a = make_param_config(withdrawal_rate=0.03)
         config_b = make_param_config(withdrawal_rate=0.05)
@@ -294,7 +305,7 @@ class TestResearchPlanValidation:
         )
         assert len(plan) == 2
 
-    def test_allows_same_config_with_different_cohort(self, minimal_experiment_def) -> None:
+    def test_allows_same_config_with_different_cohort(self, minimal_experiment_def: ExperimentDefinition) -> None:
         unit_a = make_unit(year=2000, param_override={"withdrawal_rate": 0.04})
         unit_b = make_unit(year=2001, param_override={"withdrawal_rate": 0.04})
 
@@ -306,7 +317,7 @@ class TestResearchPlanValidation:
 
 
 class TestResearchPlanImmutability:
-    def test_plan_is_frozen(self, minimal_experiment_def) -> None:
+    def test_plan_is_frozen(self, minimal_experiment_def: ExperimentDefinition) -> None:
         plan = ResearchPlan(
             experiment_definition=minimal_experiment_def,
             units=(make_unit(),),
@@ -315,7 +326,7 @@ class TestResearchPlanImmutability:
         with pytest.raises(FrozenInstanceError):
             plan.units = ()  # type: ignore[misc]
 
-    def test_plan_experiment_definition_is_frozen(self, minimal_experiment_def) -> None:
+    def test_plan_experiment_definition_is_frozen(self, minimal_experiment_def: ExperimentDefinition) -> None:
         plan = ResearchPlan(
             experiment_definition=minimal_experiment_def,
             units=(make_unit(),),
@@ -326,13 +337,13 @@ class TestResearchPlanImmutability:
 
 
 class TestResearchPlanSequenceProtocol:
-    def test_len_returns_unit_count(self, minimal_experiment_def) -> None:
+    def test_len_returns_unit_count(self, minimal_experiment_def: ExperimentDefinition) -> None:
         units = (make_unit(year=2000), make_unit(year=2001), make_unit(year=2002))
         plan = ResearchPlan(experiment_definition=minimal_experiment_def, units=units)
 
         assert len(plan) == 3
 
-    def test_getitem_returns_correct_unit_by_index(self, minimal_experiment_def) -> None:
+    def test_getitem_returns_correct_unit_by_index(self, minimal_experiment_def: ExperimentDefinition) -> None:
         unit_a = make_unit(year=2000)
         unit_b = make_unit(year=2001)
         plan = ResearchPlan(experiment_definition=minimal_experiment_def, units=(unit_a, unit_b))
@@ -340,7 +351,7 @@ class TestResearchPlanSequenceProtocol:
         assert plan[0] is unit_a
         assert plan[1] is unit_b
 
-    def test_iter_yields_units_in_order(self, minimal_experiment_def) -> None:
+    def test_iter_yields_units_in_order(self, minimal_experiment_def: ExperimentDefinition) -> None:
         unit_a = make_unit(year=2000)
         unit_b = make_unit(year=2001)
         unit_c = make_unit(year=2002)
@@ -352,7 +363,7 @@ class TestResearchPlanSequenceProtocol:
         iterated = list(plan)
         assert iterated == [unit_a, unit_b, unit_c]
 
-    def test_order_is_preserved_exactly(self, minimal_experiment_def) -> None:
+    def test_order_is_preserved_exactly(self, minimal_experiment_def: ExperimentDefinition) -> None:
         units = tuple(make_unit(year=y) for y in range(2000, 2010))
         plan = ResearchPlan(experiment_definition=minimal_experiment_def, units=units)
 

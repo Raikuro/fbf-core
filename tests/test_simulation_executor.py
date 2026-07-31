@@ -17,27 +17,24 @@ from engine.application.simulation import (
     ExperimentDefinition,
     ExperimentRun,
     SimulationResult,
+    SimulationState,
     SimulationStatistics,
     SimulationTimeline,
 )
 from engine.application.simulation_context import SimulationContext
+from engine.domain.model.dataset import Dataset
 from engine.domain.model.money import Currency, Money
 from engine.domain.model.portfolio import Portfolio
 
 
-class ExecutorDataset:
+class ExecutorDataset(Dataset):
     """Minimal immutable-in-practice dataset used by executor tests."""
 
     def __init__(self, snapshot_date: date) -> None:
-        self._snapshot = Mock(date=snapshot_date)
-
-    def __getitem__(self, index: int):
-        if index != 0:
-            raise IndexError(index)
-        return self._snapshot
-
-    def __len__(self) -> int:
-        return 1
+        snapshot = Mock(date=snapshot_date)
+        object.__setattr__(self, "snapshots", [snapshot])
+        object.__setattr__(self, "frequency", "monthly")
+        object.__setattr__(self, "version", "1.0")
 
 
 class CompleteSimulationStep(PipelineStep):
@@ -45,7 +42,7 @@ class CompleteSimulationStep(PipelineStep):
 
     sequence_order = 1
 
-    def execute(self, state):
+    def execute(self, state: SimulationState) -> SimulationState:
         state.status = ExecutionStatus.COMPLETED
         return state
 
@@ -80,44 +77,44 @@ def make_result(success: bool = True) -> SimulationResult:
 
 
 class TestExperimentContracts:
-    def test_definition_requires_an_immutable_context_tuple(self):
+    def test_definition_requires_an_immutable_context_tuple(self) -> None:
         with pytest.raises(TypeError, match="must be a tuple"):
-            ExperimentDefinition("test", "description", [make_context("one")])
+            ExperimentDefinition("test", "description", [make_context("one")])  # type: ignore[arg-type]
 
-    def test_definition_rejects_repeated_context_identity(self):
+    def test_definition_rejects_repeated_context_identity(self) -> None:
         context = make_context("one")
 
         with pytest.raises(ValueError, match="must not contain duplicates"):
             ExperimentDefinition("test", "description", (context, context))
 
-    def test_definition_rejects_non_context_items(self):
+    def test_definition_rejects_non_context_items(self) -> None:
         with pytest.raises(ValueError, match="must contain SimulationContext"):
-            ExperimentDefinition("test", "description", (object(),))
+            ExperimentDefinition("test", "description", (object(),))  # type: ignore[arg-type]
 
-    def test_run_requires_one_result_per_declared_context(self):
+    def test_run_requires_one_result_per_declared_context(self) -> None:
         definition = ExperimentDefinition("test", "description", (make_context("one"),))
 
         with pytest.raises(ValueError, match="must match the definition context count"):
             ExperimentRun(definition, ())
 
-    def test_public_experiment_models_are_immutable(self):
+    def test_public_experiment_models_are_immutable(self) -> None:
         definition = ExperimentDefinition("test", "description", ())
         run = ExperimentRun(definition, ())
 
         with pytest.raises(FrozenInstanceError):
-            definition.name = "changed"
+            definition.name = "changed"  # type: ignore[misc]
         with pytest.raises(FrozenInstanceError):
-            run.simulation_results = ()
+            run.simulation_results = ()  # type: ignore[misc]
 
 
 class TestSimulationExecutorUnit:
-    def test_constructor_requires_an_injected_runner_with_run(self):
+    def test_constructor_requires_an_injected_runner_with_run(self) -> None:
         with pytest.raises(ValueError, match="simulation_runner"):
-            SimulationExecutor(None)
+            SimulationExecutor(None)  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="simulation_runner"):
-            SimulationExecutor(object())
+            SimulationExecutor(object())  # type: ignore[arg-type]
 
-    def test_execute_delegates_every_context_once_and_preserves_order(self):
+    def test_execute_delegates_every_context_once_and_preserves_order(self) -> None:
         first_context = make_context("first")
         second_context = make_context("second")
         definition = ExperimentDefinition(
@@ -135,7 +132,7 @@ class TestSimulationExecutorUnit:
         assert run.definition is definition
         assert run.simulation_results == (first_result, second_result)
 
-    def test_execute_aggregates_modelled_simulation_failure(self):
+    def test_execute_aggregates_modelled_simulation_failure(self) -> None:
         definition = ExperimentDefinition(
             "test", "description", (make_context("failed"), make_context("successful"))
         )
@@ -149,7 +146,7 @@ class TestSimulationExecutorUnit:
         assert runner.run.call_count == 2
         assert run.simulation_results == (failed_result, successful_result)
 
-    def test_empty_definition_does_not_invoke_runner(self):
+    def test_empty_definition_does_not_invoke_runner(self) -> None:
         runner = Mock()
 
         run = SimulationExecutor(runner).execute(
@@ -159,7 +156,7 @@ class TestSimulationExecutorUnit:
         runner.run.assert_not_called()
         assert run.simulation_results == ()
 
-    def test_unexpected_runner_error_propagates_without_partial_result(self):
+    def test_unexpected_runner_error_propagates_without_partial_result(self) -> None:
         definition = ExperimentDefinition(
             "test", "description", (make_context("first"), make_context("second"))
         )
@@ -173,7 +170,7 @@ class TestSimulationExecutorUnit:
 
 
 class TestSimulationExecutorIntegration:
-    def test_executes_multiple_contexts_through_real_runner(self):
+    def test_executes_multiple_contexts_through_real_runner(self) -> None:
         runner = SimulationRunner(SimulationPipeline([CompleteSimulationStep()]))
         definition = ExperimentDefinition(
             "integration",
@@ -189,7 +186,7 @@ class TestSimulationExecutorIntegration:
         assert all(result.statistics.success for result in run.simulation_results)
         assert run.simulation_results[0] is not run.simulation_results[1]
 
-    def test_repeated_equal_definitions_produce_equivalent_ordered_runs(self):
+    def test_repeated_equal_definitions_produce_equivalent_ordered_runs(self) -> None:
         runner = SimulationRunner(SimulationPipeline([CompleteSimulationStep()]))
         definition = ExperimentDefinition(
             "deterministic",

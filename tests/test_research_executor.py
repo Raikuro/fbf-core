@@ -33,11 +33,13 @@ from engine.application.simulation import (
 )
 from engine.application.simulation_context import SimulationContext
 from engine.domain.model.asset import AssetClass
+from engine.domain.model.allocation import AllocationTarget
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Currency, Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.policies.allocation_policy import AllocationPolicy
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
@@ -53,13 +55,21 @@ from research.orchestration.result import ResearchExecutionResult
 
 
 class StubAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object) -> object:
-        return None
+    def decide(self, context: object) -> AllocationDecision:
+        asset = AssetClass(id="stub", name="Stub", description="Stub allocation")
+        return AllocationDecision(
+            reason="dummy",
+            allocation_target=AllocationTarget(weights={asset: Decimal("1")}),
+        )
 
 
 class StubWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object) -> object:
-        return None
+    def decide(self, context: object) -> WithdrawalDecision:
+        return WithdrawalDecision(
+            reason="dummy",
+            nominal_amount=Money(Decimal("0"), Currency.EUR),
+            real_amount=Money(Decimal("0"), Currency.EUR),
+        )
 
 
 # ---------------------------------------------------------------------------

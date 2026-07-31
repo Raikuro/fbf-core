@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import NoReturn
 
 import pytest
 
@@ -26,12 +27,12 @@ class DummyMarketSnapshot(MarketSnapshot):
 
 
 class DummyAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object):
+    def decide(self, context: object) -> NoReturn:
         raise AssertionError("Should not be called")
 
 
 class DummyWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object):
+    def decide(self, context: object) -> NoReturn:
         raise AssertionError("Should not be called")
 
 
@@ -133,7 +134,7 @@ def test_monthly_result_builder_requires_required_state() -> None:
         step.execute(state)
 
     state.portfolio = portfolio
-    state.market_snapshot = None  # type: ignore[assignment]
+    state.market_snapshot = None
     with pytest.raises(ValueError, match="SimulationState.market_snapshot is required"):
         step.execute(state)
 

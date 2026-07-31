@@ -6,21 +6,31 @@ import pytest
 from dataclasses import FrozenInstanceError
 
 from engine.domain import AssetClass, Dataset, MarketSnapshot, Money
+from engine.domain.model.allocation import AllocationTarget
 from engine.domain.model.money import Currency
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from research import CohortSpecification, ExperimentDefinition
 
 
 class MockAllocationPolicy(AllocationPolicy):
 
-    def decide(self, context: object) -> object:
-        return None
+    def decide(self, context: object) -> AllocationDecision:
+        asset = AssetClass(id="mock", name="Mock", description="Mock allocation")
+        return AllocationDecision(
+            reason="dummy",
+            allocation_target=AllocationTarget(weights={asset: Decimal("1")}),
+        )
 
 
 class MockWithdrawalPolicy(WithdrawalPolicy):
 
-    def decide(self, context: object) -> object:
-        return None
+    def decide(self, context: object) -> WithdrawalDecision:
+        return WithdrawalDecision(
+            reason="dummy",
+            nominal_amount=Money(Decimal("0"), Currency.EUR),
+            real_amount=Money(Decimal("0"), Currency.EUR),
+        )
 
 
 @pytest.fixture

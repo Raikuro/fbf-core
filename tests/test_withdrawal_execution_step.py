@@ -14,7 +14,7 @@ from engine.domain.model.dataset import Dataset
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.policies.decisions import PolicyDecision, WithdrawalDecision
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
 from engine.domain.services.portfolio_withdrawal_service import (
     WithdrawalExecutionResult,
@@ -23,8 +23,11 @@ from engine.domain.services.portfolio_withdrawal_service import (
 
 
 class DummyAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object) -> PolicyDecision:
-        return PolicyDecision(reason="dummy")
+    def decide(self, context: object) -> AllocationDecision:
+        return AllocationDecision(
+            reason="dummy",
+            allocation_target=AllocationTarget(weights={AssetClass(id="dummy", name="Dummy", description="Dummy"): Decimal("1")}),
+        )
 
 
 class DummyWithdrawalPolicy(WithdrawalPolicy):
@@ -179,14 +182,20 @@ def test_withdrawal_execution_step_sets_failure_state_on_depletion() -> None:
     state = make_state(portfolio, allocation, allocation_target, market_snapshot, withdrawal_policy)
     service = DummyWithdrawalService()
     step = WithdrawalExecutionStep(withdrawal_service=service)
+    requested_withdrawal = state.withdrawal_decision
+    assert requested_withdrawal is not None
     service_result = WithdrawalExecutionResult(
-        requested_withdrawal=state.withdrawal_decision,
+        requested_withdrawal=requested_withdrawal,
         portfolio=portfolio,
         depleted=True,
         shortfall=Money(Decimal("1"), Money.ZERO.currency),
         remaining_value=Money(Decimal("0"), Money.ZERO.currency),
     )
-    service.execute_withdrawal = lambda portfolio, requested_withdrawal, market_snapshot: service_result  # type: ignore[assignment]
+    setattr(
+        service,
+        "execute_withdrawal",
+        lambda portfolio, requested_withdrawal, market_snapshot: service_result,
+    )
 
     result_state = step.execute(state)
 

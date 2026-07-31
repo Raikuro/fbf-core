@@ -18,14 +18,17 @@ from engine.application.simulation import (
     ExecutionStatus,
     MonthlyResult,
     SimulationState,
-    SimulationContext,
 )
+from engine.application.simulation_context import SimulationContext
 from engine.application.statistics_builder import DefaultSimulationStatisticsBuilder
 from engine.domain.model.allocation import Allocation, AllocationTarget
 from engine.domain.model.asset import AssetClass
+from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money, Currency
 from engine.domain.model.portfolio import Portfolio, AssetHolding
+from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 
 
 # ============================================================================
@@ -33,32 +36,57 @@ from engine.domain.model.portfolio import Portfolio, AssetHolding
 # ============================================================================
 
 
-@dataclass
-class MockMarketSnapshot:
-    """Mock market snapshot for testing."""
-    date_: date
-    price_index: float = 100.0
+def _make_market_snapshot(date_: date) -> MarketSnapshot:
+    asset = AssetClass(id="test", name="Test", description="")
+    return MarketSnapshot(
+        date=date_,
+        index_levels={asset: Decimal("100")},
+        inflation=Decimal("0"),
+        inflation_cumulative=Decimal("0"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100"),
+    )
 
 
-@dataclass
-class MockAllocation:
-    """Mock allocation for testing."""
-    stocks: float = 0.6
-    bonds: float = 0.4
+def _make_test_dataset() -> Dataset:
+    return Dataset(
+        snapshots=[_make_market_snapshot(date(2024, 1, 1))],
+        frequency="monthly",
+        version="1.0",
+    )
+
+
+class _NoopAllocationPolicy(AllocationPolicy):
+    def decide(self, context: object) -> AllocationDecision:
+        asset = AssetClass(id="noop", name="Noop", description="")
+        return AllocationDecision(
+            reason="noop",
+            allocation_target=AllocationTarget(weights={asset: Decimal("1")}),
+        )
+
+
+class _NoopWithdrawalPolicy(WithdrawalPolicy):
+    def decide(self, context: object) -> WithdrawalDecision:
+        return WithdrawalDecision(
+            reason="noop",
+            nominal_amount=Money(Decimal("0"), Currency.EUR),
+            real_amount=Money(Decimal("0"), Currency.EUR),
+        )
 
 
 def create_test_context(initial_wealth: Money = Money(Decimal("500000"), Currency.EUR)) -> SimulationContext:
     """Create a test SimulationContext."""
     # Create minimal portfolio for initial_portfolio required field
     portfolio = Portfolio(holdings=[])
-    
+
     return SimulationContext(
         experiment_name="test_experiment",
         cohort="test_cohort",
-        dataset=None,
+        dataset=_make_test_dataset(),
         initial_wealth=initial_wealth,
-        allocation_policy=None,
-        withdrawal_policy=None,
+        allocation_policy=_NoopAllocationPolicy(),
+        withdrawal_policy=_NoopWithdrawalPolicy(),
         start_date=date(2024, 1, 1),
         horizon_months=12,
         initial_portfolio=portfolio,
@@ -68,13 +96,14 @@ def create_test_context(initial_wealth: Money = Money(Decimal("500000"), Currenc
 def create_test_monthly_result(date_: date, index: int) -> MonthlyResult:
     """Create a test MonthlyResult."""
     portfolio = Portfolio(holdings=[])
+    asset = AssetClass(id="test", name="Test", description="")
     # Use the provided date directly instead of reconstructing
     return MonthlyResult(
         date=date_,
         period_index=index,
-        market_snapshot=MockMarketSnapshot(date_),
+        market_snapshot=_make_market_snapshot(date_),
         portfolio=portfolio,
-        allocation=MockAllocation(),
+        allocation=Allocation(weights={asset: Decimal("1")}),
         allocation_target=None,
         allocation_drift=None,
         withdrawal_decision=None,
@@ -138,7 +167,7 @@ def create_test_state(
 class TestFinalWealth:
     """Tests for final_wealth statistic derivation."""
 
-    def test_final_wealth_from_current_wealth(self):
+    def test_final_wealth_from_current_wealth(self) -> None:
         """final_wealth should use state.current_wealth when available."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(current_wealth=Money(Decimal("750000"), Currency.EUR))
@@ -147,7 +176,7 @@ class TestFinalWealth:
         
         assert stats.final_wealth == Money(Decimal("750000"), Currency.EUR)
 
-    def test_final_wealth_fallback_to_initial(self):
+    def test_final_wealth_fallback_to_initial(self) -> None:
         """final_wealth should fallback to initial_wealth when current_wealth is None."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(current_wealth=None)
@@ -156,7 +185,7 @@ class TestFinalWealth:
         
         assert stats.final_wealth == Money(Decimal("500000"), Currency.EUR)
 
-    def test_final_wealth_preserves_money_type(self):
+    def test_final_wealth_preserves_money_type(self) -> None:
         """final_wealth should preserve Money type exactly."""
         builder = DefaultSimulationStatisticsBuilder()
         wealth = Money(Decimal("1234567"), Currency.EUR)
@@ -171,7 +200,7 @@ class TestFinalWealth:
 class TestSuccessFlag:
     """Tests for success flag derivation."""
 
-    def test_success_true_on_completed_without_failure(self):
+    def test_success_true_on_completed_without_failure(self) -> None:
         """success should be True when COMPLETED and no failure_state."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -183,7 +212,7 @@ class TestSuccessFlag:
         
         assert stats.success is True
 
-    def test_success_false_on_failure_state(self):
+    def test_success_false_on_failure_state(self) -> None:
         """success should be False when failure_state is set."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -195,7 +224,7 @@ class TestSuccessFlag:
         
         assert stats.success is False
 
-    def test_success_false_on_failed_status(self):
+    def test_success_false_on_failed_status(self) -> None:
         """success should be False when status is FAILED."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -207,7 +236,7 @@ class TestSuccessFlag:
         
         assert stats.success is False
 
-    def test_success_false_on_running_status(self):
+    def test_success_false_on_running_status(self) -> None:
         """success should be False when status is RUNNING."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -219,7 +248,7 @@ class TestSuccessFlag:
         
         assert stats.success is False
 
-    def test_success_false_when_failed_and_failure_state_set(self):
+    def test_success_false_when_failed_and_failure_state_set(self) -> None:
         """success should be False when both FAILED and failure_state."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -235,7 +264,7 @@ class TestSuccessFlag:
 class TestFailureMonth:
     """Tests for failure_month field derivation."""
 
-    def test_failure_month_set_on_failure(self):
+    def test_failure_month_set_on_failure(self) -> None:
         """failure_month should be set to period_index when failure_state is present."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -247,7 +276,7 @@ class TestFailureMonth:
         
         assert stats.failure_month == 8
 
-    def test_failure_month_none_on_success(self):
+    def test_failure_month_none_on_success(self) -> None:
         """failure_month should be None when failure_state is None."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -259,7 +288,7 @@ class TestFailureMonth:
         
         assert stats.failure_month is None
 
-    def test_failure_month_zero_on_immediate_failure(self):
+    def test_failure_month_zero_on_immediate_failure(self) -> None:
         """failure_month should be 0 when failure occurs at first month."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -271,7 +300,7 @@ class TestFailureMonth:
         
         assert stats.failure_month == 0
 
-    def test_failure_month_reflects_period_index(self):
+    def test_failure_month_reflects_period_index(self) -> None:
         """failure_month should reflect any valid period_index."""
         builder = DefaultSimulationStatisticsBuilder()
         for period in [0, 5, 11, 23, 100]:
@@ -288,7 +317,7 @@ class TestFailureMonth:
 class TestMonthsSimulated:
     """Tests for months_simulated derivation."""
 
-    def test_months_simulated_from_timeline_length(self):
+    def test_months_simulated_from_timeline_length(self) -> None:
         """months_simulated should equal the length of monthly_results."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=12)
@@ -297,7 +326,7 @@ class TestMonthsSimulated:
         
         assert stats.months_simulated == 12
 
-    def test_months_simulated_single_month(self):
+    def test_months_simulated_single_month(self) -> None:
         """months_simulated should be 1 for single-month simulation."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=1)
@@ -306,7 +335,7 @@ class TestMonthsSimulated:
         
         assert stats.months_simulated == 1
 
-    def test_months_simulated_zero_months(self):
+    def test_months_simulated_zero_months(self) -> None:
         """months_simulated should be 0 for zero-month simulation."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=0)
@@ -315,7 +344,7 @@ class TestMonthsSimulated:
         
         assert stats.months_simulated == 0
 
-    def test_months_simulated_many_months(self):
+    def test_months_simulated_many_months(self) -> None:
         """months_simulated should handle large month counts."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=240)  # 20 years
@@ -324,7 +353,7 @@ class TestMonthsSimulated:
         
         assert stats.months_simulated == 240
 
-    def test_months_simulated_independent_of_period_index(self):
+    def test_months_simulated_independent_of_period_index(self) -> None:
         """months_simulated should depend only on timeline length, not period_index."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=12, period_index=5)
@@ -338,7 +367,7 @@ class TestMonthsSimulated:
 class TestPlaceholderMetrics:
     """Tests for deferred/placeholder metrics."""
 
-    def test_max_drawdown_placeholder_value(self):
+    def test_max_drawdown_placeholder_value(self) -> None:
         """max_drawdown should be 0.0 (placeholder)."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
@@ -347,7 +376,7 @@ class TestPlaceholderMetrics:
         
         assert stats.max_drawdown == 0.0
 
-    def test_execution_time_placeholder_value(self):
+    def test_execution_time_placeholder_value(self) -> None:
         """execution_time_seconds should be 0.0 (placeholder)."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
@@ -356,7 +385,7 @@ class TestPlaceholderMetrics:
         
         assert stats.execution_time_seconds == 0.0
 
-    def test_placeholder_metrics_consistent_across_scenarios(self):
+    def test_placeholder_metrics_consistent_across_scenarios(self) -> None:
         """Placeholder metrics should always be 0.0 regardless of scenario."""
         builder = DefaultSimulationStatisticsBuilder()
         
@@ -376,7 +405,7 @@ class TestPlaceholderMetrics:
 class TestResultImmutability:
     """Tests for immutability of returned SimulationStatistics."""
 
-    def test_result_is_frozen_dataclass(self):
+    def test_result_is_frozen_dataclass(self) -> None:
         """Returned SimulationStatistics should be immutable (frozen)."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
@@ -385,13 +414,13 @@ class TestResultImmutability:
         
         # Attempting to modify should raise FrozenInstanceError
         try:
-            stats.final_wealth = Money(Decimal("999999"), Currency.EUR)
+            stats.final_wealth = Money(Decimal("999999"), Currency.EUR)  # type: ignore[misc]
             assert False, "Should not be able to modify frozen dataclass"
         except (AttributeError, Exception) as e:
             # frozen=True raises AttributeError or similar
             assert True
 
-    def test_result_has_no_mutable_fields(self):
+    def test_result_has_no_mutable_fields(self) -> None:
         """SimulationStatistics should have only immutable field types."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
@@ -410,7 +439,7 @@ class TestResultImmutability:
 class TestDeterminism:
     """Tests for deterministic behavior."""
 
-    def test_identical_state_produces_identical_statistics(self):
+    def test_identical_state_produces_identical_statistics(self) -> None:
         """Calling build twice with same state should produce identical results."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
@@ -425,7 +454,7 @@ class TestDeterminism:
         assert stats1.months_simulated == stats2.months_simulated
         assert stats1.execution_time_seconds == stats2.execution_time_seconds
 
-    def test_builder_instance_does_not_affect_determinism(self):
+    def test_builder_instance_does_not_affect_determinism(self) -> None:
         """Different builder instances should produce identical statistics."""
         state = create_test_state()
         
@@ -442,7 +471,7 @@ class TestDeterminism:
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
-    def test_zero_month_simulation_success(self):
+    def test_zero_month_simulation_success(self) -> None:
         """Zero-month simulation should produce valid statistics."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -457,7 +486,7 @@ class TestEdgeCases:
         assert stats.failure_month is None
         assert stats.months_simulated == 0
 
-    def test_immediate_failure_in_first_month(self):
+    def test_immediate_failure_in_first_month(self) -> None:
         """Immediate failure (period_index=0) should be properly recorded."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -473,7 +502,7 @@ class TestEdgeCases:
         assert stats.failure_month == 0
         assert stats.months_simulated == 1
 
-    def test_late_failure_near_horizon(self):
+    def test_late_failure_near_horizon(self) -> None:
         """Failure near the end of horizon should be properly recorded."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -489,7 +518,7 @@ class TestEdgeCases:
         assert stats.failure_month == 239
         assert stats.months_simulated == 240
 
-    def test_wealth_at_boundaries(self):
+    def test_wealth_at_boundaries(self) -> None:
         """Wealth values at monetary boundaries should be handled correctly."""
         builder = DefaultSimulationStatisticsBuilder()
         
@@ -512,7 +541,7 @@ class TestEdgeCases:
 class TestCoherence:
     """Tests for logical coherence of statistics."""
 
-    def test_failure_month_implies_not_successful(self):
+    def test_failure_month_implies_not_successful(self) -> None:
         """If failure_month is set, success should be False."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -525,7 +554,7 @@ class TestCoherence:
         assert stats.failure_month is not None
         assert stats.success is False
 
-    def test_success_implies_no_failure_month(self):
+    def test_success_implies_no_failure_month(self) -> None:
         """If success is True, failure_month should be None."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(
@@ -538,7 +567,7 @@ class TestCoherence:
         assert stats.success is True
         assert stats.failure_month is None
 
-    def test_months_simulated_non_negative(self):
+    def test_months_simulated_non_negative(self) -> None:
         """months_simulated should never be negative."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=0)
@@ -551,7 +580,7 @@ class TestCoherence:
 class TestPublicContractCompliance:
     """Tests ensuring builder complies with specification contract."""
 
-    def test_builder_uses_only_public_fields(self):
+    def test_builder_uses_only_public_fields(self) -> None:
         """Builder should depend only on documented public fields."""
         # This test documents the contract:
         # - status
@@ -569,7 +598,7 @@ class TestPublicContractCompliance:
         # Verify all required fields were accessible
         assert stats is not None
 
-    def test_builder_returns_simulation_statistics(self):
+    def test_builder_returns_simulation_statistics(self) -> None:
         """Builder should return exactly SimulationStatistics type."""
         from engine.application.simulation import SimulationStatistics
         
@@ -580,7 +609,7 @@ class TestPublicContractCompliance:
         
         assert type(stats) == SimulationStatistics
 
-    def test_builder_all_fields_populated(self):
+    def test_builder_all_fields_populated(self) -> None:
         """Returned SimulationStatistics should have all 6 fields populated."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()

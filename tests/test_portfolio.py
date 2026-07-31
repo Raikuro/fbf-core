@@ -29,4 +29,4 @@ def test_asset_holding_is_immutable() -> None:
     holding = AssetHolding(asset_class=asset, units=Decimal("100.00"))
 
     with pytest.raises(AttributeError):
-        holding.units = Decimal("200.00")
+        holding.units = Decimal("200.00")  # type: ignore[misc]

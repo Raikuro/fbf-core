@@ -30,7 +30,7 @@ class RaisingEvaluator(Evaluator):
         raise ValueError("boom")
 
 
-def test_group_by_cohort():
+def test_group_by_cohort() -> None:
     results = {
         "s1": EvaluationResult(
             label="s1",
@@ -53,7 +53,7 @@ def test_group_by_cohort():
     assert "c2" in report.aggregated_metrics
 
 
-def test_group_by_parameter_config():
+def test_group_by_parameter_config() -> None:
     results = {
         "s1": EvaluationResult(
             label="s1",
@@ -76,7 +76,7 @@ def test_group_by_parameter_config():
     assert "p2" in report.aggregated_metrics
 
 
-def test_missing_provenance_raises():
+def test_missing_provenance_raises() -> None:
     results = {
         "s1": EvaluationResult(label="s1", metrics={"m": Decimal("1")}, provenance={}),
     }
@@ -88,7 +88,7 @@ def test_missing_provenance_raises():
         comparator.compare({"s1": eval1}, group_by="cohort")
 
 
-def test_decimal_aggregation_exactness():
+def test_decimal_aggregation_exactness() -> None:
     # two evaluations for same label and cohort; average should be exact Decimal
     ev1 = EvaluationResult(label="s", metrics={"m": Decimal("1.1")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
     ev2 = EvaluationResult(label="s", metrics={"m": Decimal("2.3")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
@@ -102,7 +102,7 @@ def test_decimal_aggregation_exactness():
     assert agg == (Decimal("1.1") + Decimal("2.3")) / Decimal(2)
 
 
-def test_deterministic_tiebreakers_and_label_tiebreak():
+def test_deterministic_tiebreakers_and_label_tiebreak() -> None:
     # primary equal, tie-breaker differs
     ev1 = EvaluationResult(label="a", metrics={"p": Decimal("1"), "t": Decimal("2")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
     ev2 = EvaluationResult(label="b", metrics={"p": Decimal("1"), "t": Decimal("1")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
@@ -117,7 +117,7 @@ def test_deterministic_tiebreakers_and_label_tiebreak():
     assert ranking == ["a", "b", "c"]
 
 
-def test_evaluator_error_wrapped():
+def test_evaluator_error_wrapped() -> None:
     comparator = StrategyComparator(metrics=["m"], ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]))
     with pytest.raises(EvaluationError):
         comparator.compare({"s": RaisingEvaluator()}, group_by="global")

@@ -14,18 +14,25 @@ from engine.domain.model.dataset import Dataset
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.policies.decisions import PolicyDecision
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
 
 
 class DummyAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object) -> PolicyDecision:
-        return PolicyDecision(reason="dummy")
+    def decide(self, context: object) -> AllocationDecision:
+        return AllocationDecision(
+            reason="dummy",
+            allocation_target=AllocationTarget(weights={AssetClass(id="dummy", name="Dummy", description="Dummy"): Decimal("1")}),
+        )
 
 
 class DummyWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object) -> PolicyDecision:
-        return PolicyDecision(reason="dummy")
+    def decide(self, context: object) -> WithdrawalDecision:
+        return WithdrawalDecision(
+            reason="dummy",
+            nominal_amount=Money(Decimal("0"), Money.ZERO.currency),
+            real_amount=Money(Decimal("0"), Money.ZERO.currency),
+        )
 
 
 class DummyDataset(Dataset):

@@ -1,6 +1,6 @@
 """Tests for StrategyComparator."""
 
-from typing import Mapping
+from typing import Mapping, Sequence
 from decimal import Decimal
 
 import pytest
@@ -28,7 +28,7 @@ class MockEvaluator(Evaluator):
         return [self._results[label]]
 
 
-def test_strategy_comparator_initialization():
+def test_strategy_comparator_initialization() -> None:
     """Test that StrategyComparator initializes correctly."""
     metrics = ["sharpe_ratio", "max_drawdown"]
     ranking_rule = RankingRule(primary_metric="sharpe_ratio", tie_breakers=["max_drawdown"])
@@ -39,7 +39,7 @@ def test_strategy_comparator_initialization():
     assert comparator._ranking_rule == ranking_rule
 
 
-def test_strategy_comparator_empty_strategy_map():
+def test_strategy_comparator_empty_strategy_map() -> None:
     """Test that StrategyComparator raises InvalidInputError for empty strategy_map."""
     metrics = ["sharpe_ratio"]
     ranking_rule = RankingRule(primary_metric="sharpe_ratio", tie_breakers=[])
@@ -50,7 +50,7 @@ def test_strategy_comparator_empty_strategy_map():
         comparator.compare({})
 
 
-def test_strategy_comparator_empty_metrics():
+def test_strategy_comparator_empty_metrics() -> None:
     """Test that StrategyComparator raises InvalidInputError for empty metrics."""
     ranking_rule = RankingRule(primary_metric="sharpe_ratio", tie_breakers=[])
 
@@ -60,7 +60,7 @@ def test_strategy_comparator_empty_metrics():
         comparator.compare({"strategy1": MockEvaluator({})})
 
 
-def test_strategy_comparator_basic_functionality():
+def test_strategy_comparator_basic_functionality() -> None:
     """Test basic StrategyComparator functionality with mock data."""
     # Create mock evaluation results
     results = {
@@ -93,7 +93,7 @@ def test_strategy_comparator_basic_functionality():
     assert report.provenance is not None
 
 
-def test_strategy_comparator_deterministic_output():
+def test_strategy_comparator_deterministic_output() -> None:
     """Test that StrategyComparator produces deterministic output."""
     results = {
         "strategy1": EvaluationResult(
@@ -121,7 +121,7 @@ def test_strategy_comparator_deterministic_output():
     assert report1.provenance == report2.provenance
 
 
-def test_strategy_comparator_invalid_label():
+def test_strategy_comparator_invalid_label() -> None:
     """Test that StrategyComparator handles invalid labels correctly."""
     results = {
         "strategy1": EvaluationResult(

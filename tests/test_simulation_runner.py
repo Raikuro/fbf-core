@@ -5,6 +5,7 @@ Verifies orchestration logic, lifecycle management, and result construction.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 from unittest.mock import Mock
@@ -12,7 +13,7 @@ from unittest.mock import Mock
 import pytest
 
 from engine.application.pipeline import PipelineStep, SimulationPipeline
-from engine.application.runner import DefaultSimulationStatisticsBuilder, SimulationRunner
+from engine.application.runner import SimulationRunner
 from engine.application.simulation import (
     ExecutionStatus,
     MonthlyResult,
@@ -22,43 +23,44 @@ from engine.application.simulation import (
     SimulationTimeline,
 )
 from engine.application.simulation_context import SimulationContext
+from engine.application.statistics_builder import DefaultSimulationStatisticsBuilder
+from engine.domain.model.dataset import Dataset
+from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Currency, Money
+from engine.domain.model.portfolio import Portfolio
 
 
-class MockMarketSnapshot:
+class MockMarketSnapshot(MarketSnapshot):
     """Test double for MarketSnapshot."""
 
-    def __init__(self, snapshot_date: date, value: float = 100.0):
-        self.date = snapshot_date
-        self.value = value
+    def __init__(self, snapshot_date: date):
+        object.__setattr__(self, "date", snapshot_date)
 
 
-class MockPortfolio:
+class MockPortfolio(Portfolio):
     """Test double for Portfolio."""
 
-    def __init__(self):
-        self.positions = {}
+    def __init__(self) -> None:
+        super().__init__(holdings=())
 
 
-class MockDataset:
+class MockDataset(Dataset):
     """Test double for Dataset supporting indexing."""
 
     def __init__(self, snapshots: list[MockMarketSnapshot]):
-        self._snapshots = snapshots
-
-    def __getitem__(self, index: int) -> MockMarketSnapshot:
-        if index < 0 or index >= len(self._snapshots):
-            raise IndexError("Dataset index out of range")
-        return self._snapshots[index]
-
-    def __len__(self) -> int:
-        return len(self._snapshots)
+        object.__setattr__(self, "snapshots", snapshots)
+        object.__setattr__(self, "frequency", "monthly")
+        object.__setattr__(self, "version", "1.0")
 
 
 class MockPipelineStep(PipelineStep):
     """Test double for PipelineStep."""
 
-    def __init__(self, sequence_order: int = 0, side_effect=None):
+    def __init__(
+        self,
+        sequence_order: int = 0,
+        side_effect: Callable[[SimulationState], SimulationState] | None = None,
+    ) -> None:
         self.sequence_order = sequence_order
         self.execution_count = 0
         self.side_effect = side_effect or self._default_side_effect
@@ -69,27 +71,32 @@ class MockPipelineStep(PipelineStep):
 
     def _default_side_effect(self, state: SimulationState) -> SimulationState:
         # Add a monthly result to simulate step execution
-        monthly_result = MonthlyResult(
-            date=state.current_date,
-            period_index=state.period_index,
-            market_snapshot=state.market_snapshot,
-            portfolio=state.portfolio,
-            allocation=None,
-            allocation_target=None,
-            allocation_drift=None,
-            withdrawal_decision=None,
-            rebalance_result=None,
-            drawdown=0.0,
-            cumulative_return=1.0,
-            cumulative_inflation=1.0,
-            events=(),
-        )
-        state.monthly_results.append(monthly_result)
+        state.monthly_results.append(_make_monthly_result(state))
         return state
 
 
 class SecondaryMockPipelineStep(MockPipelineStep):
     """Distinct pipeline-step type for multi-step ordering tests."""
+
+
+def _make_monthly_result(state: SimulationState) -> MonthlyResult:
+    market_snapshot = state.market_snapshot
+    assert market_snapshot is not None
+    return MonthlyResult(
+        date=state.current_date,
+        period_index=state.period_index,
+        market_snapshot=market_snapshot,
+        portfolio=state.portfolio,
+        allocation=None,
+        allocation_target=None,
+        allocation_drift=None,
+        withdrawal_decision=None,
+        rebalance_result=None,
+        drawdown=0.0,
+        cumulative_return=1.0,
+        cumulative_inflation=1.0,
+        events=(),
+    )
 
 
 def money(amount: str) -> Money:
@@ -104,7 +111,7 @@ def money(amount: str) -> Money:
 class TestSimulationRunnerInitialization:
     """Tests for SimulationRunner initialization."""
 
-    def test_constructor_with_pipeline(self):
+    def test_constructor_with_pipeline(self) -> None:
         """Verify runner accepts pipeline and uses default statistics builder."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -114,7 +121,7 @@ class TestSimulationRunnerInitialization:
             runner.statistics_builder, DefaultSimulationStatisticsBuilder
         )
 
-    def test_constructor_with_custom_builder(self):
+    def test_constructor_with_custom_builder(self) -> None:
         """Verify runner accepts custom statistics builder."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         custom_builder = Mock()
@@ -122,7 +129,7 @@ class TestSimulationRunnerInitialization:
 
         assert runner.statistics_builder is custom_builder
 
-    def test_constructor_with_none_builder_uses_default(self):
+    def test_constructor_with_none_builder_uses_default(self) -> None:
         """Verify passing None builder uses default."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline, None)
@@ -135,15 +142,15 @@ class TestSimulationRunnerInitialization:
 class TestContextValidation:
     """Tests for SimulationContext validation."""
 
-    def test_validate_none_context(self):
+    def test_validate_none_context(self) -> None:
         """Verify runner rejects None context."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
 
         with pytest.raises(ValueError, match="SimulationContext is required"):
-            runner.run(None)
+            runner.run(None)  # type: ignore[arg-type]
 
-    def test_validate_missing_dataset(self):
+    def test_validate_missing_dataset(self) -> None:
         """Verify runner rejects context without dataset."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -153,7 +160,7 @@ class TestContextValidation:
         with pytest.raises(ValueError, match="dataset is required"):
             runner.run(context)
 
-    def test_validate_missing_horizon(self):
+    def test_validate_missing_horizon(self) -> None:
         """Verify runner rejects context without horizon_months."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -164,7 +171,7 @@ class TestContextValidation:
         with pytest.raises(ValueError, match="horizon_months is required"):
             runner.run(context)
 
-    def test_validate_negative_horizon(self):
+    def test_validate_negative_horizon(self) -> None:
         """Verify runner rejects negative horizon_months."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -175,7 +182,7 @@ class TestContextValidation:
         with pytest.raises(ValueError, match="horizon_months must not be negative"):
             runner.run(context)
 
-    def test_validate_missing_portfolio(self):
+    def test_validate_missing_portfolio(self) -> None:
         """Verify runner rejects context without initial_portfolio."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -187,7 +194,7 @@ class TestContextValidation:
         with pytest.raises(ValueError, match="initial_portfolio is required"):
             runner.run(context)
 
-    def test_validate_missing_wealth(self):
+    def test_validate_missing_wealth(self) -> None:
         """Verify runner rejects context without initial_wealth."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -200,7 +207,7 @@ class TestContextValidation:
         with pytest.raises(ValueError, match="initial_wealth is required"):
             runner.run(context)
 
-    def test_validate_missing_start_date(self):
+    def test_validate_missing_start_date(self) -> None:
         """Verify runner rejects context without start_date."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -235,7 +242,7 @@ class TestInitialStateConstruction:
             withdrawal_policy=Mock(),
         )
 
-    def test_zero_horizon_sets_completed_status(self):
+    def test_zero_horizon_sets_completed_status(self) -> None:
         """Verify zero-month horizon produces COMPLETED status."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -246,7 +253,7 @@ class TestInitialStateConstruction:
         assert result.statistics.months_simulated == 0
         assert result.statistics.success is True
 
-    def test_positive_horizon_sets_running_status(self):
+    def test_positive_horizon_sets_running_status(self) -> None:
         """Verify positive horizon starts in RUNNING status."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -264,23 +271,7 @@ class TestInitialStateConstruction:
                 current_wealth=s.current_wealth,
                 peak_wealth=s.peak_wealth,
                 status=ExecutionStatus.COMPLETED,
-                monthly_results=[
-                    MonthlyResult(
-                        date=s.current_date,
-                        period_index=s.period_index,
-                        market_snapshot=s.market_snapshot,
-                        portfolio=s.portfolio,
-                        allocation=None,
-                        allocation_target=None,
-                        allocation_drift=None,
-                        withdrawal_decision=None,
-                        rebalance_result=None,
-                        drawdown=0.0,
-                        cumulative_return=1.0,
-                        cumulative_inflation=1.0,
-                        events=(),
-                    )
-                ],
+                monthly_results=[_make_monthly_result(s)],
             ),
         )
         pipeline = SimulationPipeline([step])
@@ -290,7 +281,7 @@ class TestInitialStateConstruction:
 
         assert result.statistics.success is True
 
-    def test_initial_state_sets_current_date(self):
+    def test_initial_state_sets_current_date(self) -> None:
         """Verify initial state has correct current_date."""
         start_date = date(2020, 6, 15)
         context = self._create_context(start_date=start_date, horizon_months=0)
@@ -303,7 +294,7 @@ class TestInitialStateConstruction:
         # Verify indirectly through zero-horizon completion
         # (state is not exposed directly)
 
-    def test_mismatched_start_date_raises(self):
+    def test_mismatched_start_date_raises(self) -> None:
         """Verify start_date must match first dataset snapshot."""
         start_date = date(2020, 1, 1)
         mismatched_date = date(2020, 2, 1)
@@ -348,7 +339,7 @@ class TestExecutionLoop:
             withdrawal_policy=Mock(),
         )
 
-    def test_pipeline_executed_once_on_single_month(self):
+    def test_pipeline_executed_once_on_single_month(self) -> None:
         """Verify pipeline steps execute exactly once for one month."""
         step = MockPipelineStep(sequence_order=0)
         pipeline = SimulationPipeline([step])
@@ -362,36 +353,38 @@ class TestExecutionLoop:
             state.status = ExecutionStatus.COMPLETED
             return state
 
-        step.execute = execute_and_complete
+        setattr(step, "execute", execute_and_complete)
 
         context = self._create_context(horizon_months=1)
         runner.run(context)
 
         assert step.execution_count == 1
 
-    def test_pipeline_steps_execute_in_order(self):
+    def test_pipeline_steps_execute_in_order(self) -> None:
         """Verify pipeline steps execute in sequence order."""
         call_order = []
 
+        def record_1(s: SimulationState) -> SimulationState:
+            call_order.append(1)
+            return s
+
+        def record_2(s: SimulationState) -> SimulationState:
+            call_order.append(2)
+            return s
+
         step1 = MockPipelineStep(
             sequence_order=0,
-            side_effect=lambda s: (
-                call_order.append(1),
-                s,
-            )[1],
+            side_effect=record_1,
         )
         step2 = SecondaryMockPipelineStep(
             sequence_order=1,
-            side_effect=lambda s: (
-                call_order.append(2),
-                s,
-            )[1],
+            side_effect=record_2,
         )
 
         # Make final step complete
         original_side_effect = step2.side_effect
 
-        def step2_complete(s):
+        def step2_complete(s: SimulationState) -> SimulationState:
             result = original_side_effect(s)
             result.status = ExecutionStatus.COMPLETED
             return result
@@ -406,17 +399,17 @@ class TestExecutionLoop:
 
         assert call_order == [1, 2]
 
-    def test_execution_stops_on_completed_status(self):
+    def test_execution_stops_on_completed_status(self) -> None:
         """Verify execution stops when status becomes COMPLETED."""
         step1 = MockPipelineStep(sequence_order=0)
         step2 = SecondaryMockPipelineStep(sequence_order=1)
 
         # Make step1 complete the simulation
-        def step1_complete(s):
+        def step1_complete(s: SimulationState) -> SimulationState:
             s.status = ExecutionStatus.COMPLETED
             return s
 
-        step1.execute = step1_complete
+        setattr(step1, "execute", step1_complete)
 
         pipeline = SimulationPipeline([step1, step2])
         runner = SimulationRunner(pipeline)
@@ -427,17 +420,17 @@ class TestExecutionLoop:
         # step2 should not have executed
         assert step2.execution_count == 0
 
-    def test_execution_stops_on_failure_state(self):
+    def test_execution_stops_on_failure_state(self) -> None:
         """Verify execution stops when failure_state is set."""
         step1 = MockPipelineStep(sequence_order=0)
         step2 = SecondaryMockPipelineStep(sequence_order=1)
 
         # Make step1 fail
-        def step1_fail(s):
+        def step1_fail(s: SimulationState) -> SimulationState:
             s.failure_state = "Portfolio depleted"
             return s
 
-        step1.execute = step1_fail
+        setattr(step1, "execute", step1_fail)
 
         pipeline = SimulationPipeline([step1, step2])
         runner = SimulationRunner(pipeline)
@@ -453,7 +446,7 @@ class TestExecutionLoop:
 class TestResultConstruction:
     """Tests for final SimulationResult construction."""
 
-    def _create_context(self, start_date: date = date(2020, 1, 1)):
+    def _create_context(self, start_date: date = date(2020, 1, 1)) -> SimulationContext:
         """Helper to create valid test context."""
         snapshots = [MockMarketSnapshot(start_date)]
         return SimulationContext(
@@ -468,7 +461,7 @@ class TestResultConstruction:
             withdrawal_policy=Mock(),
         )
 
-    def test_result_is_simulation_result(self):
+    def test_result_is_simulation_result(self) -> None:
         """Verify returned object is SimulationResult."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -478,7 +471,7 @@ class TestResultConstruction:
 
         assert isinstance(result, SimulationResult)
 
-    def test_result_contains_timeline(self):
+    def test_result_contains_timeline(self) -> None:
         """Verify result includes SimulationTimeline."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -488,7 +481,7 @@ class TestResultConstruction:
 
         assert isinstance(result.timeline, SimulationTimeline)
 
-    def test_result_contains_statistics(self):
+    def test_result_contains_statistics(self) -> None:
         """Verify result includes SimulationStatistics."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -498,7 +491,7 @@ class TestResultConstruction:
 
         assert isinstance(result.statistics, SimulationStatistics)
 
-    def test_result_is_frozen(self):
+    def test_result_is_frozen(self) -> None:
         """Verify returned SimulationResult is immutable."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -507,9 +500,9 @@ class TestResultConstruction:
         result = runner.run(context)
 
         with pytest.raises(AttributeError):
-            result.timeline = None
+            result.timeline = None  # type: ignore[misc, assignment]
 
-    def test_result_statistics_success_on_completion(self):
+    def test_result_statistics_success_on_completion(self) -> None:
         """Verify statistics.success is True on normal completion."""
         pipeline = SimulationPipeline([MockPipelineStep(sequence_order=0)])
         runner = SimulationRunner(pipeline)
@@ -519,10 +512,10 @@ class TestResultConstruction:
 
         assert result.statistics.success is True
 
-    def test_result_statistics_failure_on_failure_state(self):
+    def test_result_statistics_failure_on_failure_state(self) -> None:
         """Verify statistics.success is False when failure_state is set."""
 
-        def fail_step(s):
+        def fail_step(s: SimulationState) -> SimulationState:
             s.failure_state = "test failure"
             return s
 
@@ -545,7 +538,7 @@ class TestResultConstruction:
 
         assert result.statistics.success is False
 
-    def test_result_statistics_months_simulated(self):
+    def test_result_statistics_months_simulated(self) -> None:
         """Verify months_simulated equals length of timeline."""
         step = MockPipelineStep(sequence_order=0)
         pipeline = SimulationPipeline([step])
@@ -563,27 +556,12 @@ class TestResultConstruction:
         )
 
         # Make step complete after adding result
-        def step_complete(s):
-            monthly_result = MonthlyResult(
-                date=s.current_date,
-                period_index=s.period_index,
-                market_snapshot=s.market_snapshot,
-                portfolio=s.portfolio,
-                allocation=None,
-                allocation_target=None,
-                allocation_drift=None,
-                withdrawal_decision=None,
-                rebalance_result=None,
-                drawdown=0.0,
-                cumulative_return=1.0,
-                cumulative_inflation=1.0,
-                events=(),
-            )
-            s.monthly_results.append(monthly_result)
+        def step_complete(s: SimulationState) -> SimulationState:
+            s.monthly_results.append(_make_monthly_result(s))
             s.status = ExecutionStatus.COMPLETED
             return s
 
-        step.execute = step_complete
+        setattr(step, "execute", step_complete)
 
         result = runner.run(context)
 
@@ -594,10 +572,10 @@ class TestResultConstruction:
 class TestDeterminism:
     """Tests for deterministic execution."""
 
-    def test_repeated_execution_produces_identical_results(self):
+    def test_repeated_execution_produces_identical_results(self) -> None:
         """Verify running identical simulation twice produces identical results."""
 
-        def create_context():
+        def create_context() -> SimulationContext:
             return SimulationContext(
                 experiment_name="test",
                 cohort="test",
@@ -610,24 +588,9 @@ class TestDeterminism:
                 withdrawal_policy=Mock(),
             )
 
-        def create_step():
-            def execute_fn(s):
-                monthly_result = MonthlyResult(
-                    date=s.current_date,
-                    period_index=s.period_index,
-                    market_snapshot=s.market_snapshot,
-                    portfolio=s.portfolio,
-                    allocation=None,
-                    allocation_target=None,
-                    allocation_drift=None,
-                    withdrawal_decision=None,
-                    rebalance_result=None,
-                    drawdown=0.0,
-                    cumulative_return=1.0,
-                    cumulative_inflation=1.0,
-                    events=(),
-                )
-                s.monthly_results.append(monthly_result)
+        def create_step() -> MockPipelineStep:
+            def execute_fn(s: SimulationState) -> SimulationState:
+                s.monthly_results.append(_make_monthly_result(s))
                 s.status = ExecutionStatus.COMPLETED
                 return s
 

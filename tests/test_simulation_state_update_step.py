@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import NoReturn
 
 from engine.application.pipeline import PipelineStep, SimulationPipeline
 from engine.application.steps.allocation_decision_step import AllocationDecisionStep
@@ -31,12 +32,12 @@ class DummyMarketSnapshot(MarketSnapshot):
 
 
 class DummyAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object):
+    def decide(self, context: object) -> NoReturn:
         raise AssertionError("Should not be called")
 
 
 class DummyWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object):
+    def decide(self, context: object) -> NoReturn:
         raise AssertionError("Should not be called")
 
 

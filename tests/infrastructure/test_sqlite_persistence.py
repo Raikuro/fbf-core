@@ -23,6 +23,7 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -309,7 +310,7 @@ def make_experiment_run(plan: ResearchPlan) -> ExperimentRun:
 
 
 @pytest.fixture
-def repo(tmp_path) -> SQLiteRepository:
+def repo(tmp_path: Path) -> SQLiteRepository:
     db_file = tmp_path / "test_persistence.db"
     return SQLiteRepository(str(db_file))
 

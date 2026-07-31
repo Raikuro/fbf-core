@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import cast
 
 import pytest
 
@@ -14,13 +15,16 @@ from engine.domain.model.dataset import Dataset
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.policies.decisions import PolicyDecision, WithdrawalDecision
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
 
 
 class DummyAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object) -> PolicyDecision:
-        return PolicyDecision(reason="dummy")
+    def decide(self, context: object) -> AllocationDecision:
+        return AllocationDecision(
+            reason="dummy",
+            allocation_target=AllocationTarget(weights={AssetClass(id="dummy", name="Dummy", description="Dummy"): Decimal("1")}),
+        )
 
 
 class DummyWithdrawalPolicy(WithdrawalPolicy):
@@ -37,8 +41,8 @@ class DummyWithdrawalPolicy(WithdrawalPolicy):
 
 
 class InvalidWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object) -> object:
-        return object()
+    def decide(self, context: object) -> WithdrawalDecision:
+        return cast(WithdrawalDecision, object())
 
 
 class DummyDataset(Dataset):
