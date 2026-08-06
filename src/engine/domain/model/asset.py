@@ -5,10 +5,10 @@ Contains asset class and series domain objects.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Sequence
 
 
 @dataclass(frozen=True)

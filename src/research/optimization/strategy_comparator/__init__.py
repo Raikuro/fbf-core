@@ -1,3 +1,3 @@
-from .strategy_comparator import StrategyComparator, StrategyComparisonReport, Evaluator
+from .strategy_comparator import Evaluator, StrategyComparator, StrategyComparisonReport
 
 __all__ = ["StrategyComparator", "StrategyComparisonReport", "Evaluator"]

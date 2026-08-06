@@ -23,7 +23,6 @@ from engine.application.simulation import (
     SimulationStatistics,
     SimulationTimeline,
 )
-from engine.application.simulation_context import SimulationContext
 from engine.domain.model.allocation import AllocationTarget
 from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
@@ -54,7 +53,11 @@ from research.domain.plan import PlannedSimulationUnit, ResearchPlan
 class DummyAllocationPolicy(AllocationPolicy):
     def decide(self, context: object) -> AllocationDecision:
         portfolio = getattr(context, "portfolio", None)
-        asset = portfolio.holdings[0].asset_class if portfolio and portfolio.holdings else make_asset()
+        asset = (
+            portfolio.holdings[0].asset_class
+            if portfolio and portfolio.holdings
+            else make_asset()
+        )
         return AllocationDecision(
             reason="dummy",
             allocation_target=AllocationTarget(weights={asset: Decimal("1.0")}),
@@ -129,7 +132,10 @@ def make_simulation_result(unit_idx: int) -> SimulationResult:
 
 def make_test_plan(num_units: int = 12) -> ResearchPlan:
     exp_def = make_experiment_def()
-    units = tuple(make_unit(month=((i % 12) + 1), withdrawal_rate=0.03 + (i * 0.001)) for i in range(num_units))
+    units = tuple(
+        make_unit(month=((i % 12) + 1), withdrawal_rate=0.03 + (i * 0.001))
+        for i in range(num_units)
+    )
     return ResearchPlan(experiment_definition=exp_def, units=units)
 
 
@@ -219,8 +225,12 @@ def test_parallel_determinism_across_runs() -> None:
     config1 = ExecutionConfig(max_workers=2, use_processes=False)
     config2 = ExecutionConfig(max_workers=4, use_processes=False)
 
-    run1 = parallel_execute(plan, config=config1, simulation_executor=make_mock_simulation_executor(8))
-    run2 = parallel_execute(plan, config=config2, simulation_executor=make_mock_simulation_executor(8))
+    run1 = parallel_execute(
+        plan, config=config1, simulation_executor=make_mock_simulation_executor(8)
+    )
+    run2 = parallel_execute(
+        plan, config=config2, simulation_executor=make_mock_simulation_executor(8)
+    )
 
     assert run1.results == run2.results
 
@@ -272,7 +282,8 @@ class ExplodingAllocationPolicy(AllocationPolicy):
 
 
 def _make_selective_mock_executor() -> Mock:
-    """Mock SimulationExecutor that succeeds for normal units and raises for ExplodingAllocationPolicy."""
+    """Mock SimulationExecutor that succeeds for normal units and raises for
+    ExplodingAllocationPolicy."""
     mock_exec = Mock()
 
     def selective_execute(engine_def: EngineExperimentDefinition) -> ExperimentRun:
@@ -310,7 +321,9 @@ def test_worker_execute_batch_safe_error_isolation() -> None:
     )
 
     selective_mock = _make_selective_mock_executor()
-    batch_res = _worker_execute_batch_safe(exp_def, [unit1, unit_bad], simulation_executor=selective_mock)
+    batch_res = _worker_execute_batch_safe(
+        exp_def, [unit1, unit_bad], simulation_executor=selective_mock
+    )
     assert len(batch_res) == 2
 
     # Unit 1 succeeded

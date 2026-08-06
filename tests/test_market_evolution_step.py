@@ -6,11 +6,11 @@ from typing import NoReturn
 
 import pytest
 
-from engine.application.steps.market_evolution_step import MarketEvolutionStep
 from engine.application.simulation import SimulationState
 from engine.application.simulation_context import SimulationContext
-from engine.domain.model.asset import AssetClass
+from engine.application.steps.market_evolution_step import MarketEvolutionStep
 from engine.domain.model.allocation import Allocation
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
@@ -107,7 +107,9 @@ def test_market_evolution_step_delegates_to_service() -> None:
         running_ath=Decimal("110"),
     )
     service = RecordingMarketEvolutionService()
-    state = make_state(portfolio, allocation, market_snapshot, Money(Decimal("10000"), Money.ZERO.currency))
+    state = make_state(
+        portfolio, allocation, market_snapshot, Money(Decimal("10000"), Money.ZERO.currency)
+    )
     step = MarketEvolutionStep(evolution_service=service)
 
     updated_state = step.execute(state)
@@ -132,7 +134,9 @@ def test_market_evolution_step_requires_required_state() -> None:
         is_underwater=False,
         running_ath=Decimal("100"),
     )
-    state = make_state(portfolio, allocation, market_snapshot, Money(Decimal("10000"), Money.ZERO.currency))
+    state = make_state(
+        portfolio, allocation, market_snapshot, Money(Decimal("10000"), Money.ZERO.currency)
+    )
 
     state.portfolio = None  # type: ignore[assignment]
     step = MarketEvolutionStep()

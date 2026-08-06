@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
 from engine.domain.model.asset import AssetClass
-from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.dataset import Dataset
+from engine.domain.model.market_snapshot import MarketSnapshot
 
 
 def test_dataset_ordering_validation() -> None:

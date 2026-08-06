@@ -6,11 +6,11 @@ from typing import NoReturn
 
 import pytest
 
-from engine.application.steps.monthly_result_builder_step import MonthlyResultBuilderStep
-from engine.application.simulation import SimulationState, MonthlyResult
+from engine.application.simulation import MonthlyResult, SimulationState
 from engine.application.simulation_context import SimulationContext
+from engine.application.steps.monthly_result_builder_step import MonthlyResultBuilderStep
+from engine.domain.model.allocation import Allocation
 from engine.domain.model.asset import AssetClass
-from engine.domain.model.allocation import Allocation, AllocationTarget
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
@@ -88,7 +88,9 @@ def test_monthly_result_builder_appends_result() -> None:
         is_underwater=False,
         running_ath=Decimal("100"),
     )
-    state = make_state(portfolio, allocation, market_snapshot, Money(Decimal("10000"), Money.ZERO.currency))
+    state = make_state(
+        portfolio, allocation, market_snapshot, Money(Decimal("10000"), Money.ZERO.currency)
+    )
     step = MonthlyResultBuilderStep()
 
     updated_state = step.execute(state)
@@ -116,7 +118,9 @@ def test_monthly_result_builder_requires_required_state() -> None:
         is_underwater=False,
         running_ath=Decimal("100"),
     )
-    state = make_state(portfolio, None, market_snapshot, Money(Decimal("10000"), Money.ZERO.currency))
+    state = make_state(
+        portfolio, None, market_snapshot, Money(Decimal("10000"), Money.ZERO.currency)
+    )
     step = MonthlyResultBuilderStep()
 
     state.current_date = None  # type: ignore[assignment]

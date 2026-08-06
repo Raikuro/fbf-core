@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from .policy import Policy
-from .decisions import WithdrawalDecision
 from ..model.decision_context import DecisionContext
+from .decisions import WithdrawalDecision
+from .policy import Policy
 
 
 class WithdrawalPolicy(Policy):

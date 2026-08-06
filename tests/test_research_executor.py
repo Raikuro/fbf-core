@@ -32,8 +32,8 @@ from engine.application.simulation import (
     SimulationTimeline,
 )
 from engine.application.simulation_context import SimulationContext
-from engine.domain.model.asset import AssetClass
 from engine.domain.model.allocation import AllocationTarget
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Currency, Money

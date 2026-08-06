@@ -1,5 +1,7 @@
-from typing import Protocol, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Protocol
+
 
 class EvaluationResult:
     """Placeholder for EvaluationResult."""

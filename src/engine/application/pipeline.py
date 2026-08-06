@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Sequence, Tuple
+from collections.abc import Sequence
 
 from engine.application.simulation import SimulationState
 
@@ -22,7 +22,7 @@ class SimulationPipeline:
         self._validate_steps()
 
     @property
-    def steps(self) -> Tuple[PipelineStep, ...]:
+    def steps(self) -> tuple[PipelineStep, ...]:
         return self._steps
 
     def _validate_steps(self) -> None:

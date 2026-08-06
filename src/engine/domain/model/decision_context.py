@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+
 from .allocation import Allocation, AllocationTarget
 from .dataset import Dataset
 from .market_snapshot import MarketSnapshot

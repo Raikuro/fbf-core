@@ -14,8 +14,8 @@ from decimal import Decimal
 
 import pytest
 
-from engine.domain.model.asset import AssetClass
 from engine.domain.model.allocation import AllocationTarget
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.money import Currency, Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.policies.allocation_policy import AllocationPolicy
@@ -211,20 +211,26 @@ class TestPlannedSimulationUnitIdentity:
 
 
 class TestResearchPlanConstruction:
-    def test_constructs_with_single_unit(self, minimal_experiment_def: ExperimentDefinition) -> None:
+    def test_constructs_with_single_unit(
+        self, minimal_experiment_def: ExperimentDefinition
+    ) -> None:
         unit = make_unit()
         plan = ResearchPlan(experiment_definition=minimal_experiment_def, units=(unit,))
 
         assert len(plan) == 1
         assert plan[0] is unit
 
-    def test_constructs_with_multiple_distinct_units(self, minimal_experiment_def: ExperimentDefinition) -> None:
+    def test_constructs_with_multiple_distinct_units(
+        self, minimal_experiment_def: ExperimentDefinition
+    ) -> None:
         units = (make_unit(year=2000), make_unit(year=2001))
         plan = ResearchPlan(experiment_definition=minimal_experiment_def, units=units)
 
         assert len(plan) == 2
 
-    def test_coerces_list_of_units_to_tuple(self, minimal_experiment_def: ExperimentDefinition) -> None:
+    def test_coerces_list_of_units_to_tuple(
+        self, minimal_experiment_def: ExperimentDefinition
+    ) -> None:
         units_list = [make_unit(year=2000), make_unit(year=2001)]
         plan = ResearchPlan(
             experiment_definition=minimal_experiment_def,
@@ -247,7 +253,9 @@ class TestResearchPlanValidation:
                 units=(make_unit(),),
             )
 
-    def test_rejects_non_planned_unit_element(self, minimal_experiment_def: ExperimentDefinition) -> None:
+    def test_rejects_non_planned_unit_element(
+        self, minimal_experiment_def: ExperimentDefinition
+    ) -> None:
         with pytest.raises(TypeError, match="not a PlannedSimulationUnit"):
             ResearchPlan(
                 experiment_definition=minimal_experiment_def,
@@ -280,7 +288,9 @@ class TestResearchPlanValidation:
                 units=(unit_a, unit_b),
             )
 
-    def test_allows_same_cohort_with_different_config(self, minimal_experiment_def: ExperimentDefinition) -> None:
+    def test_allows_same_cohort_with_different_config(
+        self, minimal_experiment_def: ExperimentDefinition
+    ) -> None:
         cohort = make_cohort(2000)
         config_a = make_param_config(withdrawal_rate=0.03)
         config_b = make_param_config(withdrawal_rate=0.05)
@@ -305,7 +315,9 @@ class TestResearchPlanValidation:
         )
         assert len(plan) == 2
 
-    def test_allows_same_config_with_different_cohort(self, minimal_experiment_def: ExperimentDefinition) -> None:
+    def test_allows_same_config_with_different_cohort(
+        self, minimal_experiment_def: ExperimentDefinition
+    ) -> None:
         unit_a = make_unit(year=2000, param_override={"withdrawal_rate": 0.04})
         unit_b = make_unit(year=2001, param_override={"withdrawal_rate": 0.04})
 
@@ -326,7 +338,9 @@ class TestResearchPlanImmutability:
         with pytest.raises(FrozenInstanceError):
             plan.units = ()  # type: ignore[misc]
 
-    def test_plan_experiment_definition_is_frozen(self, minimal_experiment_def: ExperimentDefinition) -> None:
+    def test_plan_experiment_definition_is_frozen(
+        self, minimal_experiment_def: ExperimentDefinition
+    ) -> None:
         plan = ResearchPlan(
             experiment_definition=minimal_experiment_def,
             units=(make_unit(),),
@@ -343,7 +357,9 @@ class TestResearchPlanSequenceProtocol:
 
         assert len(plan) == 3
 
-    def test_getitem_returns_correct_unit_by_index(self, minimal_experiment_def: ExperimentDefinition) -> None:
+    def test_getitem_returns_correct_unit_by_index(
+        self, minimal_experiment_def: ExperimentDefinition
+    ) -> None:
         unit_a = make_unit(year=2000)
         unit_b = make_unit(year=2001)
         plan = ResearchPlan(experiment_definition=minimal_experiment_def, units=(unit_a, unit_b))

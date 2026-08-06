@@ -1,14 +1,14 @@
 """Additional tests required by RESEARCH_STRATEGYCOMPARATOR_IMPLEMENTATION_HANDOFF.md"""
 
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
-from typing import Mapping, Sequence
 
 import pytest
 
 from engine.domain.optimizer import (
+    EvaluationError,
     EvaluationResult,
     Evaluator,
-    EvaluationError,
     InvalidInputError,
     RankingRule,
     StrategyComparator,
@@ -45,7 +45,10 @@ def test_group_by_cohort() -> None:
     }
 
     eval1 = MockEvaluatorSeq(results)
-    comparator = StrategyComparator(metrics=["m"], ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]))
+    comparator = StrategyComparator(
+        metrics=["m"],
+        ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
+    )
 
     report = comparator.compare({"s1": eval1, "s2": eval1}, group_by="cohort")
 
@@ -68,7 +71,10 @@ def test_group_by_parameter_config() -> None:
     }
 
     eval1 = MockEvaluatorSeq(results)
-    comparator = StrategyComparator(metrics=["m"], ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]))
+    comparator = StrategyComparator(
+        metrics=["m"],
+        ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
+    )
 
     report = comparator.compare({"s1": eval1, "s2": eval1}, group_by="parameter_config")
 
@@ -82,7 +88,10 @@ def test_missing_provenance_raises() -> None:
     }
 
     eval1 = MockEvaluatorSeq(results)
-    comparator = StrategyComparator(metrics=["m"], ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]))
+    comparator = StrategyComparator(
+        metrics=["m"],
+        ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
+    )
 
     with pytest.raises(InvalidInputError):
         comparator.compare({"s1": eval1}, group_by="cohort")
@@ -90,10 +99,21 @@ def test_missing_provenance_raises() -> None:
 
 def test_decimal_aggregation_exactness() -> None:
     # two evaluations for same label and cohort; average should be exact Decimal
-    ev1 = EvaluationResult(label="s", metrics={"m": Decimal("1.1")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
-    ev2 = EvaluationResult(label="s", metrics={"m": Decimal("2.3")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
+    ev1 = EvaluationResult(
+        label="s",
+        metrics={"m": Decimal("1.1")},
+        provenance={"cohort": ["c1"], "parameter_config": ["p1"]},
+    )
+    ev2 = EvaluationResult(
+        label="s",
+        metrics={"m": Decimal("2.3")},
+        provenance={"cohort": ["c1"], "parameter_config": ["p1"]},
+    )
 
-    comparator = StrategyComparator(metrics=["m"], ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]))
+    comparator = StrategyComparator(
+        metrics=["m"],
+        ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
+    )
 
     report = comparator.compare({"s": [ev1, ev2]}, group_by="cohort")
 
@@ -104,11 +124,26 @@ def test_decimal_aggregation_exactness() -> None:
 
 def test_deterministic_tiebreakers_and_label_tiebreak() -> None:
     # primary equal, tie-breaker differs
-    ev1 = EvaluationResult(label="a", metrics={"p": Decimal("1"), "t": Decimal("2")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
-    ev2 = EvaluationResult(label="b", metrics={"p": Decimal("1"), "t": Decimal("1")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
-    ev3 = EvaluationResult(label="c", metrics={"p": Decimal("1"), "t": Decimal("1")}, provenance={"cohort": ["c1"], "parameter_config": ["p1"]})
+    ev1 = EvaluationResult(
+        label="a",
+        metrics={"p": Decimal("1"), "t": Decimal("2")},
+        provenance={"cohort": ["c1"], "parameter_config": ["p1"]},
+    )
+    ev2 = EvaluationResult(
+        label="b",
+        metrics={"p": Decimal("1"), "t": Decimal("1")},
+        provenance={"cohort": ["c1"], "parameter_config": ["p1"]},
+    )
+    ev3 = EvaluationResult(
+        label="c",
+        metrics={"p": Decimal("1"), "t": Decimal("1")},
+        provenance={"cohort": ["c1"], "parameter_config": ["p1"]},
+    )
 
-    comparator = StrategyComparator(metrics=["p", "t"], ranking_rule=RankingRule(primary_metric="p", tie_breakers=["t"]))
+    comparator = StrategyComparator(
+        metrics=["p", "t"],
+        ranking_rule=RankingRule(primary_metric="p", tie_breakers=["t"]),
+    )
 
     report = comparator.compare({"a": [ev1], "b": [ev2], "c": [ev3]}, group_by="cohort")
 
@@ -118,6 +153,9 @@ def test_deterministic_tiebreakers_and_label_tiebreak() -> None:
 
 
 def test_evaluator_error_wrapped() -> None:
-    comparator = StrategyComparator(metrics=["m"], ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]))
+    comparator = StrategyComparator(
+        metrics=["m"],
+        ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
+    )
     with pytest.raises(EvaluationError):
         comparator.compare({"s": RaisingEvaluator()}, group_by="global")

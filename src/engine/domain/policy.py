@@ -26,7 +26,7 @@ class Policy(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def decide(self, context: DecisionContext) -> "PolicyDecision":
+    def decide(self, context: DecisionContext) -> PolicyDecision:
         raise NotImplementedError
 
     @abstractmethod

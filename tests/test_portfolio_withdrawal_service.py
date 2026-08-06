@@ -12,7 +12,6 @@ from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.policies.decisions import WithdrawalDecision
 from engine.domain.services.portfolio_withdrawal_service import (
     PortfolioWithdrawalService,
-    WithdrawalExecutionResult,
 )
 
 
@@ -168,7 +167,9 @@ def test_portfolio_withdrawal_service_conserves_portfolio_value_when_not_deplete
 
     before_value = Money.ZERO
     for holding in portfolio.holdings:
-        before_value += Money(holding.units * snapshot.index_levels[holding.asset_class], Money.ZERO.currency)
+        before_value += Money(
+            holding.units * snapshot.index_levels[holding.asset_class], Money.ZERO.currency
+        )
 
     result = service.execute_withdrawal(portfolio, decision, snapshot)
 

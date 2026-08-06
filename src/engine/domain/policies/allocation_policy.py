@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from .policy import Policy
-from .decisions import AllocationDecision
 from ..model.decision_context import DecisionContext
+from .decisions import AllocationDecision
+from .policy import Policy
 
 
 class AllocationPolicy(Policy):

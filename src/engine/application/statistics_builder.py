@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from engine.application.simulation import SimulationStatistics, SimulationState
+from engine.application.simulation import SimulationState, SimulationStatistics
 
 
 class SimulationStatisticsBuilder(ABC):
@@ -51,7 +51,7 @@ class DefaultSimulationStatisticsBuilder(SimulationStatisticsBuilder):
         - execution_time_seconds: requires timing instrumentation
         """
         from engine.application.simulation import ExecutionStatus
-        
+
         final_wealth = state.current_wealth or state.context.initial_wealth
         success = (
             state.status == ExecutionStatus.COMPLETED

@@ -5,9 +5,9 @@ Contains the immutable Dataset aggregate used by simulations.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Iterator, Sequence
 
 from .market_snapshot import MarketSnapshot
 

@@ -274,7 +274,9 @@ def make_sim_result(
     )
 
 
-def _build_sim_context(unit: PlannedSimulationUnit, experiment: ExperimentDefinition) -> SimulationContext:
+def _build_sim_context(
+    unit: PlannedSimulationUnit, experiment: ExperimentDefinition
+) -> SimulationContext:
     return SimulationContext(
         experiment_name=experiment.name,
         cohort=unit.cohort.start_date.isoformat(),
@@ -456,7 +458,9 @@ class TestPolicySerialization:
 def test_experiment_save_and_load_name(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment("SWR-Study-2024")
-    exp_id = repo.save_experiment(ExperimentIdentity(name="SWR-Study-2024", revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name="SWR-Study-2024", revision="v1"), experiment, ctx
+    )
     loaded = repo.load_experiment(exp_id, ctx)
     assert loaded.name == "SWR-Study-2024"
 
@@ -464,7 +468,9 @@ def test_experiment_save_and_load_name(repo: SQLiteRepository) -> None:
 def test_experiment_save_and_load_description(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     loaded = repo.load_experiment(exp_id, ctx)
     assert loaded.description == experiment.description
 
@@ -472,7 +478,9 @@ def test_experiment_save_and_load_description(repo: SQLiteRepository) -> None:
 def test_experiment_save_and_load_horizon(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     loaded = repo.load_experiment(exp_id, ctx)
     assert loaded.horizon_months == 120
 
@@ -480,7 +488,9 @@ def test_experiment_save_and_load_horizon(repo: SQLiteRepository) -> None:
 def test_experiment_save_and_load_initial_wealth(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     loaded = repo.load_experiment(exp_id, ctx)
     assert loaded.initial_wealth.amount == Decimal("500000.00")
     assert loaded.initial_wealth.currency == Currency.EUR
@@ -489,7 +499,9 @@ def test_experiment_save_and_load_initial_wealth(repo: SQLiteRepository) -> None
 def test_experiment_save_and_load_cohort_dates(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     loaded = repo.load_experiment(exp_id, ctx)
     assert len(loaded.cohorts) == 2
     dates = {c.start_date for c in loaded.cohorts}
@@ -500,7 +512,9 @@ def test_experiment_save_and_load_cohort_dates(repo: SQLiteRepository) -> None:
 def test_experiment_cohort_order_preserved(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     loaded = repo.load_experiment(exp_id, ctx)
     dates = [c.start_date for c in loaded.cohorts]
     assert dates == sorted(dates)
@@ -523,7 +537,9 @@ def test_load_missing_experiment_raises(repo: SQLiteRepository) -> None:
 def test_find_experiment_by_name(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment("searchable-study")
-    exp_id = repo.save_experiment(ExperimentIdentity(name="searchable-study", revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name="searchable-study", revision="v1"), experiment, ctx
+    )
     found_id = repo.find_experiment_by_name("searchable-study")
     assert found_id == exp_id
 
@@ -552,7 +568,9 @@ def test_list_experiments(repo: SQLiteRepository) -> None:
 def test_plan_save_and_load_unit_count(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     plan = make_plan(num_units=6)
     plan_id = repo.save_plan(plan, exp_id, ctx)
     loaded = repo.load_plan(plan_id, ctx)
@@ -562,7 +580,9 @@ def test_plan_save_and_load_unit_count(repo: SQLiteRepository) -> None:
 def test_plan_unit_order_preserved(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     units = tuple(
         make_unit(month=m) for m in [3, 1, 2, 6, 4, 5]
     )
@@ -577,10 +597,14 @@ def test_plan_unit_order_preserved(repo: SQLiteRepository) -> None:
 def test_plan_parameter_config_round_trip(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     unit = PlannedSimulationUnit(
         cohort=CohortSpecification(start_date=date(2000, 1, 1)),
-        parameter_config=ParameterConfiguration(values={"withdrawal_rate": 0.04, "equity_pct": 0.75}),
+        parameter_config=ParameterConfiguration(
+            values={"withdrawal_rate": 0.04, "equity_pct": 0.75}
+        ),
         allocation_policy=DummyAllocationPolicy(),
         withdrawal_policy=DummyWithdrawalPolicy(),
         initial_portfolio=make_portfolio(),
@@ -596,7 +620,9 @@ def test_plan_parameter_config_round_trip(repo: SQLiteRepository) -> None:
 def test_plan_portfolio_round_trip(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     exact_units = "123456789.987654321"
     unit = PlannedSimulationUnit(
         cohort=CohortSpecification(start_date=date(2000, 1, 1)),
@@ -616,7 +642,9 @@ def test_plan_portfolio_round_trip(repo: SQLiteRepository) -> None:
 def test_plan_cohort_start_date_round_trip(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     unit = make_unit(month=7)
     plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
     plan_id = repo.save_plan(plan, exp_id, ctx)
@@ -627,7 +655,9 @@ def test_plan_cohort_start_date_round_trip(repo: SQLiteRepository) -> None:
 def test_plan_policy_type_round_trip(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     plan = make_plan(num_units=1)
     plan_id = repo.save_plan(plan, exp_id, ctx)
     loaded = repo.load_plan(plan_id, ctx)
@@ -645,7 +675,9 @@ def test_plan_policy_type_round_trip(repo: SQLiteRepository) -> None:
 def test_execution_result_save_and_load(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     plan = make_plan(num_units=3)
     plan_id = repo.save_plan(plan, exp_id, ctx)
 
@@ -662,7 +694,9 @@ def test_execution_result_save_and_load(repo: SQLiteRepository) -> None:
 def test_execution_result_final_wealth_round_trip(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     plan = make_plan(num_units=1)
     plan_id = repo.save_plan(plan, exp_id, ctx)
 
@@ -702,7 +736,9 @@ def test_execution_result_final_wealth_round_trip(repo: SQLiteRepository) -> Non
 def test_execution_result_success_flag_round_trip(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     plan = make_plan(num_units=2)
     plan_id = repo.save_plan(plan, exp_id, ctx)
 
@@ -746,7 +782,9 @@ def test_execution_result_success_flag_round_trip(repo: SQLiteRepository) -> Non
 def test_execution_result_unit_order_preserved(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     plan = make_plan(num_units=5)
     plan_id = repo.save_plan(plan, exp_id, ctx)
 
@@ -778,7 +816,9 @@ def test_execution_result_unit_order_preserved(repo: SQLiteRepository) -> None:
 def test_execution_result_statistics_round_trip(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     plan = make_plan(num_units=1)
     plan_id = repo.save_plan(plan, exp_id, ctx)
 
@@ -823,7 +863,9 @@ def test_load_missing_execution_result_raises(repo: SQLiteRepository) -> None:
 def test_find_result_by_plan(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()
-    exp_id = repo.save_experiment(ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
     plan = make_plan(num_units=1)
     plan_id = repo.save_plan(plan, exp_id, ctx)
 

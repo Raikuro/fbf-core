@@ -110,7 +110,7 @@ class TestDatasetJsonRoundTrip:
         d = _dataset_to_dict(_MULTI_SNAPSHOT_DATASET)
         restored = _dict_to_dataset(d)
         assert len(restored) == 2
-        for orig, rest in zip(_MULTI_SNAPSHOT_DATASET, restored):
+        for orig, rest in zip(_MULTI_SNAPSHOT_DATASET, restored, strict=True):
             assert rest.date == orig.date
             assert len(rest.index_levels) == 1
             assert list(rest.index_levels.keys())[0].id == "acwi"

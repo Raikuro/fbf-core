@@ -15,7 +15,6 @@ from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.decision_context import DecisionContext
 from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Currency, Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 
 
@@ -99,7 +98,13 @@ class TestConstantAllocationPolicy:
         assert decision.allocation_target.weights[bond] == Decimal("1.0")
 
     def test_weights_sum_to_one(self) -> None:
-        for ratio in [Decimal("0.0"), Decimal("0.25"), Decimal("0.5"), Decimal("0.75"), Decimal("1.0")]:
+        for ratio in [
+            Decimal("0.0"),
+            Decimal("0.25"),
+            Decimal("0.5"),
+            Decimal("0.75"),
+            Decimal("1.0"),
+        ]:
             policy = ConstantAllocationPolicy(equity_allocation=ratio)
             ctx = _make_context(_make_portfolio(Decimal("1000000")))
             decision = policy.decide(ctx)

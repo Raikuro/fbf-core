@@ -3,23 +3,22 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from engine.application.simulation import SimulationState
+from engine.application.simulation_context import SimulationContext
 from engine.application.steps.allocation_decision_step import AllocationDecisionStep
 from engine.application.steps.build_decision_context_step import BuildDecisionContextStep
 from engine.application.steps.market_evolution_step import MarketEvolutionStep
 from engine.application.steps.portfolio_rebalance_step import PortfolioRebalanceStep
 from engine.application.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from engine.application.steps.withdrawal_execution_step import WithdrawalExecutionStep
-from engine.application.simulation import SimulationState
-from engine.application.simulation_context import SimulationContext
-from engine.domain.model.asset import AssetClass
 from engine.domain.model.allocation import Allocation, AllocationTarget
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
-from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
-from engine.domain.services.portfolio_rebalance_service import PortfolioRebalanceService
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 
 
 class DummyDataset(Dataset):
@@ -110,8 +109,12 @@ def test_portfolio_rebalance_integration_100_equity_withdrawal_then_6040() -> No
 
     assert state.portfolio is not initial_portfolio
     assert state.current_wealth == Money(Decimal("9000.00"), Money.ZERO.currency)
-    assert state.allocation == Allocation(weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")})
-    assert state.allocation_target == AllocationTarget(weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")})
+    assert state.allocation == Allocation(
+        weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}
+    )
+    assert state.allocation_target == AllocationTarget(
+        weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}
+    )
     assert state.portfolio.holdings[0].units == Decimal("54")
     assert state.portfolio.holdings[1].units == Decimal("36")
     assert state.market_snapshot == market_snapshot

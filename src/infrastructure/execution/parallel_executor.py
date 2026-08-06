@@ -7,11 +7,11 @@ sequential execution.
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from dataclasses import dataclass
 import math
 import os
-from typing import Callable, Sequence
+from collections.abc import Callable, Sequence
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from dataclasses import dataclass
 
 from engine.application.executor import SimulationExecutor
 from engine.application.pipeline import SimulationPipeline

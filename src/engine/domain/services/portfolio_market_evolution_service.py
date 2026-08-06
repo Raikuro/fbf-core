@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from engine.domain.model.asset import AssetClass
 from engine.domain.model.allocation import Allocation
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio

@@ -3,9 +3,16 @@
 Contains optimizer abstractions for finding safe withdrawal rates and related search results.
 """
 
-from .optimizer import Optimizer, OptimizationResult
+from .optimizer import OptimizationResult, Optimizer
 from .strategy_comparator import StrategyComparator
-from .types import EvaluationResult, Evaluator, InvalidInputError, EvaluationError, RankingRule, StrategyComparisonReport
+from .types import (
+    EvaluationError,
+    EvaluationResult,
+    Evaluator,
+    InvalidInputError,
+    RankingRule,
+    StrategyComparisonReport,
+)
 
 __all__ = [
     "EvaluationResult",

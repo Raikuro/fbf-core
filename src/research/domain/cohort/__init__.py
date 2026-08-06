@@ -1,6 +1,6 @@
 """Cohort abstractions for the Research domain."""
 
-from .specification import CohortSpecification
 from .generator import CohortGenerator
+from .specification import CohortSpecification
 
 __all__ = ["CohortSpecification", "CohortGenerator"]

@@ -6,8 +6,8 @@ from engine.application.pipeline import SimulationPipeline
 from engine.application.simulation import (
     ExecutionStatus,
     SimulationResult,
-    SimulationTimeline,
     SimulationState,
+    SimulationTimeline,
 )
 from engine.application.simulation_context import SimulationContext
 from engine.application.statistics_builder import (

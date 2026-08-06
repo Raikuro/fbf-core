@@ -327,7 +327,7 @@ class TestSimulationRunnerIntegration:
         pipeline = SimulationPipeline(steps)
         runner = SimulationRunner(pipeline)
 
-        result = runner.run(context)
+        runner.run(context)
 
         # Verify execution order and count
         assert len(execution_log) == 4  # 2 steps × 2 months

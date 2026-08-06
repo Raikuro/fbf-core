@@ -5,6 +5,8 @@ from decimal import Decimal
 from typing import NoReturn
 
 from engine.application.pipeline import PipelineStep, SimulationPipeline
+from engine.application.simulation import ExecutionStatus, SimulationState
+from engine.application.simulation_context import SimulationContext
 from engine.application.steps.allocation_decision_step import AllocationDecisionStep
 from engine.application.steps.build_decision_context_step import BuildDecisionContextStep
 from engine.application.steps.market_evolution_step import MarketEvolutionStep
@@ -13,8 +15,6 @@ from engine.application.steps.portfolio_rebalance_step import PortfolioRebalance
 from engine.application.steps.simulation_state_update_step import SimulationStateUpdateStep
 from engine.application.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from engine.application.steps.withdrawal_execution_step import WithdrawalExecutionStep
-from engine.application.simulation import ExecutionStatus, SimulationState
-from engine.application.simulation_context import SimulationContext
 from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
@@ -59,7 +59,9 @@ def test_complete_pipeline_accepts_all_concrete_steps() -> None:
     assert all(isinstance(step, PipelineStep) for step in steps)
 
 
-def make_context(portfolio: Portfolio, dataset: Dataset, horizon_months: int = 2) -> SimulationContext:
+def make_context(
+    portfolio: Portfolio, dataset: Dataset, horizon_months: int = 2
+) -> SimulationContext:
     return SimulationContext(
         experiment_name="test",
         cohort="A",
@@ -74,7 +76,9 @@ def make_context(portfolio: Portfolio, dataset: Dataset, horizon_months: int = 2
 
 
 def make_dataset(market_snapshot: MarketSnapshot, market_snapshot_next: MarketSnapshot) -> Dataset:
-    return DummyDataset(snapshots=[market_snapshot, market_snapshot_next], frequency="M", version="1.0")
+    return DummyDataset(
+        snapshots=[market_snapshot, market_snapshot_next], frequency="M", version="1.0"
+    )
 
 
 def make_state(
@@ -118,7 +122,9 @@ def test_simulation_state_update_advances_snapshot_and_date() -> None:
         is_underwater=False,
         running_ath=Decimal("110"),
     )
-    dataset = DummyDataset(snapshots=[current_snapshot, next_snapshot], frequency="M", version="1.0")
+    dataset = DummyDataset(
+        snapshots=[current_snapshot, next_snapshot], frequency="M", version="1.0"
+    )
     context = make_context(portfolio, dataset)
     state = SimulationState(
         context=context,
@@ -197,7 +203,9 @@ def test_simulation_state_update_completes_at_horizon() -> None:
         is_underwater=False,
         running_ath=Decimal("110"),
     )
-    dataset = DummyDataset(snapshots=[current_snapshot, next_snapshot], frequency="M", version="1.0")
+    dataset = DummyDataset(
+        snapshots=[current_snapshot, next_snapshot], frequency="M", version="1.0"
+    )
     context = make_context(portfolio, dataset, horizon_months=1)
     state = SimulationState(
         context=context,
@@ -240,7 +248,9 @@ def test_simulation_state_update_is_deterministic() -> None:
         is_underwater=False,
         running_ath=Decimal("110"),
     )
-    dataset = DummyDataset(snapshots=[current_snapshot, next_snapshot], frequency="M", version="1.0")
+    dataset = DummyDataset(
+        snapshots=[current_snapshot, next_snapshot], frequency="M", version="1.0"
+    )
     context = make_context(portfolio, dataset)
     state_one = SimulationState(
         context=context,

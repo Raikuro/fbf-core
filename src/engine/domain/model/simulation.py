@@ -5,12 +5,12 @@ Contains simulation context, state, results, and related value objects.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Sequence
 
-from .dataset import Dataset
 from .allocation import Allocation, AllocationTarget
+from .dataset import Dataset
 from .money import Money
 
 

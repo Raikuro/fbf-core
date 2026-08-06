@@ -1,9 +1,10 @@
 """Unit tests for ExperimentDefinition domain value object."""
 
+from dataclasses import FrozenInstanceError
 from datetime import date
 from decimal import Decimal
+
 import pytest
-from dataclasses import FrozenInstanceError
 
 from engine.domain import AssetClass, Dataset, MarketSnapshot, Money
 from engine.domain.model.allocation import AllocationTarget

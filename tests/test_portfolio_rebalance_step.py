@@ -6,17 +6,17 @@ from typing import NoReturn
 
 import pytest
 
-from engine.application.steps.portfolio_rebalance_step import PortfolioRebalanceStep
 from engine.application.simulation import SimulationState
 from engine.application.simulation_context import SimulationContext
-from engine.domain.model.asset import AssetClass
+from engine.application.steps.portfolio_rebalance_step import PortfolioRebalanceStep
 from engine.domain.model.allocation import Allocation, AllocationTarget
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
+from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.policies.decisions import AllocationDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
+from engine.domain.policies.decisions import AllocationDecision
 from engine.domain.services.portfolio_rebalance_service import (
     PortfolioRebalanceResult,
     PortfolioRebalanceService,

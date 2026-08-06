@@ -7,7 +7,6 @@ CLI presentation layer and the frozen domain layer.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 

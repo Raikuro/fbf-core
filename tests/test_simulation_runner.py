@@ -353,7 +353,7 @@ class TestExecutionLoop:
             state.status = ExecutionStatus.COMPLETED
             return state
 
-        setattr(step, "execute", execute_and_complete)
+        setattr(step, "execute", execute_and_complete)  # noqa: B010
 
         context = self._create_context(horizon_months=1)
         runner.run(context)
@@ -409,7 +409,7 @@ class TestExecutionLoop:
             s.status = ExecutionStatus.COMPLETED
             return s
 
-        setattr(step1, "execute", step1_complete)
+        setattr(step1, "execute", step1_complete)  # noqa: B010
 
         pipeline = SimulationPipeline([step1, step2])
         runner = SimulationRunner(pipeline)
@@ -430,7 +430,7 @@ class TestExecutionLoop:
             s.failure_state = "Portfolio depleted"
             return s
 
-        setattr(step1, "execute", step1_fail)
+        setattr(step1, "execute", step1_fail)  # noqa: B010
 
         pipeline = SimulationPipeline([step1, step2])
         runner = SimulationRunner(pipeline)
@@ -561,7 +561,7 @@ class TestResultConstruction:
             s.status = ExecutionStatus.COMPLETED
             return s
 
-        setattr(step, "execute", step_complete)
+        setattr(step, "execute", step_complete)  # noqa: B010
 
         result = runner.run(context)
 

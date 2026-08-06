@@ -26,7 +26,7 @@ class MonthlyResultBuilderStep(PipelineStep):
             drawdown=0.0,
             cumulative_return=0.0,
             cumulative_inflation=0.0,
-            events=tuple(),
+            events=(),
         )
 
         state.monthly_results.append(monthly_result)

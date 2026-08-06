@@ -5,24 +5,28 @@ from decimal import Decimal
 
 import pytest
 
-from engine.application.steps.build_decision_context_step import BuildDecisionContextStep
 from engine.application.simulation import SimulationState
 from engine.application.simulation_context import SimulationContext
-from engine.domain.model.asset import AssetClass
+from engine.application.steps.build_decision_context_step import BuildDecisionContextStep
 from engine.domain.model.allocation import Allocation, AllocationTarget
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
+from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 
 
 class DummyAllocationPolicy(AllocationPolicy):
     def decide(self, context: object) -> AllocationDecision:
         return AllocationDecision(
             reason="dummy",
-            allocation_target=AllocationTarget(weights={AssetClass(id="dummy", name="Dummy", description="Dummy"): Decimal("1")}),
+            allocation_target=AllocationTarget(
+                weights={
+                    AssetClass(id="dummy", name="Dummy", description="Dummy"): Decimal("1")
+                }
+            ),
         )
 
 
@@ -101,16 +105,16 @@ def test_build_decision_context_step_transforms_state() -> None:
     state = make_state(portfolio, allocation, allocation_target, market_snapshot, dataset)
     step = BuildDecisionContextStep()
 
-    before_fields = dict(
-        current_date=state.current_date,
-        period_index=state.period_index,
-        portfolio=state.portfolio,
-        allocation=state.allocation,
-        allocation_target=state.allocation_target,
-        market_snapshot=state.market_snapshot,
-        current_wealth=state.current_wealth,
-        peak_wealth=state.peak_wealth,
-    )
+    before_fields = {
+        "current_date": state.current_date,
+        "period_index": state.period_index,
+        "portfolio": state.portfolio,
+        "allocation": state.allocation,
+        "allocation_target": state.allocation_target,
+        "market_snapshot": state.market_snapshot,
+        "current_wealth": state.current_wealth,
+        "peak_wealth": state.peak_wealth,
+    }
 
     updated_state = step.execute(state)
 

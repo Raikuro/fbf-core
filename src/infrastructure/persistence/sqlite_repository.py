@@ -17,7 +17,7 @@ from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol
 
 from .errors import (
@@ -34,7 +34,7 @@ from .schema import ALL_DDL, SCHEMA_VERSION
 JSONScalar = None | bool | int | float | str
 
 
-class PolicyKind(str, Enum):
+class PolicyKind(StrEnum):
     ALLOCATION = "allocation"
     WITHDRAWAL = "withdrawal"
 
@@ -95,7 +95,9 @@ def from_json_scalar(value: str) -> Any:
                 return int(value)
         except ValueError:
             return value
-    elif (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+    elif (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
         return value[1:-1]
     else:
         raise ValueError(f"Value {value} cannot be deserialized from JSONScalar")
@@ -151,8 +153,12 @@ class SerializedSimulationResult:
 
 class SimulationResultCodec(Protocol):
     """Protocol for encoding/decoding simulation results."""
+
     def dump(self, result: SimulationResult) -> SerializedSimulationResult: ...
-    def load(self, statistics_payload_json: str, monthly_payloads_json: Sequence[str]) -> SimulationResult: ...
+
+    def load(
+        self, statistics_payload_json: str, monthly_payloads_json: Sequence[str]
+    ) -> SimulationResult: ...
 
 
 @dataclass(frozen=True)
@@ -187,7 +193,7 @@ def _compute_withdrawal_amount(monthly_payload: Mapping[str, Any]) -> str:
 
 class SQLiteRepository:
     """SQLite persistence adapter implementing v0.4 specifications.
-    
+
     Exposes the public API defined in Section 12.3 and implements
     all requirements from the Infrastructure SQLite Persistence v0.4 spec.
     """
@@ -230,10 +236,13 @@ class SQLiteRepository:
             )
 
     def save_experiment(
-        self, identity: ExperimentIdentity, experiment: ExperimentDefinition, context: PersistenceReconstructionContext
+        self,
+        identity: ExperimentIdentity,
+        experiment: ExperimentDefinition,
+        context: PersistenceReconstructionContext,
     ) -> str:
         """Persist experiment definition with all associated entities.
-        
+
         Implements Section 12.3: save_experiment(identity, definition, context).
         All writes occur in a single DEFERRED transaction.
         """
@@ -247,7 +256,8 @@ class SQLiteRepository:
             ).fetchone()
             if row:
                 raise DuplicateStudyError(
-                    f"Experiment already exists with name '{identity.name}' and revision '{identity.revision}'"
+                    "Experiment already exists with name "
+                    f"'{identity.name}' and revision '{identity.revision}'"
                 )
 
         experiment_id = generate_uuid()
@@ -257,8 +267,8 @@ class SQLiteRepository:
                 conn.execute(
                     """
                     INSERT INTO experiments (
-                        experiment_id, name, revision, description, dataset_identifier, 
-                        horizon_months, initial_wealth, initial_wealth_currency, 
+                        experiment_id, name, revision, description, dataset_identifier,
+                        horizon_months, initial_wealth, initial_wealth_currency,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -277,10 +287,14 @@ class SQLiteRepository:
                 )
 
                 for i, policy in enumerate(experiment.allocation_policies):
-                    self._save_policy(conn, policy, PolicyKind.ALLOCATION, experiment_id, i, context)
+                    self._save_policy(
+                        conn, policy, PolicyKind.ALLOCATION, experiment_id, i, context
+                    )
 
                 for i, wpolicy in enumerate(experiment.withdrawal_policies):
-                    self._save_policy(conn, wpolicy, PolicyKind.WITHDRAWAL, experiment_id, i, context)
+                    self._save_policy(
+                        conn, wpolicy, PolicyKind.WITHDRAWAL, experiment_id, i, context
+                    )
 
                 for cohort in experiment.cohorts:
                     self._save_cohort(conn, experiment_id, cohort)
@@ -294,7 +308,7 @@ class SQLiteRepository:
         self, identity_or_id: str | ExperimentIdentity, context: PersistenceReconstructionContext
     ) -> ExperimentDefinition:
         """Load experiment definition with all dependent entities.
-        
+
         Implements Section 12.3: load_experiment(identity_or_id, context).
         Requires complete context for safe reconstruction.
         """
@@ -304,9 +318,9 @@ class SQLiteRepository:
             if isinstance(identity_or_id, ExperimentIdentity):
                 row = conn.execute(
                     """
-                    SELECT experiment_id, name, revision, description, dataset_identifier, 
-                           horizon_months, initial_wealth, initial_wealth_currency 
-                    FROM experiments 
+                    SELECT experiment_id, name, revision, description, dataset_identifier,
+                           horizon_months, initial_wealth, initial_wealth_currency
+                    FROM experiments
                     WHERE name = ? AND revision = ?
                     """,
                     (identity_or_id.name, identity_or_id.revision),
@@ -338,8 +352,12 @@ class SQLiteRepository:
 
             dataset = context.dataset_resolver.resolve(dataset_identifier)
 
-            allocation_policies = self._load_policies(conn, experiment_id, PolicyKind.ALLOCATION, context)
-            withdrawal_policies = self._load_policies(conn, experiment_id, PolicyKind.WITHDRAWAL, context)
+            allocation_policies = self._load_policies(
+                conn, experiment_id, PolicyKind.ALLOCATION, context
+            )
+            withdrawal_policies = self._load_policies(
+                conn, experiment_id, PolicyKind.WITHDRAWAL, context
+            )
 
             from engine.domain.model.money import Currency, Money
             from research.domain.experiment.definition import ExperimentDefinition
@@ -358,9 +376,14 @@ class SQLiteRepository:
                 withdrawal_policies=withdrawal_policies,
             )
 
-    def save_plan(self, plan: ResearchPlan, experiment_id: str, context: PersistenceReconstructionContext) -> str:
+    def save_plan(
+        self,
+        plan: ResearchPlan,
+        experiment_id: str,
+        context: PersistenceReconstructionContext,
+    ) -> str:
         """Persist research plan with all associated units and configurations.
-        
+
         Section 12.3: save_plan(plan, experiment_id, context).
         Verifies plan belongs to the experiment and is exactly reconstructed.
         """
@@ -375,7 +398,9 @@ class SQLiteRepository:
             with self._connect_immediate() as conn:
                 conn.execute(
                     """
-                    INSERT INTO research_plans (plan_id, experiment_id, created_at, unit_count, status)
+                    INSERT INTO research_plans (
+                        plan_id, experiment_id, created_at, unit_count, status
+                    )
                     VALUES (?, ?, ?, ?, ?)
                     """,
                     (
@@ -397,7 +422,7 @@ class SQLiteRepository:
 
     def load_plan(self, plan_id: str, context: PersistenceReconstructionContext) -> ResearchPlan:
         """Load research plan with all units, policies, and cohorts.
-        
+
         Implements Section 12.3: load_plan(plan_id, context).
         Returns complete plan with all dependent entities reconstructed.
         """
@@ -409,7 +434,7 @@ class SQLiteRepository:
             row = conn.execute(
                 """
                 SELECT experiment_id, created_at, unit_count, status
-                FROM research_plans 
+                FROM research_plans
                 WHERE plan_id = ?
                 """,
                 (plan_id,),
@@ -431,10 +456,14 @@ class SQLiteRepository:
             )
 
     def save_execution_result(
-        self, plan_id: str, result: ResearchExecutionResult, context: PersistenceReconstructionContext, duration_seconds: float
+        self,
+        plan_id: str,
+        result: ResearchExecutionResult,
+        context: PersistenceReconstructionContext,
+        duration_seconds: float,
     ) -> str:
         """Persist execution result with simulation statistics and timeline.
-        
+
         Section 12.3: save_execution_result(plan_id, result, context, duration).
         Atomic transaction with plan verification and status transition.
         """
@@ -494,7 +523,7 @@ class SQLiteRepository:
         self, plan_id_or_result_id: str, context: PersistenceReconstructionContext
     ) -> ResearchExecutionResult:
         """Load execution result by plan ID or result ID.
-        
+
         Implements Section 12.3: load_execution_result(plan_id_or_result_id, context).
         Returns complete result with plan and simulation data.
         """
@@ -504,7 +533,7 @@ class SQLiteRepository:
             if "-" in plan_id_or_result_id:
                 row = conn.execute(
                     """
-                    SELECT result_id, plan_id, executed_at, duration_seconds, 
+                    SELECT result_id, plan_id, executed_at, duration_seconds,
                            success_count, failure_count, total_units
                     FROM execution_results WHERE result_id = ?
                     """,
@@ -522,16 +551,34 @@ class SQLiteRepository:
 
             if not row:
                 if "-" in plan_id_or_result_id:
-                    raise ResultsNotFoundError(f"Execution result not found: {plan_id_or_result_id}")
+                    raise ResultsNotFoundError(
+                        f"Execution result not found: {plan_id_or_result_id}"
+                    )
                 else:
-                    raise StudyNotFoundError(f"Results for plan not found: {plan_id_or_result_id}")
+                    raise StudyNotFoundError(
+                        f"Results for plan not found: {plan_id_or_result_id}"
+                    )
 
             if "-" in plan_id_or_result_id:
-                result_id, plan_id, executed_at, duration_seconds, success_count, failure_count, total_units = row
+                (
+                    result_id,
+                    plan_id,
+                    executed_at,
+                    duration_seconds,
+                    success_count,
+                    failure_count,
+                    total_units,
+                ) = row
             else:
-                result_id, plan_id, executed_at, duration_seconds, success_count, failure_count, total_units = (
-                    plan_id_or_result_id,
-                ) + row
+                (
+                    result_id,
+                    plan_id,
+                    executed_at,
+                    duration_seconds,
+                    success_count,
+                    failure_count,
+                    total_units,
+                ) = (plan_id_or_result_id,) + row
 
             # Load simulation results via context codec
             loaded_sim_results = self._load_simulation_results(conn, result_id, context)
@@ -581,19 +628,20 @@ class SQLiteRepository:
 
     def find_experiment_by_name(self, name: str) -> str | None:
         """Find experiment ID by name and latest revision.
-        
+
         Query API for infrastructure layer.
         """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT experiment_id FROM experiments WHERE name = ? ORDER BY revision DESC LIMIT 1",
+                "SELECT experiment_id FROM experiments "
+                "WHERE name = ? ORDER BY revision DESC LIMIT 1",
                 (name,)
             ).fetchone()
             return row[0] if row else None
 
     def list_experiments(self) -> list[Mapping[str, Any]]:
         """List all experiments with metadata.
-        
+
         Query API for infrastructure layer.
         """
         with self._connect() as conn:
@@ -625,7 +673,7 @@ class SQLiteRepository:
 
     def find_result_by_plan(self, plan_id: str) -> str | None:
         """Find result ID for a completed plan.
-        
+
         Query API for infrastructure layer.
         """
         with self._connect() as conn:
@@ -680,7 +728,14 @@ class SQLiteRepository:
             ).fetchone()
             if not result_row:
                 return None
-            result_id, executed_at, duration_seconds, success_count, failure_count, total_units = result_row
+            (
+                result_id,
+                executed_at,
+                duration_seconds,
+                success_count,
+                failure_count,
+                total_units,
+            ) = result_row
 
             unit_rows = conn.execute(
                 """
@@ -716,13 +771,25 @@ class SQLiteRepository:
             ).fetchall()
 
             unit_success: dict[int, bool] = {}
-            for unit_index, month_index, monthly_payload_json, statistics_payload_json, final_month in sim_rows:
+            for (
+                unit_index,
+                _month_index,
+                _monthly_payload_json,
+                statistics_payload_json,
+                final_month,
+            ) in sim_rows:
                 if final_month and statistics_payload_json:
                     stats = json.loads(statistics_payload_json)
                     unit_success[unit_index] = bool(stats.get("success", False))
 
             rows: list[dict[str, Any]] = []
-            for unit_index, month_index, monthly_payload_json, statistics_payload_json, final_month in sim_rows:
+            for (
+                unit_index,
+                month_index,
+                monthly_payload_json,
+                _statistics_payload_json,
+                _final_month,
+            ) in sim_rows:
                 info = unit_info.get(unit_index, {})
                 cohort_start_date = info.get("cohort_start_date", "")
                 params = info.get("params", {})
@@ -746,7 +813,9 @@ class SQLiteRepository:
                     "created_at": created_at,
                     "executed_at": executed_at,
                     "duration_seconds": duration_seconds,
-                    "success_rate": round(success_count / total_units, 4) if total_units > 0 else 0.0,
+                    "success_rate": (
+                        round(success_count / total_units, 4) if total_units > 0 else 0.0
+                    ),
                     "total_units": total_units,
                     "success_count": success_count,
                     "failure_count": failure_count,
@@ -775,7 +844,7 @@ class SQLiteRepository:
         experiment_id: str, policy_index: int, context: PersistenceReconstructionContext
     ) -> str:
         """Save a single policy with its typed parameters.
-        
+
         Implements Section 12.1-12.2: Uses registered PolicyCodecs for serialization.
         If no matching codec is found, falls back to direct serialization for
         standard allocation/withdrawal policies.
@@ -787,7 +856,7 @@ class SQLiteRepository:
         policy_type = None
 
         # Try to find a matching codec in context
-        for (kind, ptype), codec in context.policy_codecs.items():
+        for (kind, _ptype), codec in context.policy_codecs.items():
             if kind == policy_kind.value:
                 try:
                     candidate = codec.dump(policy)
@@ -869,7 +938,7 @@ class SQLiteRepository:
         context: PersistenceReconstructionContext
     ) -> tuple[Any, ...]:
         """Load policies for an experiment in correct order.
-        
+
         Implements Section 12.1-12.2: Uses registered PolicyCodecs for reconstruction.
         Falls back to direct construction for standard policy types.
         """
@@ -937,7 +1006,8 @@ class SQLiteRepository:
         from research.domain.cohort.specification import CohortSpecification
         cohorts = []
         rows = conn.execute(
-            "SELECT start_date, cohort_ref FROM cohorts WHERE experiment_id = ? ORDER BY start_date",
+            "SELECT start_date, cohort_ref FROM cohorts "
+            "WHERE experiment_id = ? ORDER BY start_date",
             (experiment_id,),
         ).fetchall()
 
@@ -952,7 +1022,13 @@ class SQLiteRepository:
         return tuple(cohorts)
 
     def _save_unit(
-        self, conn: sqlite3.Connection, plan_id: str, unit_index: int, unit: Any, experiment_id: str, context: PersistenceReconstructionContext
+        self,
+        conn: sqlite3.Connection,
+        plan_id: str,
+        unit_index: int,
+        unit: Any,
+        experiment_id: str,
+        context: PersistenceReconstructionContext,
     ) -> str:
         """Save a simulation unit with all dependencies."""
         unit_id = generate_uuid()
@@ -992,7 +1068,9 @@ class SQLiteRepository:
 
         return unit_id
 
-    def _get_or_create_cohort_id(self, conn: sqlite3.Connection, experiment_id: str, cohort: Any) -> str:
+    def _get_or_create_cohort_id(
+        self, conn: sqlite3.Connection, experiment_id: str, cohort: Any
+    ) -> str:
         """Get existing cohort ID or create new one."""
         row = conn.execute(
             "SELECT cohort_id FROM cohorts WHERE experiment_id = ? AND start_date = ?",
@@ -1037,29 +1115,50 @@ class SQLiteRepository:
 
         return param_config_id
 
-    def _save_allocation_policy(self, conn: sqlite3.Connection, policy: Any, experiment_id: str, context: PersistenceReconstructionContext) -> str:
+    def _save_allocation_policy(
+        self,
+        conn: sqlite3.Connection,
+        policy: Any,
+        experiment_id: str,
+        context: PersistenceReconstructionContext,
+    ) -> str:
         """Save allocation policy with experiment association."""
         return self._save_policy(conn, policy, PolicyKind.ALLOCATION, experiment_id, 0, context)
 
-    def _save_withdrawal_policy(self, conn: sqlite3.Connection, policy: Any, experiment_id: str, context: PersistenceReconstructionContext) -> str:
+    def _save_withdrawal_policy(
+        self,
+        conn: sqlite3.Connection,
+        policy: Any,
+        experiment_id: str,
+        context: PersistenceReconstructionContext,
+    ) -> str:
         """Save withdrawal policy with experiment association."""
         return self._save_policy(conn, policy, PolicyKind.WITHDRAWAL, experiment_id, 0, context)
 
-    def _load_units(self, conn: sqlite3.Connection, plan_id: str, context: PersistenceReconstructionContext) -> list[Any]:
+    def _load_units(
+        self, conn: sqlite3.Connection, plan_id: str, context: PersistenceReconstructionContext
+    ) -> list[Any]:
         """Load all units for a plan in correct order."""
         rows = conn.execute(
             """
-            SELECT unit_index, cohort_id, param_config_id, allocation_policy_id, 
+            SELECT unit_index, cohort_id, param_config_id, allocation_policy_id,
                    withdrawal_policy_id, initial_portfolio_json
-            FROM planned_units 
-            WHERE plan_id = ? 
+            FROM planned_units
+            WHERE plan_id = ?
             ORDER BY unit_index
             """,
             (plan_id,),
         ).fetchall()
 
         units = []
-        for unit_index, cohort_id, param_config_id, allocation_policy_id, withdrawal_policy_id, initial_portfolio_json in rows:
+        for (
+            _unit_index,
+            cohort_id,
+            param_config_id,
+            allocation_policy_id,
+            withdrawal_policy_id,
+            initial_portfolio_json,
+        ) in rows:
             from research.domain.plan import PlannedSimulationUnit
             cohort = self._load_cohort_by_id(conn, cohort_id)
             param_config = self._load_parameter_config(conn, param_config_id)
@@ -1110,17 +1209,23 @@ class SQLiteRepository:
         from research.domain.parameter.configuration import ParameterConfiguration
         return ParameterConfiguration(values=json.loads(row[0]))
 
-    def _load_allocation_policy(self, conn: sqlite3.Connection, policy_id: str, context: PersistenceReconstructionContext) -> Any:
+    def _load_allocation_policy(
+        self, conn: sqlite3.Connection, policy_id: str, context: PersistenceReconstructionContext
+    ) -> Any:
         """Load allocation policy by ID."""
         return self._load_policy(conn, policy_id, context)
 
-    def _load_withdrawal_policy(self, conn: sqlite3.Connection, policy_id: str, context: PersistenceReconstructionContext) -> Any:
+    def _load_withdrawal_policy(
+        self, conn: sqlite3.Connection, policy_id: str, context: PersistenceReconstructionContext
+    ) -> Any:
         """Load withdrawal policy by ID."""
         return self._load_policy(conn, policy_id, context)
 
-    def _load_policy(self, conn: sqlite3.Connection, policy_id: str, context: PersistenceReconstructionContext) -> Any:
+    def _load_policy(
+        self, conn: sqlite3.Connection, policy_id: str, context: PersistenceReconstructionContext
+    ) -> Any:
         """Load policy by ID from policies table.
-        
+
         Uses context.codecs for reconstruction when a registered codec exists.
         """
         row = conn.execute(
@@ -1174,7 +1279,7 @@ class SQLiteRepository:
 
     def _make_asset(self, asset_class_id: str) -> Any:
         """Create a minimal AssetClass for reconstruction.
-        
+
         This is a minimal implementation that should be replaced with the
         proper AssetClass resolution in a real implementation.
         """
@@ -1193,17 +1298,30 @@ class SQLiteRepository:
         exp_id: str = row[0]
         return exp_id
 
-    def _save_simulation_results(self, conn: sqlite3.Connection, result_id: str, simulation_results: tuple[Any, ...], context: PersistenceReconstructionContext) -> None:
+    def _save_simulation_results(
+        self,
+        conn: sqlite3.Connection,
+        result_id: str,
+        simulation_results: tuple[Any, ...],
+        context: PersistenceReconstructionContext,
+    ) -> None:
         """Save all simulation results for a result ID.
-        
+
         Uses context.simulation_result_codec for serialization.
         """
         for unit_index, unit_result in enumerate(simulation_results):
             self._save_simulation_result(conn, result_id, unit_index, unit_result, context)
 
-    def _save_simulation_result(self, conn: sqlite3.Connection, result_id: str, unit_index: int, unit_result: Any, context: PersistenceReconstructionContext) -> None:
+    def _save_simulation_result(
+        self,
+        conn: sqlite3.Connection,
+        result_id: str,
+        unit_index: int,
+        unit_result: Any,
+        context: PersistenceReconstructionContext,
+    ) -> None:
         """Save a single simulation result with timeline and statistics.
-        
+
         Section 12.1: Uses registered SimulationResultCodec for serialization.
         """
         # Use context codec for serialization
@@ -1239,17 +1357,20 @@ class SQLiteRepository:
                 ),
             )
 
-    def _load_simulation_results(self, conn: sqlite3.Connection, result_id: str, context: PersistenceReconstructionContext) -> Any:
+    def _load_simulation_results(
+        self, conn: sqlite3.Connection, result_id: str, context: PersistenceReconstructionContext
+    ) -> Any:
         """Load simulation results ordered by unit and month.
-        
+
         Section 12.1-12.2: Uses registered SimulationResultCodec for reconstruction.
         Groups monthly rows per unit, then calls codec.load() once per unit.
         """
         rows = conn.execute(
             """
-            SELECT unit_index, month_index, monthly_payload_json, statistics_payload_json, final_month
+            SELECT unit_index, month_index, monthly_payload_json,
+                   statistics_payload_json, final_month
             FROM simulation_results
-            WHERE execution_result_id = ? 
+            WHERE execution_result_id = ?
             ORDER BY unit_index, month_index
             """,
             (result_id,),
@@ -1257,7 +1378,13 @@ class SQLiteRepository:
 
         # Group rows by unit_index
         units_data: OrderedDict[int, dict[str, Any]] = OrderedDict()
-        for unit_index, month_index, monthly_payload_json, statistics_payload_json, final_month in rows:
+        for (
+            unit_index,
+            _month_index,
+            monthly_payload_json,
+            statistics_payload_json,
+            final_month,
+        ) in rows:
             if unit_index not in units_data:
                 units_data[unit_index] = {"monthly_payloads": [], "statistics_payload": None}
             units_data[unit_index]["monthly_payloads"].append(monthly_payload_json)
@@ -1288,11 +1415,10 @@ class SQLiteRepository:
                 return operation(*args, **kwargs)
             except sqlite3.OperationalError as e:
                 last_error = e
-                if "database is locked" in str(e).lower():
-                    if i < len(retry_delays):
-                        import time
-                        time.sleep(retry_delays[i] / 1000.0)
-                        continue
+                if "database is locked" in str(e).lower() and i < len(retry_delays):
+                    import time
+                    time.sleep(retry_delays[i] / 1000.0)
+                    continue
         if last_error:
             raise last_error
         raise PersistenceError("Maximum retries exceeded")

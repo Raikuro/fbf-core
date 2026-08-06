@@ -128,7 +128,8 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_plans_experiment ON research_plans(experiment_id);",
     "CREATE INDEX IF NOT EXISTS idx_units_plan ON planned_units(plan_id, unit_index);",
     "CREATE INDEX IF NOT EXISTS idx_results_plan ON execution_results(plan_id);",
-    "CREATE INDEX IF NOT EXISTS idx_results_execution ON simulation_results(execution_result_id, unit_index, month_index);",
+    "CREATE INDEX IF NOT EXISTS idx_results_execution ON "
+    "simulation_results(execution_result_id, unit_index, month_index);",
 ]
 
 ALL_DDL = [

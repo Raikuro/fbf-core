@@ -6,11 +6,10 @@ sequences from historical Dataset snapshots.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
-from typing import Sequence
 
 from engine.domain.model.dataset import Dataset
-
 from research.domain.cohort.specification import CohortSpecification
 
 

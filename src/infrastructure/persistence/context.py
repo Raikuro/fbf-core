@@ -27,7 +27,6 @@ from infrastructure.persistence.sqlite_repository import (
     PersistenceReconstructionContext,
 )
 
-
 # ---------------------------------------------------------------------------
 # Private helpers: Dataset ↔ dict (JSON-safe format)
 # ---------------------------------------------------------------------------

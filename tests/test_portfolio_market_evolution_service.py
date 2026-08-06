@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from engine.domain.model.asset import AssetClass
 from engine.domain.model.allocation import Allocation
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
@@ -30,7 +30,12 @@ def make_portfolio() -> Portfolio:
     )
 
 
-def make_snapshot(asset_a: AssetClass, asset_b: AssetClass, price_a: Decimal, price_b: Decimal) -> MarketSnapshot:
+def make_snapshot(
+    asset_a: AssetClass,
+    asset_b: AssetClass,
+    price_a: Decimal,
+    price_b: Decimal,
+) -> MarketSnapshot:
     return DummyMarketSnapshot(
         date=date(2000, 1, 1),
         index_levels={asset_a: price_a, asset_b: price_b},
@@ -51,10 +56,15 @@ def test_market_evolution_preserves_units_and_returns_new_portfolio() -> None:
     result = service.apply_market_evolution(portfolio, snapshot)
 
     assert result.portfolio is not portfolio
-    assert [holding.units for holding in result.portfolio.holdings] == [Decimal("10"), Decimal("20")]
+    assert [holding.units for holding in result.portfolio.holdings] == [
+        Decimal("10"),
+        Decimal("20"),
+    ]
     assert [holding.asset_class for holding in result.portfolio.holdings] == [asset_a, asset_b]
     assert result.current_value == Money(Decimal("5000"), Money.ZERO.currency)
-    assert result.allocation == Allocation(weights={asset_a: Decimal("0.2"), asset_b: Decimal("0.8")})
+    assert result.allocation == Allocation(
+        weights={asset_a: Decimal("0.2"), asset_b: Decimal("0.8")}
+    )
 
 
 def test_market_evolution_handles_negative_returns() -> None:
@@ -66,7 +76,9 @@ def test_market_evolution_handles_negative_returns() -> None:
     result = service.apply_market_evolution(portfolio, snapshot)
 
     assert result.current_value == Money(Decimal("2500"), Money.ZERO.currency)
-    assert result.allocation == Allocation(weights={asset_a: Decimal("0.2"), asset_b: Decimal("0.8")})
+    assert result.allocation == Allocation(
+        weights={asset_a: Decimal("0.2"), asset_b: Decimal("0.8")}
+    )
 
 
 def test_market_evolution_handles_zero_returns() -> None:
@@ -78,7 +90,12 @@ def test_market_evolution_handles_zero_returns() -> None:
     result = service.apply_market_evolution(portfolio, snapshot)
 
     assert result.current_value == Money(Decimal("0"), Money.ZERO.currency)
-    assert result.allocation == Allocation(weights={asset_a: Decimal("0.3333333333333333333333333333"), asset_b: Decimal("0.6666666666666666666666666667")})
+    assert result.allocation == Allocation(
+        weights={
+            asset_a: Decimal("0.3333333333333333333333333333"),
+            asset_b: Decimal("0.6666666666666666666666666667"),
+        }
+    )
 
 
 def test_market_evolution_preserves_allocation_when_returns_are_identical() -> None:
@@ -89,7 +106,12 @@ def test_market_evolution_preserves_allocation_when_returns_are_identical() -> N
 
     result = service.apply_market_evolution(portfolio, snapshot)
 
-    assert result.allocation == Allocation(weights={asset_a: Decimal("0.3333333333333333333333333333"), asset_b: Decimal("0.6666666666666666666666666667")})
+    assert result.allocation == Allocation(
+        weights={
+            asset_a: Decimal("0.3333333333333333333333333333"),
+            asset_b: Decimal("0.6666666666666666666666666667"),
+        }
+    )
 
 
 def test_market_evolution_is_deterministic() -> None:
@@ -114,7 +136,9 @@ def test_market_evolution_recalculates_allocation_when_returns_differ() -> None:
 
     result = service.apply_market_evolution(portfolio, snapshot)
 
-    assert result.allocation == Allocation(weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")})
+    assert result.allocation == Allocation(
+        weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}
+    )
 
 
 def test_market_evolution_raises_when_price_missing() -> None:

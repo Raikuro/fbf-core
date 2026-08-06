@@ -6,7 +6,7 @@ This module contains the Money value object used by monetary calculations.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from enum import Enum
 from typing import Any, ClassVar
 
@@ -31,7 +31,7 @@ class Money:
     amount: Decimal
     currency: Currency
 
-    ZERO: ClassVar["Money"]
+    ZERO: ClassVar[Money]
 
     def __post_init__(self) -> None:
         if not isinstance(self.amount, Decimal):
@@ -42,7 +42,7 @@ class Money:
             raise ValueError("Money.amount must not be NaN")
 
     @classmethod
-    def zero(cls) -> "Money":
+    def zero(cls) -> Money:
         return cls.ZERO
 
     def __add__(self, other: Money) -> Money:

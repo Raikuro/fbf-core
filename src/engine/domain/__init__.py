@@ -18,10 +18,10 @@ from .model.simulation import (
     SimulationStatistics,
     SimulationTimeline,
 )
-from .optimizer.optimizer import Optimizer, OptimizationResult
+from .optimizer.optimizer import OptimizationResult, Optimizer
 from .policies.allocation_policy import AllocationPolicy
-from .policies.policy import Policy
 from .policies.decisions import AllocationDecision, PolicyDecision, WithdrawalDecision
+from .policies.policy import Policy
 from .policies.withdrawal_policy import WithdrawalPolicy
 from .validation.validation import ValidationResult
 

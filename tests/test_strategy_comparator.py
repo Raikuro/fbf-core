@@ -1,6 +1,6 @@
 """Tests for StrategyComparator."""
 
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 
 import pytest
@@ -67,7 +67,11 @@ def test_strategy_comparator_basic_functionality() -> None:
         "strategy1": EvaluationResult(
             label="strategy1",
             metrics={"sharpe_ratio": Decimal("1.5"), "max_drawdown": Decimal("-0.2")},
-            provenance={"experiment1": ["unit1", "unit2"], "cohort": ["c1"], "parameter_config": ["p1"]},
+            provenance={
+                "experiment1": ["unit1", "unit2"],
+                "cohort": ["c1"],
+                "parameter_config": ["p1"],
+            },
         ),
         "strategy2": EvaluationResult(
             label="strategy2",

@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence, Union, MutableMapping, cast
+from collections.abc import Mapping, MutableMapping, Sequence
 from decimal import Decimal
+from typing import Any, cast
 
 from .types import (
+    EvaluationError,
     EvaluationResult,
     Evaluator,
+    GroupingDimension,
     InvalidInputError,
     RankingRule,
     StrategyComparisonReport,
-    GroupingDimension,
-    EvaluationError,
 )
 
 
@@ -31,7 +32,7 @@ class StrategyComparator:
 
     def compare(
         self,
-        strategy_map: Mapping[str, Union[Sequence[EvaluationResult], Evaluator]],
+        strategy_map: Mapping[str, Sequence[EvaluationResult] | Evaluator],
         group_by: GroupingDimension = "global",
     ) -> StrategyComparisonReport:
         """
@@ -71,7 +72,9 @@ class StrategyComparator:
             if isinstance(source, Sequence):
                 return cast(Sequence[EvaluationResult], source)
 
-            raise InvalidInputError("strategy source must be an Evaluator or a sequence of EvaluationResult")
+            raise InvalidInputError(
+                "strategy source must be an Evaluator or a sequence of EvaluationResult"
+            )
 
         # Aggregation structures (use Decimal for numeric sums)
         aggregated: MutableMapping[str, MutableMapping[str, MutableMapping[str, Decimal]]] = {}
@@ -93,14 +96,19 @@ class StrategyComparator:
                     if not ids or len(ids) == 0:
                         raise InvalidInputError("missing cohort provenance for grouping")
                     if len(ids) != 1:
-                        raise InvalidInputError("provenance['cohort'] must contain exactly one canonical identifier")
+                        raise InvalidInputError(
+                            "provenance['cohort'] must contain exactly one canonical identifier"
+                        )
                     gkey = ids[0]
                 elif group_by == "parameter_config":
                     ids = ev.provenance.get("parameter_config")
                     if not ids or len(ids) == 0:
                         raise InvalidInputError("missing parameter_config provenance for grouping")
                     if len(ids) != 1:
-                        raise InvalidInputError("provenance['parameter_config'] must contain exactly one canonical identifier")
+                        raise InvalidInputError(
+                            "provenance['parameter_config'] must contain exactly one "
+                            "canonical identifier"
+                        )
                     gkey = ids[0]
                 else:
                     raise InvalidInputError(f"invalid group_by: {group_by}")
@@ -121,10 +129,7 @@ class StrategyComparator:
                         val_d = Decimal(0)
                     else:
                         # ensure Decimal arithmetic
-                        if isinstance(val, Decimal):
-                            val_d = val
-                        else:
-                            val_d = Decimal(str(val))
+                        val_d = val if isinstance(val, Decimal) else Decimal(str(val))
 
                     existing = aggregated[gkey][label].get(m)
                     if existing is None:
@@ -138,10 +143,14 @@ class StrategyComparator:
 
                 # append provenance ids
                 for prov_vals in ev.provenance.values():
-                    provenance_map[gkey][label] = list(provenance_map[gkey][label]) + list(prov_vals)
+                    provenance_map[gkey][label] = (
+                        list(provenance_map[gkey][label]) + list(prov_vals)
+                    )
 
         # Finalize averages and prepare ranking
-        final_aggregated: MutableMapping[str, MutableMapping[str, MutableMapping[str, Decimal]]] = {}
+        final_aggregated: MutableMapping[
+            str, MutableMapping[str, MutableMapping[str, Decimal]]
+        ] = {}
         ranking_map: MutableMapping[str, Sequence[str]] = {}
 
         for gkey, per_label in aggregated.items():
@@ -151,13 +160,18 @@ class StrategyComparator:
                 final_aggregated[gkey][label] = {}
                 for m, total in metrics_map.items():
                     count = counts[gkey][label].get(m, 1)
-                    final_aggregated[gkey][label][m] = (total / Decimal(count)) if count > 0 else Decimal(0)
+                    final_aggregated[gkey][label][m] = (
+                        (total / Decimal(count)) if count > 0 else Decimal(0)
+                    )
 
             # ranking: sort labels by primary metric descending, then tie_breakers, then label
-            def sort_key(label_name: str) -> tuple[Any, ...]:
-                primary = final_aggregated[gkey][label_name].get(self._ranking_rule.primary_metric, Decimal(0))
+            def sort_key(label_name: str, *, _group_key: str = gkey) -> tuple[Any, ...]:
+                primary = final_aggregated[_group_key][label_name].get(
+                    self._ranking_rule.primary_metric, Decimal(0)
+                )
                 tie_values = [
-                    final_aggregated[gkey][label_name].get(tb, Decimal(0)) for tb in self._ranking_rule.tie_breakers
+                    final_aggregated[_group_key][label_name].get(tb, Decimal(0))
+                    for tb in self._ranking_rule.tie_breakers
                 ]
                 # negative numeric values to sort descending; label_name ascending as final tiebreak
                 negs = (-primary, ) + tuple(-v for v in tie_values)

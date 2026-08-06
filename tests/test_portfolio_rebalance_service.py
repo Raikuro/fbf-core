@@ -3,10 +3,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-import pytest
-
-from engine.domain.model.asset import AssetClass
 from engine.domain.model.allocation import Allocation, AllocationTarget
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
@@ -52,7 +50,9 @@ def test_portfolio_rebalance_service_executes_proportional_multi_asset_rebalance
 
     decision = AllocationDecision(
         reason="test",
-        allocation_target=AllocationTarget(weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}),
+        allocation_target=AllocationTarget(
+            weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}
+        ),
     )
 
     result = service.execute_rebalance(portfolio, decision, snapshot)
@@ -60,7 +60,9 @@ def test_portfolio_rebalance_service_executes_proportional_multi_asset_rebalance
     assert isinstance(result, PortfolioRebalanceResult)
     assert result.portfolio is not portfolio
     assert result.current_value == Money(Decimal("40"), Money.ZERO.currency)
-    assert result.allocation == Allocation(weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")})
+    assert result.allocation == Allocation(
+        weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}
+    )
     assert result.allocation_target is decision.allocation_target
 
 
@@ -71,18 +73,24 @@ def test_portfolio_rebalance_service_preserves_wealth_exactly() -> None:
     service = PortfolioRebalanceService()
     decision = AllocationDecision(
         reason="test",
-        allocation_target=AllocationTarget(weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}),
+        allocation_target=AllocationTarget(
+            weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}
+        ),
     )
 
     before_value = Money.ZERO
     for holding in portfolio.holdings:
-        before_value += Money(holding.units * snapshot.index_levels[holding.asset_class], Money.ZERO.currency)
+        before_value += Money(
+            holding.units * snapshot.index_levels[holding.asset_class], Money.ZERO.currency
+        )
 
     result = service.execute_rebalance(portfolio, decision, snapshot)
 
     after_value = Money.ZERO
     for holding in result.portfolio.holdings:
-        after_value += Money(holding.units * snapshot.index_levels[holding.asset_class], Money.ZERO.currency)
+        after_value += Money(
+            holding.units * snapshot.index_levels[holding.asset_class], Money.ZERO.currency
+        )
 
     assert before_value == after_value
     assert before_value == result.current_value
@@ -95,16 +103,22 @@ def test_portfolio_rebalance_service_preserves_trade_value() -> None:
     service = PortfolioRebalanceService()
     decision = AllocationDecision(
         reason="test",
-        allocation_target=AllocationTarget(weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}),
+        allocation_target=AllocationTarget(
+            weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}
+        ),
     )
 
     result = service.execute_rebalance(portfolio, decision, snapshot)
 
     buy_value = Money.ZERO
     sell_value = Money.ZERO
-    for before, after in zip(portfolio.holdings, result.portfolio.holdings):
-        before_value = Money(before.units * snapshot.index_levels[before.asset_class], Money.ZERO.currency)
-        after_value = Money(after.units * snapshot.index_levels[after.asset_class], Money.ZERO.currency)
+    for before, after in zip(portfolio.holdings, result.portfolio.holdings, strict=True):
+        before_value = Money(
+            before.units * snapshot.index_levels[before.asset_class], Money.ZERO.currency
+        )
+        after_value = Money(
+            after.units * snapshot.index_levels[after.asset_class], Money.ZERO.currency
+        )
         diff = after_value - before_value
         if diff.amount > 0:
             buy_value += diff
@@ -121,7 +135,9 @@ def test_portfolio_rebalance_service_is_idempotent() -> None:
     service = PortfolioRebalanceService()
     decision = AllocationDecision(
         reason="test",
-        allocation_target=AllocationTarget(weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}),
+        allocation_target=AllocationTarget(
+            weights={asset_a: Decimal("0.6"), asset_b: Decimal("0.4")}
+        ),
     )
 
     first = service.execute_rebalance(portfolio, decision, snapshot)
@@ -151,7 +167,9 @@ def test_portfolio_rebalance_service_is_order_independent() -> None:
     service = PortfolioRebalanceService()
     decision = AllocationDecision(
         reason="test",
-        allocation_target=AllocationTarget(weights={asset_a: Decimal("0.5"), asset_b: Decimal("0.5")}),
+        allocation_target=AllocationTarget(
+            weights={asset_a: Decimal("0.5"), asset_b: Decimal("0.5")}
+        ),
     )
 
     first = service.execute_rebalance(portfolio_one, decision, snapshot)
@@ -176,7 +194,9 @@ def test_portfolio_rebalance_service_returns_new_portfolio_for_already_balanced_
     service = PortfolioRebalanceService()
     decision = AllocationDecision(
         reason="test",
-        allocation_target=AllocationTarget(weights={asset_a: Decimal("0.5"), asset_b: Decimal("0.5")}),
+        allocation_target=AllocationTarget(
+            weights={asset_a: Decimal("0.5"), asset_b: Decimal("0.5")}
+        ),
     )
 
     result = service.execute_rebalance(portfolio, decision, snapshot)
@@ -184,4 +204,6 @@ def test_portfolio_rebalance_service_returns_new_portfolio_for_already_balanced_
     assert result.portfolio is not portfolio
     assert result.portfolio.holdings == portfolio.holdings
     assert result.current_value == Money(Decimal("40"), Money.ZERO.currency)
-    assert result.allocation == Allocation(weights={asset_a: Decimal("0.5"), asset_b: Decimal("0.5")})
+    assert result.allocation == Allocation(
+        weights={asset_a: Decimal("0.5"), asset_b: Decimal("0.5")}
+    )

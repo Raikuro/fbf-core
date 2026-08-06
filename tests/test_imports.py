@@ -1,4 +1,4 @@
-from engine import domain, application
+from engine import application, domain
 
 
 def test_engine_packages_importable() -> None:

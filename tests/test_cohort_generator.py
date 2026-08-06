@@ -13,7 +13,6 @@ import pytest
 from engine.domain import AssetClass, Dataset, MarketSnapshot
 from research import CohortGenerator, CohortSpecification
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -450,7 +449,6 @@ class TestOutputGuarantees:
     ) -> None:
         from dataclasses import FrozenInstanceError
 
-        snap_dates = [s.date for s in dataset_100.snapshots]
         cohorts = CohortGenerator.generate_rolling_monthly(dataset_100, 12)
         with pytest.raises(FrozenInstanceError):
             cohorts[0].start_date = date(2000, 1, 1)  # type: ignore[misc]

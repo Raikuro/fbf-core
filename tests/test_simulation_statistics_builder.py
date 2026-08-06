@@ -10,7 +10,6 @@ from pathlib import Path
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
@@ -25,11 +24,10 @@ from engine.domain.model.allocation import Allocation, AllocationTarget
 from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Money, Currency
-from engine.domain.model.portfolio import Portfolio, AssetHolding
+from engine.domain.model.money import Currency, Money
+from engine.domain.model.portfolio import Portfolio
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
 from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
-
 
 # ============================================================================
 # Test Fixtures
@@ -75,7 +73,13 @@ class _NoopWithdrawalPolicy(WithdrawalPolicy):
         )
 
 
-def create_test_context(initial_wealth: Money = Money(Decimal("500000"), Currency.EUR)) -> SimulationContext:
+_DEFAULT_INITIAL_WEALTH = Money(Decimal("500000"), Currency.EUR)
+_DEFAULT_CURRENT_WEALTH = Money(Decimal("600000"), Currency.EUR)
+
+
+def create_test_context(
+    initial_wealth: Money = _DEFAULT_INITIAL_WEALTH,
+) -> SimulationContext:
     """Create a test SimulationContext."""
     # Create minimal portfolio for initial_portfolio required field
     portfolio = Portfolio(holdings=[])
@@ -118,14 +122,14 @@ def create_test_monthly_result(date_: date, index: int) -> MonthlyResult:
 def create_test_state(
     status: ExecutionStatus = ExecutionStatus.COMPLETED,
     failure_state: str | None = None,
-    current_wealth: Money | None = Money(Decimal("600000"), Currency.EUR),
+    current_wealth: Money | None = _DEFAULT_CURRENT_WEALTH,
     period_index: int = 12,
     monthly_count: int = 12,
 ) -> SimulationState:
     """Create a test SimulationState with customizable parameters."""
     initial_wealth = Money(Decimal("500000"), Currency.EUR)
     context = create_test_context(initial_wealth)
-    
+
     # Create proper dates that don't overflow months
     monthly_results = []
     for i in range(monthly_count):
@@ -138,15 +142,14 @@ def create_test_state(
             month -= 12
         month_date = date(year, month, 1)
         monthly_results.append(create_test_monthly_result(month_date, i))
-    
+
     # Use the final date from monthly_results or a default
-    if monthly_results:
-        current_date = monthly_results[-1].date
-    else:
-        current_date = date(2024, 1, 1)
-    
+    current_date = (
+        monthly_results[-1].date if monthly_results else date(2024, 1, 1)
+    )
+
     portfolio = Portfolio(holdings=[])
-    
+
     return SimulationState(
         context=context,
         current_date=current_date,
@@ -171,18 +174,18 @@ class TestFinalWealth:
         """final_wealth should use state.current_wealth when available."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(current_wealth=Money(Decimal("750000"), Currency.EUR))
-        
+
         stats = builder.build(state)
-        
+
         assert stats.final_wealth == Money(Decimal("750000"), Currency.EUR)
 
     def test_final_wealth_fallback_to_initial(self) -> None:
         """final_wealth should fallback to initial_wealth when current_wealth is None."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(current_wealth=None)
-        
+
         stats = builder.build(state)
-        
+
         assert stats.final_wealth == Money(Decimal("500000"), Currency.EUR)
 
     def test_final_wealth_preserves_money_type(self) -> None:
@@ -190,9 +193,9 @@ class TestFinalWealth:
         builder = DefaultSimulationStatisticsBuilder()
         wealth = Money(Decimal("1234567"), Currency.EUR)
         state = create_test_state(current_wealth=wealth)
-        
+
         stats = builder.build(state)
-        
+
         assert isinstance(stats.final_wealth, Money)
         assert stats.final_wealth == wealth
 
@@ -207,9 +210,9 @@ class TestSuccessFlag:
             status=ExecutionStatus.COMPLETED,
             failure_state=None,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is True
 
     def test_success_false_on_failure_state(self) -> None:
@@ -219,9 +222,9 @@ class TestSuccessFlag:
             status=ExecutionStatus.COMPLETED,
             failure_state="Portfolio depleted",
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is False
 
     def test_success_false_on_failed_status(self) -> None:
@@ -231,9 +234,9 @@ class TestSuccessFlag:
             status=ExecutionStatus.FAILED,
             failure_state=None,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is False
 
     def test_success_false_on_running_status(self) -> None:
@@ -243,9 +246,9 @@ class TestSuccessFlag:
             status=ExecutionStatus.RUNNING,
             failure_state=None,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is False
 
     def test_success_false_when_failed_and_failure_state_set(self) -> None:
@@ -255,9 +258,9 @@ class TestSuccessFlag:
             status=ExecutionStatus.FAILED,
             failure_state="Portfolio depleted",
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is False
 
 
@@ -271,9 +274,9 @@ class TestFailureMonth:
             failure_state="Portfolio depleted",
             period_index=8,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.failure_month == 8
 
     def test_failure_month_none_on_success(self) -> None:
@@ -283,9 +286,9 @@ class TestFailureMonth:
             status=ExecutionStatus.COMPLETED,
             failure_state=None,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.failure_month is None
 
     def test_failure_month_zero_on_immediate_failure(self) -> None:
@@ -295,9 +298,9 @@ class TestFailureMonth:
             failure_state="Insufficient portfolio",
             period_index=0,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.failure_month == 0
 
     def test_failure_month_reflects_period_index(self) -> None:
@@ -308,9 +311,9 @@ class TestFailureMonth:
                 failure_state="Failed",
                 period_index=period,
             )
-            
+
             stats = builder.build(state)
-            
+
             assert stats.failure_month == period
 
 
@@ -321,45 +324,45 @@ class TestMonthsSimulated:
         """months_simulated should equal the length of monthly_results."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=12)
-        
+
         stats = builder.build(state)
-        
+
         assert stats.months_simulated == 12
 
     def test_months_simulated_single_month(self) -> None:
         """months_simulated should be 1 for single-month simulation."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=1)
-        
+
         stats = builder.build(state)
-        
+
         assert stats.months_simulated == 1
 
     def test_months_simulated_zero_months(self) -> None:
         """months_simulated should be 0 for zero-month simulation."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=0)
-        
+
         stats = builder.build(state)
-        
+
         assert stats.months_simulated == 0
 
     def test_months_simulated_many_months(self) -> None:
         """months_simulated should handle large month counts."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=240)  # 20 years
-        
+
         stats = builder.build(state)
-        
+
         assert stats.months_simulated == 240
 
     def test_months_simulated_independent_of_period_index(self) -> None:
         """months_simulated should depend only on timeline length, not period_index."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=12, period_index=5)
-        
+
         stats = builder.build(state)
-        
+
         # Should be 12 (timeline length), not 5 (period_index)
         assert stats.months_simulated == 12
 
@@ -371,30 +374,30 @@ class TestPlaceholderMetrics:
         """max_drawdown should be 0.0 (placeholder)."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
-        
+
         stats = builder.build(state)
-        
+
         assert stats.max_drawdown == 0.0
 
     def test_execution_time_placeholder_value(self) -> None:
         """execution_time_seconds should be 0.0 (placeholder)."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
-        
+
         stats = builder.build(state)
-        
+
         assert stats.execution_time_seconds == 0.0
 
     def test_placeholder_metrics_consistent_across_scenarios(self) -> None:
         """Placeholder metrics should always be 0.0 regardless of scenario."""
         builder = DefaultSimulationStatisticsBuilder()
-        
+
         # Successful simulation
         state1 = create_test_state(status=ExecutionStatus.COMPLETED, failure_state=None)
         stats1 = builder.build(state1)
         assert stats1.max_drawdown == 0.0
         assert stats1.execution_time_seconds == 0.0
-        
+
         # Failed simulation
         state2 = create_test_state(status=ExecutionStatus.FAILED, failure_state="Error")
         stats2 = builder.build(state2)
@@ -409,14 +412,14 @@ class TestResultImmutability:
         """Returned SimulationStatistics should be immutable (frozen)."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
-        
+
         stats = builder.build(state)
-        
+
         # Attempting to modify should raise FrozenInstanceError
         try:
             stats.final_wealth = Money(Decimal("999999"), Currency.EUR)  # type: ignore[misc]
-            assert False, "Should not be able to modify frozen dataclass"
-        except (AttributeError, Exception) as e:
+            raise AssertionError("Should not be able to modify frozen dataclass")
+        except (AttributeError, Exception):
             # frozen=True raises AttributeError or similar
             assert True
 
@@ -424,9 +427,9 @@ class TestResultImmutability:
         """SimulationStatistics should have only immutable field types."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
-        
+
         stats = builder.build(state)
-        
+
         # Verify all fields are immutable types
         assert isinstance(stats.final_wealth, Money)
         assert isinstance(stats.max_drawdown, float)
@@ -443,10 +446,10 @@ class TestDeterminism:
         """Calling build twice with same state should produce identical results."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
-        
+
         stats1 = builder.build(state)
         stats2 = builder.build(state)
-        
+
         assert stats1.final_wealth == stats2.final_wealth
         assert stats1.max_drawdown == stats2.max_drawdown
         assert stats1.success == stats2.success
@@ -457,13 +460,13 @@ class TestDeterminism:
     def test_builder_instance_does_not_affect_determinism(self) -> None:
         """Different builder instances should produce identical statistics."""
         state = create_test_state()
-        
+
         builder1 = DefaultSimulationStatisticsBuilder()
         builder2 = DefaultSimulationStatisticsBuilder()
-        
+
         stats1 = builder1.build(state)
         stats2 = builder2.build(state)
-        
+
         assert stats1.final_wealth == stats2.final_wealth
         assert stats1.success == stats2.success
 
@@ -479,9 +482,9 @@ class TestEdgeCases:
             failure_state=None,
             monthly_count=0,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is True
         assert stats.failure_month is None
         assert stats.months_simulated == 0
@@ -495,9 +498,9 @@ class TestEdgeCases:
             period_index=0,
             monthly_count=1,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is False
         assert stats.failure_month == 0
         assert stats.months_simulated == 1
@@ -511,9 +514,9 @@ class TestEdgeCases:
             period_index=239,
             monthly_count=240,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is False
         assert stats.failure_month == 239
         assert stats.months_simulated == 240
@@ -521,17 +524,17 @@ class TestEdgeCases:
     def test_wealth_at_boundaries(self) -> None:
         """Wealth values at monetary boundaries should be handled correctly."""
         builder = DefaultSimulationStatisticsBuilder()
-        
+
         # Very large wealth
         state1 = create_test_state(current_wealth=Money(Decimal("999999999999"), Currency.EUR))
         stats1 = builder.build(state1)
         assert stats1.final_wealth == Money(Decimal("999999999999"), Currency.EUR)
-        
+
         # Very small wealth
         state2 = create_test_state(current_wealth=Money(Decimal("1"), Currency.EUR))
         stats2 = builder.build(state2)
         assert stats2.final_wealth == Money(Decimal("1"), Currency.EUR)
-        
+
         # Zero wealth
         state3 = create_test_state(current_wealth=Money(Decimal("0"), Currency.EUR))
         stats3 = builder.build(state3)
@@ -548,9 +551,9 @@ class TestCoherence:
             failure_state="Error",
             period_index=5,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.failure_month is not None
         assert stats.success is False
 
@@ -561,9 +564,9 @@ class TestCoherence:
             status=ExecutionStatus.COMPLETED,
             failure_state=None,
         )
-        
+
         stats = builder.build(state)
-        
+
         assert stats.success is True
         assert stats.failure_month is None
 
@@ -571,9 +574,9 @@ class TestCoherence:
         """months_simulated should never be negative."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state(monthly_count=0)
-        
+
         stats = builder.build(state)
-        
+
         assert stats.months_simulated >= 0
 
 
@@ -591,38 +594,38 @@ class TestPublicContractCompliance:
         # - monthly_results
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
-        
+
         # Should succeed without errors
         stats = builder.build(state)
-        
+
         # Verify all required fields were accessible
         assert stats is not None
 
     def test_builder_returns_simulation_statistics(self) -> None:
         """Builder should return exactly SimulationStatistics type."""
         from engine.application.simulation import SimulationStatistics
-        
+
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
-        
+
         stats = builder.build(state)
-        
-        assert type(stats) == SimulationStatistics
+
+        assert type(stats) is SimulationStatistics
 
     def test_builder_all_fields_populated(self) -> None:
         """Returned SimulationStatistics should have all 6 fields populated."""
         builder = DefaultSimulationStatisticsBuilder()
         state = create_test_state()
-        
+
         stats = builder.build(state)
-        
+
         assert hasattr(stats, 'final_wealth')
         assert hasattr(stats, 'max_drawdown')
         assert hasattr(stats, 'success')
         assert hasattr(stats, 'failure_month')
         assert hasattr(stats, 'months_simulated')
         assert hasattr(stats, 'execution_time_seconds')
-        
+
         # All fields have values
         assert stats.final_wealth is not None
         assert stats.max_drawdown is not None

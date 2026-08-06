@@ -6,24 +6,28 @@ from typing import cast
 
 import pytest
 
-from engine.application.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from engine.application.simulation import SimulationState
 from engine.application.simulation_context import SimulationContext
-from engine.domain.model.asset import AssetClass
+from engine.application.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from engine.domain.model.allocation import Allocation, AllocationTarget
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
+from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 
 
 class DummyAllocationPolicy(AllocationPolicy):
     def decide(self, context: object) -> AllocationDecision:
         return AllocationDecision(
             reason="dummy",
-            allocation_target=AllocationTarget(weights={AssetClass(id="dummy", name="Dummy", description="Dummy"): Decimal("1")}),
+            allocation_target=AllocationTarget(
+                weights={
+                    AssetClass(id="dummy", name="Dummy", description="Dummy"): Decimal("1")
+                }
+            ),
         )
 
 
@@ -53,7 +57,9 @@ class DummyMarketSnapshot(MarketSnapshot):
     pass
 
 
-def make_context(portfolio: Portfolio, dataset: Dataset, withdrawal_policy: WithdrawalPolicy) -> SimulationContext:
+def make_context(
+    portfolio: Portfolio, dataset: Dataset, withdrawal_policy: WithdrawalPolicy
+) -> SimulationContext:
     return SimulationContext(
         experiment_name="test",
         cohort="A",
@@ -139,8 +145,12 @@ def test_withdrawal_decision_step_stores_withdrawal_decision() -> None:
 
     assert updated_state is state
     assert isinstance(updated_state.withdrawal_decision, WithdrawalDecision)
-    assert updated_state.withdrawal_decision.nominal_amount == Money(Decimal("100"), Money.ZERO.currency)
-    assert updated_state.withdrawal_decision.real_amount == Money(Decimal("100"), Money.ZERO.currency)
+    assert updated_state.withdrawal_decision.nominal_amount == Money(
+        Decimal("100"), Money.ZERO.currency
+    )
+    assert updated_state.withdrawal_decision.real_amount == Money(
+        Decimal("100"), Money.ZERO.currency
+    )
     assert withdrawal_policy.calls == 1
 
     assert state.context == preserved["context"]

@@ -6,18 +6,18 @@ from typing import cast
 
 import pytest
 
-from engine.application.steps.allocation_decision_step import AllocationDecisionStep
 from engine.application.simulation import SimulationState
 from engine.application.simulation_context import SimulationContext
-from engine.domain.model.asset import AssetClass
+from engine.application.steps.allocation_decision_step import AllocationDecisionStep
 from engine.domain.model.allocation import Allocation, AllocationTarget
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
+from engine.domain.model.decision_context import DecisionContext
+from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.decision_context import DecisionContext
-from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from engine.domain.policies import AllocationPolicy, WithdrawalPolicy
+from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 
 
 class DummyAllocationPolicy(AllocationPolicy):
@@ -28,7 +28,9 @@ class DummyAllocationPolicy(AllocationPolicy):
         self.calls += 1
         return AllocationDecision(
             reason="dummy",
-            allocation_target=AllocationTarget(weights={context.portfolio.holdings[0].asset_class: Decimal("1")}),
+            allocation_target=AllocationTarget(
+                weights={context.portfolio.holdings[0].asset_class: Decimal("1")}
+            ),
         )
 
 
@@ -54,7 +56,9 @@ class DummyMarketSnapshot(MarketSnapshot):
     pass
 
 
-def make_context(portfolio: Portfolio, dataset: Dataset, allocation_policy: AllocationPolicy) -> SimulationContext:
+def make_context(
+    portfolio: Portfolio, dataset: Dataset, allocation_policy: AllocationPolicy
+) -> SimulationContext:
     return SimulationContext(
         experiment_name="test",
         cohort="A",
@@ -207,7 +211,9 @@ def test_allocation_decision_step_raises_when_policy_returns_invalid_type() -> N
     state = make_state(portfolio, allocation, allocation_target, market_snapshot, policy)
     step = AllocationDecisionStep()
 
-    with pytest.raises(TypeError, match="AllocationPolicy.decide must return an AllocationDecision"):
+    with pytest.raises(
+        TypeError, match="AllocationPolicy.decide must return an AllocationDecision"
+    ):
         step.execute(state)
 
 
