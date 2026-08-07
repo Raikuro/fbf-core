@@ -7,6 +7,7 @@ CLI presentation layer and the frozen domain layer.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -73,10 +74,25 @@ def build_parameter_configs(
 
 
 def build_initial_portfolio(initial_wealth: Money) -> Portfolio:
-    """Build a single-asset Portfolio representing the initial wealth."""
-    asset = AssetClass(id="initial", name="Initial Portfolio", description="")
+    """Build an equity/bond ``Portfolio`` representing the initial wealth.
+
+    Uses the same ``AssetClass`` objects the dataset loader produces
+    (``id="equity"`` / ``id="bond"``, ``name=""`` / ``description=""``) so the
+    engine can price and rebalance the initial holdings against the resolved
+    ``equity``/``bond`` market universe.  The initial capital is funded into
+    both holdings; the month-0 allocation policy rebalances to its target split.
+    """
+    equity = AssetClass(id="equity", name="", description="")
+    bond = AssetClass(id="bond", name="", description="")
+
+    equity_units = initial_wealth.amount * Decimal("0.5")
+    bond_units = initial_wealth.amount * Decimal("0.5")
+
     return Portfolio(
-        holdings=(AssetHolding(asset_class=asset, units=initial_wealth.amount),)
+        holdings=(
+            AssetHolding(asset_class=equity, units=equity_units),
+            AssetHolding(asset_class=bond, units=bond_units),
+        )
     )
 
 

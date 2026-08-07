@@ -33,6 +33,14 @@ class ParameterConfiguration:
 
         object.__setattr__(self, "values", MappingProxyType(bindings))
 
+    def __getstate__(self) -> dict[str, dict[str, ParameterScalar]]:
+        """Project to a picklable form (mappingproxy is not serializable)."""
+        return {"state": dict(self.values)}
+
+    def __setstate__(self, state: Mapping[str, Mapping[str, ParameterScalar]]) -> None:
+        """Restore the immutable mappingproxy view after unpickling."""
+        object.__setattr__(self, "values", MappingProxyType(dict(state["state"])))
+
     def get(self, name: str) -> ParameterScalar:
         """Return the value bound to ``name``."""
         return self.values[name]

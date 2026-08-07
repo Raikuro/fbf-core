@@ -22,6 +22,24 @@ class PortfolioMarketEvolutionResult:
 class PortfolioMarketEvolutionService:
     """Service responsible for applying market evolution to a portfolio."""
 
+    def derive_allocation(
+        self,
+        portfolio: Portfolio,
+        market_snapshot: MarketSnapshot,
+    ) -> Allocation:
+        """Derive the value-weighted allocation of a portfolio at a snapshot.
+
+        This is the same valuation derivation used by market evolution, exposed so
+        the application layer can materialise the initial allocation before the
+        monthly pipeline's decision context is built.
+        """
+        if portfolio is None:
+            raise ValueError("Portfolio is required")
+        if market_snapshot is None:
+            raise ValueError("MarketSnapshot is required")
+        value = self._calculate_portfolio_value(portfolio, market_snapshot)
+        return self._build_allocation(portfolio, value, market_snapshot)
+
     def apply_market_evolution(
         self,
         portfolio: Portfolio,

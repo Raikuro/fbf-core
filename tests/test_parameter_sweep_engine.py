@@ -1,5 +1,6 @@
 """Unit tests for the frozen ParameterSweepEngine public contract."""
 
+import pickle
 from dataclasses import FrozenInstanceError
 from math import inf, nan
 from types import MappingProxyType
@@ -28,6 +29,16 @@ class TestParameterConfiguration:
 
         with pytest.raises(FrozenInstanceError):
             configuration.values = {}  # type: ignore[misc]
+
+    def test_pickle_round_trip_preserves_immutable_mapping(self) -> None:
+        configuration = ParameterConfiguration({"equity": 0.6, "withdrawal": 0.04})
+        restored = pickle.loads(pickle.dumps(configuration))
+
+        assert restored == configuration
+        assert restored.get("equity") == 0.6
+        assert isinstance(restored.values, MappingProxyType)
+        with pytest.raises(TypeError):
+            restored.values["equity"] = 0.7  # type: ignore[index]
 
     def test_canonical_access_and_missing_name(self) -> None:
         configuration = ParameterConfiguration({"zeta": "z", "alpha": 1})

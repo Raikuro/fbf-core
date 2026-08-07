@@ -31,8 +31,8 @@ class ConstantAllocationPolicy(AllocationPolicy):
         self.equity_allocation = equity_allocation
 
     def decide(self, context: DecisionContext) -> AllocationDecision:
-        equity = AssetClass(id="equity", name="Equity", description="")
-        bond = AssetClass(id="bond", name="Bond", description="")
+        equity = AssetClass(id="equity", name="", description="")
+        bond = AssetClass(id="bond", name="", description="")
         return AllocationDecision(
             reason="ConstantAllocationPolicy",
             allocation_target=AllocationTarget(weights={

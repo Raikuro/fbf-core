@@ -69,33 +69,39 @@ class TestConstantAllocationPolicy:
         ctx = _make_context(_make_portfolio(Decimal("1000000")))
         decision = policy.decide(ctx)
 
-        equity = AssetClass(id="equity", name="Equity", description="")
-        bond = AssetClass(id="bond", name="Bond", description="")
+        equity = AssetClass(id="equity", name="", description="")
+        bond = AssetClass(id="bond", name="", description="")
 
-        assert decision.allocation_target.weights[equity] == Decimal("0.75")
-        assert decision.allocation_target.weights[bond] == Decimal("0.25")
+        assert decision.allocation_target.weights == {
+            equity: Decimal("0.75"),
+            bond: Decimal("0.25"),
+        }
 
     def test_equity_100(self) -> None:
         policy = ConstantAllocationPolicy(equity_allocation=Decimal("1.0"))
         ctx = _make_context(_make_portfolio(Decimal("1000000")))
         decision = policy.decide(ctx)
 
-        equity = AssetClass(id="equity", name="Equity", description="")
-        bond = AssetClass(id="bond", name="Bond", description="")
+        equity = AssetClass(id="equity", name="", description="")
+        bond = AssetClass(id="bond", name="", description="")
 
-        assert decision.allocation_target.weights[equity] == Decimal("1.0")
-        assert decision.allocation_target.weights[bond] == Decimal("0.0")
+        assert decision.allocation_target.weights == {
+            equity: Decimal("1.0"),
+            bond: Decimal("0.0"),
+        }
 
     def test_equity_000(self) -> None:
         policy = ConstantAllocationPolicy(equity_allocation=Decimal("0.0"))
         ctx = _make_context(_make_portfolio(Decimal("1000000")))
         decision = policy.decide(ctx)
 
-        equity = AssetClass(id="equity", name="Equity", description="")
-        bond = AssetClass(id="bond", name="Bond", description="")
+        equity = AssetClass(id="equity", name="", description="")
+        bond = AssetClass(id="bond", name="", description="")
 
-        assert decision.allocation_target.weights[equity] == Decimal("0.0")
-        assert decision.allocation_target.weights[bond] == Decimal("1.0")
+        assert decision.allocation_target.weights == {
+            equity: Decimal("0.0"),
+            bond: Decimal("1.0"),
+        }
 
     def test_weights_sum_to_one(self) -> None:
         for ratio in [

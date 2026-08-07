@@ -23,6 +23,7 @@ from engine.application.simulation import (
 )
 from engine.application.steps.allocation_decision_step import AllocationDecisionStep
 from engine.application.steps.build_decision_context_step import BuildDecisionContextStep
+from engine.application.steps.initialize_allocation_step import InitializeAllocationStep
 from engine.application.steps.market_evolution_step import MarketEvolutionStep
 from engine.application.steps.monthly_result_builder_step import MonthlyResultBuilderStep
 from engine.application.steps.portfolio_rebalance_step import PortfolioRebalanceStep
@@ -36,9 +37,10 @@ from research.orchestration.result import ResearchExecutionResult
 
 
 def _create_default_simulation_executor() -> SimulationExecutor:
-    """Create a default engine SimulationExecutor with the standard 8-step pipeline."""
+    """Create a default engine SimulationExecutor with the standard 9-step pipeline."""
     pipeline = SimulationPipeline(
         [
+            InitializeAllocationStep(),
             BuildDecisionContextStep(),
             WithdrawalDecisionStep(),
             WithdrawalExecutionStep(),
@@ -193,7 +195,7 @@ def sequential_execute(
     plan:
         The immutable research plan to execute.
     simulation_executor:
-        Optional custom SimulationExecutor. If None, default 8-step pipeline executor is used.
+        Optional custom SimulationExecutor. If None, default 9-step pipeline executor is used.
 
     Returns
     -------
