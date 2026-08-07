@@ -10,6 +10,7 @@ from engine.domain.model.asset import AssetClass
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
+from engine.domain.services.portfolio_rebalance_service import _canonical_asset_order
 
 
 @dataclass(frozen=True)
@@ -95,20 +96,40 @@ class PortfolioMarketEvolutionService:
         portfolio_value: Money,
         market_snapshot: MarketSnapshot,
     ) -> Allocation:
+        ordered = _canonical_asset_order(
+            {holding.asset_class for holding in portfolio.holdings}
+        )
+        if not ordered:
+            raise ValueError("Cannot derive allocation for empty portfolio")
+
         if portfolio_value == Money.ZERO:
             total_units = sum(holding.units for holding in portfolio.holdings)
             if total_units == Decimal("0"):
                 raise ValueError("Cannot derive allocation for zero-value portfolio")
+            units_by_asset = {
+                holding.asset_class: holding.units for holding in portfolio.holdings
+            }
             weights: dict[AssetClass, Decimal] = {}
-            for holding in portfolio.holdings:
-                weights[holding.asset_class] = holding.units / total_units
+            allocated = Decimal("0")
+            for asset_class in ordered[:-1]:
+                weight = units_by_asset[asset_class] / total_units
+                weights[asset_class] = weight
+                allocated += weight
+            weights[ordered[-1]] = Decimal("1") - allocated
             return Allocation(weights=weights)
 
-        weights = {}
+        values: dict[AssetClass, Decimal] = {}
         for holding in portfolio.holdings:
             price = self._fetch_price(holding.asset_class, market_snapshot)
-            holding_value = Money(holding.units * price, portfolio_value.currency)
-            weights[holding.asset_class] = holding_value.amount / portfolio_value.amount
+            values[holding.asset_class] = holding.units * price
+
+        weights = {}
+        allocated = Decimal("0")
+        for asset_class in ordered[:-1]:
+            weight = values[asset_class] / portfolio_value.amount
+            weights[asset_class] = weight
+            allocated += weight
+        weights[ordered[-1]] = Decimal("1") - allocated
         return Allocation(weights=weights)
 
     def _fetch_price(
