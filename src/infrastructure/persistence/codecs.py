@@ -49,9 +49,28 @@ class DefaultDatasetResolver:
         return cls(datasets=_load_datasets_from_dir(data_dir))
 
     def resolve(self, dataset_identifier: str) -> Dataset:
+        # Step 1: Canonical identifier lookup
         dataset = self._datasets.get(dataset_identifier)
         if dataset is not None:
             return dataset
+        for d in self._datasets.values():
+            if d.identifier == dataset_identifier:
+                return d
+
+        # Step 2: Legacy version fallback lookup
+        matching_by_version = [
+            d for d in self._datasets.values() if d.version == dataset_identifier
+        ]
+        if len(matching_by_version) == 1:
+            return matching_by_version[0]
+        if len(matching_by_version) > 1:
+            matching_ids = sorted(d.identifier or "unknown" for d in matching_by_version)
+            raise StudyNotFoundError(
+                f"Ambiguous legacy dataset version '{dataset_identifier}': "
+                f"matched multiple datasets ({', '.join(matching_ids)})"
+            )
+
+        # Step 3: No matches found
         raise StudyNotFoundError(
             f"Dataset not found: '{dataset_identifier}'"
         )

@@ -19,6 +19,7 @@ class Dataset:
     snapshots: Sequence[MarketSnapshot]
     frequency: str
     version: str
+    identifier: str | None = None
 
     def __post_init__(self) -> None:
         if not self.snapshots:
@@ -99,5 +100,6 @@ class Dataset:
             snapshots=sliced_snapshots,
             frequency=self.frequency,
             version=self.version,
+            identifier=self.identifier,
         )
 

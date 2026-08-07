@@ -70,11 +70,14 @@ def _dataset_to_dict(dataset: Dataset) -> dict[str, Any]:
     }
 
 
-def _dict_to_dataset(raw: dict[str, Any]) -> Dataset:
+def _dict_to_dataset(
+    raw: dict[str, Any], identifier: str | None = None
+) -> Dataset:
     return Dataset(
         version=raw["version"],
         frequency=raw["frequency"],
         snapshots=[_snapshot_from_dict(s) for s in raw["snapshots"]],
+        identifier=identifier,
     )
 
 
@@ -90,7 +93,7 @@ def _load_dataset_from_file(path: Path) -> Dataset:
         raise StudyNotFoundError(
             f"Failed to load dataset from '{path}': {exc}"
         ) from exc
-    return _dict_to_dataset(raw)
+    return _dict_to_dataset(raw, identifier=path.stem)
 
 
 def _load_datasets_from_dir(data_dir: str) -> Mapping[str, Dataset]:

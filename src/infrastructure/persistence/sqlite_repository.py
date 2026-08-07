@@ -277,7 +277,7 @@ class SQLiteRepository:
                         identity.name,
                         identity.revision,
                         experiment.description,
-                        experiment.dataset.version,
+                        experiment.dataset.identifier or experiment.dataset.version,
                         experiment.horizon_months,
                         serialize_decimal(experiment.initial_wealth.amount),
                         experiment.initial_wealth.currency.value,
