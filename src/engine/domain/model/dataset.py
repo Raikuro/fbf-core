@@ -45,3 +45,59 @@ class Dataset:
     @property
     def end_date(self) -> date:
         return self.snapshots[-1].date
+
+    def slice(self, start_date: date, horizon_months: int) -> Dataset:
+        """Return a sliced sub-Dataset starting at *start_date* for *horizon_months*.
+
+        Parameters
+        ----------
+        start_date:
+            The date of the first MarketSnapshot in the sliced dataset.
+        horizon_months:
+            The exact number of monthly snapshots required.
+
+        Returns
+        -------
+        Dataset
+            A new immutable Dataset containing snapshots from start_date up to
+            start_date + horizon_months.
+
+        Raises
+        ------
+        ValueError:
+            If start_date is not present in the dataset, if horizon_months is not positive,
+            or if there are insufficient snapshots available.
+        """
+        if start_date is None or not isinstance(start_date, date):
+            raise ValueError("start_date must be a valid date")
+        if (
+            horizon_months is None
+            or not isinstance(horizon_months, int)
+            or isinstance(horizon_months, bool)
+            or horizon_months <= 0
+        ):
+            raise ValueError("horizon_months must be a positive integer (> 0)")
+
+        start_idx: int | None = None
+        for i, snapshot in enumerate(self.snapshots):
+            if snapshot.date == start_date:
+                start_idx = i
+                break
+
+        if start_idx is None:
+            raise ValueError(f"Start date {start_date.isoformat()!r} not found in dataset")
+
+        if start_idx + horizon_months > len(self.snapshots):
+            avail = len(self.snapshots) - start_idx
+            raise ValueError(
+                f"Insufficient dataset history starting from {start_date.isoformat()!r} "
+                f"for horizon_months={horizon_months} (available: {avail})"
+            )
+
+        sliced_snapshots = tuple(self.snapshots[start_idx : start_idx + horizon_months])
+        return Dataset(
+            snapshots=sliced_snapshots,
+            frequency=self.frequency,
+            version=self.version,
+        )
+

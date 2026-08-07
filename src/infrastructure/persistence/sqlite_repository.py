@@ -429,8 +429,6 @@ class SQLiteRepository:
         validate_context(context)
 
         with self._connect() as conn:
-            units = self._load_units(conn, plan_id, context)
-
             row = conn.execute(
                 """
                 SELECT experiment_id, created_at, unit_count, status
@@ -445,8 +443,11 @@ class SQLiteRepository:
 
             experiment_id, created_at, unit_count, status = row
 
-            # Load the parent experiment definition
+            # Load the parent experiment definition first so its full dataset
+            # is available for per-cohort slicing when units are reconstructed.
             experiment = self.load_experiment(experiment_id, context)
+
+            units = self._load_units(conn, plan_id, context, experiment)
 
             from research.domain.plan import ResearchPlan
 
@@ -1136,9 +1137,20 @@ class SQLiteRepository:
         return self._save_policy(conn, policy, PolicyKind.WITHDRAWAL, experiment_id, 0, context)
 
     def _load_units(
-        self, conn: sqlite3.Connection, plan_id: str, context: PersistenceReconstructionContext
+        self,
+        conn: sqlite3.Connection,
+        plan_id: str,
+        context: PersistenceReconstructionContext,
+        experiment: Any,
     ) -> list[Any]:
-        """Load all units for a plan in correct order."""
+        """Load all units for a plan in correct order.
+
+        Each unit's dataset is produced by slicing the experiment's full dataset
+        at the cohort's start_date for the experiment's horizon_months.
+        A local cache keyed by cohort start date prevents duplicate slices.
+        """
+        from datetime import date as _date
+
         rows = conn.execute(
             """
             SELECT unit_index, cohort_id, param_config_id, allocation_policy_id,
@@ -1150,6 +1162,7 @@ class SQLiteRepository:
             (plan_id,),
         ).fetchall()
 
+        dataset_cache: dict[_date, Dataset] = {}
         units = []
         for (
             _unit_index,
@@ -1166,6 +1179,13 @@ class SQLiteRepository:
             withdrawal_policy = self._load_withdrawal_policy(conn, withdrawal_policy_id, context)
             portfolio = self._load_portfolio(conn, initial_portfolio_json)
 
+            cohort_start = cohort.start_date
+            if cohort_start not in dataset_cache:
+                dataset_cache[cohort_start] = experiment.dataset.slice(
+                    cohort_start, experiment.horizon_months
+                )
+            unit_dataset = dataset_cache[cohort_start]
+
             units.append(
                 PlannedSimulationUnit(
                     cohort=cohort,
@@ -1173,6 +1193,7 @@ class SQLiteRepository:
                     allocation_policy=allocation_policy,
                     withdrawal_policy=withdrawal_policy,
                     initial_portfolio=portfolio,
+                    dataset=unit_dataset,
                 )
             )
 

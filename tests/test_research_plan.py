@@ -16,6 +16,8 @@ import pytest
 
 from engine.domain.model.allocation import AllocationTarget
 from engine.domain.model.asset import AssetClass
+from engine.domain.model.dataset import Dataset
+from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Currency, Money
 from engine.domain.model.portfolio import AssetHolding, Portfolio
 from engine.domain.policies.allocation_policy import AllocationPolicy
@@ -70,6 +72,21 @@ def make_portfolio() -> Portfolio:
     return Portfolio(holdings=(AssetHolding(asset_class=asset, units=Decimal("1000")),))
 
 
+def make_minimal_dataset(year: int = 2000, month: int = 1) -> Dataset:
+    """Minimal single-snapshot Dataset aligned to the given cohort start date."""
+    asset = AssetClass(id="acwi", name="ACWI", description="Global equities")
+    snapshot = MarketSnapshot(
+        date=date(year, month, 1),
+        index_levels={asset: Decimal("100.00")},
+        inflation=Decimal("0.00"),
+        inflation_cumulative=Decimal("0.00"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100.00"),
+    )
+    return Dataset(snapshots=[snapshot], frequency="monthly", version="test-v1")
+
+
 def make_unit(
     year: int = 2000,
     month: int = 1,
@@ -84,6 +101,7 @@ def make_unit(
         allocation_policy=alloc or StubAllocationPolicy(),
         withdrawal_policy=withd or StubWithdrawalPolicy(),
         initial_portfolio=portfolio if portfolio is not None else make_portfolio(),
+        dataset=make_minimal_dataset(year=year, month=month),
     )
 
 
@@ -99,6 +117,7 @@ class TestPlannedSimulationUnitConstruction:
         alloc = StubAllocationPolicy()
         withd = StubWithdrawalPolicy()
         portfolio = make_portfolio()
+        dataset = make_minimal_dataset()
 
         unit = PlannedSimulationUnit(
             cohort=cohort,
@@ -106,6 +125,7 @@ class TestPlannedSimulationUnitConstruction:
             allocation_policy=alloc,
             withdrawal_policy=withd,
             initial_portfolio=portfolio,
+            dataset=dataset,
         )
 
         assert unit.cohort is cohort
@@ -113,6 +133,7 @@ class TestPlannedSimulationUnitConstruction:
         assert unit.allocation_policy is alloc
         assert unit.withdrawal_policy is withd
         assert unit.initial_portfolio is portfolio
+        assert unit.dataset is dataset
 
     def test_rejects_none_cohort(self) -> None:
         with pytest.raises(ValueError, match="cohort cannot be None"):
@@ -122,6 +143,7 @@ class TestPlannedSimulationUnitConstruction:
                 allocation_policy=StubAllocationPolicy(),
                 withdrawal_policy=StubWithdrawalPolicy(),
                 initial_portfolio=make_portfolio(),
+                dataset=make_minimal_dataset(),
             )
 
     def test_rejects_none_parameter_config(self) -> None:
@@ -132,6 +154,7 @@ class TestPlannedSimulationUnitConstruction:
                 allocation_policy=StubAllocationPolicy(),
                 withdrawal_policy=StubWithdrawalPolicy(),
                 initial_portfolio=make_portfolio(),
+                dataset=make_minimal_dataset(),
             )
 
     def test_rejects_none_allocation_policy(self) -> None:
@@ -142,6 +165,7 @@ class TestPlannedSimulationUnitConstruction:
                 allocation_policy=None,  # type: ignore[arg-type]
                 withdrawal_policy=StubWithdrawalPolicy(),
                 initial_portfolio=make_portfolio(),
+                dataset=make_minimal_dataset(),
             )
 
     def test_rejects_none_withdrawal_policy(self) -> None:
@@ -152,6 +176,7 @@ class TestPlannedSimulationUnitConstruction:
                 allocation_policy=StubAllocationPolicy(),
                 withdrawal_policy=None,  # type: ignore[arg-type]
                 initial_portfolio=make_portfolio(),
+                dataset=make_minimal_dataset(),
             )
 
     def test_rejects_none_initial_portfolio(self) -> None:
@@ -162,6 +187,18 @@ class TestPlannedSimulationUnitConstruction:
                 allocation_policy=StubAllocationPolicy(),
                 withdrawal_policy=StubWithdrawalPolicy(),
                 initial_portfolio=None,  # type: ignore[arg-type]
+                dataset=make_minimal_dataset(),
+            )
+
+    def test_rejects_none_dataset(self) -> None:
+        with pytest.raises(ValueError, match="dataset must be a valid"):
+            PlannedSimulationUnit(
+                cohort=make_cohort(),
+                parameter_config=make_param_config(),
+                allocation_policy=StubAllocationPolicy(),
+                withdrawal_policy=StubWithdrawalPolicy(),
+                initial_portfolio=make_portfolio(),
+                dataset=None,  # type: ignore[arg-type]
             )
 
 
@@ -184,6 +221,7 @@ class TestPlannedSimulationUnitIdentity:
         config = make_param_config(withdrawal_rate=0.04)
         alloc_a = StubAllocationPolicy()
         alloc_b = StubAllocationPolicy()
+        shared_dataset = make_minimal_dataset(2000)
 
         unit_a = PlannedSimulationUnit(
             cohort=cohort,
@@ -191,6 +229,7 @@ class TestPlannedSimulationUnitIdentity:
             allocation_policy=alloc_a,
             withdrawal_policy=StubWithdrawalPolicy(),
             initial_portfolio=make_portfolio(),
+            dataset=shared_dataset,
         )
         unit_b = PlannedSimulationUnit(
             cohort=cohort,
@@ -198,11 +237,14 @@ class TestPlannedSimulationUnitIdentity:
             allocation_policy=alloc_b,  # different policy instance
             withdrawal_policy=StubWithdrawalPolicy(),
             initial_portfolio=make_portfolio(),
+            dataset=shared_dataset,
         )
         # ResearchPlan uniqueness is by (start_date, parameter_config); verify key matches
         key_a = (unit_a.cohort.start_date, unit_a.parameter_config)
         key_b = (unit_b.cohort.start_date, unit_b.parameter_config)
         assert key_a == key_b
+        # Units from same cohort share the same dataset object
+        assert unit_a.dataset is unit_b.dataset
 
 
 # ---------------------------------------------------------------------------
@@ -267,12 +309,14 @@ class TestResearchPlanValidation:
     ) -> None:
         cohort = make_cohort(2000)
         config = make_param_config()
+        ds = make_minimal_dataset(2000)
         unit_a = PlannedSimulationUnit(
             cohort=cohort,
             parameter_config=config,
             allocation_policy=StubAllocationPolicy(),
             withdrawal_policy=StubWithdrawalPolicy(),
             initial_portfolio=make_portfolio(),
+            dataset=ds,
         )
         unit_b = PlannedSimulationUnit(
             cohort=cohort,
@@ -280,6 +324,7 @@ class TestResearchPlanValidation:
             allocation_policy=StubAllocationPolicy(),
             withdrawal_policy=StubWithdrawalPolicy(),
             initial_portfolio=make_portfolio(),
+            dataset=ds,
         )
 
         with pytest.raises(ValueError, match="Duplicate"):
@@ -294,12 +339,14 @@ class TestResearchPlanValidation:
         cohort = make_cohort(2000)
         config_a = make_param_config(withdrawal_rate=0.03)
         config_b = make_param_config(withdrawal_rate=0.05)
+        ds = make_minimal_dataset(2000)
         unit_a = PlannedSimulationUnit(
             cohort=cohort,
             parameter_config=config_a,
             allocation_policy=StubAllocationPolicy(),
             withdrawal_policy=StubWithdrawalPolicy(),
             initial_portfolio=make_portfolio(),
+            dataset=ds,
         )
         unit_b = PlannedSimulationUnit(
             cohort=cohort,
@@ -307,6 +354,7 @@ class TestResearchPlanValidation:
             allocation_policy=StubAllocationPolicy(),
             withdrawal_policy=StubWithdrawalPolicy(),
             initial_portfolio=make_portfolio(),
+            dataset=ds,
         )
 
         plan = ResearchPlan(
@@ -314,6 +362,8 @@ class TestResearchPlanValidation:
             units=(unit_a, unit_b),
         )
         assert len(plan) == 2
+        # Both units for same cohort share the same dataset instance
+        assert plan[0].dataset is plan[1].dataset
 
     def test_allows_same_config_with_different_cohort(
         self, minimal_experiment_def: ExperimentDefinition

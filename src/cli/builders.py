@@ -26,7 +26,7 @@ from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.axis import ParameterAxis
 from research.domain.parameter.configuration import ParameterConfiguration
 from research.domain.parameter.engine import ParameterSweepEngine
-from research.domain.plan import PlannedSimulationUnit, ResearchPlan
+from research.domain.plan import ResearchPlan, materialize_research_plan
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -108,17 +108,12 @@ def build_research_plan(
     Because ``ResearchPlan`` identity is ``(cohort.start_date, parameter_config)``,
     only one allocation+withdrawal policy pair is used per plan.
     """
-    units: list[PlannedSimulationUnit] = []
     portfolio = build_initial_portfolio(experiment_def.initial_wealth)
-    for cohort in cohorts:
-        for param_config in param_configs:
-            units.append(
-                PlannedSimulationUnit(
-                    cohort=cohort,
-                    parameter_config=param_config,
-                    allocation_policy=alloc_policy,
-                    withdrawal_policy=withdrawal_policy,
-                    initial_portfolio=portfolio,
-                )
-            )
-    return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))
+    return materialize_research_plan(
+        experiment_def=experiment_def,
+        cohorts=cohorts,
+        param_configs=param_configs,
+        alloc_policy=alloc_policy,
+        withdrawal_policy=withdrawal_policy,
+        initial_portfolio=portfolio,
+    )

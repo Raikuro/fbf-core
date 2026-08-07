@@ -82,16 +82,23 @@ _ASSET = AssetClass(id="acwi", name="ACWI", description="Global equities")
 
 
 def _make_shared_dataset() -> Dataset:
-    snapshot = MarketSnapshot(
-        date=date(2000, 1, 1),
-        index_levels={_ASSET: Decimal("100.00")},
-        inflation=Decimal("0.00"),
-        inflation_cumulative=Decimal("0.00"),
-        is_ath=True,
-        is_underwater=False,
-        running_ath=Decimal("100.00"),
-    )
-    return Dataset(snapshots=[snapshot], frequency="monthly", version="TEST_DATASET_v1")
+    snapshots = []
+    for i in range(240):
+        m = i + 1
+        y = 2000 + (m - 1) // 12
+        mo = ((m - 1) % 12) + 1
+        snapshots.append(
+            MarketSnapshot(
+                date=date(y, mo, 1),
+                index_levels={_ASSET: Decimal("100.00")},
+                inflation=Decimal("0.00"),
+                inflation_cumulative=Decimal("0.00"),
+                is_ath=True,
+                is_underwater=False,
+                running_ath=Decimal("100.00"),
+            )
+        )
+    return Dataset(snapshots=snapshots, frequency="monthly", version="TEST_DATASET_v1")
 
 
 _TEST_DATASET: Dataset = _make_shared_dataset()
@@ -242,12 +249,15 @@ def make_experiment(name: str = "test-experiment") -> ExperimentDefinition:
 
 
 def make_unit(month: int = 1, rate: str = "0.04") -> PlannedSimulationUnit:
+    cohort_date = date(2000, month, 1)
+    sliced_dataset = _TEST_DATASET.slice(cohort_date, 120)
     return PlannedSimulationUnit(
-        cohort=CohortSpecification(start_date=date(2000, month, 1)),
+        cohort=CohortSpecification(start_date=cohort_date),
         parameter_config=ParameterConfiguration(values={"withdrawal_rate": float(rate)}),
         allocation_policy=DummyAllocationPolicy(),
         withdrawal_policy=DummyWithdrawalPolicy(),
         initial_portfolio=make_portfolio(),
+        dataset=sliced_dataset,
     )
 
 
@@ -608,6 +618,7 @@ def test_plan_parameter_config_round_trip(repo: SQLiteRepository) -> None:
         allocation_policy=DummyAllocationPolicy(),
         withdrawal_policy=DummyWithdrawalPolicy(),
         initial_portfolio=make_portfolio(),
+        dataset=_TEST_DATASET,
     )
     plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
     plan_id = repo.save_plan(plan, exp_id, ctx)
@@ -632,6 +643,7 @@ def test_plan_portfolio_round_trip(repo: SQLiteRepository) -> None:
         initial_portfolio=Portfolio(
             holdings=(AssetHolding(asset_class=_ASSET, units=Decimal(exact_units)),)
         ),
+        dataset=_TEST_DATASET,
     )
     plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
     plan_id = repo.save_plan(plan, exp_id, ctx)

@@ -95,6 +95,11 @@ def make_dataset(start_date: date = date(2000, 1, 1)) -> Dataset:
     return Dataset(snapshots=[snapshot], frequency="monthly", version="1.0")
 
 
+def make_minimal_dataset(year: int = 2000, month: int = 1) -> Dataset:
+    """Minimal single-snapshot Dataset aligned to a cohort start date."""
+    return make_dataset(start_date=date(year, month, 1))
+
+
 def make_experiment_def(
     name: str = "test-experiment",
     start_date: date = date(2000, 1, 1),
@@ -143,6 +148,7 @@ def make_unit(
         allocation_policy=alloc or StubAllocationPolicy(),
         withdrawal_policy=withd or StubWithdrawalPolicy(),
         initial_portfolio=portfolio if portfolio is not None else make_portfolio(),
+        dataset=make_minimal_dataset(year=year, month=month),
     )
 
 
@@ -338,17 +344,16 @@ class TestResearchExecutorContextTranslation:
         ctx = engine_def.simulation_contexts[0]
         assert ctx.initial_wealth == exp_def.initial_wealth
 
-    def test_context_dataset_matches_experiment_definition_dataset(self) -> None:
-        exp_def = make_experiment_def()
+    def test_context_dataset_matches_unit_dataset(self) -> None:
         unit = make_unit(year=2000)
-        plan = make_plan(experiment_def=exp_def, units=(unit,))
+        plan = make_plan(units=(unit,))
         executor, mock_sim_exec = make_executor(simulation_results=(make_simulation_result(),))
 
         executor.execute(plan)
 
         engine_def = mock_sim_exec.execute.call_args.args[0]
         ctx = engine_def.simulation_contexts[0]
-        assert ctx.dataset is exp_def.dataset
+        assert ctx.dataset is unit.dataset
 
     def test_context_experiment_name_matches_plan_experiment_name(self) -> None:
         exp_def = make_experiment_def(name="my-research-study")
@@ -370,6 +375,7 @@ class TestResearchExecutorContextTranslation:
             allocation_policy=StubAllocationPolicy(),
             withdrawal_policy=StubWithdrawalPolicy(),
             initial_portfolio=make_portfolio(),
+            dataset=make_minimal_dataset(year=2000, month=6),
         )
         exp_def = make_experiment_def()
         # We use a plan that only has one unit matching this cohort
@@ -390,6 +396,7 @@ class TestResearchExecutorContextTranslation:
             allocation_policy=alloc,
             withdrawal_policy=StubWithdrawalPolicy(),
             initial_portfolio=make_portfolio(),
+            dataset=make_minimal_dataset(year=2000),
         )
         plan = make_plan(units=(unit,))
         executor, mock_sim_exec = make_executor(simulation_results=(make_simulation_result(),))
@@ -408,6 +415,7 @@ class TestResearchExecutorContextTranslation:
             allocation_policy=StubAllocationPolicy(),
             withdrawal_policy=withd,
             initial_portfolio=make_portfolio(),
+            dataset=make_minimal_dataset(year=2000),
         )
         plan = make_plan(units=(unit,))
         executor, mock_sim_exec = make_executor(simulation_results=(make_simulation_result(),))
@@ -441,6 +449,7 @@ class TestResearchExecutorContextTranslation:
             allocation_policy=alloc,
             withdrawal_policy=withd,
             initial_portfolio=make_portfolio(),
+            dataset=make_minimal_dataset(year=2000),
         )
         plan = make_plan(units=(unit,))
         executor, mock_sim_exec = make_executor(simulation_results=(make_simulation_result(),))

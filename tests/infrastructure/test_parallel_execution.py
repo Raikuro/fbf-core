@@ -91,6 +91,11 @@ def make_dataset(start_date: date = date(2000, 1, 1)) -> Dataset:
     return Dataset(snapshots=[snapshot], frequency="monthly", version="1.0")
 
 
+def make_minimal_dataset(year: int = 2000, month: int = 1) -> Dataset:
+    """Minimal single-snapshot Dataset aligned to a cohort start date."""
+    return make_dataset(start_date=date(year, month, 1))
+
+
 def make_experiment_def() -> ExperimentDefinition:
     return ExperimentDefinition(
         name="parallel-test-experiment",
@@ -113,6 +118,7 @@ def make_unit(month: int = 1, withdrawal_rate: float = 0.04) -> PlannedSimulatio
         allocation_policy=DummyAllocationPolicy(),
         withdrawal_policy=DummyWithdrawalPolicy(),
         initial_portfolio=portfolio,
+        dataset=make_minimal_dataset(year=2000, month=month),
     )
 
 
@@ -318,6 +324,7 @@ def test_worker_execute_batch_safe_error_isolation() -> None:
         allocation_policy=ExplodingAllocationPolicy(),
         withdrawal_policy=DummyWithdrawalPolicy(),
         initial_portfolio=make_unit().initial_portfolio,
+        dataset=make_minimal_dataset(year=2000, month=3),
     )
 
     selective_mock = _make_selective_mock_executor()

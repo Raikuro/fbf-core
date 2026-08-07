@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
+from engine.domain.model.dataset import Dataset
 from engine.domain.model.portfolio import Portfolio
 from engine.domain.policies.allocation_policy import AllocationPolicy
 from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
@@ -45,6 +46,8 @@ class PlannedSimulationUnit:
         A fully materialised initial portfolio ready for engine execution. Ownership of
         portfolio materialisation belongs to the planning boundary that constructs this
         unit; ResearchExecutor maps the value through and never invents it.
+    dataset:
+        A fully materialised cohort-sliced Dataset ready for engine execution.
     """
 
     cohort: CohortSpecification
@@ -52,6 +55,7 @@ class PlannedSimulationUnit:
     allocation_policy: AllocationPolicy
     withdrawal_policy: WithdrawalPolicy
     initial_portfolio: Portfolio
+    dataset: Dataset
 
     def __post_init__(self) -> None:
         if self.cohort is None:
@@ -64,6 +68,10 @@ class PlannedSimulationUnit:
             raise ValueError("PlannedSimulationUnit.withdrawal_policy cannot be None")
         if self.initial_portfolio is None:
             raise ValueError("PlannedSimulationUnit.initial_portfolio cannot be None")
+        if self.dataset is None or not isinstance(self.dataset, Dataset):
+            raise ValueError(
+                "PlannedSimulationUnit.dataset must be a valid engine Dataset instance"
+            )
         # Ensure the planner materialised an engine Portfolio value (ownership
         # belongs to the planning boundary). This prevents the executor from
         # inventing or coercing portfolio representations at execution time.
@@ -71,6 +79,7 @@ class PlannedSimulationUnit:
             raise TypeError(
                 "PlannedSimulationUnit.initial_portfolio must be an engine Portfolio instance"
             )
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,3 +138,40 @@ class ResearchPlan:
 
     def __iter__(self) -> Iterator[PlannedSimulationUnit]:
         return iter(self.units)
+
+
+def materialize_research_plan(
+    experiment_def: ExperimentDefinition,
+    cohorts: tuple[CohortSpecification, ...],
+    param_configs: tuple[ParameterConfiguration, ...],
+    alloc_policy: AllocationPolicy,
+    withdrawal_policy: WithdrawalPolicy,
+    initial_portfolio: Portfolio,
+) -> ResearchPlan:
+    """Build a ResearchPlan with cohort-sliced Dataset objects.
+
+    Uses a local cache keyed by cohort start date to ensure each cohort's dataset
+    is sliced exactly once, and all parameter sweep units for the same cohort share
+    the exact same sliced Dataset instance.
+    """
+    dataset_cache: dict[date, Dataset] = {}
+    units: list[PlannedSimulationUnit] = []
+    for cohort in cohorts:
+        if cohort.start_date not in dataset_cache:
+            dataset_cache[cohort.start_date] = experiment_def.dataset.slice(
+                cohort.start_date, experiment_def.horizon_months
+            )
+        sliced_dataset = dataset_cache[cohort.start_date]
+        for param_config in param_configs:
+            units.append(
+                PlannedSimulationUnit(
+                    cohort=cohort,
+                    parameter_config=param_config,
+                    allocation_policy=alloc_policy,
+                    withdrawal_policy=withdrawal_policy,
+                    initial_portfolio=initial_portfolio,
+                    dataset=sliced_dataset,
+                )
+            )
+    return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))
+

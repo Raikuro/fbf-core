@@ -58,16 +58,23 @@ _ASSET = AssetClass(id="acwi", name="ACWI", description="Global equities")
 
 
 def _make_shared_dataset() -> Dataset:
-    snapshot = MarketSnapshot(
-        date=date(2000, 1, 1),
-        index_levels={_ASSET: Decimal("100.00")},
-        inflation=Decimal("0.00"),
-        inflation_cumulative=Decimal("0.00"),
-        is_ath=True,
-        is_underwater=False,
-        running_ath=Decimal("100.00"),
-    )
-    return Dataset(snapshots=[snapshot], frequency="monthly", version="TEST_v1")
+    snapshots = []
+    for i in range(240):
+        m = i + 1
+        y = 2000 + (m - 1) // 12
+        mo = ((m - 1) % 12) + 1
+        snapshots.append(
+            MarketSnapshot(
+                date=date(y, mo, 1),
+                index_levels={_ASSET: Decimal("100.00")},
+                inflation=Decimal("0.00"),
+                inflation_cumulative=Decimal("0.00"),
+                is_ath=True,
+                is_underwater=False,
+                running_ath=Decimal("100.00"),
+            )
+        )
+    return Dataset(snapshots=snapshots, frequency="monthly", version="TEST_v1")
 
 
 _TEST_DATASET: Dataset = _make_shared_dataset()
@@ -527,6 +534,20 @@ def _make_experiment(dataset: Dataset, name: str = "codec-test-exp") -> Any:
     )
 
 
+def _make_cohort_dataset(month: int) -> Dataset:
+    """Minimal single-snapshot Dataset aligned to date(2000, month, 1)."""
+    snapshot = MarketSnapshot(
+        date=date(2000, month, 1),
+        index_levels={_ASSET: Decimal("100.00")},
+        inflation=Decimal("0.00"),
+        inflation_cumulative=Decimal("0.00"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100.00"),
+    )
+    return Dataset(snapshots=[snapshot], frequency="monthly", version="TEST_v1")
+
+
 def _make_plan(experiment: Any, num_units: int = 2) -> Any:
     from research.domain.cohort.specification import CohortSpecification
     from research.domain.parameter.configuration import (
@@ -550,6 +571,9 @@ def _make_plan(experiment: Any, num_units: int = 2) -> Any:
                         asset_class=_ASSET, units=Decimal("1000.00")
                     ),
                 )
+            ),
+            dataset=experiment.dataset.slice(
+                date(2000, month, 1), experiment.horizon_months
             ),
         )
         for month in range(1, num_units + 1)

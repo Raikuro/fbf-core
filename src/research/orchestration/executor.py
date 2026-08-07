@@ -191,7 +191,8 @@ class ResearchExecutor:
             horizon_months=experiment_def.horizon_months,
             initial_wealth=experiment_def.initial_wealth,
             initial_portfolio=unit.initial_portfolio,
-            dataset=experiment_def.dataset,
+            dataset=unit.dataset,
+
             allocation_policy=unit.allocation_policy,
             withdrawal_policy=unit.withdrawal_policy,
         )
