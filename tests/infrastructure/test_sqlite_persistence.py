@@ -680,7 +680,8 @@ def test_restore_allowed_identical_deterministic_content(repo: SQLiteRepository)
     assert restored_id == exp_id
     loaded = repo.load_experiment(identity, ctx)
     assert loaded.horizon_months == 120
-    assert loaded.allocation_policies[0].equity_allocation == "0.60"
+    loaded_alloc = cast(ParametricAllocationPolicy, loaded.allocation_policies[0])
+    assert loaded_alloc.equity_allocation == "0.60"
 
 
 def test_restore_forbidden_different_dataset(repo: SQLiteRepository) -> None:

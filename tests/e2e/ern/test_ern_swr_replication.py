@@ -34,6 +34,7 @@ from .constants import (
     RATES,
     SMOKE_CELLS,
     WEIGHTS,
+    OracleTable,
     cell_name,
     load_oracle_table,
 )
@@ -62,7 +63,7 @@ TOLERANCE_PP = 1
 
 
 @pytest.fixture(scope="session")
-def oracle() -> dict:
+def oracle() -> OracleTable:
     return load_oracle_table()
 
 
@@ -94,7 +95,7 @@ def _run_cell(
 
 
 def _assert_cell_matches(
-    oracle: dict,
+    oracle: OracleTable,
     weight: float,
     horizon: int,
     rate: float,
@@ -109,7 +110,7 @@ def _assert_cell_matches(
 
 
 def test_anchor_cells_reproduce_paper(
-    data_dir: Path, tmp_path: Path, oracle: dict
+    data_dir: Path, tmp_path: Path, oracle: OracleTable
 ) -> None:
     """Hard-fail anchors: 50/50 30y 4% = 95, 50/50 60y 4% = 65, 75/25 60y 3.5% = 97."""
     for weight, horizon, rate, expected in ANCHOR_CELLS:
@@ -121,7 +122,7 @@ def test_anchor_cells_reproduce_paper(
 
 
 def test_smoke_grid_matches_oracle(
-    data_dir: Path, tmp_path: Path, oracle: dict
+    data_dir: Path, tmp_path: Path, oracle: OracleTable
 ) -> None:
     """A representative slice of Table 1 must agree with the oracle within +/-1pp."""
     for weight, horizon, rate, _ in SMOKE_CELLS:
@@ -134,7 +135,7 @@ def test_smoke_grid_matches_oracle(
     reason="set RUN_ERN_E2E_FULL=1 for the full 180-cell acceptance run",
 )
 def test_full_grid_matches_oracle(
-    data_dir: Path, tmp_path: Path, oracle: dict
+    data_dir: Path, tmp_path: Path, oracle: OracleTable
 ) -> None:
     """Full Table 1 grid (5 weights x 4 horizons x 9 rates = 180 cells).
 
