@@ -47,9 +47,7 @@ RUN_ERN_E2E_FULL = RUN_ERN_E2E and os.environ.get("RUN_ERN_E2E_FULL") == "1"
 # 4->22.3s, 8->22.2s (~2.2x at 8 workers; 8 adds little over 4). Results are
 # identical across worker counts. 8 is the default, never exceeding the host
 # core count; use ERN_E2E_WORKERS to override for a different host.
-DEFAULT_WORKERS = min(
-    int(os.environ.get("ERN_E2E_WORKERS", "8")), os.cpu_count() or 8
-)
+DEFAULT_WORKERS = min(int(os.environ.get("ERN_E2E_WORKERS", "8")), os.cpu_count() or 8)
 
 pytestmark = [
     pytest.mark.ern_e2e,
@@ -109,9 +107,7 @@ def _assert_cell_matches(
     )
 
 
-def test_anchor_cells_reproduce_paper(
-    data_dir: Path, tmp_path: Path, oracle: OracleTable
-) -> None:
+def test_anchor_cells_reproduce_paper(data_dir: Path, tmp_path: Path, oracle: OracleTable) -> None:
     """Hard-fail anchors: 50/50 30y 4% = 95, 50/50 60y 4% = 65, 75/25 60y 3.5% = 97."""
     for weight, horizon, rate, expected in ANCHOR_CELLS:
         got, _ = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
@@ -121,22 +117,48 @@ def test_anchor_cells_reproduce_paper(
         )
 
 
-def test_smoke_grid_matches_oracle(
-    data_dir: Path, tmp_path: Path, oracle: OracleTable
-) -> None:
+def test_smoke_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: OracleTable) -> None:
     """A representative slice of Table 1 must agree with the oracle within +/-1pp."""
     for weight, horizon, rate, _ in SMOKE_CELLS:
         got, _ = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
         _assert_cell_matches(oracle, weight, horizon, rate, got)
 
 
+FAST_PATH_ENABLED = os.environ.get("ERN_E2E_FAST_PATH") == "1"
+
+
+@pytest.mark.skipif(
+    not FAST_PATH_ENABLED,
+    reason="set ERN_E2E_FAST_PATH=1 to run the fast-path acceptance cells",
+)
+def test_fast_path_reproduces_reference_success_rates() -> None:
+    """The closed-form fast path must reproduce the reference engine's success
+    rates exactly on the smoke cells (same units, same result count)."""
+    data_dir = Path(DATA_DIR).resolve()
+    run_dir = Path("/tmp") / "ern_fast_path_acceptance"
+    run_dir.mkdir(exist_ok=True)
+    for weight, horizon, rate, _ in SMOKE_CELLS:
+        home = run_dir / f"home_{cell_name(weight, horizon, rate)}"
+        home.mkdir()
+        harness = CliHarness(data_dir=data_dir, home_dir=home)
+        study_yaml = run_dir / f"{cell_name(weight, horizon, rate)}.yaml"
+        write_study_yaml(study_yaml, weight, horizon, rate)
+        try:
+            ref_rate, units = cell_success_rate(harness, study_yaml, DEFAULT_WORKERS)
+            fast_rate, _ = cell_success_rate(harness, study_yaml, DEFAULT_WORKERS, fast_path=True)
+            assert ref_rate == fast_rate, (
+                f"cell {int(weight * 100)}/{horizon}y/{rate * 100:.2f}%: reference "
+                f"{ref_rate:.2f}% vs fast path {fast_rate:.2f}% over {units} units"
+            )
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+
 @pytest.mark.skipif(
     not RUN_ERN_E2E_FULL,
     reason="set RUN_ERN_E2E_FULL=1 for the full 180-cell acceptance run",
 )
-def test_full_grid_matches_oracle(
-    data_dir: Path, tmp_path: Path, oracle: OracleTable
-) -> None:
+def test_full_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: OracleTable) -> None:
     """Full Table 1 grid (5 weights x 4 horizons x 9 rates = 180 cells).
 
     Emits an acceptance report: wall time, worker count, per-cell deviations
@@ -155,9 +177,7 @@ def test_full_grid_matches_oracle(
     for weight in WEIGHTS:
         for horizon in HORIZON_YEARS:
             for rate in RATES:
-                got, units = _run_cell(
-                    data_dir, tmp_path, weight, horizon, rate, workers
-                )
+                got, units = _run_cell(data_dir, tmp_path, weight, horizon, rate, workers)
                 total_units += units
                 expected = oracle[(weight, horizon)][rate]
                 dev = round(got) - expected
@@ -182,19 +202,24 @@ def test_full_grid_matches_oracle(
     print("=" * 62)
     print(f"Cells run:          {len(deviations)}/180")
     print(f"Workers:            {workers}")
-    print(f"Wall time:          {elapsed:.0f}s "
-          f"({time.strftime('%H:%M:%S', time.gmtime(elapsed))})")
+    print(
+        f"Wall time:          {elapsed:.0f}s "
+        f"({time.strftime('%H:%M:%S', time.gmtime(elapsed))})"
+    )
     print(f"Total units:        {total_units:,}")
-    print(f"Throughput:         {total_units / elapsed:.0f} units/s "
-          f"({elapsed / total_units:.5f} s/unit)")
+    print(
+        f"Throughput:         {total_units / elapsed:.0f} units/s "
+        f"({elapsed / total_units:.5f} s/unit)"
+    )
     print(f"Abs deviation min:  {min_diff} pp")
-    print(f"Abs deviation max:  {max_diff} pp "
-          f"(cell {int(ww*100)}/{wh}y/{wr*100:.2f}%: CLI {wgot}% vs oracle "
-          f"{oracle[(ww, wh)][wr]}%)")
+    print(
+        f"Abs deviation max:  {max_diff} pp "
+        f"(cell {int(ww*100)}/{wh}y/{wr*100:.2f}%: CLI {wgot}% vs oracle "
+        f"{oracle[(ww, wh)][wr]}%)"
+    )
     print("Anchors (hard-fail):")
     for name, (got, exp) in anchor_results.items():
-        print(f"  {name}: CLI={got}% oracle={exp}% "
-              f"({'PASS' if got == exp else 'FAIL'})")
+        print(f"  {name}: CLI={got}% oracle={exp}% " f"({'PASS' if got == exp else 'FAIL'})")
     if outside:
         print(f"Cells outside +/-{TOLERANCE_PP} pp: {len(outside)}")
         for cell in outside:

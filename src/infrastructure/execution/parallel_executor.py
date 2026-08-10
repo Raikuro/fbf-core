@@ -199,6 +199,71 @@ def create_chunked_batches(
     return batches
 
 
+# Per-worker state seeded once by ProcessPoolExecutor(initializer=...) so the
+# large shared experiment definition (and its dataset) is transferred once per
+# worker instead of being pickled into every task submission. This removes the
+# dominant per-task IPC cost for large datasets (see the summary-only path).
+_WORKER_EXPERIMENT_DEFINITION: ExperimentDefinition | None = None
+_WORKER_UNITS: tuple[PlannedSimulationUnit, ...] | None = None
+_WORKER_SIMULATION_EXECUTOR: SimulationExecutor | None = None
+
+
+def _initialize_worker(
+    exp_def: ExperimentDefinition,
+    units: Sequence[PlannedSimulationUnit],
+    simulation_executor: SimulationExecutor | None,
+) -> None:
+    """Seed per-worker shared state once (pool ``initializer``/``initargs``).
+
+    Runs once in each worker before any task. Subsequent tasks carry only unit
+    index ranges, so the (potentially large) experiment definition and unit
+    datasets are never re-pickled per task.
+    """
+    global _WORKER_EXPERIMENT_DEFINITION, _WORKER_UNITS, _WORKER_SIMULATION_EXECUTOR
+    _WORKER_EXPERIMENT_DEFINITION = exp_def
+    _WORKER_UNITS = tuple(units)
+    _WORKER_SIMULATION_EXECUTOR = simulation_executor
+
+
+def _execute_batch_on_shared_state(
+    units: Sequence[PlannedSimulationUnit],
+    summary_only: bool,
+) -> tuple[SimulationResult, ...]:
+    """Run a batch of units against the worker's shared experiment definition."""
+    exp_def = _WORKER_EXPERIMENT_DEFINITION
+    sim_executor = _WORKER_SIMULATION_EXECUTOR or _create_default_simulation_executor()
+    if exp_def is None:
+        raise RuntimeError(
+            "Worker shared execution state is not initialised; "
+            "the pool must be created with _initialize_worker as initializer"
+        )
+    research_executor = ResearchExecutor(sim_executor)
+    sub_plan = ResearchPlan(experiment_definition=exp_def, units=tuple(units))
+    result = research_executor.execute(sub_plan)
+    if summary_only:
+        return tuple(_to_summary_result(r) for r in result.results)
+    return result.results
+
+
+def _worker_execute_index_batch(
+    index_batch: Sequence[int],
+    summary_only: bool = False,
+) -> tuple[SimulationResult, ...]:
+    """Worker task that executes the units at ``index_batch`` from shared state.
+
+    The task payload is only the integer index range; the experiment definition
+    and unit datasets were seeded once per worker by ``_initialize_worker``.
+    """
+    units = _WORKER_UNITS
+    if units is None:
+        raise RuntimeError(
+            "Worker shared unit state is not initialised; "
+            "the pool must be created with _initialize_worker as initializer"
+        )
+    batch = tuple(units[i] for i in index_batch)
+    return _execute_batch_on_shared_state(batch, summary_only)
+
+
 def _worker_execute_batch(
     exp_def: ExperimentDefinition,
     units: Sequence[PlannedSimulationUnit],
@@ -206,6 +271,10 @@ def _worker_execute_batch(
     summary_only: bool = False,
 ) -> tuple[SimulationResult, ...]:
     """Worker task function executing a batch of units.
+
+    Kept for API compatibility and direct in-process use; the parallel path uses
+    ``_worker_execute_index_batch`` against initializer-seeded shared state so
+    the experiment definition is not re-pickled for every task.
 
     Parameters
     ----------
@@ -381,19 +450,33 @@ def parallel_execute(
         batches = create_work_batches(plan, effective_workers)
     executor_cls = ProcessPoolExecutor if config.use_processes else ThreadPoolExecutor
 
+    # Map unit batches to index ranges. The experiment definition and unit
+    # datasets are seeded once per worker via the pool initializer, and tasks
+    # carry only these integer index ranges, eliminating per-task re-pickling of
+    # the (potentially large) experiment definition.
+    all_unit_indexes = tuple(range(total_units))
+    index_batches: list[tuple[int, ...]] = []
+    offset = 0
+    for batch in batches:
+        index_batches.append(all_unit_indexes[offset : offset + len(batch)])
+        offset += len(batch)
+    assert offset == total_units
+
     all_simulation_results: list[SimulationResult] = []
     completed_count = 0
 
-    with executor_cls(max_workers=effective_workers) as executor:
+    with executor_cls(
+        max_workers=effective_workers,
+        initializer=_initialize_worker,
+        initargs=(plan.experiment_definition, plan.units, simulation_executor),
+    ) as executor:
         futures = [
             executor.submit(
-                _worker_execute_batch,
-                plan.experiment_definition,
-                batch,
-                simulation_executor,
+                _worker_execute_index_batch,
+                index_batch,
                 summary_only,
             )
-            for batch in batches
+            for index_batch in index_batches
         ]
 
         for future in futures:
