@@ -7,6 +7,7 @@ real simulation execution.
 
 from decimal import Decimal
 
+from engine.application.simulation_context import SimulationContext
 from engine.domain.model.allocation import AllocationTarget
 from engine.domain.model.asset import AssetClass
 from engine.domain.model.decision_context import DecisionContext
@@ -60,6 +61,41 @@ class ConstantWithdrawalPolicy(WithdrawalPolicy):
         monthly = total * self.withdrawal_rate / Decimal("12")
         return WithdrawalDecision(
             reason="ConstantWithdrawalPolicy",
+            nominal_amount=Money(monthly, Currency.EUR),
+            real_amount=Money(monthly, Currency.EUR),
+        )
+
+
+class FixedRealWithdrawalPolicy(WithdrawalPolicy):
+    """Fixed-real withdrawal policy.
+
+    YAML type: "FixedRealWithdrawalPolicy"
+    YAML params: withdrawal_rate (Decimal, 0.0-1.0 annual)
+
+    The monthly withdrawal is computed once at the cohort start as
+    ``initial_portfolio_value * withdrawal_rate / 12``, where
+    ``initial_portfolio_value`` prices the initial portfolio holdings at the
+    cohort's first dataset snapshot.  The amount stays constant in real
+    (index-level) units for the entire horizon.
+    """
+
+    def __init__(self, withdrawal_rate: Decimal) -> None:
+        self.withdrawal_rate = withdrawal_rate
+
+    def decide(self, context: DecisionContext) -> WithdrawalDecision:
+        sim_context = context.simulation_context
+        if not isinstance(sim_context, SimulationContext):
+            raise TypeError(
+                "FixedRealWithdrawalPolicy requires a SimulationContext"
+            )
+        initial_snapshot = sim_context.dataset[0]
+        total = Money.ZERO
+        for holding in sim_context.initial_portfolio.holdings:
+            price = initial_snapshot.index_levels[holding.asset_class]
+            total += Money(holding.units * price, Currency.EUR)
+        monthly = total.amount * self.withdrawal_rate / Decimal("12")
+        return WithdrawalDecision(
+            reason="FixedRealWithdrawalPolicy",
             nominal_amount=Money(monthly, Currency.EUR),
             real_amount=Money(monthly, Currency.EUR),
         )
