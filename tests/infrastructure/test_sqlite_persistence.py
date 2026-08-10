@@ -24,7 +24,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -53,6 +53,10 @@ from infrastructure.persistence import (
     SQLiteRepository,
     StudyNotFoundError,
 )
+from infrastructure.persistence.codecs import (
+    AllocationPolicyCodec,
+    WithdrawalPolicyCodec,
+)
 from infrastructure.persistence.serializers import (
     deserialize_decimal,
     deserialize_parameter_config,
@@ -67,6 +71,7 @@ from infrastructure.persistence.sqlite_repository import (
     PersistenceReconstructionContext,
     PolicyKind,
     SerializedSimulationResult,
+    experiments_semantically_equivalent,
 )
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
@@ -217,6 +222,89 @@ def get_dummy_context() -> PersistenceReconstructionContext:
     )
 
 
+class ParametricAllocationPolicy(AllocationPolicy):
+    """Allocation policy whose serialized params carry a distinguishing ratio."""
+
+    def __init__(self, equity_allocation: str) -> None:
+        self.equity_allocation = equity_allocation
+
+    def decide(self, context: object) -> AllocationDecision:
+        return AllocationDecision(
+            reason="parametric",
+            allocation_target=AllocationTarget(weights={}),
+        )
+
+
+class ParametricWithdrawalPolicy(WithdrawalPolicy):
+    """Withdrawal policy whose serialized params carry a distinguishing rate."""
+
+    def __init__(self, withdrawal_rate: str) -> None:
+        self.withdrawal_rate = withdrawal_rate
+
+    def decide(self, context: object) -> WithdrawalDecision:
+        return WithdrawalDecision(
+            reason="parametric",
+            nominal_amount=Money(Decimal("100"), Currency.EUR),
+            real_amount=Money(Decimal("100"), Currency.EUR),
+        )
+
+
+def get_detailed_context() -> PersistenceReconstructionContext:
+    """Context whose codecs serialize policies by their actual parameters.
+
+    Needed so that policy differences are observable in the deterministic
+    semantic-equivalence comparison (the dummy codecs always dump the same
+    placeholder payload).
+    """
+    return PersistenceReconstructionContext(
+        dataset_resolver=DummyDatasetResolver(),
+        policy_codecs={
+            ("allocation", "AllocationPolicy"): AllocationPolicyCodec(),
+            ("withdrawal", "WithdrawalPolicy"): WithdrawalPolicyCodec(),
+        },
+        simulation_result_codec=DummySimulationResultCodec(),
+    )
+
+
+def make_versioned_dataset(version: str) -> Dataset:
+    snapshots = []
+    for i in range(12):
+        m = i + 1
+        y = 2000 + (m - 1) // 12
+        mo = ((m - 1) % 12) + 1
+        snapshots.append(
+            MarketSnapshot(
+                date=date(y, mo, 1),
+                index_levels={_ASSET: Decimal("100.00")},
+                inflation=Decimal("0.00"),
+                inflation_cumulative=Decimal("0.00"),
+                is_ath=True,
+                is_underwater=False,
+                running_ath=Decimal("100.00"),
+            )
+        )
+    return Dataset(snapshots=snapshots, frequency="monthly", version=version)
+
+
+def make_restore_experiment(
+    name: str,
+    revision: str = "v1",
+    dataset: Dataset | None = None,
+    equity: str = "0.60",
+    rate: str = "0.04",
+) -> ExperimentDefinition:
+    return ExperimentDefinition(
+        name=name,
+        description="restore-rule test experiment",
+        dataset=dataset or _TEST_DATASET,
+        horizon_months=120,
+        initial_wealth=Money(Decimal("500000.00"), Currency.EUR),
+        cohorts=(CohortSpecification(start_date=date(2000, 1, 1)),),
+        allocation_policies=(ParametricAllocationPolicy(equity),),
+        withdrawal_policies=(ParametricWithdrawalPolicy(rate),),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helper factories
 # ---------------------------------------------------------------------------
@@ -364,6 +452,8 @@ def test_schema_creates_all_tables(repo: SQLiteRepository) -> None:
 def test_schema_version_recorded(repo: SQLiteRepository) -> None:
     import sqlite3
     import tempfile as _tf
+
+    from infrastructure.persistence.schema import SCHEMA_VERSION
     with _tf.NamedTemporaryFile(suffix=".db", delete=False) as f:
         tmp_path = f.name
     try:
@@ -371,7 +461,7 @@ def test_schema_version_recorded(repo: SQLiteRepository) -> None:
         with sqlite3.connect(tmp_path) as c:
             row = c.execute("SELECT version FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 1
+        assert row[0] == SCHEMA_VERSION
     finally:
         os.unlink(tmp_path)
 
@@ -536,6 +626,227 @@ def test_duplicate_experiment_raises(repo: SQLiteRepository) -> None:
     repo.save_experiment(ExperimentIdentity(name="unique-name", revision="v1"), experiment, ctx)
     with pytest.raises(DuplicateStudyError):
         repo.save_experiment(ExperimentIdentity(name="unique-name", revision="v1"), experiment, ctx)
+
+
+def test_shared_policy_across_experiments_keeps_links(repo: SQLiteRepository) -> None:
+    """Two experiments using identical policies must each keep their
+    experiment_policies association even though the policy row is deduplicated
+    by (policy_type, params_hash)."""
+    ctx = get_dummy_context()
+    first_id = repo.save_experiment(
+        ExperimentIdentity(name="shared-policy-a", revision="v1"),
+        make_experiment("shared-policy-a"),
+        ctx,
+    )
+    second_id = repo.save_experiment(
+        ExperimentIdentity(name="shared-policy-b", revision="v1"),
+        make_experiment("shared-policy-b"),
+        ctx,
+    )
+    first_loaded = repo.load_experiment(first_id, ctx)
+    second_loaded = repo.load_experiment(second_id, ctx)
+    assert len(first_loaded.allocation_policies) == 1
+    assert len(second_loaded.allocation_policies) == 1
+    assert len(second_loaded.withdrawal_policies) == 1
+
+
+# ---------------------------------------------------------------------------
+# Idempotent logical-deletion restore rule (semantic equivalence)
+# ---------------------------------------------------------------------------
+
+
+def test_logical_delete_hides_experiment(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    identity = ExperimentIdentity(name="delete-me", revision="v1")
+    repo.save_experiment(identity, make_experiment("delete-me"), ctx)
+    repo.logical_delete_experiment(identity)
+
+    with pytest.raises(StudyNotFoundError):
+        repo.load_experiment(identity, ctx)
+    assert repo.find_experiment_by_name("delete-me") is None
+    assert repo.list_experiments() == []
+
+
+def test_restore_allowed_identical_deterministic_content(repo: SQLiteRepository) -> None:
+    """Identical content except wall-clock timestamps must restore the entry."""
+    ctx = get_detailed_context()
+    identity = ExperimentIdentity(name="restore-eq", revision="v1")
+    experiment = make_restore_experiment("restore-eq", equity="0.60", rate="0.04")
+
+    exp_id = repo.save_experiment(identity, experiment, ctx)
+    repo.logical_delete_experiment(identity)
+
+    restored_id = repo.save_experiment(identity, experiment, ctx)
+    assert restored_id == exp_id
+    loaded = repo.load_experiment(identity, ctx)
+    assert loaded.horizon_months == 120
+    assert loaded.allocation_policies[0].equity_allocation == "0.60"
+
+
+def test_restore_forbidden_different_dataset(repo: SQLiteRepository) -> None:
+    """Same identity but a different dataset must NOT restore the deleted entry."""
+    ctx = get_detailed_context()
+    identity = ExperimentIdentity(name="restore-ds", revision="v1")
+    exp_v1 = make_restore_experiment(
+        "restore-ds", dataset=make_versioned_dataset("TEST_DATASET_v1")
+    )
+    repo.save_experiment(identity, exp_v1, ctx)
+    repo.logical_delete_experiment(identity)
+
+    exp_v2 = make_restore_experiment(
+        "restore-ds", dataset=make_versioned_dataset("TEST_DATASET_v2")
+    )
+    with pytest.raises(DuplicateStudyError, match="Refusing to restore"):
+        repo.save_experiment(identity, exp_v2, ctx)
+
+
+def test_restore_forbidden_different_policy(repo: SQLiteRepository) -> None:
+    """Same identity but a different allocation policy must NOT restore."""
+    ctx = get_detailed_context()
+    identity = ExperimentIdentity(name="restore-policy", revision="v1")
+    repo.save_experiment(
+        identity, make_restore_experiment("restore-policy", equity="0.50"), ctx
+    )
+    repo.logical_delete_experiment(identity)
+
+    with pytest.raises(DuplicateStudyError, match="Refusing to restore"):
+        repo.save_experiment(
+            identity, make_restore_experiment("restore-policy", equity="0.80"), ctx
+        )
+
+
+def test_restore_forbidden_different_revision() -> None:
+    """Revision is a deterministic field: different revisions are NOT equivalent."""
+    ctx = get_detailed_context()
+    experiment = make_restore_experiment("restore-rev")
+    equivalent = experiments_semantically_equivalent(
+        ExperimentIdentity(name="restore-rev", revision="v1"),
+        experiment,
+        ExperimentIdentity(name="restore-rev", revision="v2"),
+        experiment,
+        ctx,
+    )
+    assert equivalent is False
+
+
+def test_restore_forbidden_different_withdrawal_config(repo: SQLiteRepository) -> None:
+    """Same identity but a different withdrawal configuration must NOT restore."""
+    ctx = get_detailed_context()
+    identity = ExperimentIdentity(name="restore-wd", revision="v1")
+    repo.save_experiment(
+        identity, make_restore_experiment("restore-wd", rate="0.04"), ctx
+    )
+    repo.logical_delete_experiment(identity)
+
+    with pytest.raises(DuplicateStudyError, match="Refusing to restore"):
+        repo.save_experiment(
+            identity, make_restore_experiment("restore-wd", rate="0.06"), ctx
+        )
+
+
+def test_non_equivalent_save_leaves_deleted_row_deleted(
+    repo: SQLiteRepository, tmp_path: Path
+) -> None:
+    """A non-equivalent save after soft-delete must NOT resurrect the old row.
+
+    The old row keeps ``deleted_at`` set, stays hidden from all query APIs, and
+    is not duplicated — matching an ID alone is never sufficient to restore.
+    """
+    ctx = get_detailed_context()
+    identity = ExperimentIdentity(name="restore-keep-deleted", revision="v1")
+    exp_id = repo.save_experiment(
+        identity, make_restore_experiment("restore-keep-deleted", rate="0.04"), ctx
+    )
+    repo.logical_delete_experiment(identity)
+
+    with pytest.raises(DuplicateStudyError, match="Refusing to restore"):
+        repo.save_experiment(
+            identity, make_restore_experiment("restore-keep-deleted", rate="0.06"), ctx
+        )
+
+    # The old row is still logically deleted (deleted_at remains set)...
+    import sqlite3
+
+    conn = sqlite3.connect(repo.db_path)
+    try:
+        row = conn.execute(
+            "SELECT deleted_at FROM experiments WHERE experiment_id = ?", (exp_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] is not None
+
+    # ...it is not resurrected by any query API...
+    with pytest.raises(StudyNotFoundError):
+        repo.load_experiment(identity, ctx)
+    assert repo.find_experiment_by_name("restore-keep-deleted") is None
+    assert repo.list_experiments() == []
+
+    # ...and no duplicate row was created.
+    conn = sqlite3.connect(repo.db_path)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM experiments WHERE name = ? AND revision = ?",
+            ("restore-keep-deleted", "v1"),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
+
+
+def test_restore_allowed_timestamp_differences_do_not_block(
+    repo: SQLiteRepository,
+) -> None:
+    """Provenance timestamps must NOT make equivalent executions look different.
+
+    After soft-delete, the stored row's ``created_at``/``updated_at`` are
+    mutated (simulating a re-execution whose provenance differs); re-saving an
+    equivalent experiment must still restore the original row.
+    """
+    import sqlite3
+
+    ctx = get_detailed_context()
+    identity = ExperimentIdentity(name="restore-ts", revision="v1")
+    exp_id = repo.save_experiment(
+        identity, make_restore_experiment("restore-ts", equity="0.60", rate="0.04"), ctx
+    )
+    repo.logical_delete_experiment(identity)
+
+    # Change the stored provenance timestamps (and even set deleted_at) so any
+    # naive row comparison that includes timestamps would reject the restore.
+    conn = sqlite3.connect(repo.db_path)
+    try:
+        conn.execute(
+            "UPDATE experiments SET created_at = '1999-01-01T00:00:00Z', "
+            "updated_at = '1999-01-01T00:00:00Z' WHERE experiment_id = ?",
+            (exp_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    restored_id = repo.save_experiment(
+        identity, make_restore_experiment("restore-ts", equity="0.60", rate="0.04"), ctx
+    )
+    assert restored_id == exp_id
+    loaded = repo.load_experiment(identity, ctx)
+    alloc = cast(ParametricAllocationPolicy, loaded.allocation_policies[0])
+    withdrawn = cast(ParametricWithdrawalPolicy, loaded.withdrawal_policies[0])
+    assert alloc.equity_allocation == "0.60"
+    assert withdrawn.withdrawal_rate == "0.04"
+
+
+def test_semantic_equivalence_identical_content_true() -> None:
+    """Identical deterministic content (different timestamps) is equivalent."""
+    ctx = get_detailed_context()
+    identity = ExperimentIdentity(name="restore-eq", revision="v1")
+    experiment_a = make_restore_experiment("restore-eq", equity="0.60", rate="0.04")
+    experiment_b = make_restore_experiment("restore-eq", equity="0.60", rate="0.04")
+    assert (
+        experiments_semantically_equivalent(identity, experiment_a, identity, experiment_b, ctx)
+        is True
+    )
 
 
 def test_load_missing_experiment_raises(repo: SQLiteRepository) -> None:

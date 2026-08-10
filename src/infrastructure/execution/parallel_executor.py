@@ -20,6 +20,7 @@ from engine.application.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     ExperimentRun,
     SimulationResult,
+    SimulationTimeline,
 )
 from engine.application.steps.allocation_decision_step import AllocationDecisionStep
 from engine.application.steps.build_decision_context_step import BuildDecisionContextStep
@@ -53,6 +54,73 @@ def _create_default_simulation_executor() -> SimulationExecutor:
     )
     runner = SimulationRunner(pipeline)
     return SimulationExecutor(runner)
+
+
+class _ProgressReportingSimulationExecutor(SimulationExecutor):
+    """SimulationExecutor wrapper that reports per-context completion progress.
+
+    ``ResearchExecutor`` delegates exactly once to ``SimulationExecutor.execute``,
+    which runs every context in plan order. This wrapper hooks that single call and
+    delegates one context at a time to the inner executor, firing
+    ``callback(completed, total)`` after each unit's context finishes. It gives
+    per-unit progress reporting in sequential execution without altering the
+    orchestrator contract or simulation semantics.
+    """
+
+    def __init__(
+        self,
+        inner: SimulationExecutor,
+        callback: Callable[[int, int], None],
+        total: int,
+    ) -> None:
+        self._inner = inner
+        self._callback = callback
+        self._total = total
+        self._completed = 0
+
+    def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
+        results: list[SimulationResult] = []
+        for context in definition.simulation_contexts:
+            single = EngineExperimentDefinition(
+                name=definition.name,
+                description=definition.description,
+                simulation_contexts=(context,),
+            )
+            run = self._inner.execute(single)
+            self._completed += 1
+            self._callback(self._completed, self._total)
+            results.append(run.simulation_results[0])
+        return ExperimentRun(
+            definition=definition,
+            simulation_results=tuple(results),
+        )
+
+
+def _to_summary_result(result: SimulationResult) -> SimulationResult:
+    """Return a copy of a SimulationResult carrying only its aggregate statistics.
+
+    The per-month timeline is dropped so the result can be transferred between
+    worker processes (or retained by a caller that only needs aggregate
+    statistics, e.g. the CLI completion summary) without shipping hundreds of
+    megabytes of monthly payloads. Simulation semantics are unchanged; this
+    only discards the detailed timeline of an already-completed run.
+    """
+    return SimulationResult(
+        timeline=SimulationTimeline(monthly_results=()),
+        statistics=result.statistics,
+    )
+
+
+def _strip_result_timelines(result: ResearchExecutionResult) -> ResearchExecutionResult:
+    """Return a copy of a ResearchExecutionResult with per-month timelines stripped."""
+    summary_run = ExperimentRun(
+        definition=result.experiment_result.definition,
+        simulation_results=tuple(_to_summary_result(r) for r in result.results),
+    )
+    return ResearchExecutionResult(
+        plan=result.plan,
+        experiment_result=summary_run,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,10 +181,29 @@ def create_work_batches(
     return batches
 
 
+def create_chunked_batches(
+    plan: ResearchPlan,
+    chunk_size: int,
+) -> Sequence[Sequence[PlannedSimulationUnit]]:
+    """Create fine-grained deterministic unit chunks (``chunk_size`` units each).
+
+    Used when a progress callback wants smoother intermediate progress in the
+    summary-only path, where each chunk's result payload is tiny (aggregate
+    statistics only) so the extra per-chunk IPC cost is negligible.
+    """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive (> 0), got {chunk_size}")
+    batches: list[tuple[PlannedSimulationUnit, ...]] = []
+    for i in range(0, len(plan.units), chunk_size):
+        batches.append(plan.units[i : i + chunk_size])
+    return batches
+
+
 def _worker_execute_batch(
     exp_def: ExperimentDefinition,
     units: Sequence[PlannedSimulationUnit],
     simulation_executor: SimulationExecutor | None = None,
+    summary_only: bool = False,
 ) -> tuple[SimulationResult, ...]:
     """Worker task function executing a batch of units.
 
@@ -128,6 +215,9 @@ def _worker_execute_batch(
         The subset of planned simulation units assigned to this worker.
     simulation_executor:
         Optional custom SimulationExecutor.
+    summary_only:
+        When True, per-month timelines are stripped from the returned results
+        (only aggregate statistics are transferred back to the parent process).
 
     Returns
     -------
@@ -142,6 +232,8 @@ def _worker_execute_batch(
     research_executor = ResearchExecutor(sim_executor)
     sub_plan = ResearchPlan(experiment_definition=exp_def, units=tuple(units))
     result = research_executor.execute(sub_plan)
+    if summary_only:
+        return tuple(_to_summary_result(r) for r in result.results)
     return result.results
 
 
@@ -187,6 +279,8 @@ def _worker_execute_batch_safe(
 def sequential_execute(
     plan: ResearchPlan,
     simulation_executor: SimulationExecutor | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    summary_only: bool = False,
 ) -> ResearchExecutionResult:
     """Execute a research plan sequentially with a single worker.
 
@@ -196,6 +290,11 @@ def sequential_execute(
         The immutable research plan to execute.
     simulation_executor:
         Optional custom SimulationExecutor. If None, default 9-step pipeline executor is used.
+    progress_callback:
+        Optional callback ``(completed_units, total_units)`` invoked as units complete.
+    summary_only:
+        When True, per-month timelines are stripped from the returned results
+        (aggregate statistics only).
 
     Returns
     -------
@@ -203,8 +302,17 @@ def sequential_execute(
         Aggregated result preserving plan-unit provenance.
     """
     sim_exec = simulation_executor or _create_default_simulation_executor()
+    if progress_callback is not None:
+        sim_exec = _ProgressReportingSimulationExecutor(
+            sim_exec,
+            progress_callback,
+            total=len(plan.units),
+        )
     research_executor = ResearchExecutor(sim_exec)
-    return research_executor.execute(plan)
+    result = research_executor.execute(plan)
+    if summary_only:
+        return _strip_result_timelines(result)
+    return result
 
 
 def parallel_execute(
@@ -213,6 +321,7 @@ def parallel_execute(
     config: ExecutionConfig | None = None,
     simulation_executor: SimulationExecutor | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    summary_only: bool = False,
 ) -> ResearchExecutionResult:
     """Execute a research plan in parallel using ProcessPoolExecutor.
 
@@ -230,6 +339,10 @@ def parallel_execute(
         Optional custom SimulationExecutor.
     progress_callback:
         Optional callback(completed_units, total_units) for progress reporting.
+    summary_only:
+        When True, workers strip per-month timelines before transferring results
+        back to the parent (aggregate statistics only). Avoids shipping hundreds
+        of megabytes of monthly payloads when the caller only needs aggregates.
 
     Returns
     -------
@@ -245,15 +358,27 @@ def parallel_execute(
 
     total_units = len(plan.units)
     if total_units == 0:
-        return sequential_execute(plan, simulation_executor=simulation_executor)
+        return sequential_execute(
+            plan,
+            simulation_executor=simulation_executor,
+            progress_callback=progress_callback,
+            summary_only=summary_only,
+        )
 
     if effective_workers == 1:
-        res = sequential_execute(plan, simulation_executor=simulation_executor)
-        if progress_callback is not None:
-            progress_callback(total_units, total_units)
-        return res
+        return sequential_execute(
+            plan,
+            simulation_executor=simulation_executor,
+            progress_callback=progress_callback,
+            summary_only=summary_only,
+        )
 
-    batches = create_work_batches(plan, effective_workers)
+    if progress_callback is not None and summary_only and config.chunk_size > 0:
+        # Fine-grained chunks give smooth progress updates; each chunk's payload is
+        # tiny in summary-only mode, so the extra per-chunk IPC is negligible.
+        batches = create_chunked_batches(plan, config.chunk_size)
+    else:
+        batches = create_work_batches(plan, effective_workers)
     executor_cls = ProcessPoolExecutor if config.use_processes else ThreadPoolExecutor
 
     all_simulation_results: list[SimulationResult] = []
@@ -266,6 +391,7 @@ def parallel_execute(
                 plan.experiment_definition,
                 batch,
                 simulation_executor,
+                summary_only,
             )
             for batch in batches
         ]

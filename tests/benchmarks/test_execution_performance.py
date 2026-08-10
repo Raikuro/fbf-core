@@ -249,3 +249,33 @@ class TestExecutionWithPersistence:
         repo.save_execution_result(plan_id, result, ctx, duration_seconds=0.5)
         elapsed = time.perf_counter() - t0
         print(f"\n[BENCHMARK] execute + persist (2 units): {elapsed:.6f}s")
+
+
+# ===================================================================
+# 6. summary_only payload reduction
+# ===================================================================
+
+
+class TestSummaryOnlyOverhead:
+    """summary_only keeps aggregate statistics while dropping timelines."""
+
+    def test_summary_only_reduces_transfer_payload(
+        self, bm_medium_plan: ResearchPlan, bench_executor: BenchmarkSimulationExecutor
+    ) -> None:
+        import pickle
+
+        full = sequential_execute(bm_medium_plan, simulation_executor=bench_executor)
+        summary = sequential_execute(
+            bm_medium_plan, simulation_executor=bench_executor, summary_only=True
+        )
+
+        full_bytes = len(pickle.dumps(full.results[0]))
+        summary_bytes = len(pickle.dumps(summary.results[0]))
+        print(
+            f"\n[BENCHMARK] payload per result: full={full_bytes}B "
+            f"summary={summary_bytes}B  ratio={full_bytes / max(summary_bytes, 1):.0f}x"
+        )
+        assert summary_bytes <= full_bytes
+        for full_result, summary_result in zip(full.results, summary.results, strict=True):
+            assert summary_result.timeline.monthly_results == ()
+            assert summary_result.statistics == full_result.statistics

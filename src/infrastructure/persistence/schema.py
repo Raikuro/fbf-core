@@ -1,6 +1,12 @@
-"""SQLite schema DDL constants (v0.4)."""
+"""SQLite schema DDL constants (v0.4).
 
-SCHEMA_VERSION: int = 1
+Schema version 2 adds the ``deleted_at`` soft-delete column to ``experiments``
+and ``research_plans`` to support idempotent logical deletion / restoration
+(see INFRASTRUCTURE_SQLITE_PERSISTENCE_SPECIFICATION.md and the semantic
+equivalence rule implemented in ``SQLiteRepository``).
+"""
+
+SCHEMA_VERSION: int = 2
 
 PRAGMA_FOREIGN_KEYS = "PRAGMA foreign_keys = ON"
 PRAGMA_WAL = "PRAGMA journal_mode = WAL"
@@ -25,6 +31,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     initial_wealth_currency TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    deleted_at TEXT,
     UNIQUE(name, revision)
 );
 """
@@ -77,7 +84,8 @@ CREATE TABLE IF NOT EXISTS research_plans (
     experiment_id TEXT NOT NULL REFERENCES experiments(experiment_id),
     created_at TEXT NOT NULL,
     unit_count INTEGER NOT NULL CHECK(unit_count > 0),
-    status TEXT NOT NULL CHECK(status IN ("planned","executing","completed","failed"))
+    status TEXT NOT NULL CHECK(status IN ("planned","executing","completed","failed")),
+    deleted_at TEXT
 );
 """
 
@@ -130,6 +138,23 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_results_plan ON execution_results(plan_id);",
     "CREATE INDEX IF NOT EXISTS idx_results_execution ON "
     "simulation_results(execution_result_id, unit_index, month_index);",
+    "CREATE INDEX IF NOT EXISTS idx_experiments_deleted ON experiments(deleted_at);",
+    "CREATE INDEX IF NOT EXISTS idx_plans_deleted ON research_plans(deleted_at);",
+]
+
+# Migrations applied after CREATE TABLE DDL for databases created by an older
+# schema version (CREATE TABLE IF NOT EXISTS cannot add columns).
+MIGRATIONS = [
+    (
+        "experiments",
+        "deleted_at",
+        "ALTER TABLE experiments ADD COLUMN deleted_at TEXT",
+    ),
+    (
+        "research_plans",
+        "deleted_at",
+        "ALTER TABLE research_plans ADD COLUMN deleted_at TEXT",
+    ),
 ]
 
 ALL_DDL = [
@@ -143,5 +168,9 @@ ALL_DDL = [
     CREATE_PLANNED_UNITS_TABLE,
     CREATE_EXECUTION_RESULTS_TABLE,
     CREATE_SIMULATION_RESULTS_TABLE,
-    *CREATE_INDEXES,
 ]
+
+# Index DDL is applied separately, AFTER migrations, because indexes added by a
+# newer schema version may reference columns that do not exist yet on databases
+# created by an older version (e.g. idx_experiments_deleted on ``deleted_at``).
+INDEX_DDL = [*CREATE_INDEXES]

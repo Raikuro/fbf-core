@@ -115,6 +115,179 @@ def from_canonical_json(data: str) -> dict[str, Any]:
     return result
 
 
+def _serialize_policy(
+    policy: Any,
+    policy_kind: PolicyKind,
+    context: PersistenceReconstructionContext,
+) -> tuple[str, dict[str, Any]]:
+    """Serialize a policy to ``(policy_type, params_dict)`` for storage.
+
+    Mirrors the serialization logic used by ``SQLiteRepository._save_policy``:
+    a registered codec is tried first, then the standard-policy fallback.
+    """
+    from engine.domain.policies.allocation_policy import AllocationPolicy
+    from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
+
+    for (kind, _ptype), codec in context.policy_codecs.items():
+        if kind == policy_kind.value:
+            try:
+                candidate = dict(codec.dump(policy))
+                return codec.policy_type, candidate
+            except (TypeError, ValueError):
+                continue
+
+    if policy_kind == PolicyKind.ALLOCATION:
+        if isinstance(policy, AllocationPolicy):
+            return "AllocationPolicy", {
+                "equity_allocation": str(getattr(policy, "equity_allocation", "1.0"))
+            }
+        raise UnsupportedSerializationError(
+            f"Unsupported allocation policy type: {type(policy).__name__}"
+        )
+    if isinstance(policy, WithdrawalPolicy):
+        return "WithdrawalPolicy", {
+            "withdrawal_rate": str(getattr(policy, "withdrawal_rate", "0.04"))
+        }
+    raise UnsupportedSerializationError(
+        f"Unsupported withdrawal policy type: {type(policy).__name__}"
+    )
+
+
+# Fields that determine the actual simulation and therefore MUST match for a
+# logically deleted experiment to be considered semantically equivalent. These
+# are explicitly enumerable so that no field is silently ignored.
+_DETERMINISTIC_EXPERIMENT_FIELDS = (
+    "name",
+    "revision",
+    "description",
+    "dataset_identifier",
+    "horizon_months",
+    "initial_wealth",
+    "initial_wealth_currency",
+    "allocation_policies",
+    "withdrawal_policies",
+    "cohort_start_dates",
+)
+
+# Non-deterministic / execution-specific fields that are deliberately EXCLUDED
+# from the equivalence comparison, and why:
+#   - experiment_id / plan_id / result_id : storage-generated UUIDs, unrelated to
+#     the simulation's content.
+#   - created_at / updated_at / deleted_at / executed_at : wall-clock provenance,
+#     never part of a deterministic definition.
+#   - duration_seconds / execution_time_seconds : measurement noise.
+#   - simulation_results / monthly data : outputs, not configuration.
+_NON_DETERMINISTIC_FIELDS_DOC = (
+    "experiment_id, plan_id, result_id (storage UUIDs); "
+    "created_at, updated_at, deleted_at, executed_at (wall-clock provenance); "
+    "duration_seconds, execution_time_seconds (measurement noise); "
+    "simulation results and per-month timelines (outputs, not configuration)."
+)
+
+
+def _experiment_snapshot_from_object(
+    identity: ExperimentIdentity,
+    experiment: ExperimentDefinition,
+    context: PersistenceReconstructionContext,
+) -> dict[str, Any]:
+    """Build a deterministic canonical snapshot of an in-memory experiment."""
+    allocation_policies = tuple(
+        (ptype, to_canonical_json(params))
+        for ptype, params in (
+            _serialize_policy(p, PolicyKind.ALLOCATION, context)
+            for p in experiment.allocation_policies
+        )
+    )
+    withdrawal_policies = tuple(
+        (ptype, to_canonical_json(params))
+        for ptype, params in (
+            _serialize_policy(p, PolicyKind.WITHDRAWAL, context)
+            for p in experiment.withdrawal_policies
+        )
+    )
+    return {
+        "name": identity.name,
+        "revision": identity.revision,
+        "description": experiment.description,
+        "dataset_identifier": experiment.dataset.identifier or experiment.dataset.version,
+        "horizon_months": experiment.horizon_months,
+        "initial_wealth": serialize_decimal(experiment.initial_wealth.amount),
+        "initial_wealth_currency": experiment.initial_wealth.currency.value,
+        "allocation_policies": allocation_policies,
+        "withdrawal_policies": withdrawal_policies,
+        "cohort_start_dates": tuple(
+            sorted(c.start_date.isoformat() for c in experiment.cohorts)
+        ),
+    }
+
+
+def _experiment_snapshot_from_rows(
+    identity: ExperimentIdentity,
+    row: Sequence[Any],
+    allocation_policies: Sequence[tuple[str, str]],
+    withdrawal_policies: Sequence[tuple[str, str]],
+    cohort_start_dates: Sequence[str],
+) -> dict[str, Any]:
+    """Build a deterministic canonical snapshot from stored experiment rows."""
+    (
+        experiment_id,
+        name,
+        revision,
+        description,
+        dataset_identifier,
+        horizon_months,
+        initial_wealth,
+        initial_wealth_currency,
+    ) = row
+    return {
+        "name": identity.name,
+        "revision": identity.revision,
+        "description": description,
+        "dataset_identifier": dataset_identifier,
+        "horizon_months": horizon_months,
+        "initial_wealth": initial_wealth,
+        "initial_wealth_currency": initial_wealth_currency,
+        "allocation_policies": tuple(allocation_policies),
+        "withdrawal_policies": tuple(withdrawal_policies),
+        "cohort_start_dates": tuple(sorted(cohort_start_dates)),
+    }
+
+
+def experiments_semantically_equivalent(
+    identity_a: ExperimentIdentity,
+    experiment_a: ExperimentDefinition,
+    identity_b: ExperimentIdentity,
+    experiment_b: ExperimentDefinition,
+    context: PersistenceReconstructionContext,
+) -> bool:
+    """Return True if two experiments are deterministically semantically equivalent.
+
+    Compares every field that determines the actual simulation — natural
+    identity ``(name, revision)``, description, dataset identifier, horizon,
+    initial wealth, serialized allocation/withdrawal policies in index order,
+    and cohort start dates. Timestamps, storage UUIDs, and execution outputs
+    are intentionally excluded (see ``_NON_DETERMINISTIC_FIELDS_DOC``).
+
+    Parameters
+    ----------
+    identity_a / identity_b:
+        Natural identities ``(name, revision)`` of the two experiments.
+    experiment_a / experiment_b:
+        The experiment definitions being compared.
+    context:
+        Persistence reconstruction context providing policy codecs.
+
+    Returns
+    -------
+    bool
+        True if the two experiments are equivalent except for explicitly
+        identified non-deterministic fields.
+    """
+    snapshot_a = _experiment_snapshot_from_object(identity_a, experiment_a, context)
+    snapshot_b = _experiment_snapshot_from_object(identity_b, experiment_b, context)
+    return snapshot_a == snapshot_b
+
+
 if TYPE_CHECKING:
     from engine.application.simulation import SimulationResult
     from engine.domain.model.dataset import Dataset
@@ -227,13 +400,47 @@ class SQLiteRepository:
 
     def _initialize_schema(self) -> None:
         """Initialize database schema and version tracking."""
+        from .schema import INDEX_DDL
+
         with self._connect() as conn:
             for statement in ALL_DDL:
                 conn.execute(statement)
-            conn.execute(
-                "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)",
-                (SCHEMA_VERSION, utc_now_iso()),
-            )
+            self._apply_migrations(conn)
+            # Indexes are created after migrations because some indexes added by
+            # a newer schema version reference columns that only exist after the
+            # migration has run on databases created by an older version.
+            for statement in INDEX_DDL:
+                conn.execute(statement)
+            # Record the current schema version. A single row tracks the applied
+            # version; it is rewritten only when it differs (e.g. a legacy v1
+            # database was just migrated), keeping the row stable across
+            # repeated opens so schema initialization is fully idempotent.
+            row = conn.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone()
+            if row is None or row[0] != SCHEMA_VERSION:
+                conn.execute("DELETE FROM schema_version")
+                conn.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                    (SCHEMA_VERSION, utc_now_iso()),
+                )
+
+    @staticmethod
+    def _apply_migrations(conn: sqlite3.Connection) -> None:
+        """Add columns introduced after the original schema for existing databases.
+
+        ``CREATE TABLE IF NOT EXISTS`` cannot alter an existing table, so any
+        columns added by a newer schema version are applied here when missing.
+        """
+        from .schema import MIGRATIONS
+
+        for table, column, ddl in MIGRATIONS:
+            columns = {
+                row[1]
+                for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            if column not in columns:
+                conn.execute(ddl)
 
     def save_experiment(
         self,
@@ -245,20 +452,37 @@ class SQLiteRepository:
 
         Implements Section 12.3: save_experiment(identity, definition, context).
         All writes occur in a single DEFERRED transaction.
+
+        Idempotent logical-deletion restore rule: when an experiment with the
+        same natural identity ``(name, revision)`` exists but has been logically
+        deleted, the deleted row is restored **if and only if** the incoming
+        experiment is deterministically semantically equivalent to the stored
+        one (see ``experiments_semantically_equivalent``). If they differ in any
+        deterministic configuration field the restore is refused with
+        ``DuplicateStudyError``. An active (non-deleted) duplicate always raises
+        ``DuplicateStudyError`` as before.
         """
         validate_context(context)
 
         # Verify experiment identity is unique (Section 12.2: identity check)
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT 1 FROM experiments WHERE name = ? AND revision = ?",
+                "SELECT experiment_id, deleted_at FROM experiments "
+                "WHERE name = ? AND revision = ?",
                 (identity.name, identity.revision),
             ).fetchone()
             if row:
-                raise DuplicateStudyError(
-                    "Experiment already exists with name "
-                    f"'{identity.name}' and revision '{identity.revision}'"
+                existing_id: str = str(row[0])
+                deleted_at = row[1]
+                if deleted_at is None:
+                    raise DuplicateStudyError(
+                        "Experiment already exists with name "
+                        f"'{identity.name}' and revision '{identity.revision}'"
+                    )
+                self._restore_if_semantically_equivalent(
+                    identity, experiment, existing_id, context
                 )
+                return existing_id
 
         experiment_id = generate_uuid()
 
@@ -304,6 +528,127 @@ class SQLiteRepository:
         assert isinstance(result_str, str)
         return result_str
 
+    def _stored_experiment_snapshot(
+        self,
+        identity: ExperimentIdentity,
+        experiment_id: str,
+        context: PersistenceReconstructionContext,
+    ) -> dict[str, Any]:
+        """Build a deterministic snapshot of a stored experiment from its rows."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT experiment_id, name, revision, description, dataset_identifier,
+                       horizon_months, initial_wealth, initial_wealth_currency
+                FROM experiments WHERE experiment_id = ?
+                """,
+                (experiment_id,),
+            ).fetchone()
+            if not row:
+                raise StudyNotFoundError(f"Experiment not found: {experiment_id}")
+
+            allocation_policies = self._load_stored_policy_snapshot(
+                conn, experiment_id, PolicyKind.ALLOCATION
+            )
+            withdrawal_policies = self._load_stored_policy_snapshot(
+                conn, experiment_id, PolicyKind.WITHDRAWAL
+            )
+            cohort_dates = tuple(
+                r[0]
+                for r in conn.execute(
+                    "SELECT start_date FROM cohorts "
+                    "WHERE experiment_id = ? ORDER BY start_date",
+                    (experiment_id,),
+                ).fetchall()
+            )
+        return _experiment_snapshot_from_rows(
+            identity,
+            row,
+            allocation_policies,
+            withdrawal_policies,
+            cohort_dates,
+        )
+
+    @staticmethod
+    def _load_stored_policy_snapshot(
+        conn: sqlite3.Connection,
+        experiment_id: str,
+        policy_kind: PolicyKind,
+    ) -> tuple[tuple[str, str], ...]:
+        """Load stored policies as ``(policy_type, canonical_params_json)`` tuples."""
+        rows = conn.execute(
+            """
+            SELECT p.policy_type, p.params_json
+            FROM policies p
+            JOIN experiment_policies ep ON p.policy_id = ep.policy_id
+            WHERE ep.experiment_id = ? AND ep.policy_kind = ?
+            ORDER BY ep.policy_index
+            """,
+            (experiment_id, policy_kind.value),
+        ).fetchall()
+        return tuple((str(r[0]), str(r[1])) for r in rows)
+
+    def _restore_if_semantically_equivalent(
+        self,
+        identity: ExperimentIdentity,
+        experiment: ExperimentDefinition,
+        experiment_id: str,
+        context: PersistenceReconstructionContext,
+    ) -> None:
+        """Restore a logically deleted experiment iff it is semantically equivalent.
+
+        Raises ``DuplicateStudyError`` (refusing to restore) when the incoming
+        experiment differs from the stored, logically deleted entry in any
+        deterministic field. Restores by clearing ``deleted_at`` and reusing the
+        existing ``experiment_id`` otherwise.
+        """
+        incoming_snapshot = _experiment_snapshot_from_object(identity, experiment, context)
+        stored_snapshot = self._stored_experiment_snapshot(identity, experiment_id, context)
+        if incoming_snapshot != stored_snapshot:
+            raise DuplicateStudyError(
+                f"A logically deleted experiment exists with name '{identity.name}' and "
+                f"revision '{identity.revision}' but its deterministic configuration "
+                "differs from the entry being persisted. Refusing to restore: the ID alone "
+                "is not evidence of identity. Delete the stale entry or use a new identity."
+            )
+
+        with self._connect_immediate() as conn:
+            conn.execute(
+                "UPDATE experiments SET deleted_at = NULL, updated_at = ? "
+                "WHERE experiment_id = ?",
+                (utc_now_iso(), experiment_id),
+            )
+
+    def logical_delete_experiment(self, identity: ExperimentIdentity) -> None:
+        """Logically delete an experiment and its research plans.
+
+        Sets ``deleted_at`` on the matching ``(name, revision)`` row and on every
+        of its research plans so they are hidden from all query APIs. The rows are
+        retained so that a semantically equivalent re-save can restore them
+        (see ``save_experiment``). Does nothing if no matching row exists.
+        """
+        with self._connect_immediate() as conn:
+            row = conn.execute(
+                "SELECT experiment_id FROM experiments "
+                "WHERE name = ? AND revision = ?",
+                (identity.name, identity.revision),
+            ).fetchone()
+            if not row:
+                raise StudyNotFoundError(
+                    f"Experiment not found: '{identity.name}' revision '{identity.revision}'"
+                )
+            experiment_id = row[0]
+            now = utc_now_iso()
+            conn.execute(
+                "UPDATE experiments SET deleted_at = ?, updated_at = ? "
+                "WHERE experiment_id = ?",
+                (now, now, experiment_id),
+            )
+            conn.execute(
+                "UPDATE research_plans SET deleted_at = ? WHERE experiment_id = ?",
+                (now, experiment_id),
+            )
+
     def load_experiment(
         self, identity_or_id: str | ExperimentIdentity, context: PersistenceReconstructionContext
     ) -> ExperimentDefinition:
@@ -311,6 +656,9 @@ class SQLiteRepository:
 
         Implements Section 12.3: load_experiment(identity_or_id, context).
         Requires complete context for safe reconstruction.
+
+        Logically deleted experiments are treated as not found by the public
+        query API (restore happens through ``save_experiment``).
         """
         validate_context(context)
 
@@ -321,7 +669,7 @@ class SQLiteRepository:
                     SELECT experiment_id, name, revision, description, dataset_identifier,
                            horizon_months, initial_wealth, initial_wealth_currency
                     FROM experiments
-                    WHERE name = ? AND revision = ?
+                    WHERE name = ? AND revision = ? AND deleted_at IS NULL
                     """,
                     (identity_or_id.name, identity_or_id.revision),
                 ).fetchone()
@@ -331,7 +679,7 @@ class SQLiteRepository:
                     SELECT e.experiment_id, e.name, e.revision, e.description, e.dataset_identifier,
                            e.horizon_months, e.initial_wealth, e.initial_wealth_currency
                     FROM experiments e
-                    WHERE e.experiment_id = ?
+                    WHERE e.experiment_id = ? AND e.deleted_at IS NULL
                     """,
                     (identity_or_id,),
                 ).fetchone()
@@ -635,7 +983,8 @@ class SQLiteRepository:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT experiment_id FROM experiments "
-                "WHERE name = ? ORDER BY revision DESC LIMIT 1",
+                "WHERE name = ? AND deleted_at IS NULL "
+                "ORDER BY revision DESC LIMIT 1",
                 (name,)
             ).fetchone()
             return row[0] if row else None
@@ -650,7 +999,8 @@ class SQLiteRepository:
                 """
                 SELECT experiment_id, name, revision, dataset_identifier, horizon_months,
                        initial_wealth, initial_wealth_currency, created_at, updated_at
-                FROM experiments ORDER BY name, revision
+                FROM experiments WHERE deleted_at IS NULL
+                ORDER BY name, revision
                 """
             ).fetchall()
 
@@ -689,7 +1039,7 @@ class SQLiteRepository:
             row = conn.execute(
                 """
                 SELECT plan_id FROM research_plans
-                WHERE experiment_id = ? AND status = 'completed'
+                WHERE experiment_id = ? AND status = 'completed' AND deleted_at IS NULL
                 ORDER BY created_at DESC LIMIT 1
                 """,
                 (experiment_id,),
@@ -707,7 +1057,7 @@ class SQLiteRepository:
             exp_row = conn.execute(
                 """
                 SELECT name, revision, created_at
-                FROM experiments WHERE experiment_id = ?
+                FROM experiments WHERE experiment_id = ? AND deleted_at IS NULL
                 """,
                 (experiment_id,),
             ).fetchone()
@@ -898,30 +1248,33 @@ class SQLiteRepository:
         ).fetchone()
 
         if existing:
-            existing_id: str = existing[0]
-            return existing_id
+            policy_id: str = existing[0]
+        else:
+            policy_id = generate_uuid()
 
-        policy_id = generate_uuid()
+            # Save policy metadata (Section 12.2: canonical JSON encoding)
+            conn.execute(
+                """
+                INSERT INTO policies (policy_id, policy_type, params_json, params_hash, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    policy_id,
+                    policy_type,
+                    params_json,
+                    params_hash,
+                    utc_now_iso(),
+                ),
+            )
 
-        # Save policy metadata (Section 12.2: canonical JSON encoding)
+        # Save ordered policy association. This must run for every experiment
+        # even when the policy row itself is reused (same type + hash), otherwise
+        # an experiment whose policies match an already-stored policy would lose
+        # its experiment_policies link and fail to reconstruct on load.
         conn.execute(
             """
-            INSERT INTO policies (policy_id, policy_type, params_json, params_hash, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                policy_id,
-                policy_type,
-                params_json,
-                params_hash,
-                utc_now_iso(),
-            ),
-        )
-
-        # Save ordered policy association
-        conn.execute(
-            """
-            INSERT INTO experiment_policies (experiment_id, policy_id, policy_kind, policy_index)
+            INSERT OR IGNORE INTO experiment_policies
+                (experiment_id, policy_id, policy_kind, policy_index)
             VALUES (?, ?, ?, ?)
             """,
             (

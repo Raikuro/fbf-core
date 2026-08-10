@@ -280,6 +280,79 @@ def test_progress_callback() -> None:
     assert progress_reports[-1] == (8, 8)
 
 
+def test_sequential_execute_progress_callback_per_unit() -> None:
+    """Verify sequential execution fires progress once per completed unit."""
+    plan = make_test_plan(num_units=8)
+    mock_sim_exec = make_mock_simulation_executor(8)
+
+    progress_reports: list[tuple[int, int]] = []
+
+    def callback(completed: int, total: int) -> None:
+        progress_reports.append((completed, total))
+
+    res = sequential_execute(
+        plan,
+        simulation_executor=mock_sim_exec,
+        progress_callback=callback,
+    )
+
+    assert progress_reports == [(i, 8) for i in range(1, 9)]
+    assert len(res.results) == 8
+
+
+def test_sequential_execute_summary_only_strips_timelines() -> None:
+    """Verify summary_only drops timelines but preserves aggregate statistics."""
+    plan = make_test_plan(num_units=6)
+    mock_sim_exec = make_mock_simulation_executor(6)
+
+    full = sequential_execute(plan, simulation_executor=mock_sim_exec)
+    summary = sequential_execute(
+        plan, simulation_executor=mock_sim_exec, summary_only=True
+    )
+
+    assert len(summary.results) == len(full.results) == 6
+    for summary_result, full_result in zip(summary.results, full.results, strict=True):
+        assert summary_result.timeline.monthly_results == ()
+        assert summary_result.statistics == full_result.statistics
+
+
+def test_parallel_execute_summary_only_strips_timelines() -> None:
+    """Verify summary_only strips timelines in the parallel path too."""
+    plan = make_test_plan(num_units=6)
+    mock_sim_exec = make_mock_simulation_executor(6)
+
+    config = ExecutionConfig(max_workers=3, use_processes=False)
+    full = parallel_execute(plan, config=config, simulation_executor=mock_sim_exec)
+    summary = parallel_execute(
+        plan,
+        config=config,
+        simulation_executor=mock_sim_exec,
+        summary_only=True,
+    )
+
+    assert len(summary.results) == len(full.results) == 6
+    for summary_result, full_result in zip(summary.results, full.results, strict=True):
+        assert summary_result.timeline.monthly_results == ()
+        assert summary_result.statistics == full_result.statistics
+
+
+def test_parallel_execute_summary_only_single_worker() -> None:
+    """Verify summary_only works when the plan delegates to sequential_execute."""
+    plan = make_test_plan(num_units=4)
+    mock_sim_exec = make_mock_simulation_executor(4)
+
+    config = ExecutionConfig(max_workers=1, use_processes=False)
+    summary = parallel_execute(
+        plan,
+        config=config,
+        simulation_executor=mock_sim_exec,
+        summary_only=True,
+    )
+
+    assert len(summary.results) == 4
+    assert all(r.timeline.monthly_results == () for r in summary.results)
+
+
 class ExplodingAllocationPolicy(AllocationPolicy):
     """Allocation policy that raises RuntimeError at execution time."""
 

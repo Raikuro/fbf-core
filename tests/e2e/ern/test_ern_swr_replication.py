@@ -6,13 +6,15 @@ ERN oracle matrix (``data/ern/p49_oracle_table.csv``) within +/-1 percentage
 point, with the three published anchors (95 / 65 / 97) as hard-fail checks.
 
 The test exercises ONLY the public CLI as an external subprocess:
-  dataset/config/study -> ``sim-retire run`` -> observable summary
-  -> ``sim-retire list`` / ``export`` -> success rate -> oracle assertion.
+  dataset/config/study -> ``sim-retire run --no-persist --summary-only``
+  -> observable summary -> success rate -> oracle assertion.
 
-Runtime: one study cell is ~1,739 cohort simulations (~60-120s at 4 workers)
-and writes a SQLite database (~700MB) to an isolated temp HOME that is removed
-after each cell.  Enable with ``RUN_ERN_E2E=1``; the full 180-cell grid also
-needs ``RUN_ERN_E2E_FULL=1``.
+Each cell runs in non-persistent, summary-only mode: no SQLite study database
+is created and per-month timelines are never materialized or transferred, so
+the acceptance run performs no multi-GB persistence/IO. The aggregate success
+statistics are identical to the persisted path (semantics are unchanged).
+Enable with ``RUN_ERN_E2E=1``; the full 180-cell grid also needs
+``RUN_ERN_E2E_FULL=1``.
 """
 
 from __future__ import annotations
@@ -39,7 +41,14 @@ from .fixtures import cell_success_rate, write_study_yaml
 
 RUN_ERN_E2E = os.environ.get("RUN_ERN_E2E") == "1"
 RUN_ERN_E2E_FULL = RUN_ERN_E2E and os.environ.get("RUN_ERN_E2E_FULL") == "1"
-DEFAULT_WORKERS = int(os.environ.get("ERN_E2E_WORKERS", "4"))
+# Worker scaling is host-dependent and sub-linear. Measured benchmark on the
+# development host (30y cell, --no-persist --summary-only): 1->48.3s, 2->30.3s,
+# 4->22.3s, 8->22.2s (~2.2x at 8 workers; 8 adds little over 4). Results are
+# identical across worker counts. 8 is the default, never exceeding the host
+# core count; use ERN_E2E_WORKERS to override for a different host.
+DEFAULT_WORKERS = min(
+    int(os.environ.get("ERN_E2E_WORKERS", "8")), os.cpu_count() or 8
+)
 
 pytestmark = [
     pytest.mark.ern_e2e,
@@ -71,8 +80,8 @@ def _run_cell(
     horizon: int,
     rate: float,
     workers: int,
-) -> float:
-    """Run one grid cell with an isolated HOME and return the success percent."""
+) -> tuple[float, int]:
+    """Run one grid cell with an isolated HOME; return (success_pct, units_run)."""
     home = run_dir / f"home_{cell_name(weight, horizon, rate)}"
     home.mkdir()
     harness = CliHarness(data_dir=data_dir, home_dir=home)
@@ -104,7 +113,7 @@ def test_anchor_cells_reproduce_paper(
 ) -> None:
     """Hard-fail anchors: 50/50 30y 4% = 95, 50/50 60y 4% = 65, 75/25 60y 3.5% = 97."""
     for weight, horizon, rate, expected in ANCHOR_CELLS:
-        got = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
+        got, _ = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
         assert round(got) == expected, (
             f"anchor {int(weight * 100)}/{horizon}y/{rate * 100:.2f}%: CLI {got:.2f}% "
             f"({round(got)}) vs published {expected}%"
@@ -116,7 +125,7 @@ def test_smoke_grid_matches_oracle(
 ) -> None:
     """A representative slice of Table 1 must agree with the oracle within +/-1pp."""
     for weight, horizon, rate, _ in SMOKE_CELLS:
-        got = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
+        got, _ = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
         _assert_cell_matches(oracle, weight, horizon, rate, got)
 
 
@@ -127,17 +136,70 @@ def test_smoke_grid_matches_oracle(
 def test_full_grid_matches_oracle(
     data_dir: Path, tmp_path: Path, oracle: dict
 ) -> None:
-    """Full Table 1 grid (5 weights x 4 horizons x 9 rates = 180 cells)."""
-    worst_diff = 0
-    worst_cell = None
+    """Full Table 1 grid (5 weights x 4 horizons x 9 rates = 180 cells).
+
+    Emits an acceptance report: wall time, worker count, per-cell deviations
+    (min/max), total simulation units, observed throughput, the hard-fail
+    anchors, and any cell outside the +/-1 pp tolerance.
+    """
+    import time
+
+    workers = DEFAULT_WORKERS
+    start = time.perf_counter()
+    deviations: list[tuple[int, float, int, float, int]] = []
+    total_units = 0
+    anchor_results: dict[str, tuple[float, int]] = {}
+    outside = []
+
     for weight in WEIGHTS:
         for horizon in HORIZON_YEARS:
             for rate in RATES:
-                got = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
+                got, units = _run_cell(
+                    data_dir, tmp_path, weight, horizon, rate, workers
+                )
+                total_units += units
                 expected = oracle[(weight, horizon)][rate]
-                diff = abs(round(got) - expected)
-                if diff > worst_diff:
-                    worst_diff = diff
-                    worst_cell = (weight, horizon, rate, round(got), expected)
+                dev = round(got) - expected
+                deviations.append((abs(dev), weight, horizon, rate, round(got)))
+                if abs(dev) > TOLERANCE_PP:
+                    outside.append((weight, horizon, rate, round(got), expected))
+                for aw, ah, ar, aexp in ANCHOR_CELLS:
+                    if (weight, horizon, rate) == (aw, ah, ar):
+                        anchor_results[f"{int(weight*100)}/{horizon}y/{ar*100:.2f}%"] = (
+                            round(got),
+                            aexp,
+                        )
                 _assert_cell_matches(oracle, weight, horizon, rate, got)
-    assert worst_diff <= TOLERANCE_PP, f"worst cell: {worst_cell}"
+
+    elapsed = time.perf_counter() - start
+    deviations_sorted = sorted(deviations)
+    worst_diff, ww, wh, wr, wgot = deviations_sorted[-1]
+    min_diff = deviations_sorted[0][0]
+    max_diff = worst_diff
+    print("\n" + "=" * 62)
+    print("P4.9 FULL-GRID ACCEPTANCE REPORT")
+    print("=" * 62)
+    print(f"Cells run:          {len(deviations)}/180")
+    print(f"Workers:            {workers}")
+    print(f"Wall time:          {elapsed:.0f}s "
+          f"({time.strftime('%H:%M:%S', time.gmtime(elapsed))})")
+    print(f"Total units:        {total_units:,}")
+    print(f"Throughput:         {total_units / elapsed:.0f} units/s "
+          f"({elapsed / total_units:.5f} s/unit)")
+    print(f"Abs deviation min:  {min_diff} pp")
+    print(f"Abs deviation max:  {max_diff} pp "
+          f"(cell {int(ww*100)}/{wh}y/{wr*100:.2f}%: CLI {wgot}% vs oracle "
+          f"{oracle[(ww, wh)][wr]}%)")
+    print("Anchors (hard-fail):")
+    for name, (got, exp) in anchor_results.items():
+        print(f"  {name}: CLI={got}% oracle={exp}% "
+              f"({'PASS' if got == exp else 'FAIL'})")
+    if outside:
+        print(f"Cells outside +/-{TOLERANCE_PP} pp: {len(outside)}")
+        for cell in outside:
+            print(f"  {cell}")
+    else:
+        print(f"Cells outside +/-{TOLERANCE_PP} pp: 0")
+    print("=" * 62)
+    assert len(deviations) == 180
+    assert worst_diff <= TOLERANCE_PP, f"worst cell: {deviations_sorted[-1]}"
