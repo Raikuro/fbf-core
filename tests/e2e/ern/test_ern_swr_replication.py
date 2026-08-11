@@ -13,8 +13,11 @@ Each cell runs in non-persistent, summary-only mode: no SQLite study database
 is created and per-month timelines are never materialized or transferred, so
 the acceptance run performs no multi-GB persistence/IO. The aggregate success
 statistics are identical to the persisted path (semantics are unchanged).
+
 Enable with ``RUN_ERN_E2E=1``; the full 180-cell grid also needs
-``RUN_ERN_E2E_FULL=1``.
+``RUN_ERN_E2E_FULL=1``.  Workers default to a conservative 8; set
+``ERN_E2E_WORKERS=N`` for an exact count or ``ERN_E2E_WORKERS=max`` to use
+every available logical CPU (see ``constants.resolve_e2e_workers``).
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from tests.e2e.cli_harness import CliHarness
 from .constants import (
     ANCHOR_CELLS,
     DATA_DIR,
+    ERN_E2E_WORKERS_ENV,
     HORIZON_YEARS,
     RATES,
     SMOKE_CELLS,
@@ -37,17 +41,22 @@ from .constants import (
     OracleTable,
     cell_name,
     load_oracle_table,
+    resolve_e2e_workers,
 )
 from .fixtures import cell_success_rate, write_study_yaml
 
 RUN_ERN_E2E = os.environ.get("RUN_ERN_E2E") == "1"
 RUN_ERN_E2E_FULL = RUN_ERN_E2E and os.environ.get("RUN_ERN_E2E_FULL") == "1"
-# Worker scaling is host-dependent and sub-linear. Measured benchmark on the
-# development host (30y cell, --no-persist --summary-only): 1->48.3s, 2->30.3s,
-# 4->22.3s, 8->22.2s (~2.2x at 8 workers; 8 adds little over 4). Results are
-# identical across worker counts. 8 is the default, never exceeding the host
-# core count; use ERN_E2E_WORKERS to override for a different host.
-DEFAULT_WORKERS = min(int(os.environ.get("ERN_E2E_WORKERS", "8")), os.cpu_count() or 8)
+# Worker selection (see constants.resolve_e2e_workers):
+#   - unset                    -> conservative default (8), never a hard cap
+#   - ERN_E2E_WORKERS=N        -> exactly N workers (capped to host CPUs)
+#   - ERN_E2E_WORKERS=max      -> every available logical CPU
+# A full acceptance run on a many-core host therefore uses
+# ``ERN_E2E_WORKERS=max``.  Results are identical across worker counts;
+# scaling is host-dependent and sub-linear (measured on the development host
+# for a 30y cell, --no-persist --summary-only: 1->48.3s, 2->30.3s, 4->22.3s,
+# 8->22.2s).
+DEFAULT_WORKERS = resolve_e2e_workers(os.environ.get(ERN_E2E_WORKERS_ENV))
 
 pytestmark = [
     pytest.mark.ern_e2e,

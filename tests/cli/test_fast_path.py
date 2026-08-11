@@ -22,12 +22,16 @@ from cli.builders import (
     build_research_plan,
 )
 from cli.fast_path import (
+    FAST_PATH_VALIDATION_MAX_UNITS,
     ChainedFastPathSimulationExecutor,
     FastPathSimulationExecutor,
+    FastPathValidationError,
     Precision,
     evaluate_path,
     fast_path_unit_counts,
     is_fast_path_eligible,
+    run_fast_path_validation,
+    select_validation_units,
 )
 from cli.policies import (
     ConstantAllocationPolicy,
@@ -360,3 +364,82 @@ def test_fast_path_unit_counts_mixed() -> None:
     all_fast, all_reference = fast_path_unit_counts(plan)
     assert all_fast == len(units)
     assert all_reference == 0
+
+
+class TestFastPathValidation:
+    """F7: `--fast-path --validate` pre-flight sample against the Decimal reference."""
+
+    def test_validation_success(self) -> None:
+        """An eligible plan validates cleanly: sample equals the requested cap."""
+        plan = build_plan(make_synthetic_dataset(), 120, 0.5, 0.04)
+        sampled, eligible = run_fast_path_validation(plan)
+        assert eligible == len(plan.units)
+        assert sampled == min(FAST_PATH_VALIDATION_MAX_UNITS, eligible)
+
+    def test_validation_returns_zero_when_nothing_eligible(self) -> None:
+        """A plan with no fast-path-eligible units reports an empty validation."""
+        plan = build_plan(make_synthetic_dataset(), 120, 0.5, 0.04)
+        units = plan.units
+        ineligible = ResearchPlan(
+            experiment_definition=plan.experiment_definition,
+            units=_replace_withdrawal_policies(
+                units, ConstantWithdrawalPolicy(Decimal("0.04"))
+            ),
+        )
+        sampled, eligible = run_fast_path_validation(ineligible)
+        assert sampled == 0
+        assert eligible == 0
+
+    def test_validation_detects_divergence(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A perturbed fast path raises a validation error naming the cohort."""
+        from cli.fast_path import ClosedFormPath
+
+        plan = build_plan(make_synthetic_dataset(), 120, 0.5, 0.04)
+        real_evaluate = evaluate_path
+
+        def doubled_evaluate(
+            context: SimulationContext, precision: Precision
+        ) -> ClosedFormPath:
+            path = real_evaluate(context, precision)
+            return ClosedFormPath(
+                monthly_values=tuple(v * Decimal("2") for v in path.monthly_values),
+                failure_month=path.failure_month,
+                withdrawal=path.withdrawal,
+            )
+
+        monkeypatch.setattr("cli.fast_path.evaluate_path", doubled_evaluate)
+        with pytest.raises(FastPathValidationError) as excinfo:
+            run_fast_path_validation(plan)
+        message = str(excinfo.value)
+        assert "cohort=" in message
+        assert "final_wealth" in message
+        # The error must name the very first sampled cohort.
+        first = select_validation_units(plan)[0]
+        assert first.cohort.start_date.isoformat() in message
+
+    def test_validation_sampling_is_deterministic(self) -> None:
+        """The sample is stable across calls and only contains eligible units."""
+        plan = build_plan(make_synthetic_dataset(), 120, 0.5, 0.04)
+        assert select_validation_units(plan) == select_validation_units(plan)
+        sample = select_validation_units(plan)
+        assert 0 < len(sample) <= FAST_PATH_VALIDATION_MAX_UNITS
+
+    def test_validation_sample_skips_ineligible_units(self) -> None:
+        """The sample never includes units that fall back to the reference."""
+        plan = build_plan(make_synthetic_dataset(), 120, 0.5, 0.04)
+        units = plan.units
+        half = len(units) // 2
+        mixed = ResearchPlan(
+            experiment_definition=plan.experiment_definition,
+            units=(
+                _replace_withdrawal_policies(
+                    units[:half], ConstantWithdrawalPolicy(Decimal("0.04"))
+                )
+                + units[half:]
+            ),
+        )
+        sample = select_validation_units(mixed)
+        assert sample
+        assert all(u in units[half:] for u in sample)

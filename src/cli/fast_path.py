@@ -37,6 +37,7 @@ path remains the reference engine.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal, cast
@@ -52,12 +53,23 @@ from engine.application.simulation import (
 )
 from engine.application.simulation_context import SimulationContext
 from engine.domain.model.money import Currency, Money
-from infrastructure.execution.parallel_executor import _create_default_simulation_executor
-from research.domain.plan import ResearchPlan
+from infrastructure.execution.parallel_executor import (
+    _create_default_simulation_executor,
+    sequential_execute,
+)
+from research.domain.plan import PlannedSimulationUnit, ResearchPlan
 
 _EquityId = "equity"
 
 Precision = Literal["float", "decimal"]
+
+# --- F7 validation constants -------------------------------------------------
+# Deterministic sample seed so ``--fast-path --validate`` always picks the same
+# units for a given plan.  Sample size and wealth tolerance follow the
+# established equivalence studies in ``tests/cli/test_fast_path.py``.
+FAST_PATH_VALIDATION_SEED = 0xF7A9
+FAST_PATH_VALIDATION_MAX_UNITS = 8
+FAST_PATH_VALIDATION_WEALTH_TOLERANCE = Decimal("0.05")
 
 
 def _to_decimal(value: float | Decimal) -> Decimal:
@@ -350,6 +362,31 @@ class FastPathSimulationExecutor(SimulationExecutor):
         return ExperimentRun(definition=definition, simulation_results=tuple(results))
 
 
+def _unit_simulation_context(
+    plan: ResearchPlan, unit: PlannedSimulationUnit
+) -> SimulationContext:
+    """Translate one planned unit into a frozen engine ``SimulationContext``.
+
+    Mirrors ``ResearchExecutor._create_context_for_unit`` exactly so eligibility
+    and validation operate on the same contexts the executor would build.
+    """
+    cohort_id = unit.cohort.id
+    assert (
+        cohort_id is not None
+    ), f"CohortSpecification.id must not be None (cohort={unit.cohort.start_date!r})"
+    return SimulationContext(
+        experiment_name=plan.experiment_definition.name,
+        cohort=cohort_id,
+        start_date=unit.cohort.start_date,
+        horizon_months=plan.experiment_definition.horizon_months,
+        initial_wealth=plan.experiment_definition.initial_wealth,
+        initial_portfolio=unit.initial_portfolio,
+        dataset=unit.dataset,
+        allocation_policy=unit.allocation_policy,
+        withdrawal_policy=unit.withdrawal_policy,
+    )
+
+
 def fast_path_unit_counts(plan: ResearchPlan) -> tuple[int, int]:
     """Return ``(fast_path_units, reference_units)`` for a *plan*.
 
@@ -359,23 +396,123 @@ def fast_path_unit_counts(plan: ResearchPlan) -> tuple[int, int]:
     coverage in the completion summary; eligibility is deterministic and does
     not depend on the execution path (sequential or parallel).
     """
-    fast_units = 0
-    for unit in plan.units:
-        cohort_id = unit.cohort.id
-        context = SimulationContext(
-            experiment_name=plan.experiment_definition.name,
-            cohort=cohort_id if cohort_id is not None else "",
-            start_date=unit.cohort.start_date,
-            horizon_months=plan.experiment_definition.horizon_months,
-            initial_wealth=plan.experiment_definition.initial_wealth,
-            initial_portfolio=unit.initial_portfolio,
-            dataset=unit.dataset,
-            allocation_policy=unit.allocation_policy,
-            withdrawal_policy=unit.withdrawal_policy,
-        )
-        if is_fast_path_eligible(context):
-            fast_units += 1
+    fast_units = sum(
+        1 for unit in plan.units if is_fast_path_eligible(_unit_simulation_context(plan, unit))
+    )
     return fast_units, len(plan.units) - fast_units
+
+
+def select_validation_units(
+    plan: ResearchPlan, max_units: int = FAST_PATH_VALIDATION_MAX_UNITS
+) -> tuple[PlannedSimulationUnit, ...]:
+    """Return a small deterministic sample of *plan*'s fast-path-eligible units.
+
+    Only fast-path-eligible units are sampled (comparing a unit that falls back
+    to the reference would validate the reference against itself).  The sample
+    is deterministic: the same plan always yields the same units, because the
+    eligible units are ordered by plan index and a fixed-seed RNG selects the
+    sample indices.
+    """
+    eligible = tuple(
+        unit
+        for unit in plan.units
+        if is_fast_path_eligible(_unit_simulation_context(plan, unit))
+    )
+    sample_size = min(max_units, len(eligible))
+    if sample_size == 0:
+        return ()
+    indices = sorted(
+        random.Random(FAST_PATH_VALIDATION_SEED).sample(range(len(eligible)), sample_size)
+    )
+    return tuple(eligible[i] for i in indices)
+
+
+class FastPathValidationError(RuntimeError):
+    """Raised when the fast path diverges from the Decimal reference engine."""
+
+
+def _compare_fast_path_result(
+    reference: SimulationResult,
+    fast: SimulationResult,
+    tolerance: Decimal,
+) -> list[str]:
+    """Return human-readable divergences between a reference and a fast result.
+
+    Compares success/failure outcome, failure month, and (on success) final
+    wealth within *tolerance*.  An empty list means the results agree.
+    """
+    problems: list[str] = []
+    if reference.statistics.success != fast.statistics.success:
+        problems.append(
+            f"outcome: reference "
+            f"{'success' if reference.statistics.success else 'failure'} vs fast "
+            f"{'success' if fast.statistics.success else 'failure'}"
+        )
+    if reference.statistics.failure_month != fast.statistics.failure_month:
+        problems.append(
+            f"failure_month: reference {reference.statistics.failure_month} "
+            f"vs fast {fast.statistics.failure_month}"
+        )
+    if reference.statistics.success and fast.statistics.success:
+        wealth_diff = abs(
+            reference.statistics.final_wealth.amount - fast.statistics.final_wealth.amount
+        )
+        if wealth_diff > tolerance:
+            problems.append(
+                f"final_wealth: reference {reference.statistics.final_wealth} "
+                f"vs fast {fast.statistics.final_wealth} "
+                f"(diff {wealth_diff} > tolerance {tolerance})"
+            )
+    return problems
+
+
+def run_fast_path_validation(
+    plan: ResearchPlan,
+    max_units: int = FAST_PATH_VALIDATION_MAX_UNITS,
+    tolerance: Decimal = FAST_PATH_VALIDATION_WEALTH_TOLERANCE,
+) -> tuple[int, int]:
+    """Validate a deterministic sample of *plan* against the Decimal reference.
+
+    Executes a ``select_validation_units`` sample through **both** the float
+    fast path (``FastPathSimulationExecutor(precision="float")``, the exact path
+    ``--fast-path`` requests) and the canonical Decimal reference engine, then
+    compares outcome, failure month and (on success) final wealth.
+
+    Raises ``FastPathValidationError`` on the first divergence, identifying the
+    diverging unit (cohort start date and parameter configuration) and the
+    observed vs expected statistics.  Returns ``(sampled_units, eligible_units)``
+    on success.  The validation is purely additive: it never mutates or replaces
+    the results of the requested execution path.
+    """
+    sample = select_validation_units(plan, max_units)
+    if not sample:
+        return 0, 0
+
+    eligible_count = len(
+        [u for u in plan.units if is_fast_path_eligible(_unit_simulation_context(plan, u))]
+    )
+
+    sub_plan = ResearchPlan(
+        experiment_definition=plan.experiment_definition, units=sample
+    )
+    reference_results = sequential_execute(sub_plan, summary_only=True).results
+    fast_results = sequential_execute(
+        sub_plan,
+        simulation_executor=FastPathSimulationExecutor(precision="float"),
+        summary_only=True,
+    ).results
+
+    for unit, reference, fast in zip(
+        sample, reference_results, fast_results, strict=True
+    ):
+        problems = _compare_fast_path_result(reference, fast, tolerance)
+        if problems:
+            raise FastPathValidationError(
+                "Fast-path validation failed on unit "
+                f"cohort={unit.cohort.start_date.isoformat()} "
+                f"params={unit.parameter_config}: " + "; ".join(problems)
+            )
+    return len(sample), eligible_count
 
 
 class ChainedFastPathSimulationExecutor(FastPathSimulationExecutor):
