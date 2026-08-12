@@ -45,8 +45,8 @@ class DefaultDatasetResolver:
 
     @classmethod
     def from_data_dir(cls, data_dir: str) -> DefaultDatasetResolver:
-        from .context import _load_datasets_from_dir
-        return cls(datasets=_load_datasets_from_dir(data_dir))
+        from .dataset_cache import get_default_dataset_cache
+        return cls(datasets=get_default_dataset_cache().load_dir(data_dir))
 
     def resolve(self, dataset_identifier: str) -> Dataset:
         # Step 1: Canonical identifier lookup

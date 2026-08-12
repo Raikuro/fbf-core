@@ -1,0 +1,300 @@
+"""Tests for the authoritative in-process DatasetCache (P4.11 Phase 1).
+
+Covers:
+- repeated resolution triggers exactly one underlying file load,
+- repeated resolution returns the identical Dataset object,
+- prefix slicing of a longer dataset is value-equivalent to a shorter
+  independently-loaded dataset (generic, synthetic),
+- ERN prefix identity: h720 sliced to h360 is value-equivalent to the
+  committed h360 dataset,
+- persistence context reuses the same cache instead of loading again,
+- cache unit behaviour: path normalization, no failure caching, clear.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterator
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+
+from engine.domain.model.asset import AssetClass
+from engine.domain.model.dataset import Dataset
+from engine.domain.model.market_snapshot import MarketSnapshot
+from infrastructure.persistence import (
+    DatasetCache,
+    DefaultDatasetResolver,
+    clear_default_dataset_cache,
+    context as context_module,
+)
+from infrastructure.persistence.context import (
+    _dataset_to_dict,
+    create_persistence_context,
+)
+from infrastructure.persistence.errors import StudyNotFoundError
+
+EQ = AssetClass(id="equity", name="Equity", description="")
+BD = AssetClass(id="bond", name="Bond", description="")
+
+ERN_DATA_DIR = Path("data/ern").resolve()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_default_cache() -> Iterator[None]:
+    clear_default_dataset_cache()
+    yield
+    clear_default_dataset_cache()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(day: int, level: Decimal = Decimal("100.00")) -> MarketSnapshot:
+    return MarketSnapshot(
+        date=date(2000, 1, day),
+        index_levels={EQ: level, BD: level / Decimal("2")},
+        inflation=Decimal("0.00"),
+        inflation_cumulative=Decimal("1.00"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100.00"),
+    )
+
+
+def _write_dataset_file(
+    data_dir: Path, stem: str, snapshots: list[MarketSnapshot], version: str = "1.0"
+) -> Path:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    dataset = Dataset(snapshots=snapshots, frequency="monthly", version=version)
+    path = data_dir / f"{stem}.json"
+    path.write_text(json.dumps(_dataset_to_dict(dataset)), encoding="utf-8")
+    return path
+
+
+def _value_equal(a: MarketSnapshot, b: MarketSnapshot) -> bool:
+    return (
+        a.date == b.date
+        and a.index_levels == b.index_levels
+        and a.inflation == b.inflation
+        and a.inflation_cumulative == b.inflation_cumulative
+        and a.is_ath == b.is_ath
+        and a.is_underwater == b.is_underwater
+        and a.running_ath == b.running_ath
+    )
+
+
+def _count_file_loads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    calls: list[str] = []
+    real = context_module._load_dataset_from_file
+
+    def spy(path: Path) -> Dataset:
+        calls.append(str(path))
+        return real(path)
+
+    monkeypatch.setattr(context_module, "_load_dataset_from_file", spy)
+    return calls
+
+
+# ---------------------------------------------------------------------------
+# Cache unit behaviour
+# ---------------------------------------------------------------------------
+
+
+class TestDatasetCacheUnit:
+    def test_load_dir_loads_once_per_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1), _snapshot(2)], version="A")
+        _write_dataset_file(tmp_path, "ds_b", [_snapshot(3)], version="B")
+        calls = _count_file_loads(monkeypatch)
+
+        cache = DatasetCache()
+        first = cache.load_dir(str(tmp_path))
+        second = cache.load_dir(str(tmp_path))
+
+        assert first is second
+        assert first["ds_a"] is second["ds_a"]
+        assert first["ds_b"] is second["ds_b"]
+        assert sorted(calls) == sorted([str(tmp_path / "ds_a.json"), str(tmp_path / "ds_b.json")])
+        assert len(calls) == 2
+
+    def test_load_dir_normalizes_paths(self, tmp_path: Path) -> None:
+        cache = DatasetCache()
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+
+        absolute = cache.load_dir(str(tmp_path))
+        with_trailing_slash = cache.load_dir(str(tmp_path) + "/")
+        relative = cache.load_dir(Path(".").joinpath(tmp_path).as_posix())
+
+        assert absolute is with_trailing_slash is relative
+
+    def test_failures_are_not_cached(self, tmp_path: Path) -> None:
+        cache = DatasetCache()
+        missing = tmp_path / "missing"
+        with pytest.raises(StudyNotFoundError):
+            cache.load_dir(str(missing))
+
+        _write_dataset_file(missing, "ds_a", [_snapshot(1)], version="A")
+        mapping = cache.load_dir(str(missing))
+        assert mapping["ds_a"].version == "A"
+
+    def test_clear_forces_reload(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+        calls = _count_file_loads(monkeypatch)
+
+        cache = DatasetCache()
+        first = cache.load_dir(str(tmp_path))
+        cache.clear()
+        second = cache.load_dir(str(tmp_path))
+
+        assert first["ds_a"] is not second["ds_a"]
+        assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# Repeated resolution through the public loader path
+# ---------------------------------------------------------------------------
+
+
+class TestRepeatedResolution:
+    def test_resolution_loads_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from cli.builders import resolve_dataset
+
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1), _snapshot(2)], version="A")
+        calls = _count_file_loads(monkeypatch)
+
+        first = resolve_dataset("ds_a", str(tmp_path))
+        second = resolve_dataset("ds_a", str(tmp_path))
+
+        assert first is second
+        assert calls == [str(tmp_path / "ds_a.json")]
+
+    def test_resolution_returns_same_object(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from cli.builders import resolve_dataset
+
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+        _count_file_loads(monkeypatch)
+
+        a = resolve_dataset("ds_a", str(tmp_path))
+        b = resolve_dataset("ds_a", str(tmp_path))
+        c = DefaultDatasetResolver.from_data_dir(str(tmp_path)).resolve("ds_a")
+
+        assert a is b is c
+
+    def test_unknown_identifier_still_raises(self, tmp_path: Path) -> None:
+        from cli.builders import resolve_dataset
+
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+        with pytest.raises(StudyNotFoundError):
+            resolve_dataset("MISSING", str(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Prefix slicing value-equivalence (generic, synthetic)
+# ---------------------------------------------------------------------------
+
+
+class TestPrefixSlicing:
+    def test_slice_of_long_dataset_equals_short_file(self, tmp_path: Path) -> None:
+        _write_dataset_file(
+            tmp_path, "long", [_snapshot(1), _snapshot(2), _snapshot(3), _snapshot(4)], version="L"
+        )
+        _write_dataset_file(tmp_path, "short", [_snapshot(1), _snapshot(2)], version="S")
+
+        long_ds = DefaultDatasetResolver.from_data_dir(str(tmp_path)).resolve("long")
+        short_ds = DefaultDatasetResolver.from_data_dir(str(tmp_path)).resolve("short")
+
+        sliced = long_ds.slice(short_ds.start_date, len(short_ds))
+
+        assert len(sliced) == len(short_ds)
+        assert sliced.frequency == short_ds.frequency
+        for got, expected in zip(sliced.snapshots, short_ds.snapshots, strict=True):
+            assert _value_equal(got, expected)
+
+    def test_slices_of_same_dataset_share_snapshot_objects(self, tmp_path: Path) -> None:
+        _write_dataset_file(
+            tmp_path, "long", [_snapshot(1), _snapshot(2), _snapshot(3), _snapshot(4)], version="L"
+        )
+
+        long_ds = DefaultDatasetResolver.from_data_dir(str(tmp_path)).resolve("long")
+        start = long_ds.start_date
+
+        short = long_ds.slice(start, 2)
+        long_ = long_ds.slice(start, 4)
+
+        assert all(a is b for a, b in zip(short.snapshots, long_.snapshots, strict=False))
+
+
+# ---------------------------------------------------------------------------
+# ERN prefix identity (verified on committed acceptance data)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not ERN_DATA_DIR.is_dir(), reason="ERN data directory not present")
+class TestErnPrefixIdentity:
+    def test_h720_sliced_to_h360_equals_h360_dataset(self) -> None:
+        from cli.builders import resolve_dataset
+
+        h360 = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
+        h720 = resolve_dataset("ern_swr_h720", str(ERN_DATA_DIR))
+
+        sliced = h720.slice(h360.start_date, len(h360))
+
+        assert len(sliced) == len(h360)
+        assert h360.start_date == h720.start_date
+        for got, expected in zip(sliced.snapshots, h360.snapshots, strict=True):
+            assert _value_equal(got, expected)
+
+    def test_cached_resolution_is_single_object_across_horizons(self) -> None:
+        from cli.builders import resolve_dataset
+
+        h360a = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
+        h360b = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
+        assert h360a is h360b
+
+
+# ---------------------------------------------------------------------------
+# Persistence context reuse
+# ---------------------------------------------------------------------------
+
+
+class TestPersistenceContextReuse:
+    def test_persistence_context_reuses_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+        calls = _count_file_loads(monkeypatch)
+
+        resolver = DefaultDatasetResolver.from_data_dir(str(tmp_path))
+        direct = resolver.resolve("ds_a")
+
+        ctx = create_persistence_context(str(tmp_path))
+        via_context = ctx.dataset_resolver.resolve("ds_a")
+
+        assert isinstance(ctx.dataset_resolver, DefaultDatasetResolver)
+        assert direct is via_context
+        assert calls == [str(tmp_path / "ds_a.json")]
+
+    def test_persistence_context_and_resolve_dataset_share_objects(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from cli.builders import resolve_dataset
+
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+        calls = _count_file_loads(monkeypatch)
+
+        resolved = resolve_dataset("ds_a", str(tmp_path))
+        ctx = create_persistence_context(str(tmp_path))
+        via_context = ctx.dataset_resolver.resolve("ds_a")
+
+        assert resolved is via_context
+        assert len(calls) == 1
