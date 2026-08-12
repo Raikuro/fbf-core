@@ -1,29 +1,37 @@
 """Black-box E2E: the ``sim-retire`` CLI reproduces the ERN SWR Part 1 oracle.
 
-Acceptance criterion (P4.9): running the public ``sim-retire`` CLI on the
-committed ERN datasets yields success rates that agree with the independent
-ERN oracle matrix (``data/ern/p49_oracle_table.csv``) within +/-1 percentage
-point, with the three published anchors (95 / 65 / 97) as hard-fail checks.
+Acceptance criterion (P4.9, extended by P4.11): running the public ``sim-retire``
+CLI on the committed ERN datasets yields success rates that agree with the
+independent ERN oracle matrix (``data/ern/p49_oracle_table.csv``) within +/-1
+percentage point, with the three published anchors (95 / 65 / 97) as hard-fail
+checks.
 
-The test exercises ONLY the public CLI as an external subprocess:
-  dataset/config/study -> ``sim-retire run --no-persist --summary-only``
-  -> observable summary -> success rate -> oracle assertion.
+The test exercises ONLY the public CLI as an external subprocess, exactly as a
+user would:
 
-Each cell runs in non-persistent, summary-only mode: no SQLite study database
-is created and per-month timelines are never materialized or transferred, so
-the acceptance run performs no multi-GB persistence/IO. The aggregate success
-statistics are identical to the persisted path (semantics are unchanged).
+  ``sim-retire --data-dir data/ern run <grid.yaml> --workers max
+  --no-persist --summary-only``
+
+The whole ERN SWR grid is a SINGLE study: one YAML, one ResearchPlan of
+313,020 units, one subprocess, one observable summary with one
+machine-parseable ``cell:`` line per parameter configuration.  The test parses
+those lines, maps each to ``(equity_allocation, withdrawal_rate, horizon_years)``
+and compares every cell against the pinned oracle.
+
+The grid runs in non-persistent, summary-only mode: no SQLite study database is
+created and per-month timelines are never materialized or transferred.
 
 Enable with ``RUN_ERN_E2E=1``; the full 180-cell grid also needs
-``RUN_ERN_E2E_FULL=1``.  Workers default to a conservative 8; set
-``ERN_E2E_WORKERS=N`` for an exact count or ``ERN_E2E_WORKERS=max`` to use
-every available logical CPU (see ``constants.resolve_e2e_workers``).
+``RUN_ERN_E2E_FULL=1``.  The fast-path acceptance check needs
+``ERN_E2E_FAST_PATH=1``.  The default worker selection is ``--workers max``
+(every available logical CPU, resolved by the CLI itself); set
+``ERN_E2E_WORKERS=N`` for an exact override count.
 """
 
 from __future__ import annotations
 
 import os
-import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -32,31 +40,28 @@ from tests.e2e.cli_harness import CliHarness
 
 from .constants import (
     ANCHOR_CELLS,
+    COHORTS_PER_CELL,
     DATA_DIR,
     ERN_E2E_WORKERS_ENV,
+    FULL_GRID_CELLS,
+    FULL_GRID_UNITS,
     HORIZON_YEARS,
     RATES,
-    SMOKE_CELLS,
+    SMOKE_GRID_CELLS,
+    SMOKE_GRID_UNITS,
+    SMOKE_HORIZONS,
+    SMOKE_RATES,
+    SMOKE_WEIGHTS,
     WEIGHTS,
     OracleTable,
-    cell_name,
     load_oracle_table,
     resolve_e2e_workers,
 )
-from .fixtures import cell_success_rate, write_study_yaml
+from .fixtures import PerCellStats, run_grid_study
 
 RUN_ERN_E2E = os.environ.get("RUN_ERN_E2E") == "1"
 RUN_ERN_E2E_FULL = RUN_ERN_E2E and os.environ.get("RUN_ERN_E2E_FULL") == "1"
-# Worker selection (see constants.resolve_e2e_workers):
-#   - unset                    -> conservative default (8), never a hard cap
-#   - ERN_E2E_WORKERS=N        -> exactly N workers (capped to host CPUs)
-#   - ERN_E2E_WORKERS=max      -> every available logical CPU
-# A full acceptance run on a many-core host therefore uses
-# ``ERN_E2E_WORKERS=max``.  Results are identical across worker counts;
-# scaling is host-dependent and sub-linear (measured on the development host
-# for a 30y cell, --no-persist --summary-only: 1->48.3s, 2->30.3s, 4->22.3s,
-# 8->22.2s).
-DEFAULT_WORKERS = resolve_e2e_workers(os.environ.get(ERN_E2E_WORKERS_ENV))
+FAST_PATH_ENABLED = os.environ.get("ERN_E2E_FAST_PATH") == "1"
 
 pytestmark = [
     pytest.mark.ern_e2e,
@@ -66,7 +71,31 @@ pytestmark = [
     ),
 ]
 
+GRID_YAML = Path("examples/studies/ern_grid.yaml").resolve()
+SMOKE_GRID_YAML = Path(__file__).resolve().parent / "ern_grid_smoke.yaml"
+
 TOLERANCE_PP = 1
+
+
+def _resolve_workers_arg() -> str:
+    """The ``--workers`` value for a run.
+
+    Defaults to ``max`` so the CLI itself resolves the count to every available
+    logical CPU; ``ERN_E2E_WORKERS=N`` pins an exact count (capped to host CPUs).
+    """
+    value = os.environ.get(ERN_E2E_WORKERS_ENV, "").strip()
+    if value == "" or value.lower() == "max":
+        return "max"
+    return str(resolve_e2e_workers(value))
+
+
+def _expected_cell_keys(
+    weights: list[float],
+    rates: list[float],
+    horizons: list[int],
+) -> set[tuple[float, float, int]]:
+    """The exact parameter space a grid run must report as cell keys."""
+    return {(float(w), float(r), int(h)) for w in weights for r in rates for h in horizons}
 
 
 @pytest.fixture(scope="session")
@@ -81,86 +110,66 @@ def data_dir() -> Path:
     return path
 
 
-def _run_cell(
-    data_dir: Path,
-    run_dir: Path,
-    weight: float,
-    horizon: int,
-    rate: float,
-    workers: int,
-) -> tuple[float, int]:
-    """Run one grid cell with an isolated HOME; return (success_pct, units_run)."""
-    home = run_dir / f"home_{cell_name(weight, horizon, rate)}"
-    home.mkdir()
-    harness = CliHarness(data_dir=data_dir, home_dir=home)
-    study_yaml = run_dir / f"{cell_name(weight, horizon, rate)}.yaml"
-    write_study_yaml(study_yaml, weight, horizon, rate)
-    try:
-        return cell_success_rate(harness, study_yaml, workers=workers)
-    finally:
-        shutil.rmtree(home, ignore_errors=True)
-
-
-def _assert_cell_matches(
-    oracle: OracleTable,
-    weight: float,
-    horizon: int,
-    rate: float,
-    got: float,
+def _assert_anchors(
+    oracle: OracleTable, cells: dict[tuple[float, float, int], PerCellStats]
 ) -> None:
-    expected = oracle[(weight, horizon)][rate]
-    diff = abs(round(got) - expected)
-    assert diff <= TOLERANCE_PP, (
-        f"cell {int(weight * 100)}/{horizon}y/{rate * 100:.2f}%: CLI "
-        f"{got:.2f}% ({round(got)}) vs oracle {expected}% (diff {diff}pp > {TOLERANCE_PP}pp)"
-    )
+    """Hard-fail on any anchor present in the grid summary.
 
-
-def test_anchor_cells_reproduce_paper(data_dir: Path, tmp_path: Path, oracle: OracleTable) -> None:
-    """Hard-fail anchors: 50/50 30y 4% = 95, 50/50 60y 4% = 65, 75/25 60y 3.5% = 97."""
+    Anchors not in the reported cell set are skipped: the full grid's structural
+    assertion already requires every 5x9x4 combination (so the 75/60/3.5%
+    anchor cannot be missing there), while reduced smoke grids cover a subset.
+    """
     for weight, horizon, rate, expected in ANCHOR_CELLS:
-        got, _ = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
-        assert round(got) == expected, (
-            f"anchor {int(weight * 100)}/{horizon}y/{rate * 100:.2f}%: CLI {got:.2f}% "
-            f"({round(got)}) vs published {expected}%"
+        stats = cells.get((weight, rate, horizon))
+        if stats is None:
+            continue
+        got = round(stats.success_percent)
+        assert got == expected, (
+            f"anchor {int(weight * 100)}/{horizon}y/{rate * 100:.2f}%: "
+            f"CLI {got}% vs published {expected}%"
         )
 
 
+def _assert_cell_matches(
+    oracle: OracleTable, key: tuple[float, float, int], stats: PerCellStats
+) -> None:
+    weight, rate, horizon = key
+    expected = oracle[(weight, horizon)][rate]
+    # Compare the UNROUNDED success percentage so the documented +/-1pp
+    # acceptance criterion is enforced exactly (rounding would silently allow
+    # up to ~1.5pp at the boundary).
+    diff = abs(stats.success_percent - expected)
+    assert diff <= TOLERANCE_PP, (
+        f"cell {int(weight * 100)}/{horizon}y/{rate * 100:.2f}%: CLI "
+        f"{stats.success_percent:.2f}% vs oracle {expected}% "
+        f"(diff {diff:.2f}pp > {TOLERANCE_PP}pp)"
+    )
+
+
 def test_smoke_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: OracleTable) -> None:
-    """A representative slice of Table 1 must agree with the oracle within +/-1pp."""
-    for weight, horizon, rate, _ in SMOKE_CELLS:
-        got, _ = _run_cell(data_dir, tmp_path, weight, horizon, rate, DEFAULT_WORKERS)
-        _assert_cell_matches(oracle, weight, horizon, rate, got)
+    """The reduced single-plan smoke grid reproduces the oracle.
 
+    Exercises the same one-subprocess / one-plan / per-cell-summary architecture
+    as the full grid at a fraction of the reference wall time.  The two smoke
+    anchors hard-fail; every other smoke cell is held to the +/-1pp tolerance.
+    """
+    harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home")
+    workers = _resolve_workers_arg()
+    result, cells = run_grid_study(harness, SMOKE_GRID_YAML, workers, timeout=900)
 
-FAST_PATH_ENABLED = os.environ.get("ERN_E2E_FAST_PATH") == "1"
+    assert result.units_run == SMOKE_GRID_UNITS, (
+        f"smoke grid ran {result.units_run:,} units, expected {SMOKE_GRID_UNITS:,}"
+    )
+    expected_keys = _expected_cell_keys(SMOKE_WEIGHTS, SMOKE_RATES, SMOKE_HORIZONS)
+    assert set(cells) == expected_keys, (
+        f"smoke grid reported {len(cells)} cells; expected {SMOKE_GRID_CELLS} "
+        f"matching the declared parameter space"
+    )
+    assert all(stats.units_run == COHORTS_PER_CELL for stats in cells.values())
 
-
-@pytest.mark.skipif(
-    not FAST_PATH_ENABLED,
-    reason="set ERN_E2E_FAST_PATH=1 to run the fast-path acceptance cells",
-)
-def test_fast_path_reproduces_reference_success_rates() -> None:
-    """The closed-form fast path must reproduce the reference engine's success
-    rates exactly on the smoke cells (same units, same result count)."""
-    data_dir = Path(DATA_DIR).resolve()
-    run_dir = Path("/tmp") / "ern_fast_path_acceptance"
-    run_dir.mkdir(exist_ok=True)
-    for weight, horizon, rate, _ in SMOKE_CELLS:
-        home = run_dir / f"home_{cell_name(weight, horizon, rate)}"
-        home.mkdir()
-        harness = CliHarness(data_dir=data_dir, home_dir=home)
-        study_yaml = run_dir / f"{cell_name(weight, horizon, rate)}.yaml"
-        write_study_yaml(study_yaml, weight, horizon, rate)
-        try:
-            ref_rate, units = cell_success_rate(harness, study_yaml, DEFAULT_WORKERS)
-            fast_rate, _ = cell_success_rate(harness, study_yaml, DEFAULT_WORKERS, fast_path=True)
-            assert ref_rate == fast_rate, (
-                f"cell {int(weight * 100)}/{horizon}y/{rate * 100:.2f}%: reference "
-                f"{ref_rate:.2f}% vs fast path {fast_rate:.2f}% over {units} units"
-            )
-        finally:
-            shutil.rmtree(home, ignore_errors=True)
+    _assert_anchors(oracle, cells)
+    for key, stats in cells.items():
+        _assert_cell_matches(oracle, key, stats)
 
 
 @pytest.mark.skipif(
@@ -168,67 +177,76 @@ def test_fast_path_reproduces_reference_success_rates() -> None:
     reason="set RUN_ERN_E2E_FULL=1 for the full 180-cell acceptance run",
 )
 def test_full_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: OracleTable) -> None:
-    """Full Table 1 grid (5 weights x 4 horizons x 9 rates = 180 cells).
+    """Full Table 1 grid (5 weights x 9 rates x 4 horizons = 180 cells).
 
-    Emits an acceptance report: wall time, worker count, per-cell deviations
-    (min/max), total simulation units, observed throughput, the hard-fail
-    anchors, and any cell outside the +/-1 pp tolerance.
+    The whole grid is ONE CLI subprocess: one plan, one summary, 180 per-cell
+    lines.  Emits an acceptance report: wall time, worker count, per-cell
+    deviations (min/max), total simulation units, observed throughput, the
+    hard-fail anchors, and any cell outside the +/-1 pp tolerance.
     """
-    import time
-
-    workers = DEFAULT_WORKERS
+    harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home")
+    workers = _resolve_workers_arg()
     start = time.perf_counter()
-    deviations: list[tuple[int, float, int, float, int]] = []
-    total_units = 0
-    anchor_results: dict[str, tuple[float, int]] = {}
-    outside = []
-
-    for weight in WEIGHTS:
-        for horizon in HORIZON_YEARS:
-            for rate in RATES:
-                got, units = _run_cell(data_dir, tmp_path, weight, horizon, rate, workers)
-                total_units += units
-                expected = oracle[(weight, horizon)][rate]
-                dev = round(got) - expected
-                deviations.append((abs(dev), weight, horizon, rate, round(got)))
-                if abs(dev) > TOLERANCE_PP:
-                    outside.append((weight, horizon, rate, round(got), expected))
-                for aw, ah, ar, aexp in ANCHOR_CELLS:
-                    if (weight, horizon, rate) == (aw, ah, ar):
-                        anchor_results[f"{int(weight*100)}/{horizon}y/{ar*100:.2f}%"] = (
-                            round(got),
-                            aexp,
-                        )
-                _assert_cell_matches(oracle, weight, horizon, rate, got)
-
+    result, cells = run_grid_study(harness, GRID_YAML, workers, timeout=3600)
     elapsed = time.perf_counter() - start
-    deviations_sorted = sorted(deviations)
-    worst_diff, ww, wh, wr, wgot = deviations_sorted[-1]
-    min_diff = deviations_sorted[0][0]
-    max_diff = worst_diff
+
+    # --- Structural invariants -------------------------------------------
+    assert result.units_run == FULL_GRID_UNITS, (
+        f"full grid ran {result.units_run:,} units, expected {FULL_GRID_UNITS:,}"
+    )
+    expected_keys = _expected_cell_keys(WEIGHTS, RATES, HORIZON_YEARS)
+    assert set(cells) == expected_keys, (
+        f"full grid reported {len(cells)} cells; expected exactly "
+        f"{FULL_GRID_CELLS} covering the 5x9x4 parameter space (missing, "
+        f"unexpected or duplicated cells fail here)"
+    )
+    assert len(cells) == FULL_GRID_CELLS
+    # Every declared weight, rate and horizon must be represented.
+    assert {key[0] for key in cells} == {float(w) for w in WEIGHTS}
+    assert {key[1] for key in cells} == {float(r) for r in RATES}
+    assert {key[2] for key in cells} == set(HORIZON_YEARS)
+    assert all(stats.units_run == COHORTS_PER_CELL for stats in cells.values())
+
+    # --- Oracle comparison --------------------------------------------------
+    deviations: list[float] = []
+    outside: list[tuple[float, int, float, float, int]] = []
+    anchor_results: dict[str, tuple[int, int]] = {}
+    for key, stats in sorted(cells.items()):
+        weight, rate, horizon = key
+        expected = oracle[(weight, horizon)][rate]
+        dev = abs(stats.success_percent - expected)
+        deviations.append(dev)
+        if dev > TOLERANCE_PP:
+            outside.append((weight, horizon, rate, stats.success_percent, expected))
+        for aw, ah, ar, aexp in ANCHOR_CELLS:
+            if (weight, rate, horizon) == (aw, ar, ah):
+                anchor_results[f"{int(weight * 100)}/{horizon}y/{ar * 100:.2f}%"] = (
+                    round(stats.success_percent),
+                    aexp,
+                )
+        _assert_cell_matches(oracle, key, stats)
+
+    _assert_anchors(oracle, cells)
+    worst_diff = max(deviations)
+    min_diff = min(deviations)
+
     print("\n" + "=" * 62)
-    print("P4.9 FULL-GRID ACCEPTANCE REPORT")
+    print("P4.9/P4.11 FULL-GRID ACCEPTANCE REPORT (single plan)")
     print("=" * 62)
-    print(f"Cells run:          {len(deviations)}/180")
-    print(f"Workers:            {workers}")
+    print(f"Cells reported:     {len(cells)}/{FULL_GRID_CELLS}")
+    print(f"Workers:            {workers} (resolved by CLI: --workers {workers})")
+    print(f"Wall time:          {elapsed:.0f}s ({time.strftime('%H:%M:%S', time.gmtime(elapsed))})")
+    print(f"Total units:        {result.units_run:,}")
     print(
-        f"Wall time:          {elapsed:.0f}s "
-        f"({time.strftime('%H:%M:%S', time.gmtime(elapsed))})"
+        f"Throughput:         {result.units_run / elapsed:.0f} units/s "
+        f"({elapsed / result.units_run:.5f} s/unit)"
     )
-    print(f"Total units:        {total_units:,}")
-    print(
-        f"Throughput:         {total_units / elapsed:.0f} units/s "
-        f"({elapsed / total_units:.5f} s/unit)"
-    )
-    print(f"Abs deviation min:  {min_diff} pp")
-    print(
-        f"Abs deviation max:  {max_diff} pp "
-        f"(cell {int(ww*100)}/{wh}y/{wr*100:.2f}%: CLI {wgot}% vs oracle "
-        f"{oracle[(ww, wh)][wr]}%)"
-    )
+    print("Subprocesses:       1")
+    print(f"Abs deviation min:  {min_diff:.2f} pp")
+    print(f"Abs deviation max:  {worst_diff:.2f} pp")
     print("Anchors (hard-fail):")
     for name, (got, exp) in anchor_results.items():
-        print(f"  {name}: CLI={got}% oracle={exp}% " f"({'PASS' if got == exp else 'FAIL'})")
+        print(f"  {name}: CLI={got}% oracle={exp}% ({'PASS' if got == exp else 'FAIL'})")
     if outside:
         print(f"Cells outside +/-{TOLERANCE_PP} pp: {len(outside)}")
         for cell in outside:
@@ -236,5 +254,33 @@ def test_full_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: Oracle
     else:
         print(f"Cells outside +/-{TOLERANCE_PP} pp: 0")
     print("=" * 62)
-    assert len(deviations) == 180
-    assert worst_diff <= TOLERANCE_PP, f"worst cell: {deviations_sorted[-1]}"
+    assert len(cells) == FULL_GRID_CELLS
+    assert worst_diff <= TOLERANCE_PP, f"worst cell: {sorted(outside, reverse=True)}"
+
+
+@pytest.mark.skipif(
+    not FAST_PATH_ENABLED,
+    reason="set ERN_E2E_FAST_PATH=1 to run the fast-path acceptance cells",
+)
+def test_fast_path_reproduces_reference_success_rates(data_dir: Path, tmp_path: Path) -> None:
+    """The closed-form fast path must reproduce the reference engine exactly.
+
+    Runs the smoke grid twice through the public CLI (reference then
+    ``--fast-path``) and asserts every per-cell statistic is identical.  This is
+    a pure optimization-equivalence check; oracle comparison stays on the
+    reference-path tests above.
+    """
+    harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home_fast")
+    workers = _resolve_workers_arg()
+    ref_result, ref_cells = run_grid_study(harness, SMOKE_GRID_YAML, workers, timeout=900)
+    fast_result, fast_cells = run_grid_study(
+        harness, SMOKE_GRID_YAML, workers, timeout=900, fast_path=True
+    )
+
+    assert ref_result.units_run == fast_result.units_run == SMOKE_GRID_UNITS
+    assert set(ref_cells) == set(fast_cells)
+    for key in ref_cells:
+        assert ref_cells[key] == fast_cells[key], (
+            f"cell {key}: reference {ref_cells[key].success_percent:.2f}% vs "
+            f"fast path {fast_cells[key].success_percent:.2f}%"
+        )
