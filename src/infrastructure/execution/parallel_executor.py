@@ -275,8 +275,8 @@ def _execute_batch_on_shared_state(
     for unit in units:
         sub_plan = ResearchPlan(experiment_definition=exp_def, units=(unit,))
         run = research_executor.execute(sub_plan)
-        result = run.results[0]
-        results.append(_to_summary_result(result) if summary_only else result)
+        unit_result = run.results[0]
+        results.append(_to_summary_result(unit_result) if summary_only else unit_result)
     return tuple(results)
 
 

@@ -220,19 +220,30 @@ def build_grid_research_plan(
             return int(config.get("horizon_years")) * 12
         return default_horizon_years * 12
 
+    # Policies are pure functions of their single Decimal parameter, so a grid
+    # of ~300k units would otherwise materialize ~600k fresh policy objects.
+    # Sharing one instance per distinct parameter value is safe (nothing mutates
+    # a policy after construction) and sharply cuts memory during plan building.
+    _alloc_by_weight: dict[Decimal, AllocationPolicy] = {}
+    _withdraw_by_rate: dict[Decimal, WithdrawalPolicy] = {}
+
     def _resolve_policies(
         config: ParameterConfiguration,
     ) -> tuple[AllocationPolicy, WithdrawalPolicy]:
         if "equity_allocation" in config.values:
-            resolved_alloc: AllocationPolicy = ConstantAllocationPolicy(
-                equity_allocation=Decimal(str(config.get("equity_allocation")))
-            )
+            weight = Decimal(str(config.get("equity_allocation")))
+            resolved_alloc = _alloc_by_weight.get(weight)
+            if resolved_alloc is None:
+                resolved_alloc = ConstantAllocationPolicy(equity_allocation=weight)
+                _alloc_by_weight[weight] = resolved_alloc
         else:
             resolved_alloc = alloc_policy
         if "withdrawal_rate" in config.values:
-            resolved_withd: WithdrawalPolicy = FixedRealWithdrawalPolicy(
-                withdrawal_rate=Decimal(str(config.get("withdrawal_rate")))
-            )
+            rate = Decimal(str(config.get("withdrawal_rate")))
+            resolved_withd = _withdraw_by_rate.get(rate)
+            if resolved_withd is None:
+                resolved_withd = FixedRealWithdrawalPolicy(withdrawal_rate=rate)
+                _withdraw_by_rate[rate] = resolved_withd
         else:
             resolved_withd = withdrawal_policy
         return resolved_alloc, resolved_withd

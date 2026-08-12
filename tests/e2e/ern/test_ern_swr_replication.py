@@ -259,6 +259,39 @@ def test_full_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: Oracle
 
 
 @pytest.mark.skipif(
+    not (RUN_ERN_E2E_FULL and FAST_PATH_ENABLED),
+    reason="set RUN_ERN_E2E_FULL=1 and ERN_E2E_FAST_PATH=1 for the full-grid "
+    "fast-path equivalence check",
+)
+def test_full_grid_fast_path_reproduces_reference_success_rates(
+    data_dir: Path, tmp_path: Path
+) -> None:
+    """Full-grid reference vs fast-path equivalence across all 180 cells.
+
+    The complete 180-cell grid is executed twice through the public CLI
+    (reference then ``--fast-path`` with horizon chaining) and every per-cell
+    statistic is compared.  This extends the smoke-level fast-path equivalence
+    check to the full parameter space; oracle comparison stays on the
+    reference-path tests.
+    """
+    harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home_fast_full")
+    workers = _resolve_workers_arg()
+    ref_result, ref_cells = run_grid_study(harness, GRID_YAML, workers, timeout=3600)
+    fast_result, fast_cells = run_grid_study(
+        harness, GRID_YAML, workers, timeout=3600, fast_path=True
+    )
+
+    assert ref_result.units_run == fast_result.units_run == FULL_GRID_UNITS
+    assert set(ref_cells) == set(fast_cells)
+    assert len(ref_cells) == FULL_GRID_CELLS
+    for key in sorted(ref_cells):
+        assert ref_cells[key] == fast_cells[key], (
+            f"cell {key}: reference {ref_cells[key].success_percent:.2f}% vs "
+            f"fast path {fast_cells[key].success_percent:.2f}%"
+        )
+
+
+@pytest.mark.skipif(
     not FAST_PATH_ENABLED,
     reason="set ERN_E2E_FAST_PATH=1 to run the fast-path acceptance cells",
 )

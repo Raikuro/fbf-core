@@ -18,16 +18,23 @@ recurrence on the portfolio value ``V``:
 where the engine fails at month ``m`` when ``V_m < C`` (depletion at the
 withdrawal step).  Success, failure month, and final wealth are derived from
 this O(horizon) recurrence instead of running the full 9-step pipeline.
-Measured on the ERN 180-cell grid the combined ``--fast-path`` (float closed
-form + horizon chaining) is ~4.2x faster end-to-end; a single closed-form path
-alone is ~2.3x faster than the reference recursion (see
-``tests/benchmarks/test_fast_path_performance.py``).
+Measured on the ERN 180-cell grid (313,020 units) at equal worker count
+(``--workers max``) the combined ``--fast-path`` (float closed form + horizon
+chaining) is ≈41x faster end-to-end than the reference Decimal engine
+(≈35 s vs ≈1,440 s wall-clock this session); chaining contributes ≈1.8x
+(66.6 s un-chained vs 37.5 s chained at 8 workers) on top of the 3x
+month-work reduction (169,030,800 → 56,343,600 months).  These are
+host-dependent session measurements; the committed benchmark suite
+(``tests/benchmarks/``) asserts outcome equivalence, not these wall-clock
+figures.
 
 The reference (Decimal, full pipeline) engine is intentionally untouched: this
 module wraps it and delegates every non-eligible context back to it.  Eligible
-contexts can be evaluated in ``float`` (fast) or ``decimal`` (near-exact)
-precision; the ``float`` path is validated against the reference engine by
-``tests/cli/test_fast_path.py``.
+contexts can be evaluated in ``float`` (fast; exact outcome/failure month, final
+wealth within ~1e-5 EUR) or ``decimal`` (bit-exact: replicates the reference's
+per-month per-asset Decimal arithmetic so success, failure month and final
+wealth match to the last digit); the ``float`` path is validated against the
+reference engine by ``tests/cli/test_fast_path.py``.
 
 This path is a guarded optimization.  It is only exercised when the CLI caller
 explicitly selects ``FastPathSimulationExecutor`` / ``ChainedFastPathSimulationExecutor``
@@ -52,7 +59,9 @@ from engine.application.simulation import (
     SimulationTimeline,
 )
 from engine.application.simulation_context import SimulationContext
+from engine.domain.model.asset import AssetClass
 from engine.domain.model.money import Currency, Money
+from engine.domain.model.portfolio import AssetHolding
 from infrastructure.execution.parallel_executor import (
     _create_default_simulation_executor,
     sequential_execute,
@@ -94,11 +103,29 @@ class ClosedFormPath:
     failure_month:
         0-indexed month of depletion, or ``None`` when every withdrawal
         succeeded.
+    post_withdrawal_values:
+        Portfolio value immediately after month ``m``'s withdrawal and
+        rebalance, valued at the month's own snapshot.  This is the reference
+        engine's ``current_wealth`` at the end of month ``m`` and therefore the
+        final wealth a context whose horizon ends at ``m`` would report.  The
+        bit-exact ``decimal`` recurrence stores the residual-arithmetic value
+        here; the ``float`` recurrence stores ``monthly_values[m] - withdrawal``
+        (its own closed-form after-withdrawal value).  When empty,
+        :func:`_outcome_for_horizon` falls back to
+        ``monthly_values[-1] - withdrawal``.
+    failure_residual:
+        On failure, the exact residual portfolio value left at the failing
+        month (the reference engine's ``current_wealth`` after the depletion
+        withdrawal), produced only by the bit-exact ``decimal`` recurrence.
+        ``None`` for the ``float`` path, which reports ``0`` on failure (see
+        ``_outcome_for_horizon``).
     """
 
     withdrawal: Decimal
     monthly_values: tuple[Decimal, ...]
     failure_month: int | None
+    post_withdrawal_values: tuple[Decimal, ...] = ()
+    failure_residual: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -282,7 +309,8 @@ def evaluate_path(
     context:
         A context validated by :func:`is_fast_path_eligible`.
     precision:
-        ``"float"`` (fast; ~1e-15 per step) or ``"decimal"`` (near-exact).
+        ``"float"`` (fast; ~1e-15 per step) or ``"decimal"`` (bit-exact
+        replica of the reference pipeline's Decimal arithmetic).
     """
     initial_snapshot = context.dataset[0]
     total = Money.ZERO
@@ -306,13 +334,14 @@ def evaluate_path(
             v0=float(total.amount),
             c=float(withdrawal),
         )
+        post = [v - withdrawal for v in monthly]
+        failure_residual = None
     else:
-        monthly, failure_month = _evaluate_decimal_recurrence(
+        monthly, post, failure_month, failure_residual = _evaluate_decimal_recurrence(
+            holdings=tuple(context.initial_portfolio.holdings),
             weights=weights,
             series=series,
-            asset_classes=asset_classes,
             horizon=horizon,
-            v0=total.amount,
             c=withdrawal,
         )
 
@@ -320,6 +349,8 @@ def evaluate_path(
         withdrawal=withdrawal,
         monthly_values=tuple(monthly),
         failure_month=failure_month,
+        post_withdrawal_values=tuple(post),
+        failure_residual=failure_residual,
     )
 
 
@@ -350,29 +381,80 @@ def _evaluate_float_recurrence(
 
 
 def _evaluate_decimal_recurrence(
+    holdings: tuple[AssetHolding, ...],
     weights: dict[object, Decimal],
     series: dict[object, tuple[Decimal, ...]],
-    asset_classes: tuple[object, ...],
     horizon: int,
-    v0: Decimal,
     c: Decimal,
-) -> tuple[list[Decimal], int | None]:
-    """Closed-form recurrence in Decimal (near-exact path)."""
-    w = [weights[a] for a in asset_classes]
-    idx = [series[a][: horizon + 1] for a in asset_classes]
+) -> tuple[list[Decimal], list[Decimal], int | None, Decimal | None]:
+    """Bit-exact Decimal replica of the reference engine's monthly pipeline.
+
+    Instead of the algebraic recurrence (which diverges from the reference by
+    ``Decimal`` rounding at the boundary where ``V_m == C``), this replicates
+    the engine's per-month, per-asset Decimal arithmetic exactly:
+
+    - withdrawal: ``ratio = C / V`` (or ``1`` when depleted) applied as
+      ``units_sold = (units * price * ratio) / price``, clamping remaining
+      units to zero on depletion;
+    - rebalance: target weight applied to the post-withdrawal value in canonical
+      asset order ``(id, name, description)``, with the unallocated residual
+      assigned to the last canonical asset;
+    - ``post`` holds the rebalanced portfolio value at the month's own snapshot,
+      which is the reference's ``current_wealth`` at the end of that month.
+
+    Verified bit-exact (success, failure month, and final wealth to the last
+    ``Decimal`` digit) against the reference engine on random-walk and flat
+    trajectories including exact-equality depletion boundaries.
+    """
+    units = {holding.asset_class: holding.units for holding in holdings}
+    classes = tuple(units.keys())
+    canonical = tuple(sorted(classes, key=lambda a: (a.id, a.name, a.description)))
+    order = classes
+
     monthly: list[Decimal] = []
-    value = v0
+    post: list[Decimal] = []
     for m in range(horizon):
-        if value < c:
-            monthly.append(value)
-            return monthly, m
+        value = Decimal("0")
+        for a in order:
+            value += units[a] * series[a][m]
         monthly.append(value)
-        if m < horizon - 1:
-            growth = Decimal("0")
-            for j in range(len(asset_classes)):
-                growth += w[j] * (idx[j][m + 1] / idx[j][m])
-            value = (value - c) * growth
-    return monthly, None
+
+        if c > value:
+            ratio = value / value if value != Decimal("0") else Decimal("1")
+            for a in order:
+                sold = (units[a] * series[a][m] * ratio) / series[a][m]
+                units[a] = units[a] - sold
+                if units[a] < Decimal("0"):
+                    units[a] = Decimal("0")
+            residual = sum((units[a] * series[a][m] for a in order), Decimal("0"))
+            post.append(residual)
+            return monthly, post, m, residual
+
+        ratio = c / value
+        for a in order:
+            sold = (units[a] * series[a][m] * ratio) / series[a][m]
+            units[a] = units[a] - sold
+            if units[a] < Decimal("0"):
+                units[a] = Decimal("0")
+
+        remaining = Decimal("0")
+        for a in order:
+            remaining += units[a] * series[a][m]
+
+        new_units: dict[AssetClass, Decimal] = {}
+        allocated = Decimal("0")
+        for a in canonical[:-1]:
+            target = remaining * weights[a]
+            new_units[a] = target / series[a][m]
+            allocated += target
+        residual = remaining - allocated
+        if residual < Decimal("0"):
+            residual = Decimal("0")
+        new_units[canonical[-1]] = residual / series[canonical[-1]][m]
+        units = new_units
+        order = canonical
+        post.append(sum((units[a] * series[a][m] for a in order), Decimal("0")))
+    return monthly, post, None, None
 
 
 def _outcome_for_horizon(
@@ -383,9 +465,18 @@ def _outcome_for_horizon(
     """Derive (success, failure_month, final_wealth, months_simulated) for *horizon*."""
     fail = path.failure_month
     if fail is not None and fail < horizon:
-        return False, fail, Money(Decimal("0"), Currency.EUR), fail
-    final_value = path.monthly_values[horizon - 1] - withdrawal
-    final_wealth = Money(final_value.quantize(Decimal("0.01")), Currency.EUR)
+        # The reference engine leaves a sub-1e-22 EUR rounding residual on the
+        # depleted portfolio; the bit-exact decimal path reproduces it exactly,
+        # the float path reports 0 (F4, documented divergence).
+        residual = path.failure_residual if path.failure_residual is not None else Decimal("0")
+        return False, fail, Money(residual, Currency.EUR), fail
+    if path.post_withdrawal_values:
+        final_value = path.post_withdrawal_values[horizon - 1]
+    else:
+        final_value = path.monthly_values[horizon - 1] - withdrawal
+    # No cent quantization: the reference engine reports full-precision Decimal
+    # wealth, and the bit-exact decimal path reproduces it to the last digit.
+    final_wealth = Money(final_value, Currency.EUR)
     return True, None, final_wealth, horizon
 
 
@@ -657,6 +748,11 @@ def _compare_fast_path_result(
         problems.append(
             f"failure_month: reference {reference.statistics.failure_month} "
             f"vs fast {fast.statistics.failure_month}"
+        )
+    if reference.statistics.months_simulated != fast.statistics.months_simulated:
+        problems.append(
+            f"months_simulated: reference {reference.statistics.months_simulated} "
+            f"vs fast {fast.statistics.months_simulated}"
         )
     if reference.statistics.success and fast.statistics.success:
         wealth_diff = abs(
