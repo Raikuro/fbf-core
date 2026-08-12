@@ -7,12 +7,14 @@ CLI presentation layer and the frozen domain layer.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from cli.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
 from engine.domain.model.money import Money
@@ -26,7 +28,12 @@ from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.axis import ParameterAxis
 from research.domain.parameter.configuration import ParameterConfiguration
 from research.domain.parameter.engine import ParameterSweepEngine
-from research.domain.plan import ResearchPlan, materialize_research_plan
+from research.domain.plan import (
+    ResearchPlan,
+    datasets_are_prefix_consistent,
+    materialize_grid_research_plan,
+    materialize_research_plan,
+)
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -116,4 +123,126 @@ def build_research_plan(
         alloc_policy=alloc_policy,
         withdrawal_policy=withdrawal_policy,
         initial_portfolio=portfolio,
+    )
+
+
+@dataclass(frozen=True)
+class ResolvedDatasetFamily:
+    """A resolved ``datasets:`` declaration sharing one canonical trajectory.
+
+    Fields
+    ------
+    canonical:
+        The longest declared dataset; every shorter-horizon unit is a prefix
+        slice of it, so the four declared ERN trajectories collapse into one.
+    horizons:
+        Mapping ``horizon_years`` -> resolved ``Dataset`` for every declared
+        entry (used only for the prefix-consistency family check).
+    """
+
+    canonical: Dataset
+    horizons: dict[int, Dataset]
+
+
+def build_dataset_family(
+    datasets_data: list[Any], data_dir: str | None
+) -> ResolvedDatasetFamily:
+    """Resolve a ``datasets:`` declaration into a prefix-consistent family.
+
+    Loads every declared dataset (through the DatasetCache), picks the longest
+    as the canonical trajectory and fails loudly if any shorter dataset is not
+    a value-identical prefix of it.
+    """
+    entries: list[tuple[str, int]] = []
+    for entry in datasets_data:
+        if not isinstance(entry, dict):
+            raise ValueError("Each datasets entry must be a mapping")
+        identifier = entry.get("identifier")
+        horizon_years = entry.get("horizon_years")
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError("datasets identifier must be a non-empty string")
+        if (
+            not isinstance(horizon_years, int)
+            or isinstance(horizon_years, bool)
+            or horizon_years <= 0
+        ):
+            raise ValueError("datasets horizon_years must be a positive integer")
+        entries.append((identifier, horizon_years))
+    if not entries:
+        raise ValueError("datasets must declare at least one dataset")
+
+    resolved: dict[int, Dataset] = {}
+    for identifier, horizon_years in entries:
+        if horizon_years in resolved:
+            raise ValueError(
+                f"datasets declares duplicate horizon_years={horizon_years}"
+            )
+        resolved[horizon_years] = resolve_dataset(identifier, data_dir)
+
+    canonical_horizon = max(resolved, key=lambda h: len(resolved[h].snapshots))
+    canonical = resolved[canonical_horizon]
+
+    for horizon_years, dataset in resolved.items():
+        if dataset is canonical:
+            continue
+        if not datasets_are_prefix_consistent(canonical, dataset):
+            identifier = dataset.identifier or "<unknown>"
+            raise ValueError(
+                f"Declared dataset {identifier!r} (horizon_years={horizon_years}) is "
+                f"not a prefix of the canonical trajectory "
+                f"{(canonical.identifier or '<unknown>')!r}; datasets in a horizon "
+                f"family must be prefix-consistent"
+            )
+
+    return ResolvedDatasetFamily(canonical=canonical, horizons=resolved)
+
+
+def build_grid_research_plan(
+    experiment_def: ExperimentDefinition,
+    dataset_family: ResolvedDatasetFamily,
+    cohorts: tuple[CohortSpecification, ...],
+    param_configs: tuple[ParameterConfiguration, ...],
+    alloc_policy: AllocationPolicy,
+    withdrawal_policy: WithdrawalPolicy,
+    default_horizon_years: int,
+) -> ResearchPlan:
+    """Build a grid ResearchPlan with per-unit horizons and parameterised policies.
+
+    Parameter values drive the policies: ``equity_allocation`` resolves to a
+    ``ConstantAllocationPolicy`` and ``withdrawal_rate`` to a
+    ``FixedRealWithdrawalPolicy``.  A unit whose parameter configuration does
+    not carry a given key keeps the corresponding literal policy.
+    """
+    portfolio = build_initial_portfolio(experiment_def.initial_wealth)
+
+    def _resolve_horizon(config: ParameterConfiguration) -> int:
+        if "horizon_years" in config.values:
+            return int(config.get("horizon_years")) * 12
+        return default_horizon_years * 12
+
+    def _resolve_policies(
+        config: ParameterConfiguration,
+    ) -> tuple[AllocationPolicy, WithdrawalPolicy]:
+        if "equity_allocation" in config.values:
+            resolved_alloc: AllocationPolicy = ConstantAllocationPolicy(
+                equity_allocation=Decimal(str(config.get("equity_allocation")))
+            )
+        else:
+            resolved_alloc = alloc_policy
+        if "withdrawal_rate" in config.values:
+            resolved_withd: WithdrawalPolicy = FixedRealWithdrawalPolicy(
+                withdrawal_rate=Decimal(str(config.get("withdrawal_rate")))
+            )
+        else:
+            resolved_withd = withdrawal_policy
+        return resolved_alloc, resolved_withd
+
+    return materialize_grid_research_plan(
+        experiment_def=experiment_def,
+        canonical_trajectory=dataset_family.canonical,
+        cohorts=cohorts,
+        param_configs=param_configs,
+        initial_portfolio=portfolio,
+        horizon_resolver=_resolve_horizon,
+        policy_resolver=_resolve_policies,
     )

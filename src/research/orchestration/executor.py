@@ -184,11 +184,19 @@ class ResearchExecutor:
             cohort_id is not None
         ), f"CohortSpecification.id must not be None (cohort={unit.cohort.start_date!r})"
 
+        # The per-unit horizon is authoritative; fall back to the shared experiment
+        # horizon only for units that predate per-unit horizons (None).
+        horizon_months = (
+            unit.horizon_months
+            if unit.horizon_months is not None
+            else experiment_def.horizon_months
+        )
+
         return SimulationContext(
             experiment_name=experiment_def.name,
             cohort=cohort_id,
             start_date=unit.cohort.start_date,
-            horizon_months=experiment_def.horizon_months,
+            horizon_months=horizon_months,
             initial_wealth=experiment_def.initial_wealth,
             initial_portfolio=unit.initial_portfolio,
             dataset=unit.dataset,

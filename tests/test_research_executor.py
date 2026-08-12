@@ -332,6 +332,26 @@ class TestResearchExecutorContextTranslation:
         ctx = engine_def.simulation_contexts[0]
         assert ctx.horizon_months == 360
 
+    def test_context_horizon_months_prefers_unit_horizon_over_experiment(self) -> None:
+        exp_def = make_experiment_def(horizon_months=360)
+        unit = PlannedSimulationUnit(
+            cohort=make_cohort(2000),
+            parameter_config=make_param_config(),
+            allocation_policy=StubAllocationPolicy(),
+            withdrawal_policy=StubWithdrawalPolicy(),
+            initial_portfolio=make_portfolio(),
+            dataset=make_minimal_dataset(year=2000),
+            horizon_months=480,
+        )
+        plan = make_plan(experiment_def=exp_def, units=(unit,))
+        executor, mock_sim_exec = make_executor(simulation_results=(make_simulation_result(),))
+
+        executor.execute(plan)
+
+        engine_def = mock_sim_exec.execute.call_args.args[0]
+        ctx = engine_def.simulation_contexts[0]
+        assert ctx.horizon_months == 480
+
     def test_context_initial_wealth_matches_experiment_definition(self) -> None:
         exp_def = make_experiment_def()
         unit = make_unit(year=2000)

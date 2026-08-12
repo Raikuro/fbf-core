@@ -10,7 +10,7 @@ objects but never builds, modifies, or reorders them.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
@@ -48,6 +48,11 @@ class PlannedSimulationUnit:
         unit; ResearchExecutor maps the value through and never invents it.
     dataset:
         A fully materialised cohort-sliced Dataset ready for engine execution.
+    horizon_months:
+        The per-unit simulation horizon in months. When ``None`` the executor
+        falls back to the shared ``ExperimentDefinition.horizon_months``
+        (the pre-grid behaviour); plans produced by the planner always set it
+        explicitly so the executor reads the horizon from the unit.
     """
 
     cohort: CohortSpecification
@@ -56,6 +61,7 @@ class PlannedSimulationUnit:
     withdrawal_policy: WithdrawalPolicy
     initial_portfolio: Portfolio
     dataset: Dataset
+    horizon_months: int | None = None
 
     def __post_init__(self) -> None:
         if self.cohort is None:
@@ -71,6 +77,14 @@ class PlannedSimulationUnit:
         if self.dataset is None or not isinstance(self.dataset, Dataset):
             raise ValueError(
                 "PlannedSimulationUnit.dataset must be a valid engine Dataset instance"
+            )
+        if self.horizon_months is not None and (
+            not isinstance(self.horizon_months, int)
+            or isinstance(self.horizon_months, bool)
+            or self.horizon_months <= 0
+        ):
+            raise ValueError(
+                "PlannedSimulationUnit.horizon_months must be a positive integer or None"
             )
         # Ensure the planner materialised an engine Portfolio value (ownership
         # belongs to the planning boundary). This prevents the executor from
@@ -171,6 +185,91 @@ def materialize_research_plan(
                     withdrawal_policy=withdrawal_policy,
                     initial_portfolio=initial_portfolio,
                     dataset=sliced_dataset,
+                    horizon_months=experiment_def.horizon_months,
+                )
+            )
+    return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))
+
+
+def datasets_are_prefix_consistent(canonical: Dataset, shorter: Dataset) -> bool:
+    """Return True if *shorter* is a value-identical prefix of *canonical*.
+
+    Compares the snapshot sequences value-wise (dates, index levels, inflation
+    and running indicators). A shorter dataset that is not an exact prefix of
+    the canonical trajectory cannot be replaced by a prefix slice of it.
+    """
+    if len(shorter.snapshots) > len(canonical.snapshots):
+        return False
+    return shorter.snapshots == canonical.snapshots[: len(shorter.snapshots)]
+
+
+def materialize_grid_research_plan(
+    experiment_def: ExperimentDefinition,
+    canonical_trajectory: Dataset,
+    cohorts: tuple[CohortSpecification, ...],
+    param_configs: tuple[ParameterConfiguration, ...],
+    initial_portfolio: Portfolio,
+    horizon_resolver: Callable[[ParameterConfiguration], int],
+    policy_resolver: Callable[
+        [ParameterConfiguration], tuple[AllocationPolicy, WithdrawalPolicy]
+    ],
+) -> ResearchPlan:
+    """Build a ResearchPlan whose units take horizon and policies per parameter config.
+
+    All units are sliced from a single *canonical_trajectory*: a unit with a
+    shorter horizon receives the prefix of the trajectory that the longest
+    horizon would use. The trajectory is shared across the whole study and
+    never independently re-loaded per horizon (see ``datasets_are_prefix_consistent``).
+
+    Parameters
+    ----------
+    experiment_def:
+        The shared source study definition (canonical trajectory reference).
+    canonical_trajectory:
+        The longest resolved dataset; shorter-horizon units are prefix slices
+        of it. Ownership belongs to the planning boundary that resolved the
+        declared dataset family.
+    cohorts:
+        Horizon-feasible cohort specifications, generated against the longest
+        horizon so every cohort is feasible for every declared horizon.
+    param_configs:
+        The Cartesian parameter space; each configuration resolves to a
+        per-unit horizon (via *horizon_resolver*) and per-unit policies (via
+        *policy_resolver*).
+    initial_portfolio:
+        Materialised initial portfolio shared by every unit.
+    horizon_resolver:
+        Maps a parameter configuration to its ``horizon_months``.
+    policy_resolver:
+        Maps a parameter configuration to the ``(allocation, withdrawal)``
+        policy pair for its unit.
+
+    Returns
+    -------
+    ResearchPlan
+        A normal immutable plan; ``(cohort.start_date, parameter_config)``
+        uniqueness is enforced by ``ResearchPlan`` itself.
+    """
+    dataset_cache: dict[tuple[date, int], Dataset] = {}
+    units: list[PlannedSimulationUnit] = []
+    for cohort in cohorts:
+        for param_config in param_configs:
+            horizon_months = horizon_resolver(param_config)
+            alloc_policy, withdrawal_policy = policy_resolver(param_config)
+            cache_key = (cohort.start_date, horizon_months)
+            if cache_key not in dataset_cache:
+                dataset_cache[cache_key] = canonical_trajectory.slice(
+                    cohort.start_date, horizon_months
+                )
+            units.append(
+                PlannedSimulationUnit(
+                    cohort=cohort,
+                    parameter_config=param_config,
+                    allocation_policy=alloc_policy,
+                    withdrawal_policy=withdrawal_policy,
+                    initial_portfolio=initial_portfolio,
+                    dataset=dataset_cache[cache_key],
+                    horizon_months=horizon_months,
                 )
             )
     return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))
