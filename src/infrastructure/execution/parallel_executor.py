@@ -62,9 +62,15 @@ class _ProgressReportingSimulationExecutor(SimulationExecutor):
     ``ResearchExecutor`` delegates exactly once to ``SimulationExecutor.execute``,
     which runs every context in plan order. This wrapper hooks that single call and
     delegates one context at a time to the inner executor, firing
-    ``callback(completed, total)`` after each unit's context finishes. It gives
+    ``callback(completed, total)`` after each unit's context finishes.  It gives
     per-unit progress reporting in sequential execution without altering the
     orchestrator contract or simulation semantics.
+
+    Executors that advertise ``processes_whole_definition = True`` (e.g. the
+    chained fast path) are passed the full definition unchanged: splitting it
+    into single-context calls would silently disable their cross-context
+    optimisation (horizon chaining).  Progress is then reported once, after the
+    whole definition completes.
     """
 
     def __init__(
@@ -79,6 +85,14 @@ class _ProgressReportingSimulationExecutor(SimulationExecutor):
         self._completed = 0
 
     def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
+        # Check the advertised class attribute rather than the instance: probing
+        # an instance with getattr would auto-create truthy attributes on Mock
+        # wrappers in tests and wrongly skip the per-context progress loop.
+        if getattr(type(self._inner), "processes_whole_definition", False):
+            run = self._inner.execute(definition)
+            self._completed += len(run.simulation_results)
+            self._callback(self._completed, self._total)
+            return run
         results: list[SimulationResult] = []
         for context in definition.simulation_contexts:
             single = EngineExperimentDefinition(
@@ -136,7 +150,11 @@ class ExecutionConfig:
     use_processes:
         True to use ProcessPoolExecutor (CPU-bound), False for ThreadPoolExecutor.
     chunk_size:
-        Units per task chunk.
+        Units per task chunk when fine-grained progress is requested. ``None``
+        (the default) uses worker-sized batches so a large plan is dispatched as
+        a few tens of tasks instead of one task per unit; set a positive integer
+        explicitly to opt into per-chunk granularity (used only for progress
+        smoothing in the summary-only path).
     enable_progress:
         True to enable progress tracking callbacks.
     """
@@ -144,7 +162,7 @@ class ExecutionConfig:
     max_workers: int | None = None
     timeout_seconds: float | None = None
     use_processes: bool = True
-    chunk_size: int = 1
+    chunk_size: int | None = None
     enable_progress: bool = True
 
 
@@ -229,7 +247,16 @@ def _execute_batch_on_shared_state(
     units: Sequence[PlannedSimulationUnit],
     summary_only: bool,
 ) -> tuple[SimulationResult, ...]:
-    """Run a batch of units against the worker's shared experiment definition."""
+    """Run a batch of units against the worker's shared experiment definition.
+
+    Memory is bounded per worker: timelines are stripped (or a result discarded)
+    as each unit completes, so a worker never holds more than one unit's monthly
+    payload regardless of the dispatch batch size.  Executors that advertise
+    ``processes_whole_definition = True`` (e.g. the chained fast path) still
+    receive the whole batch as a single definition, since splitting it would
+    silently disable their cross-context optimisation (horizon chaining); their
+    footprint is small because they never materialize per-month timelines.
+    """
     exp_def = _WORKER_EXPERIMENT_DEFINITION
     sim_executor = _WORKER_SIMULATION_EXECUTOR or _create_default_simulation_executor()
     if exp_def is None:
@@ -238,11 +265,19 @@ def _execute_batch_on_shared_state(
             "the pool must be created with _initialize_worker as initializer"
         )
     research_executor = ResearchExecutor(sim_executor)
-    sub_plan = ResearchPlan(experiment_definition=exp_def, units=tuple(units))
-    result = research_executor.execute(sub_plan)
-    if summary_only:
-        return tuple(_to_summary_result(r) for r in result.results)
-    return result.results
+    if getattr(type(sim_executor), "processes_whole_definition", False):
+        sub_plan = ResearchPlan(experiment_definition=exp_def, units=tuple(units))
+        result = research_executor.execute(sub_plan)
+        if summary_only:
+            return tuple(_to_summary_result(r) for r in result.results)
+        return result.results
+    results: list[SimulationResult] = []
+    for unit in units:
+        sub_plan = ResearchPlan(experiment_definition=exp_def, units=(unit,))
+        run = research_executor.execute(sub_plan)
+        result = run.results[0]
+        results.append(_to_summary_result(result) if summary_only else result)
+    return tuple(results)
 
 
 def _worker_execute_index_batch(
@@ -442,9 +477,17 @@ def parallel_execute(
             summary_only=summary_only,
         )
 
-    if progress_callback is not None and summary_only and config.chunk_size > 0:
-        # Fine-grained chunks give smooth progress updates; each chunk's payload is
-        # tiny in summary-only mode, so the extra per-chunk IPC is negligible.
+    if (
+        progress_callback is not None
+        and summary_only
+        and config.chunk_size is not None
+        and config.chunk_size > 0
+    ):
+        # Explicitly requested fine-grained chunks give smooth progress updates;
+        # each chunk's payload is tiny in summary-only mode. This is opt-in via
+        # ExecutionConfig.chunk_size: the default (None) dispatches worker-sized
+        # batches so a 300k-unit grid runs as a few dozen tasks rather than one
+        # task per unit.
         batches = create_chunked_batches(plan, config.chunk_size)
     else:
         batches = create_work_batches(plan, effective_workers)

@@ -10,12 +10,15 @@ Verifies the behavioral specification PARALLEL_EXECUTION_SPECIFICATION.md:
 
 from __future__ import annotations
 
+import random
 from datetime import date
 from decimal import Decimal
 from unittest.mock import Mock
 
 import pytest
 
+from cli.builders import build_parameter_configs, build_research_plan
+from cli.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from engine.application.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     ExperimentRun,
@@ -40,6 +43,7 @@ from infrastructure.execution.parallel_executor import (
     parallel_execute,
     sequential_execute,
 )
+from research.domain.cohort.generator import CohortGenerator
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.configuration import ParameterConfiguration
@@ -54,9 +58,7 @@ class DummyAllocationPolicy(AllocationPolicy):
     def decide(self, context: object) -> AllocationDecision:
         portfolio = getattr(context, "portfolio", None)
         asset = (
-            portfolio.holdings[0].asset_class
-            if portfolio and portfolio.holdings
-            else make_asset()
+            portfolio.holdings[0].asset_class if portfolio and portfolio.holdings else make_asset()
         )
         return AllocationDecision(
             reason="dummy",
@@ -241,6 +243,63 @@ def test_parallel_determinism_across_runs() -> None:
     assert run1.results == run2.results
 
 
+def _make_real_engine_plan() -> ResearchPlan:
+    """Build a small multi-cohort, multi-config plan for the real Decimal engine."""
+    rng = random.Random(11)
+    equity = AssetClass(id="equity", name="", description="")
+    bond = AssetClass(id="bond", name="", description="")
+    pe = pb = Decimal("100")
+    snapshots = []
+    d = date(2000, 1, 1)
+    for _ in range(60):
+        snapshots.append(
+            MarketSnapshot(
+                date=d,
+                index_levels={equity: pe, bond: pb},
+                inflation=Decimal("0"),
+                inflation_cumulative=Decimal("0"),
+                is_ath=True,
+                is_underwater=False,
+                running_ath=Decimal("100"),
+            )
+        )
+        pe *= Decimal(str(1 + rng.gauss(0.006, 0.04)))
+        pb *= Decimal(str(1 + rng.gauss(0.002, 0.01)))
+        d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
+    dataset = Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+
+    cohorts = CohortGenerator.generate_rolling_monthly(dataset, 36)
+    alloc = ConstantAllocationPolicy(Decimal("0.6"))
+    withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
+    configs = build_parameter_configs(
+        {"equity_allocation": [0.6, 0.4], "withdrawal_rate": [0.03, 0.04]}
+    )
+    exp_def = ExperimentDefinition(
+        name="real-determinism",
+        description="real-engine parallel determinism",
+        dataset=dataset,
+        horizon_months=36,
+        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+        cohorts=cohorts,
+        allocation_policies=(alloc,),
+        withdrawal_policies=(withdraw,),
+    )
+    return build_research_plan(exp_def, cohorts, configs, alloc, withdraw)
+
+
+def test_real_engine_parallel_matches_sequential() -> None:
+    """Parallel execution through the real Decimal engine is bit-for-bit equal
+    to sequential execution (result and per-month timeline)."""
+    plan = _make_real_engine_plan()
+
+    seq_result = sequential_execute(plan)
+    par_result = parallel_execute(plan, max_workers=2)
+
+    assert len(par_result.results) == len(seq_result.results)
+    for seq, par in zip(seq_result.results, par_result.results, strict=True):
+        assert seq == par
+
+
 def test_parallel_executor_class_wrapper() -> None:
     """Verify ParallelExecutor wrapper delegates correctly."""
     plan = make_test_plan(num_units=6)
@@ -306,9 +365,7 @@ def test_sequential_execute_summary_only_strips_timelines() -> None:
     mock_sim_exec = make_mock_simulation_executor(6)
 
     full = sequential_execute(plan, simulation_executor=mock_sim_exec)
-    summary = sequential_execute(
-        plan, simulation_executor=mock_sim_exec, summary_only=True
-    )
+    summary = sequential_execute(plan, simulation_executor=mock_sim_exec, summary_only=True)
 
     assert len(summary.results) == len(full.results) == 6
     for summary_result, full_result in zip(summary.results, full.results, strict=True):
@@ -371,8 +428,7 @@ def _make_selective_mock_executor() -> Mock:
             if isinstance(ctx.allocation_policy, ExplodingAllocationPolicy):
                 raise RuntimeError("Deliberate execution-time failure for error isolation test")
         sim_results = tuple(
-            make_simulation_result(ctx.start_date.month)
-            for ctx in engine_def.simulation_contexts
+            make_simulation_result(ctx.start_date.month) for ctx in engine_def.simulation_contexts
         )
         return ExperimentRun(definition=engine_def, simulation_results=sim_results)
 
