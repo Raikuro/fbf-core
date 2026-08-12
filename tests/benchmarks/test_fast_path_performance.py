@@ -120,9 +120,9 @@ def test_fast_path_vs_reference_throughput() -> None:
 
     n = len(plan.units)
     print(
-        f"fast path: reference {t_reference/n*1000:.1f}ms/cohort vs "
-        f"closed-form {t_fast/n*1000:.3f}ms/cohort "
-        f"({t_reference/t_fast:.0f}x, {n} cohorts)"
+        f"fast path: reference {t_reference / n * 1000:.1f}ms/cohort vs "
+        f"closed-form {t_fast / n * 1000:.3f}ms/cohort "
+        f"({t_reference / t_fast:.0f}x, {n} cohorts)"
     )
 
 
@@ -146,13 +146,72 @@ def test_chained_vs_non_chained() -> None:
     chained_run = chained.execute(definition)
     t_chained = time.perf_counter() - t0
 
-    for a, b in zip(
-        non_chained.simulation_results, chained_run.simulation_results, strict=True
-    ):
+    for a, b in zip(non_chained.simulation_results, chained_run.simulation_results, strict=True):
         assert a.statistics.success == b.statistics.success
         assert a.statistics.failure_month == b.statistics.failure_month
 
     print(
-        f"chaining: non-chained {t_non*1000:.1f}ms vs chained {t_chained*1000:.1f}ms "
-        f"({t_non/t_chained:.1f}x, {len(contexts)} contexts)"
+        f"chaining: non-chained {t_non * 1000:.1f}ms vs chained {t_chained * 1000:.1f}ms "
+        f"({t_non / t_chained:.1f}x, {len(contexts)} contexts)"
+    )
+
+
+def test_grid_plan_chaining_report() -> None:
+    """A full synthetic grid's month-work is cut exactly by the family factor."""
+    from cli.builders import (
+        ResolvedDatasetFamily,
+        build_grid_research_plan,
+        build_parameter_configs,
+    )
+    from cli.fast_path import expected_chaining_report, reference_month_work
+    from research.domain.cohort.generator import CohortGenerator
+    from research.domain.experiment.definition import ExperimentDefinition
+
+    dataset = _synthetic_dataset(780)
+    horizons = (30, 40, 50, 60)
+    family = ResolvedDatasetFamily(canonical=dataset, horizons={})
+    cohorts = CohortGenerator.generate_rolling_monthly(dataset, max(horizons) * 12)
+    configs = build_parameter_configs(
+        {
+            "equity_allocation": [1.0, 0.75, 0.5, 0.25, 0.0],
+            "withdrawal_rate": [0.03, 0.035, 0.04, 0.045, 0.05],
+            "horizon_years": list(horizons),
+        }
+    )
+    alloc = ConstantAllocationPolicy(Decimal("0.75"))
+    withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
+    exp_def = ExperimentDefinition(
+        name="grid-bench",
+        description="grid-bench",
+        dataset=dataset,
+        horizon_months=max(horizons) * 12,
+        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+        cohorts=cohorts,
+        allocation_policies=(alloc,),
+        withdrawal_policies=(withdraw,),
+    )
+    plan = build_grid_research_plan(
+        exp_def, family, cohorts, configs, alloc, withdraw, default_horizon_years=max(horizons)
+    )
+
+    report = expected_chaining_report(plan)
+    ref_work = reference_month_work(plan)
+    ratio = ref_work / report.month_work
+
+    assert report.chained_groups == len(cohorts) * len(configs) // len(horizons)
+    assert report.derived_results == len(plan.units) - report.chained_groups
+    assert report.independent_evaluations == 0
+
+    t0 = time.perf_counter()
+    chained = sequential_execute(
+        plan,
+        simulation_executor=ChainedFastPathSimulationExecutor(precision="float"),
+        summary_only=True,
+    )
+    t_chained = time.perf_counter() - t0
+    assert len(chained.results) == len(plan.units)
+    print(
+        f"grid chaining: {len(plan.units):,} units -> {report.chained_groups:,} "
+        f"families, month-work {report.month_work:,}/{ref_work:,} "
+        f"({ratio:.1f}x reduction), ran in {t_chained * 1000:.1f}ms"
     )

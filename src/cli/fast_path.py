@@ -101,6 +101,47 @@ class ClosedFormPath:
     failure_month: int | None
 
 
+@dataclass(frozen=True)
+class ChainingReport:
+    """Instrumentation summary of a chained multi-horizon execution.
+
+    Provides an execution-independent statement of how much mathematical work a
+    chained run performs versus the reference path, plus the group structure the
+    chaining produced.  It is computed deterministically from a plan (or a
+    definition) and is also recorded live by
+    :class:`ChainedFastPathSimulationExecutor` after each ``execute``.
+
+    Attributes
+    ----------
+    logical_units:
+        Total number of simulation units/contexts in the study.
+    chained_groups:
+        Number of (cohort, equity, rate, wealth, portfolio) families whose
+        contexts share a group key and are evaluated together.
+    longest_path_evaluations:
+        Number of times a single longest-horizon path was evaluated and reused
+        to derive shorter horizons (one per chained group).
+    derived_results:
+        Number of results obtained by reading a shorter horizon off a reused
+        longest-horizon path instead of re-simulating it.
+    independent_evaluations:
+        Number of results computed on their own (non-eligible contexts,
+        non-prefix datasets, or singleton groups).
+    month_work:
+        Total recurrence months actually simulated.  For the reference path this
+        equals ``sum(unit.horizon_months)``; for the fully chained ERN grid it
+        is ``chained_groups * 720`` (the longest horizon evaluated once per
+        family), exactly 3x below the reference count.
+    """
+
+    logical_units: int
+    chained_groups: int
+    longest_path_evaluations: int
+    derived_results: int
+    independent_evaluations: int
+    month_work: int
+
+
 def is_fast_path_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can be evaluated by the closed-form path.
 
@@ -122,6 +163,15 @@ def is_fast_path_eligible(context: SimulationContext) -> bool:
         return False
     holdings = context.initial_portfolio.holdings
     if not holdings:
+        return False
+    # The closed form encodes the two-asset (equity + one bond) rebalanced
+    # model: equity at weight ``w`` and every other held class at ``1 - w``.
+    # Any other holding set (single-asset, duplicate equity, or three or more
+    # classes) would make the per-class weights not sum to one, so it is
+    # rejected instead of silently producing a divergent recurrence.
+    if len(holdings) != 2:
+        return False
+    if sum(1 for h in holdings if h.asset_class.id == _EquityId) != 1:
         return False
     return not any(h.asset_class not in context.dataset[0].index_levels for h in holdings)
 
@@ -178,6 +228,47 @@ def _dataset_is_identity_prefix(candidate: SimulationContext, longest: Simulatio
     if len(candidate_snapshots) > len(longest_snapshots):
         return False
     return all(a is b for a, b in zip(candidate_snapshots, longest_snapshots, strict=False))
+
+
+def _dataset_is_identity_prefix_memo(
+    candidate: SimulationContext,
+    longest: SimulationContext,
+    memo: dict[tuple[int, int], bool],
+) -> bool:
+    """Memoized identity-prefix check keyed by dataset object identity.
+
+    Datasets are immutable and the check is a pure function of the two dataset
+    objects, so its result is identical for the same ``(candidate, longest)``
+    object pair.  A grid plan shares a handful of sliced ``Dataset`` objects
+    across ~300k contexts, so memoizing by object id reduces the guard from one
+    O(months) comparison per derived context to one per distinct dataset pair.
+    """
+    key = (id(candidate.dataset), id(longest.dataset))
+    result = memo.get(key)
+    if result is None:
+        result = _dataset_is_identity_prefix(candidate, longest)
+        memo[key] = result
+    return result
+
+
+def _chaining_group_key(context: SimulationContext) -> tuple[object, ...]:
+    """Return the chaining group key for *context*.
+
+    F2: contexts may share a longest-horizon path only when they agree on cohort
+    start date, equity allocation, withdrawal rate, initial wealth and initial
+    portfolio.  Any other difference forces independent evaluation (the dataset
+    prefix guard is applied separately per context, see
+    ``_dataset_is_identity_prefix``).
+    """
+    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
+    return (
+        context.start_date,
+        allocation.equity_allocation,
+        withdrawal.withdrawal_rate,
+        context.initial_wealth,
+        context.initial_portfolio,
+    )
 
 
 def evaluate_path(
@@ -362,23 +453,26 @@ class FastPathSimulationExecutor(SimulationExecutor):
         return ExperimentRun(definition=definition, simulation_results=tuple(results))
 
 
-def _unit_simulation_context(
-    plan: ResearchPlan, unit: PlannedSimulationUnit
-) -> SimulationContext:
+def _unit_simulation_context(plan: ResearchPlan, unit: PlannedSimulationUnit) -> SimulationContext:
     """Translate one planned unit into a frozen engine ``SimulationContext``.
 
     Mirrors ``ResearchExecutor._create_context_for_unit`` exactly so eligibility
     and validation operate on the same contexts the executor would build.
     """
     cohort_id = unit.cohort.id
-    assert (
-        cohort_id is not None
-    ), f"CohortSpecification.id must not be None (cohort={unit.cohort.start_date!r})"
+    assert cohort_id is not None, (
+        f"CohortSpecification.id must not be None (cohort={unit.cohort.start_date!r})"
+    )
+    horizon_months = (
+        unit.horizon_months
+        if unit.horizon_months is not None
+        else plan.experiment_definition.horizon_months
+    )
     return SimulationContext(
         experiment_name=plan.experiment_definition.name,
         cohort=cohort_id,
         start_date=unit.cohort.start_date,
-        horizon_months=plan.experiment_definition.horizon_months,
+        horizon_months=horizon_months,
         initial_wealth=plan.experiment_definition.initial_wealth,
         initial_portfolio=unit.initial_portfolio,
         dataset=unit.dataset,
@@ -402,6 +496,76 @@ def fast_path_unit_counts(plan: ResearchPlan) -> tuple[int, int]:
     return fast_units, len(plan.units) - fast_units
 
 
+def reference_month_work(plan: ResearchPlan) -> int:
+    """Return the reference-path month-work for *plan*.
+
+    The reference engine simulates every unit for its full horizon, so the total
+    month-work is the sum of all per-unit horizons.
+    """
+    return sum(
+        unit.horizon_months
+        if unit.horizon_months is not None
+        else plan.experiment_definition.horizon_months
+        for unit in plan.units
+    )
+
+
+def expected_chaining_report(plan: ResearchPlan) -> ChainingReport:
+    """Compute the chaining report *plan* would produce, without executing.
+
+    Applies exactly the same grouping (``_chaining_group_key``) and dataset
+    prefix guard (``_dataset_is_identity_prefix``) as
+    :class:`ChainedFastPathSimulationExecutor`, so the report is the
+    execution-independent truth for the plan: the longest horizon per group is
+    evaluated once and every shorter prefix-consistent horizon is derived from
+    it.  It is used by the CLI to report chaining coverage and by tests to prove
+    that chaining actually happens (the executor records the same numbers live).
+    """
+    groups: dict[tuple[object, ...], list[SimulationContext]] = {}
+    for unit in plan.units:
+        context = _unit_simulation_context(plan, unit)
+        if not is_fast_path_eligible(context):
+            continue
+        groups.setdefault(_chaining_group_key(context), []).append(context)
+
+    prefix_memo: dict[tuple[int, int], bool] = {}
+    longest_evaluations = 0
+    derived = 0
+    independent = 0
+    month_work = 0
+    for contexts in groups.values():
+        longest_ctx = max(contexts, key=lambda c: c.horizon_months)
+        longest_evaluations += 1
+        month_work += longest_ctx.horizon_months
+        for ctx in contexts:
+            if ctx is longest_ctx:
+                continue
+            if _dataset_is_identity_prefix_memo(ctx, longest_ctx, prefix_memo):
+                derived += 1
+            else:
+                independent += 1
+                month_work += ctx.horizon_months
+
+    non_eligible = len(plan.units) - sum(len(c) for c in groups.values())
+    independent += non_eligible
+    month_work += sum(
+        unit.horizon_months
+        if unit.horizon_months is not None
+        else plan.experiment_definition.horizon_months
+        for unit in plan.units
+        if not is_fast_path_eligible(_unit_simulation_context(plan, unit))
+    )
+
+    return ChainingReport(
+        logical_units=len(plan.units),
+        chained_groups=len(groups),
+        longest_path_evaluations=longest_evaluations,
+        derived_results=derived,
+        independent_evaluations=independent,
+        month_work=month_work,
+    )
+
+
 def select_validation_units(
     plan: ResearchPlan, max_units: int = FAST_PATH_VALIDATION_MAX_UNITS
 ) -> tuple[PlannedSimulationUnit, ...]:
@@ -412,19 +576,60 @@ def select_validation_units(
     is deterministic: the same plan always yields the same units, because the
     eligible units are ordered by plan index and a fixed-seed RNG selects the
     sample indices.
+
+    For multi-horizon (grid) plans the sample is stratified by horizon: each
+    distinct horizon present in the plan contributes a proportional share, so a
+    grid study's validation covers every horizon length instead of clustering on
+    one.  Single-horizon plans are sampled exactly as before.
     """
     eligible = tuple(
-        unit
-        for unit in plan.units
-        if is_fast_path_eligible(_unit_simulation_context(plan, unit))
+        unit for unit in plan.units if is_fast_path_eligible(_unit_simulation_context(plan, unit))
     )
     sample_size = min(max_units, len(eligible))
     if sample_size == 0:
         return ()
-    indices = sorted(
-        random.Random(FAST_PATH_VALIDATION_SEED).sample(range(len(eligible)), sample_size)
-    )
-    return tuple(eligible[i] for i in indices)
+
+    by_horizon: dict[int, list[PlannedSimulationUnit]] = {}
+    for unit in eligible:
+        horizon = (
+            unit.horizon_months
+            if unit.horizon_months is not None
+            else plan.experiment_definition.horizon_months
+        )
+        by_horizon.setdefault(horizon, []).append(unit)
+
+    horizons = sorted(by_horizon)
+    rng = random.Random(FAST_PATH_VALIDATION_SEED)
+    if len(horizons) == 1:
+        indices = sorted(rng.sample(range(len(eligible)), sample_size))
+        return tuple(eligible[i] for i in indices)
+
+    # Stratified: distribute the budget across horizons (at least one each when
+    # the budget allows), always deterministically via the fixed-seed RNG.
+    pools = {h: list(by_horizon[h]) for h in horizons}
+    taken = dict.fromkeys(horizons, 0)
+    remaining = sample_size
+    per_horizon = max(1, sample_size // len(horizons))
+    selected: list[PlannedSimulationUnit] = []
+    for horizon in horizons:
+        pool = pools[horizon]
+        take = min(per_horizon, len(pool), remaining)
+        indices = sorted(rng.sample(range(len(pool)), take))
+        selected.extend(pool[i] for i in indices)
+        taken[horizon] += take
+        remaining -= take
+    # Distribute any leftover budget round-robin across horizons that still
+    # have unsampled eligible units.
+    for horizon in horizons:
+        if remaining <= 0:
+            break
+        pool = pools[horizon]
+        if taken[horizon] >= len(pool):
+            continue
+        selected.append(pool[taken[horizon]])
+        taken[horizon] += 1
+        remaining -= 1
+    return tuple(selected[:sample_size])
 
 
 class FastPathValidationError(RuntimeError):
@@ -492,9 +697,7 @@ def run_fast_path_validation(
         [u for u in plan.units if is_fast_path_eligible(_unit_simulation_context(plan, u))]
     )
 
-    sub_plan = ResearchPlan(
-        experiment_definition=plan.experiment_definition, units=sample
-    )
+    sub_plan = ResearchPlan(experiment_definition=plan.experiment_definition, units=sample)
     reference_results = sequential_execute(sub_plan, summary_only=True).results
     fast_results = sequential_execute(
         sub_plan,
@@ -502,9 +705,7 @@ def run_fast_path_validation(
         summary_only=True,
     ).results
 
-    for unit, reference, fast in zip(
-        sample, reference_results, fast_results, strict=True
-    ):
+    for unit, reference, fast in zip(sample, reference_results, fast_results, strict=True):
         problems = _compare_fast_path_result(reference, fast, tolerance)
         if problems:
             raise FastPathValidationError(
@@ -530,7 +731,32 @@ class ChainedFastPathSimulationExecutor(FastPathSimulationExecutor):
     Contexts that share a group key but carry different data, initial wealth or
     initial portfolio are evaluated individually; their results are never
     derived from another context's path.
+
+    Because chaining is a whole-definition optimisation, ``execute`` consumes
+    the full definition at once.  Progress wrappers that delegate one context at
+    a time would silently defeat it; the executor therefore advertises
+    ``processes_whole_definition = True`` so ``_ProgressReportingSimulationExecutor``
+    passes the full definition through unchanged.  After every ``execute`` the
+    live ``chaining_report`` records the actual groups, longest-path evaluations,
+    derived results and month-work performed.
     """
+
+    # Advertise whole-definition execution so progress wrappers never split the
+    # definition into single-context calls (which would disable chaining).
+    processes_whole_definition = True
+
+    def __init__(
+        self,
+        reference_executor: SimulationExecutor | None = None,
+        precision: Precision = "float",
+    ) -> None:
+        super().__init__(reference_executor, precision)
+        self._last_report: ChainingReport | None = None
+
+    @property
+    def chaining_report(self) -> ChainingReport | None:
+        """Return the report recorded by the most recent ``execute`` call."""
+        return self._last_report
 
     def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
         key_to_group: dict[tuple[object, ...], int] = {}
@@ -541,15 +767,7 @@ class ChainedFastPathSimulationExecutor(FastPathSimulationExecutor):
             if not is_fast_path_eligible(context):
                 order.append((index, -1))
                 continue
-            allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
-            withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
-            key = (
-                context.start_date,
-                allocation.equity_allocation,
-                withdrawal.withdrawal_rate,
-                context.initial_wealth,
-                context.initial_portfolio,
-            )
+            key = _chaining_group_key(context)
             if key not in key_to_group:
                 group_id = len(group_contexts)
                 key_to_group[key] = group_id
@@ -562,20 +780,31 @@ class ChainedFastPathSimulationExecutor(FastPathSimulationExecutor):
         # Evaluate each group's longest horizon once, then derive the rest.
         # Contexts whose dataset is not a prefix of the longest context's are
         # evaluated individually so their results are never cross-derived.
+        prefix_memo: dict[tuple[int, int], bool] = {}
         results: dict[int, SimulationResult] = {}
+        derived_count = 0
+        independent_count = 0
+        month_work = 0
         for _, contexts in enumerate(group_contexts):
             longest_ctx = max(contexts, key=lambda c: c.horizon_months)
             path = evaluate_path(longest_ctx, self._precision)
+            month_work += longest_ctx.horizon_months
             by_horizon: dict[int, SimulationResult] = {}
             for ctx in contexts:
-                if ctx is longest_ctx or _dataset_is_identity_prefix(ctx, longest_ctx):
+                if ctx is longest_ctx or _dataset_is_identity_prefix_memo(
+                    ctx, longest_ctx, prefix_memo
+                ):
                     if ctx.horizon_months not in by_horizon:
                         by_horizon[ctx.horizon_months] = _build_result(
                             longest_ctx, path, ctx.horizon_months
                         )
                     results[id(ctx)] = by_horizon[ctx.horizon_months]
+                    if ctx is not longest_ctx:
+                        derived_count += 1
                 else:
                     results[id(ctx)] = evaluate_closed_form(ctx, self._precision)
+                    independent_count += 1
+                    month_work += ctx.horizon_months
 
         # Assemble results in original definition order.
         ordered_results: list[SimulationResult] = []
@@ -589,7 +818,18 @@ class ChainedFastPathSimulationExecutor(FastPathSimulationExecutor):
                 )
                 run = self._reference.execute(single)
                 ordered_results.append(run.simulation_results[0])
+                independent_count += 1
+                month_work += context.horizon_months
             else:
                 ordered_results.append(results[id(definition.simulation_contexts[index])])
+
+        self._last_report = ChainingReport(
+            logical_units=len(definition.simulation_contexts),
+            chained_groups=len(group_contexts),
+            longest_path_evaluations=len(group_contexts),
+            derived_results=derived_count,
+            independent_evaluations=independent_count,
+            month_work=month_work,
+        )
 
         return ExperimentRun(definition=definition, simulation_results=tuple(ordered_results))
