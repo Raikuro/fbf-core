@@ -242,6 +242,75 @@ parameters:
         assert "Per-Cell Results (grid):" in out
 
 
+class TestGridPerCellByteLayout:
+    """The per-cell line for a 3-axis ERN grid keeps the historical layout.
+
+    The generalized key derivation must keep ``equity_allocation``,
+    ``withdrawal_rate``, ``horizon_years`` first in that order so existing
+    machine-parseable output (and the ERN E2E parser) stays byte-identical.
+    """
+
+    GRID_YAML = """\
+metadata:
+  name: "Grid Three Axis Study"
+dataset:
+  identifier: "TEST_DATASET"
+cohorts:
+  window_years: 4
+allocation_policies:
+  - name: "Static 50/50"
+    type: "ConstantAllocationPolicy"
+    equity_ratio: 0.5
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: 0.04
+parameters:
+  equity_allocation: [0.5]
+  withdrawal_rate: [0.04]
+  horizon_years: [3, 4]
+"""
+
+    @pytest.fixture
+    def mock_dataset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from infrastructure.persistence.codecs import DefaultDatasetResolver
+
+        def mock_resolve(self: DefaultDatasetResolver, identifier: str) -> Dataset:
+            return _synthetic_dataset(500)
+
+        monkeypatch.setattr(DefaultDatasetResolver, "resolve", mock_resolve)
+
+    def test_three_axis_cell_lines_keep_historical_field_order(
+        self,
+        tmp_path: Path,
+        mock_dataset: None,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cell keys keep the ERN-axes-first ordering for 3-axis grids."""
+        import infrastructure.execution.parallel_executor as pe
+        from cli.main import main
+
+        monkeypatch.setattr(pe, "sequential_execute", _make_fake_executor_result)
+
+        study_file = tmp_path / "three_axis.yaml"
+        study_file.write_text(self.GRID_YAML, encoding="utf-8")
+        rc = main(["run", "--summary-only", "--no-persist", str(study_file)])
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        cell_lines = [line for line in out.splitlines() if line.startswith("cell: ")]
+        assert len(cell_lines) == 2
+        for line in cell_lines:
+            tokens = [token for token in line.split() if "=" in token]
+            assert [t.split("=", 1)[0] for t in tokens[:3]] == [
+                "equity_allocation",
+                "withdrawal_rate",
+                "horizon_years",
+            ]
+        assert "cell: equity_allocation=0.5 withdrawal_rate=0.04 horizon_years=3" in out
+        assert "cell: equity_allocation=0.5 withdrawal_rate=0.04 horizon_years=4" in out
+
+
 class TestGridCliReferenceChained:
     GRID_YAML = """\
 metadata:
@@ -324,6 +393,71 @@ parameters:
         assert rc == 2
         assert "--reference-chained" in out
         assert "--fast-path" in out
+
+
+class TestGridCliFourthAxis:
+    GRID_YAML = """\
+metadata:
+  name: "Grid Four Axis Study"
+dataset:
+  identifier: "TEST_DATASET"
+cohorts:
+  window_years: 4
+allocation_policies:
+  - name: "Static 50/50"
+    type: "ConstantAllocationPolicy"
+    equity_ratio: 0.5
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: 0.04
+parameters:
+  horizon_years: [3, 4]
+  n_duration: [5, 10]
+"""
+
+    @pytest.fixture
+    def mock_dataset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from infrastructure.persistence.codecs import DefaultDatasetResolver
+
+        def mock_resolve(self: DefaultDatasetResolver, identifier: str) -> Dataset:
+            return _synthetic_dataset(500)
+
+        monkeypatch.setattr(DefaultDatasetResolver, "resolve", mock_resolve)
+
+    def test_fourth_axis_appears_in_every_cell_key(
+        self,
+        tmp_path: Path,
+        mock_dataset: None,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A 4th parameter axis must not collapse cells differing on it.
+
+        Cells are keyed by the full parameter configuration, not by the ERN
+        triple; a study with ``n_duration`` therefore emits one cell line per
+        ``(horizon_years, n_duration)`` combination and every cell line carries
+        the 4th axis in its label.
+        """
+        import infrastructure.execution.parallel_executor as pe
+        from cli.main import main
+
+        monkeypatch.setattr(pe, "sequential_execute", _make_fake_executor_result)
+
+        study_file = tmp_path / "four_axis.yaml"
+        study_file.write_text(self.GRID_YAML, encoding="utf-8")
+        rc = main(["run", "--summary-only", "--no-persist", str(study_file)])
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "Per-Cell Results (grid):" in out
+        cell_lines = [line for line in out.splitlines() if line.startswith("cell: ")]
+        assert len(cell_lines) == 4
+        for line in cell_lines:
+            assert "horizon_years=" in line
+            assert "n_duration=" in line
+        assert any("n_duration=5" in line for line in cell_lines)
+        assert any("n_duration=10" in line for line in cell_lines)
+        assert all(line.count("units_run=") == 1 for line in cell_lines)
 
 
 def _make_fake_executor_result(plan: ResearchPlan, **kwargs: object) -> ResearchExecutionResult:

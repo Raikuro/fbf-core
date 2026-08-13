@@ -8,6 +8,7 @@ executor delegates every independent evaluation to the standard engine path.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import cast
 
@@ -24,8 +25,21 @@ from engine.application.simulation_context import SimulationContext
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Money
 from engine.domain.model.portfolio import Portfolio
-from infrastructure.execution.parallel_executor import _create_default_simulation_executor
+from infrastructure.execution.parallel_executor import (
+    _create_default_simulation_executor,
+    default_max_workers,
+    parallel_execute,
+)
 from research.domain.plan import PlannedSimulationUnit, ResearchPlan
+from research.orchestration.result import ResearchExecutionResult
+
+# Memory-safety budget for the CLI's chained Reference dispatch. Each completed
+# chained result materializes ~0.37 MiB of timeline payload per unit, so a slice
+# of ``workers * _CHAINED_MAX_UNITS_PER_WORKER`` units keeps per-worker residency
+# under ~1 GiB (e.g. 16 workers x 2048 units ~ 12 GiB peak aggregate, inside the
+# documented 15 GiB host) while never splitting a cohort (horizon chaining is
+# preserved exactly). Whole-plan materialization would need ~110 GiB.
+_CHAINED_MAX_UNITS_PER_WORKER = 2048
 
 
 @dataclass(frozen=True)
@@ -310,3 +324,96 @@ class ChainedReferenceSimulationExecutor(SimulationExecutor):
         )
         run = self._reference.execute(single)
         return run.simulation_results[0]
+
+
+# Memory-safe slice dispatch for the CLI's --reference-chained path.
+#
+# Whole-plan chained materialization holds ~0.37 MiB of timeline payload per
+# unit (~110 GiB for the ERN grid), so the CLI never hands the whole plan to a
+# single executor call.  It splits the plan into cohort-aligned slices (a cohort
+# is never split, so every horizon family stays grouped and the exact month-work
+# reduction is preserved) and runs each slice through ``parallel_execute`` with
+# the chained executor, then merges results back in original plan order.
+_DEFAULT_CHAINED_SLICE_COHORTS = 100
+
+
+def _slice_plan_units(
+    plan: ResearchPlan,
+    slice_cohorts: int,
+) -> list[tuple[PlannedSimulationUnit, ...]]:
+    """Split ``plan.units`` into cohort-aligned slices preserving plan order.
+
+    Relies on the plan being cohort-major ordered (as produced by
+    ``materialize_grid_research_plan`` and ``materialize_research_plan``), so
+    consecutive units sharing a ``start_date`` form one cohort group.
+    """
+    if slice_cohorts <= 0:
+        raise ValueError(f"slice_cohorts must be positive, got {slice_cohorts}")
+    cohort_groups: list[list[PlannedSimulationUnit]] = []
+    for unit in plan.units:
+        if cohort_groups and cohort_groups[-1][0].cohort.start_date == unit.cohort.start_date:
+            cohort_groups[-1].append(unit)
+        else:
+            cohort_groups.append([unit])
+    slices: list[tuple[PlannedSimulationUnit, ...]] = []
+    for i in range(0, len(cohort_groups), slice_cohorts):
+        units: list[PlannedSimulationUnit] = []
+        for group in cohort_groups[i : i + slice_cohorts]:
+            units.extend(group)
+        slices.append(tuple(units))
+    return slices
+
+
+def execute_reference_chained(
+    plan: ResearchPlan,
+    max_workers: int | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    summary_only: bool = False,
+    slice_cohorts: int = _DEFAULT_CHAINED_SLICE_COHORTS,
+) -> ResearchExecutionResult:
+    """Execute *plan* through the chained Reference executor in cohort slices.
+
+    Each slice is dispatched through ``parallel_execute`` with a shared
+    ``ChainedReferenceSimulationExecutor`` and the per-slice results are merged
+    back into a single ``ResearchExecutionResult`` preserving original plan
+    order and index provenance.  Progress is reported once per completed slice
+    with global completed/total counts.
+    """
+    workers = default_max_workers() if max_workers is None or max_workers <= 0 else max_workers
+
+    slices = _slice_plan_units(plan, slice_cohorts)
+    executor = ChainedReferenceSimulationExecutor()
+
+    all_results: list[SimulationResult] = []
+    all_contexts: list[SimulationContext] = []
+    completed = 0
+    total = len(plan.units)
+
+    for slice_units in slices:
+        sub_plan = ResearchPlan(
+            experiment_definition=plan.experiment_definition,
+            units=slice_units,
+        )
+        sub_result = parallel_execute(
+            sub_plan,
+            max_workers=workers,
+            simulation_executor=executor,
+            progress_callback=None,
+            summary_only=summary_only,
+        )
+        all_results.extend(sub_result.experiment_result.simulation_results)
+        all_contexts.extend(sub_result.experiment_result.definition.simulation_contexts)
+        completed += len(slice_units)
+        if progress_callback is not None:
+            progress_callback(completed, total)
+
+    engine_def = EngineExperimentDefinition(
+        name=plan.experiment_definition.name,
+        description=plan.experiment_definition.description,
+        simulation_contexts=tuple(all_contexts),
+    )
+    experiment_run = ExperimentRun(
+        definition=engine_def,
+        simulation_results=tuple(all_results),
+    )
+    return ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
