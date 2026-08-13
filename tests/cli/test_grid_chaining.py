@@ -242,6 +242,90 @@ parameters:
         assert "Per-Cell Results (grid):" in out
 
 
+class TestGridCliReferenceChained:
+    GRID_YAML = """\
+metadata:
+  name: "Grid Reference Chained Study"
+dataset:
+  identifier: "TEST_DATASET"
+cohorts:
+  window_years: 4
+allocation_policies:
+  - name: "Static 50/50"
+    type: "ConstantAllocationPolicy"
+    equity_ratio: 0.5
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: 0.04
+parameters:
+  horizon_years: [3, 4]
+"""
+
+    @pytest.fixture
+    def mock_dataset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from infrastructure.persistence.codecs import DefaultDatasetResolver
+
+        def mock_resolve(self: DefaultDatasetResolver, identifier: str) -> Dataset:
+            return _synthetic_dataset(500)
+
+        monkeypatch.setattr(DefaultDatasetResolver, "resolve", mock_resolve)
+
+    def test_reference_chained_grid_prints_chaining_and_per_cell(
+        self,
+        tmp_path: Path,
+        mock_dataset: None,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--reference-chained grid runs report chaining + per-cell summaries."""
+        import infrastructure.execution.parallel_executor as pe
+        from cli.main import main
+
+        monkeypatch.setattr(pe, "sequential_execute", _make_fake_executor_result)
+
+        study_file = tmp_path / "grid.yaml"
+        study_file.write_text(self.GRID_YAML, encoding="utf-8")
+        rc = main(
+            ["run", "--reference-chained", "--summary-only", "--no-persist", str(study_file)]
+        )
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "Reference Chained:" in out
+        assert "Chained Groups:" in out
+        assert "Longest Path:" in out
+        assert "Month-Work:" in out
+        assert "Per-Cell Results (grid):" in out
+        assert "cell: horizon_years=3" in out
+        assert "cell: horizon_years=4" in out
+
+    def test_reference_chained_and_fast_path_rejected_together(
+        self,
+        tmp_path: Path,
+        mock_dataset: None,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Combining the two execution-mode flags is rejected, not merged."""
+        from cli.main import main
+
+        study_file = tmp_path / "grid.yaml"
+        study_file.write_text(self.GRID_YAML, encoding="utf-8")
+        rc = main(
+            [
+                "run",
+                "--reference-chained",
+                "--fast-path",
+                "--summary-only",
+                "--no-persist",
+                str(study_file),
+            ]
+        )
+        out = capsys.readouterr().out
+        assert rc == 2
+        assert "--reference-chained" in out
+        assert "--fast-path" in out
+
+
 def _make_fake_executor_result(plan: ResearchPlan, **kwargs: object) -> ResearchExecutionResult:
     """A fake ResearchExecutionResult whose statistics satisfy the per-cell block."""
     from datetime import date

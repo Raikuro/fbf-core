@@ -7,6 +7,7 @@ from .parallel_executor import (
     parallel_execute,
     sequential_execute,
 )
+from .reference_chaining import ChainedReferenceSimulationExecutor
 
 __all__ = [
     "ExecutionConfig",
@@ -14,4 +15,5 @@ __all__ = [
     "create_work_batches",
     "parallel_execute",
     "sequential_execute",
+    "ChainedReferenceSimulationExecutor",
 ]

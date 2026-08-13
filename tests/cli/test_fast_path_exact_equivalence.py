@@ -43,6 +43,7 @@ from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Currency, Money
 from infrastructure.execution.parallel_executor import sequential_execute
+from infrastructure.execution.reference_chaining import ChainedReferenceSimulationExecutor
 from research.domain.cohort.generator import CohortGenerator
 from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.plan import PlannedSimulationUnit, ResearchPlan
@@ -258,3 +259,131 @@ class TestChainingBitExact:
             _assert_exact(ind, ch, unit, "failure_month")
             _assert_exact(ind, ch, unit, "months_simulated")
             _assert_exact(ind, ch, unit, "final_wealth")
+
+
+class TestReferenceChainingBitExact:
+    def test_chained_reference_matches_independent_reference(self) -> None:
+        """Reference chaining reproduces independent reference execution exactly."""
+        dataset = _dataset(241)
+        plan = build_grid_plan(
+            dataset,
+            horizons=(2, 3),
+            weights=(0.0, 0.5, 1.0),
+            rates=(0.04, 0.08),
+        )
+        reference = _execute(plan)
+        chained = _execute(plan, ChainedReferenceSimulationExecutor())
+
+        for unit, ref, got in zip(plan.units, reference, chained, strict=True):
+            _assert_exact(ref, got, unit, "success")
+            _assert_exact(ref, got, unit, "failure_month")
+            _assert_exact(ref, got, unit, "months_simulated")
+            _assert_exact(ref, got, unit, "final_wealth")
+
+    def test_chained_reference_preserves_failure_month_boundary(self) -> None:
+        """Derived shorter horizons preserve failure month boundaries exactly."""
+        dataset = _dataset(40, flat=True)
+        plan = build_grid_plan(
+            dataset,
+            horizons=(2, 3),
+            weights=(1.0,),
+            rates=(0.5,),
+        )
+        reference = _execute(plan)
+        chained = _execute(plan, ChainedReferenceSimulationExecutor())
+
+        assert any(
+            ref.statistics.failure_month is not None
+            and ref.statistics.months_simulated == ref.statistics.failure_month
+            for ref in reference
+        )
+
+        for unit, ref, got in zip(plan.units, reference, chained, strict=True):
+            _assert_exact(ref, got, unit, "success")
+            _assert_exact(ref, got, unit, "failure_month")
+            _assert_exact(ref, got, unit, "months_simulated")
+            _assert_exact(ref, got, unit, "final_wealth")
+
+    def test_representative_multi_horizon_grid_matches_exactly(self) -> None:
+        """A representative multi-horizon x weight x rate grid is bit-exact.
+
+        Exercises three horizons, several allocation weights and multiple
+        withdrawal rates so every derivation branch (success, failure cut,
+        boundary) appears in the grid.
+        """
+        dataset = _dataset(241)
+        plan = build_grid_plan(
+            dataset,
+            horizons=(1, 2, 3),
+            weights=(0.0, 0.25, 0.5, 0.75, 1.0),
+            rates=(0.04, 0.1, 0.5),
+        )
+        reference = _execute(plan)
+        chained = _execute(plan, ChainedReferenceSimulationExecutor())
+
+        assert len(plan.units) > 500
+        for unit, ref, got in zip(plan.units, reference, chained, strict=True):
+            _assert_exact(ref, got, unit, "success")
+            _assert_exact(ref, got, unit, "failure_month")
+            _assert_exact(ref, got, unit, "months_simulated")
+            _assert_exact(ref, got, unit, "final_wealth")
+
+    def test_expected_report_matches_live_executor_report(self) -> None:
+        """The plan-level oracle equals the executor's live chaining report."""
+        from infrastructure.execution.reference_chaining import (
+            expected_reference_chaining_report,
+        )
+
+        dataset = _dataset(241)
+        plan = build_grid_plan(
+            dataset,
+            horizons=(2, 3),
+            weights=(1.0,),
+            rates=(0.04,),
+        )
+        expected = expected_reference_chaining_report(plan)
+
+        executor = ChainedReferenceSimulationExecutor()
+        _execute(plan, executor)
+        live = executor.chaining_report
+        assert live is not None
+        assert live == expected
+
+        n_cohorts = len({u.cohort.start_date for u in plan.units})
+        assert expected.chained_groups == n_cohorts
+        assert expected.longest_path_evaluations == n_cohorts
+        assert expected.derived_results == n_cohorts
+        assert expected.independent_evaluations == 0
+        longest = max(u.horizon_months or 0 for u in plan.units)
+        assert expected.month_work == n_cohorts * longest
+
+    def test_parallel_reference_chaining_matches_sequential(self) -> None:
+        """Parallel execution stays bit-exact and worker-batched chaining works.
+
+        The chained executor advertises ``processes_whole_definition`` so
+        ``parallel_execute`` hands whole batches through hybrid, keeping chaining
+        effective while results remain identical to sequential execution.
+        """
+        from infrastructure.execution.parallel_executor import parallel_execute
+
+        dataset = _dataset(241)
+        plan = build_grid_plan(
+            dataset,
+            horizons=(2, 3),
+            weights=(0.0, 0.5, 1.0),
+            rates=(0.04, 0.08),
+        )
+        sequential = _execute(plan, ChainedReferenceSimulationExecutor())
+        parallel = parallel_execute(
+            plan,
+            max_workers=2,
+            simulation_executor=ChainedReferenceSimulationExecutor(),
+            summary_only=True,
+        ).results
+
+        assert len(parallel) == len(plan.units)
+        for unit, seq, par in zip(plan.units, sequential, parallel, strict=True):
+            _assert_exact(seq, par, unit, "success")
+            _assert_exact(seq, par, unit, "failure_month")
+            _assert_exact(seq, par, unit, "months_simulated")
+            _assert_exact(seq, par, unit, "final_wealth")

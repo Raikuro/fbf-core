@@ -62,6 +62,7 @@ from .fixtures import PerCellStats, run_grid_study
 RUN_ERN_E2E = os.environ.get("RUN_ERN_E2E") == "1"
 RUN_ERN_E2E_FULL = RUN_ERN_E2E and os.environ.get("RUN_ERN_E2E_FULL") == "1"
 FAST_PATH_ENABLED = os.environ.get("ERN_E2E_FAST_PATH") == "1"
+REFERENCE_CHAINED_ENABLED = os.environ.get("ERN_E2E_REFERENCE_CHAINED") == "1"
 
 pytestmark = [
     pytest.mark.ern_e2e,
@@ -288,6 +289,71 @@ def test_full_grid_fast_path_reproduces_reference_success_rates(
         assert ref_cells[key] == fast_cells[key], (
             f"cell {key}: reference {ref_cells[key].success_percent:.2f}% vs "
             f"fast path {fast_cells[key].success_percent:.2f}%"
+        )
+
+
+@pytest.mark.skipif(
+    not REFERENCE_CHAINED_ENABLED,
+    reason="set ERN_E2E_REFERENCE_CHAINED=1 to run the reference-chained "
+    "acceptance cells",
+)
+def test_reference_chained_reproduces_reference_success_rates(
+    data_dir: Path, tmp_path: Path
+) -> None:
+    """The chained Reference executor reproduces the independent Reference
+    engine exactly through the public CLI.
+
+    Runs the smoke grid twice (independent Reference then ``--reference-chained``)
+    and asserts every per-cell statistic is identical.  Reference chaining is
+    bit-exact, so equality is exact, not tolerance-based; oracle comparison
+    stays on the reference-path tests above.
+    """
+    harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home_ref_chained")
+    workers = _resolve_workers_arg()
+    ref_result, ref_cells = run_grid_study(harness, SMOKE_GRID_YAML, workers, timeout=900)
+    chain_result, chain_cells = run_grid_study(
+        harness, SMOKE_GRID_YAML, workers, timeout=900, reference_chained=True
+    )
+
+    assert ref_result.units_run == chain_result.units_run == SMOKE_GRID_UNITS
+    assert set(ref_cells) == set(chain_cells)
+    for key in ref_cells:
+        assert ref_cells[key] == chain_cells[key], (
+            f"cell {key}: reference {ref_cells[key].success_percent:.2f}% vs "
+            f"chained {chain_cells[key].success_percent:.2f}%"
+        )
+
+
+@pytest.mark.skipif(
+    not (RUN_ERN_E2E_FULL and REFERENCE_CHAINED_ENABLED),
+    reason="set RUN_ERN_E2E_FULL=1 and ERN_E2E_REFERENCE_CHAINED=1 for the "
+    "full-grid reference-chained equivalence check",
+)
+def test_full_grid_reference_chained_reproduces_reference(
+    data_dir: Path, tmp_path: Path
+) -> None:
+    """Full-grid reference vs reference-chained equivalence across all 180 cells.
+
+    The complete 180-cell grid is executed twice through the public CLI
+    (independent Reference then ``--reference-chained``) and every per-cell
+    statistic is compared exactly.  This extends the smoke-level reference
+    chaining check to the full parameter space; oracle comparison stays on the
+    reference-path tests.
+    """
+    harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home_ref_chained_full")
+    workers = _resolve_workers_arg()
+    ref_result, ref_cells = run_grid_study(harness, GRID_YAML, workers, timeout=3600)
+    chain_result, chain_cells = run_grid_study(
+        harness, GRID_YAML, workers, timeout=3600, reference_chained=True
+    )
+
+    assert ref_result.units_run == chain_result.units_run == FULL_GRID_UNITS
+    assert set(ref_cells) == set(chain_cells)
+    assert len(ref_cells) == FULL_GRID_CELLS
+    for key in sorted(ref_cells):
+        assert ref_cells[key] == chain_cells[key], (
+            f"cell {key}: reference {ref_cells[key].success_percent:.2f}% vs "
+            f"chained {chain_cells[key].success_percent:.2f}%"
         )
 
 
