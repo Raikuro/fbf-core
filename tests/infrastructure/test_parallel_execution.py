@@ -40,6 +40,7 @@ from infrastructure.execution.parallel_executor import (
     ParallelExecutor,
     _worker_execute_batch_safe,
     create_work_batches,
+    default_max_workers,
     parallel_execute,
     sequential_execute,
 )
@@ -200,6 +201,50 @@ def test_create_work_batches_empty_plan() -> None:
     """Verify empty plan produces empty batches."""
     batches = create_work_batches(Mock(units=()), max_workers=4)
     assert batches == []
+
+
+# ---------------------------------------------------------------------------
+# Default worker selection (conservative cap)
+# ---------------------------------------------------------------------------
+
+
+def test_default_max_workers_caps_at_8_on_large_hosts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No explicit override + more than 8 logical CPUs resolves to 8 workers."""
+    monkeypatch.setattr("os.cpu_count", lambda: 32)
+    assert default_max_workers() == 8
+
+
+def test_default_max_workers_uses_host_cpus_below_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No explicit override + fewer than 8 logical CPUs resolves to host count."""
+    monkeypatch.setattr("os.cpu_count", lambda: 4)
+    assert default_max_workers() == 4
+
+
+def test_default_max_workers_fallback_when_cpu_count_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No explicit override + no CPU count resolves to a safe floor of 1."""
+    monkeypatch.setattr("os.cpu_count", lambda: None)
+    assert default_max_workers() == 1
+
+
+def test_default_max_workers_preserves_explicit_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit positive worker counts bypass the conservative default entirely."""
+    monkeypatch.setattr("os.cpu_count", lambda: 32)
+    config = ExecutionConfig(max_workers=16, use_processes=False)
+    plan = make_test_plan(num_units=8)
+    result = parallel_execute(
+        plan,
+        config=config,
+        simulation_executor=make_mock_simulation_executor(8),
+    )
+    assert len(result.results) == 8
 
 
 # ---------------------------------------------------------------------------

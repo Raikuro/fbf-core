@@ -23,9 +23,11 @@ created and per-month timelines are never materialized or transferred.
 
 Enable with ``RUN_ERN_E2E=1``; the full 180-cell grid also needs
 ``RUN_ERN_E2E_FULL=1``.  The fast-path acceptance check needs
-``ERN_E2E_FAST_PATH=1``.  The default worker selection is ``--workers max``
-(every available logical CPU, resolved by the CLI itself); set
-``ERN_E2E_WORKERS=N`` for an exact override count.
+``ERN_E2E_FAST_PATH=1``; the reference-chained checks need
+``ERN_E2E_REFERENCE_CHAINED=1``.  The default worker selection when
+``ERN_E2E_WORKERS`` is unset is the conservative ``min(8, cpu_count)``;
+``ERN_E2E_WORKERS=N`` pins an exact override count and ``ERN_E2E_WORKERS=max``
+requests every available logical CPU.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ from .constants import (
     ANCHOR_CELLS,
     COHORTS_PER_CELL,
     DATA_DIR,
+    ERN_E2E_MAX_WORKERS,
     ERN_E2E_WORKERS_ENV,
     FULL_GRID_CELLS,
     FULL_GRID_UNITS,
@@ -81,12 +84,15 @@ TOLERANCE_PP = 1
 def _resolve_workers_arg() -> str:
     """The ``--workers`` value for a run.
 
-    Defaults to ``max`` so the CLI itself resolves the count to every available
-    logical CPU; ``ERN_E2E_WORKERS=N`` pins an exact count (capped to host CPUs).
+    ``ERN_E2E_WORKERS`` unset → the conservative default ``min(8, cpu_count)``;
+    ``ERN_E2E_WORKERS=N`` pins an exact count (capped to host CPUs);
+    ``ERN_E2E_WORKERS=max`` requests every available logical CPU.
     """
     value = os.environ.get(ERN_E2E_WORKERS_ENV, "").strip()
-    if value == "" or value.lower() == "max":
-        return "max"
+    if value == "":
+        return str(resolve_e2e_workers(value))
+    if value.lower() == ERN_E2E_MAX_WORKERS:
+        return ERN_E2E_MAX_WORKERS
     return str(resolve_e2e_workers(value))
 
 

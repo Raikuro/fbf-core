@@ -144,7 +144,8 @@ class ExecutionConfig:
     Fields
     ------
     max_workers:
-        Maximum number of worker processes/threads (None = os.cpu_count() or 1).
+        Maximum number of worker processes/threads (None = conservative
+        default: min(8, os.cpu_count())).
     timeout_seconds:
         Timeout in seconds for execution per task/batch.
     use_processes:
@@ -164,6 +165,23 @@ class ExecutionConfig:
     use_processes: bool = True
     chunk_size: int | None = None
     enable_progress: bool = True
+
+
+# Conservative cap for *implicit* worker selection: when no explicit
+# ``--workers`` / ``max_workers`` override is provided, never auto-scale to
+# every logical CPU.  Explicit overrides (``--workers N``, ``--workers max``,
+# ``ERN_E2E_WORKERS``) bypass this entirely.
+_DEFAULT_MAX_WORKERS = 8
+
+
+def default_max_workers() -> int:
+    """Return the conservative default worker count.
+
+    ``min(_DEFAULT_MAX_WORKERS, os.cpu_count() or 1)`` — hosts with 8 or fewer
+    logical CPUs get their full count; larger hosts are capped at 8.  Only used
+    when the caller provides no explicit worker override.
+    """
+    return min(_DEFAULT_MAX_WORKERS, os.cpu_count() or 1)
 
 
 def create_work_batches(
@@ -458,7 +476,7 @@ def parallel_execute(
 
     effective_workers = max_workers if max_workers is not None else config.max_workers
     if effective_workers is None or effective_workers <= 0:
-        effective_workers = os.cpu_count() or 1
+        effective_workers = default_max_workers()
 
     total_units = len(plan.units)
     if total_units == 0:
