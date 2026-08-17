@@ -8,7 +8,9 @@ behaviour:
 - the live ``ChainedFastPathSimulationExecutor`` report matches the plan-level
   ``expected_chaining_report`` oracle,
 - the CLI prints chaining and per-cell summaries for grid fast-path runs,
-- grid runs without ``--fast-path`` fall back to the reference path,
+- grid runs without any flag default to the chained Reference executor
+  (bit-exact with the independent Reference) and single-horizon plans degrade
+  to the independent Reference dispatch,
 - F7 validation sampling is stratified so every horizon is covered.
 """
 
@@ -38,6 +40,10 @@ from engine.domain.model.dataset import Dataset
 from engine.domain.model.market_snapshot import MarketSnapshot
 from engine.domain.model.money import Currency, Money
 from infrastructure.execution.parallel_executor import sequential_execute
+from infrastructure.execution.reference_chaining import (
+    execute_reference_chained,
+    expected_reference_chaining_report,
+)
 from research.domain.cohort.generator import CohortGenerator
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
@@ -48,6 +54,24 @@ EQ = AssetClass(id="equity", name="", description="")
 BD = AssetClass(id="bond", name="", description="")
 
 _WEALTH = Money(Decimal("1000000"), Currency.EUR)
+
+_SINGLE_HORIZON_YAML = """\
+metadata:
+  name: "Single Horizon Study"
+dataset:
+  identifier: "TEST_DATASET"
+cohorts:
+  window_years: 4
+allocation_policies:
+  - name: "Static 50/50"
+    type: "ConstantAllocationPolicy"
+    equity_ratio: 0.5
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: 0.04
+parameters:
+  equity_allocation: [0.5]
+"""
 
 
 def _synthetic_dataset(n_months: int = 240, seed: int = 7) -> Dataset:
@@ -217,14 +241,15 @@ parameters:
         assert "cell: horizon_years=3" in out
         assert "cell: horizon_years=4" in out
 
-    def test_grid_without_fast_path_has_no_chaining_summary(
+    def test_default_grid_uses_reference_chained_summary(
         self,
         tmp_path: Path,
         mock_dataset: None,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A grid run without --fast-path falls back to the reference path."""
+        """A grid run without any mode flag defaults to Reference Chained and
+        reports chaining coverage (bit-exact with the independent Reference)."""
         import infrastructure.execution.parallel_executor as pe
         from cli.main import main
 
@@ -236,10 +261,36 @@ parameters:
         out = capsys.readouterr().out
 
         assert rc == 0
+        assert "Reference Chained:" in out
+        assert "Chained Groups:" in out
+        assert "Longest Path:" in out
+        assert "Month-Work:" in out
+        assert "Per-Cell Results (grid):" in out
+
+    def test_default_single_horizon_plan_has_no_chaining_summary(
+        self,
+        tmp_path: Path,
+        mock_dataset: None,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A single-horizon plan without any mode flag stays on the independent
+        Reference dispatch and prints no chaining summary."""
+        import infrastructure.execution.parallel_executor as pe
+        from cli.main import main
+
+        monkeypatch.setattr(pe, "sequential_execute", _make_fake_executor_result)
+
+        study_file = tmp_path / "single.yaml"
+        study_file.write_text(_SINGLE_HORIZON_YAML, encoding="utf-8")
+        rc = main(["run", "--summary-only", "--no-persist", str(study_file)])
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "Reference Chained:" not in out
         assert "Chained Groups:" not in out
         assert "Longest Path:" not in out
         assert "Month-Work:" not in out
-        assert "Per-Cell Results (grid):" in out
 
 
 class TestGridPerCellByteLayout:
@@ -367,6 +418,31 @@ parameters:
         assert "Per-Cell Results (grid):" in out
         assert "cell: horizon_years=3" in out
         assert "cell: horizon_years=4" in out
+
+    def test_default_chained_equals_independent_reference(self) -> None:
+        """The new default (Reference Chained) reproduces the independent
+        Reference exactly on a representative multi-horizon grid.
+
+        This is the key contract for the promoted default: executing the plan
+        through ``execute_reference_chained`` (what a no-flag run dispatches
+        when ``derived_results > 0``) must equal ``sequential_execute`` with the
+        default executor (what ``--reference-independent`` runs), field for
+        field on every unit.
+        """
+        plan = build_grid_plan(_synthetic_dataset())
+        assert (
+            expected_reference_chaining_report(plan).derived_results > 0
+        ), "fixture must be chaining-eligible"
+        independent = sequential_execute(plan, summary_only=True).results
+        chained = execute_reference_chained(plan, max_workers=1, summary_only=True)
+        chained_results = chained.experiment_result.simulation_results
+
+        assert len(chained_results) == len(independent)
+        for ref, got in zip(independent, chained_results, strict=True):
+            assert ref.statistics.success == got.statistics.success
+            assert ref.statistics.failure_month == got.statistics.failure_month
+            assert ref.statistics.months_simulated == got.statistics.months_simulated
+            assert ref.statistics.final_wealth == got.statistics.final_wealth
 
     def test_reference_chained_and_fast_path_rejected_together(
         self,
