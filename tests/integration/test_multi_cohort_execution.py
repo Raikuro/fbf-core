@@ -30,7 +30,7 @@ from infrastructure.execution.parallel_executor import (
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.configuration import ParameterConfiguration
-from research.domain.plan import materialize_research_plan
+from research.domain.plan import ResearchPlan, materialize_research_plan
 from research.orchestration.executor import ResearchExecutor
 
 _ASSET = AssetClass(id="acwi", name="ACWI", description="Global equities")
@@ -92,6 +92,25 @@ def make_multi_cohort_experiment(horizon_months: int = 12) -> ExperimentDefiniti
 
 
 class TestMultiCohortExecution:
+    def _make_plan(
+        self,
+        exp: ExperimentDefinition,
+        param_configs: tuple[ParameterConfiguration, ...],
+        portfolio: Portfolio,
+    ) -> ResearchPlan:
+        return materialize_research_plan(
+            experiment_def=exp,
+            canonical_trajectory=exp.dataset,
+            cohorts=exp.cohorts,
+            param_configs=param_configs,
+            initial_portfolio=portfolio,
+            horizon_resolver=lambda c: exp.horizon_months,
+            policy_resolver=lambda c: (
+                exp.allocation_policies[0],
+                exp.withdrawal_policies[0],
+            ),
+        )
+
     def test_plan_materialization_assigns_cohort_datasets(self) -> None:
         exp = make_multi_cohort_experiment(horizon_months=12)
         param_configs = (
@@ -100,14 +119,7 @@ class TestMultiCohortExecution:
         )
         portfolio = Portfolio(holdings=(AssetHolding(asset_class=_ASSET, units=Decimal("1000")),))
 
-        plan = materialize_research_plan(
-            experiment_def=exp,
-            cohorts=exp.cohorts,
-            param_configs=param_configs,
-            alloc_policy=exp.allocation_policies[0],
-            withdrawal_policy=exp.withdrawal_policies[0],
-            initial_portfolio=portfolio,
-        )
+        plan = self._make_plan(exp, param_configs, portfolio)
 
         assert len(plan) == 6  # 3 cohorts * 2 param configs
 
@@ -131,16 +143,12 @@ class TestMultiCohortExecution:
 
     def test_sequential_multi_cohort_real_engine_execution(self) -> None:
         exp = make_multi_cohort_experiment(horizon_months=12)
-        param_configs = (ParameterConfiguration(values={"rate": 0.04}),)
         portfolio = Portfolio(holdings=(AssetHolding(asset_class=_ASSET, units=Decimal("1000")),))
 
-        plan = materialize_research_plan(
-            experiment_def=exp,
-            cohorts=exp.cohorts,
-            param_configs=param_configs,
-            alloc_policy=exp.allocation_policies[0],
-            withdrawal_policy=exp.withdrawal_policies[0],
-            initial_portfolio=portfolio,
+        plan = self._make_plan(
+            exp,
+            (ParameterConfiguration(values={"rate": 0.04}),),
+            portfolio,
         )
 
         sim_executor = _create_default_simulation_executor()
@@ -155,19 +163,15 @@ class TestMultiCohortExecution:
 
     def test_parallel_process_pool_multi_cohort_execution(self) -> None:
         exp = make_multi_cohort_experiment(horizon_months=12)
-        param_configs = (
-            ParameterConfiguration(values={"rate": 0.03}),
-            ParameterConfiguration(values={"rate": 0.04}),
-        )
         portfolio = Portfolio(holdings=(AssetHolding(asset_class=_ASSET, units=Decimal("1000")),))
 
-        plan = materialize_research_plan(
-            experiment_def=exp,
-            cohorts=exp.cohorts,
-            param_configs=param_configs,
-            alloc_policy=exp.allocation_policies[0],
-            withdrawal_policy=exp.withdrawal_policies[0],
-            initial_portfolio=portfolio,
+        plan = self._make_plan(
+            exp,
+            (
+                ParameterConfiguration(values={"rate": 0.03}),
+                ParameterConfiguration(values={"rate": 0.04}),
+            ),
+            portfolio,
         )
 
         sim_executor = _create_default_simulation_executor()

@@ -35,7 +35,7 @@ from research.domain.parameter.configuration import ParameterConfiguration
 from research.domain.plan import (
     PlannedSimulationUnit,
     ResearchPlan,
-    materialize_grid_research_plan,
+    materialize_research_plan,
 )
 from research.orchestration.result import ResearchExecutionResult
 
@@ -156,7 +156,7 @@ def _make_grid_plan(
             FixedRealWithdrawalPolicy(Decimal("0.04")),
         )
 
-    return materialize_grid_research_plan(
+    return materialize_research_plan(
         experiment_def=exp_def,
         canonical_trajectory=dataset,
         cohorts=cohorts,

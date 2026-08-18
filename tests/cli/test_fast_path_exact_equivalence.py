@@ -25,11 +25,7 @@ from typing import cast
 
 import pytest
 
-from cli.builders import (
-    ResolvedDatasetFamily,
-    build_grid_research_plan,
-    build_parameter_configs,
-)
+from cli.builders import build_initial_portfolio
 from cli.fast_path import (
     ChainedFastPathSimulationExecutor,
     FastPathSimulationExecutor,
@@ -46,7 +42,10 @@ from infrastructure.execution.parallel_executor import sequential_execute
 from infrastructure.execution.reference_chaining import ChainedReferenceSimulationExecutor
 from research.domain.cohort.generator import CohortGenerator
 from research.domain.experiment.definition import ExperimentDefinition
-from research.domain.plan import PlannedSimulationUnit, ResearchPlan
+from research.domain.parameter.axis import ParameterAxis
+from research.domain.parameter.configuration import ParameterConfiguration
+from research.domain.parameter.engine import ParameterSweepEngine
+from research.domain.plan import PlannedSimulationUnit, ResearchPlan, materialize_research_plan
 
 EQ = AssetClass(id="equity", name="", description="")
 BD = AssetClass(id="bond", name="", description="")
@@ -89,14 +88,13 @@ def build_grid_plan(
     rates: tuple[float, ...] = (0.04,),
 ) -> ResearchPlan:
     """Build a synthetic grid plan over *horizons* x *weights* x *rates*."""
-    family = ResolvedDatasetFamily(canonical=dataset, horizons={})
     cohorts = CohortGenerator.generate_rolling_monthly(dataset, max(horizons) * 12)
-    configs = build_parameter_configs(
-        {
-            "horizon_years": list(horizons),
-            "equity_allocation": list(weights),
-            "withdrawal_rate": list(rates),
-        }
+    configs = ParameterSweepEngine.cartesian_product(
+        [
+            ParameterAxis(name="horizon_years", values=tuple(horizons)),
+            ParameterAxis(name="equity_allocation", values=tuple(weights)),
+            ParameterAxis(name="withdrawal_rate", values=tuple(rates)),
+        ]
     )
     alloc = ConstantAllocationPolicy(Decimal("0.5"))
     withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
@@ -110,14 +108,32 @@ def build_grid_plan(
         allocation_policies=(alloc,),
         withdrawal_policies=(withdraw,),
     )
-    return build_grid_research_plan(
-        exp_def,
-        family,
-        cohorts,
-        configs,
-        alloc,
-        withdraw,
-        default_horizon_years=max(horizons),
+    _alloc_by_weight: dict[Decimal, ConstantAllocationPolicy] = {}
+    _withdraw_by_rate: dict[Decimal, FixedRealWithdrawalPolicy] = {}
+
+    def _resolve_policies(
+        config: ParameterConfiguration,
+    ) -> tuple[ConstantAllocationPolicy, FixedRealWithdrawalPolicy]:
+        weight = Decimal(str(config.get("equity_allocation")))
+        resolved_alloc = _alloc_by_weight.get(weight)
+        if resolved_alloc is None:
+            resolved_alloc = ConstantAllocationPolicy(equity_allocation=weight)
+            _alloc_by_weight[weight] = resolved_alloc
+        rate = Decimal(str(config.get("withdrawal_rate")))
+        resolved_withd = _withdraw_by_rate.get(rate)
+        if resolved_withd is None:
+            resolved_withd = FixedRealWithdrawalPolicy(withdrawal_rate=rate)
+            _withdraw_by_rate[rate] = resolved_withd
+        return resolved_alloc, resolved_withd
+
+    return materialize_research_plan(
+        experiment_def=exp_def,
+        canonical_trajectory=dataset,
+        cohorts=cohorts,
+        param_configs=configs,
+        initial_portfolio=build_initial_portfolio(_WEALTH),
+        horizon_resolver=lambda c: int(c.get("horizon_years")) * 12,
+        policy_resolver=_resolve_policies,
     )
 
 

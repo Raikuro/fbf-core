@@ -18,8 +18,6 @@ import pytest
 
 from cli.builders import (
     build_initial_portfolio,
-    build_parameter_configs,
-    build_research_plan,
 )
 from cli.fast_path import (
     FAST_PATH_VALIDATION_MAX_UNITS,
@@ -51,7 +49,8 @@ from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
 from infrastructure.execution.parallel_executor import sequential_execute
 from research.domain.cohort.generator import CohortGenerator
 from research.domain.experiment.definition import ExperimentDefinition
-from research.domain.plan import PlannedSimulationUnit, ResearchPlan
+from research.domain.parameter.configuration import ParameterConfiguration
+from research.domain.plan import PlannedSimulationUnit, ResearchPlan, materialize_research_plan
 
 EQ = AssetClass(id="equity", name="", description="")
 BD = AssetClass(id="bond", name="", description="")
@@ -99,8 +98,18 @@ def build_plan(dataset: Dataset, horizon: int, weight: float, rate: float) -> Re
         allocation_policies=(alloc,),
         withdrawal_policies=(withdraw,),
     )
-    param_configs = build_parameter_configs({"equity_allocation": [weight]})
-    return build_research_plan(experiment_def, cohorts, param_configs, alloc, withdraw)
+    param_configs = (
+        ParameterConfiguration({"equity_allocation": weight}),
+    )
+    return materialize_research_plan(
+        experiment_def=experiment_def,
+        canonical_trajectory=dataset,
+        cohorts=cohorts,
+        param_configs=param_configs,
+        initial_portfolio=build_initial_portfolio(experiment_def.initial_wealth),
+        horizon_resolver=lambda c: horizon,
+        policy_resolver=lambda c: (alloc, withdraw),
+    )
 
 
 def run_reference(plan: ResearchPlan) -> tuple[SimulationResult, ...]:

@@ -20,13 +20,15 @@ import random
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from cli.builders import (
-    ResolvedDatasetFamily,
-    build_grid_research_plan,
-    build_parameter_configs,
+    BuiltStudy,
+    StudyConfiguration,
+    build_initial_portfolio,
+    build_study_plan,
 )
 from cli.fast_path import (
     FAST_PATH_VALIDATION_MAX_UNITS,
@@ -44,10 +46,15 @@ from infrastructure.execution.reference_chaining import (
     execute_reference_chained,
     expected_reference_chaining_report,
 )
+from infrastructure.persistence.codecs import DefaultDatasetResolver
 from research.domain.cohort.generator import CohortGenerator
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
-from research.domain.plan import ResearchPlan
+from research.domain.parameter.axis import ParameterAxis
+from research.domain.parameter.configuration import ParameterConfiguration
+from research.domain.parameter.engine import ParameterSweepEngine
+from research.domain.parameter.types import ParameterScalar
+from research.domain.plan import ResearchPlan, materialize_research_plan
 from research.orchestration.result import ResearchExecutionResult
 
 EQ = AssetClass(id="equity", name="", description="")
@@ -62,10 +69,9 @@ dataset:
   identifier: "TEST_DATASET"
 cohorts:
   window_years: 4
-allocation_policies:
-  - name: "Static 50/50"
-    type: "ConstantAllocationPolicy"
-    equity_ratio: 0.5
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: 0.5
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
   withdrawal_rate: 0.04
@@ -97,16 +103,25 @@ def _synthetic_dataset(n_months: int = 240, seed: int = 7) -> Dataset:
     return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
 
 
+def _parameter_configs(
+    params_data: dict[str, list[ParameterScalar]],
+) -> tuple[ParameterConfiguration, ...]:
+    axes = [
+        ParameterAxis(name=name, values=tuple(values))
+        for name, values in params_data.items()
+    ]
+    return ParameterSweepEngine.cartesian_product(axes)
+
+
 def build_grid_plan(
     dataset: Dataset,
     horizons: tuple[int, ...] = (2, 3, 4),
     cohorts: tuple[CohortSpecification, ...] | None = None,
 ) -> ResearchPlan:
     """Build a synthetic grid plan: one cohort set, one per-horizon config."""
-    family = ResolvedDatasetFamily(canonical=dataset, horizons={})
     if cohorts is None:
         cohorts = CohortGenerator.generate_rolling_monthly(dataset, max(horizons) * 12)
-    configs = build_parameter_configs({"horizon_years": list(horizons)})
+    configs = _parameter_configs({"horizon_years": list(horizons)})
     alloc = ConstantAllocationPolicy(Decimal("0.5"))
     withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
     exp_def = ExperimentDefinition(
@@ -119,14 +134,14 @@ def build_grid_plan(
         allocation_policies=(alloc,),
         withdrawal_policies=(withdraw,),
     )
-    return build_grid_research_plan(
-        exp_def,
-        family,
-        cohorts,
-        configs,
-        alloc,
-        withdraw,
-        default_horizon_years=max(horizons),
+    return materialize_research_plan(
+        experiment_def=exp_def,
+        canonical_trajectory=dataset,
+        cohorts=cohorts,
+        param_configs=configs,
+        initial_portfolio=build_initial_portfolio(_WEALTH),
+        horizon_resolver=lambda c: int(c.get("horizon_years")) * 12,
+        policy_resolver=lambda c: (alloc, withdraw),
     )
 
 
@@ -198,10 +213,9 @@ dataset:
   identifier: "TEST_DATASET"
 cohorts:
   window_years: 4
-allocation_policies:
-  - name: "Static 50/50"
-    type: "ConstantAllocationPolicy"
-    equity_ratio: 0.5
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: 0.5
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
   withdrawal_rate: 0.04
@@ -308,10 +322,9 @@ dataset:
   identifier: "TEST_DATASET"
 cohorts:
   window_years: 4
-allocation_policies:
-  - name: "Static 50/50"
-    type: "ConstantAllocationPolicy"
-    equity_ratio: 0.5
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: 0.5
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
   withdrawal_rate: 0.04
@@ -370,10 +383,9 @@ dataset:
   identifier: "TEST_DATASET"
 cohorts:
   window_years: 4
-allocation_policies:
-  - name: "Static 50/50"
-    type: "ConstantAllocationPolicy"
-    equity_ratio: 0.5
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: 0.5
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
   withdrawal_rate: 0.04
@@ -479,10 +491,9 @@ dataset:
   identifier: "TEST_DATASET"
 cohorts:
   window_years: 4
-allocation_policies:
-  - name: "Static 50/50"
-    type: "ConstantAllocationPolicy"
-    equity_ratio: 0.5
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: 0.5
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
   withdrawal_rate: 0.04
@@ -586,3 +597,69 @@ def _make_fake_executor_result(plan: ResearchPlan, **kwargs: object) -> Research
         plan=plan,
         experiment_result=ExperimentRun(definition=engine_def, simulation_results=results),
     )
+
+
+class TestBasePolicyScalarPreservation:
+    """A declared base scalar must be the actual policy when not overridden.
+
+    ``build_study_plan`` substitutes the study defaults only when the scalar is
+    *absent*; a legitimate explicit ``0.0`` (100% bonds / 0% withdrawal) must
+    survive — it must not be replaced by the 0.75 / 0.04 defaults via falsiness.
+    """
+
+    @staticmethod
+    def _build(config_data: dict[str, object], monkeypatch: pytest.MonkeyPatch) -> BuiltStudy:
+        def mock_resolve(self: DefaultDatasetResolver, identifier: str) -> Dataset:
+            return _synthetic_dataset()
+
+        monkeypatch.setattr(DefaultDatasetResolver, "resolve", mock_resolve)
+        config = StudyConfiguration.from_yaml(config_data)
+        return build_study_plan(config, None, _WEALTH)
+
+    def test_zero_allocation_scalar_with_rate_axis(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        built = self._build(
+            {
+                "metadata": {"name": "zero-alloc"},
+                "dataset": {"identifier": "TEST_DATASET"},
+                "cohorts": {"window_years": 4},
+                "allocation_policy": {
+                    "type": "ConstantAllocationPolicy",
+                    "equity_allocation": 0.0,
+                },
+                "withdrawal_policy": {
+                    "type": "FixedRealWithdrawalPolicy",
+                    "withdrawal_rate": 0.04,
+                },
+                "parameters": {"withdrawal_rate": [0.03, 0.04]},
+            },
+            monkeypatch,
+        )
+        for unit in built.plan.units:
+            alloc = cast(ConstantAllocationPolicy, unit.allocation_policy)
+            assert alloc.equity_allocation == Decimal("0.0")
+
+    def test_zero_withdrawal_scalar_with_equity_axis(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        built = self._build(
+            {
+                "metadata": {"name": "zero-withdraw"},
+                "dataset": {"identifier": "TEST_DATASET"},
+                "cohorts": {"window_years": 4},
+                "allocation_policy": {
+                    "type": "ConstantAllocationPolicy",
+                    "equity_allocation": 0.5,
+                },
+                "withdrawal_policy": {
+                    "type": "FixedRealWithdrawalPolicy",
+                    "withdrawal_rate": 0.0,
+                },
+                "parameters": {"equity_allocation": [0.5, 0.8]},
+            },
+            monkeypatch,
+        )
+        for unit in built.plan.units:
+            withdraw = cast(FixedRealWithdrawalPolicy, unit.withdrawal_policy)
+            assert withdraw.withdrawal_rate == Decimal("0.0")

@@ -104,15 +104,17 @@ def success_rate(P: list[float], pre: list[float], T: int, x: float) -> int:
 
 def build_oracle_table(
     csv_path: Path,
-) -> list[list]:
+) -> list[list[object]]:
     r_eq, r_bd = load_real_returns(csv_path)
     eq, bd = build_extended(r_eq, r_bd)
-    rows = [["equity_weight", "horizon_years"] + [f"{r:g}" for r in RATES]]
+    rows: list[list[object]] = [
+        ["equity_weight", "horizon_years", *[f"{r:g}" for r in RATES]]
+    ]
     for w in WEIGHTS:
         P, pre = prefix_tables(eq, bd, w)
         for h in (30, 40, 50, 60):
             vals = [success_rate(P, pre, HORIZONS[h], x) for x in RATES]
-            rows.append([w, h] + vals)
+            rows.append([w, h, *vals])
     return rows
 
 

@@ -21,7 +21,7 @@ class ConstantAllocationPolicy(AllocationPolicy):
     """Fixed equity/bond split allocation policy.
 
     YAML type: "ConstantAllocationPolicy"
-    YAML params: equity_ratio (Decimal, 0.0-1.0)
+    YAML params: equity_allocation (Decimal, 0.0-1.0)
 
     The attribute name ``equity_allocation`` matches the key expected by
     ``AllocationPolicyCodec.dump()`` (see ``codecs.py`` line 103), enabling
@@ -46,7 +46,7 @@ class ConstantAllocationPolicy(AllocationPolicy):
 class ConstantWithdrawalPolicy(WithdrawalPolicy):
     """Fixed-rate withdrawal policy.
 
-    YAML type: "ConstantInflationAdjustedWithdrawalPolicy"
+    YAML type: "ConstantWithdrawalPolicy"
     YAML params: withdrawal_rate (Decimal, 0.0-1.0 annual)
 
     Withdrawal = portfolio_value * withdrawal_rate / 12 (monthly).

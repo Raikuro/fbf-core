@@ -22,10 +22,7 @@ from decimal import Decimal
 
 import pytest
 
-from cli.builders import (
-    build_parameter_configs,
-    build_research_plan,
-)
+from cli.builders import build_initial_portfolio
 from cli.policies import ConstantAllocationPolicy, ConstantWithdrawalPolicy
 from engine.domain.model.asset import AssetClass
 from engine.domain.model.dataset import Dataset
@@ -34,7 +31,8 @@ from engine.domain.model.money import Money
 from infrastructure.execution.parallel_executor import parallel_execute, sequential_execute
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
-from research.domain.plan import ResearchPlan
+from research.domain.parameter.configuration import ParameterConfiguration
+from research.domain.plan import ResearchPlan, materialize_research_plan
 
 
 def _loader_asset(asset_id: str) -> AssetClass:
@@ -86,10 +84,19 @@ def _build_plan(horizon_months: int = 12, param_sweep: int = 1) -> tuple[Dataset
         allocation_policies=(alloc,),
         withdrawal_policies=(withdraw,),
     )
-    param_configs = build_parameter_configs(
-        {"withdrawal_rate": [0.03 + i * 0.005 for i in range(param_sweep)]}
+    param_configs = (
+        ParameterConfiguration({"withdrawal_rate": 0.03 + i * 0.005})
+        for i in range(param_sweep)
     )
-    plan = build_research_plan(experiment, experiment.cohorts, param_configs, alloc, withdraw)
+    plan = materialize_research_plan(
+        experiment_def=experiment,
+        canonical_trajectory=dataset,
+        cohorts=experiment.cohorts,
+        param_configs=tuple(param_configs),
+        initial_portfolio=build_initial_portfolio(experiment.initial_wealth),
+        horizon_resolver=lambda c: horizon_months,
+        policy_resolver=lambda c: (alloc, withdraw),
+    )
     return dataset, plan
 
 

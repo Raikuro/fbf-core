@@ -27,7 +27,7 @@ from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.configuration import ParameterConfiguration
 from research.domain.parameter.types import ParameterScalar
-from research.domain.plan import PlannedSimulationUnit, ResearchPlan, materialize_research_plan
+from research.domain.plan import PlannedSimulationUnit, ResearchPlan
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -438,60 +438,6 @@ class TestResearchPlanSequenceProtocol:
 
 
 # ---------------------------------------------------------------------------
-# materialize_research_plan tests
-# ---------------------------------------------------------------------------
-
-
-class TestMaterializeResearchPlan:
-    def test_units_carry_experiment_horizon_months(self) -> None:
-        asset = AssetClass(id="acwi", name="ACWI", description="Global equities")
-        snapshots = [
-            MarketSnapshot(
-                date=date(1999 + (month - 1) // 12, (month - 1) % 12 + 1, 1),
-                index_levels={asset: Decimal("100.00")},
-                inflation=Decimal("0.00"),
-                inflation_cumulative=Decimal("0.00"),
-                is_ath=True,
-                is_underwater=False,
-                running_ath=Decimal("100.00"),
-            )
-            for month in range(1, 37)
-        ]
-        dataset = Dataset(snapshots=snapshots, frequency="monthly", version="test-v1")
-        experiment_def = ExperimentDefinition(
-            name="test-experiment",
-            description="A test experiment definition",
-            dataset=dataset,
-            horizon_months=12,
-            initial_wealth=Money(Decimal("100000"), Currency.EUR),
-            cohorts=(
-                CohortSpecification(start_date=date(2000, 1, 1)),
-                CohortSpecification(start_date=date(2001, 1, 1)),
-            ),
-            allocation_policies=(StubAllocationPolicy(),),
-            withdrawal_policies=(StubWithdrawalPolicy(),),
-        )
-        cohorts = (
-            CohortSpecification(start_date=date(2000, 1, 1)),
-            CohortSpecification(start_date=date(2001, 1, 1)),
-        )
-        configs = (
-            make_param_config(withdrawal_rate=0.03),
-            make_param_config(withdrawal_rate=0.05),
-        )
-        plan = materialize_research_plan(
-            experiment_def=experiment_def,
-            cohorts=cohorts,
-            param_configs=configs,
-            alloc_policy=StubAllocationPolicy(),
-            withdrawal_policy=StubWithdrawalPolicy(),
-            initial_portfolio=make_portfolio(),
-        )
-
-        assert len(plan) == 4
-        assert all(unit.horizon_months == 12 for unit in plan)
-
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

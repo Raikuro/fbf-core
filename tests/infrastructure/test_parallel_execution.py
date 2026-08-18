@@ -17,7 +17,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from cli.builders import build_parameter_configs, build_research_plan
+from cli.builders import build_initial_portfolio
 from cli.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from engine.application.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
@@ -47,8 +47,14 @@ from infrastructure.execution.parallel_executor import (
 from research.domain.cohort.generator import CohortGenerator
 from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
+from research.domain.parameter.axis import ParameterAxis
 from research.domain.parameter.configuration import ParameterConfiguration
-from research.domain.plan import PlannedSimulationUnit, ResearchPlan
+from research.domain.parameter.engine import ParameterSweepEngine
+from research.domain.plan import (
+    PlannedSimulationUnit,
+    ResearchPlan,
+    materialize_research_plan,
+)
 
 # ---------------------------------------------------------------------------
 # Test doubles & helpers
@@ -316,8 +322,11 @@ def _make_real_engine_plan() -> ResearchPlan:
     cohorts = CohortGenerator.generate_rolling_monthly(dataset, 36)
     alloc = ConstantAllocationPolicy(Decimal("0.6"))
     withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
-    configs = build_parameter_configs(
-        {"equity_allocation": [0.6, 0.4], "withdrawal_rate": [0.03, 0.04]}
+    configs = ParameterSweepEngine.cartesian_product(
+        [
+            ParameterAxis(name="equity_allocation", values=(0.6, 0.4)),
+            ParameterAxis(name="withdrawal_rate", values=(0.03, 0.04)),
+        ]
     )
     exp_def = ExperimentDefinition(
         name="real-determinism",
@@ -329,7 +338,15 @@ def _make_real_engine_plan() -> ResearchPlan:
         allocation_policies=(alloc,),
         withdrawal_policies=(withdraw,),
     )
-    return build_research_plan(exp_def, cohorts, configs, alloc, withdraw)
+    return materialize_research_plan(
+        experiment_def=exp_def,
+        canonical_trajectory=dataset,
+        cohorts=cohorts,
+        param_configs=configs,
+        initial_portfolio=build_initial_portfolio(exp_def.initial_wealth),
+        horizon_resolver=lambda c: 36,
+        policy_resolver=lambda c: (alloc, withdraw),
+    )
 
 
 def test_real_engine_parallel_matches_sequential() -> None:

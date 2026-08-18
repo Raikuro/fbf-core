@@ -19,13 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import yaml
 
-from cli.builders import (
-    build_cohort_specs,
-    build_dataset_family,
-    build_grid_research_plan,
-    build_parameter_configs,
-)
-from cli.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
+from cli.builders import StudyConfiguration, build_study_plan
 from engine.domain.model.money import Currency, Money
 from infrastructure.execution.parallel_executor import (
     _execute_batch_on_shared_state,
@@ -34,7 +28,6 @@ from infrastructure.execution.parallel_executor import (
 from infrastructure.execution.reference_chaining import (
     ChainedReferenceSimulationExecutor,
 )
-from research.domain.experiment.definition import ExperimentDefinition
 
 DATA_DIR = Path("data/ern")
 STUDY = Path("examples/studies/ern_grid.yaml")
@@ -47,31 +40,10 @@ def peak_mib() -> float:
 def main() -> int:
     t0 = time.perf_counter()
     data = yaml.safe_load(STUDY.read_text())
-    family = build_dataset_family(data["datasets"], DATA_DIR)
-    longest_horizon_years = max(family.horizons)
-    cohorts = build_cohort_specs(family.canonical, longest_horizon_years * 12)
-    configs = build_parameter_configs(data["parameters"])
-    alloc = ConstantAllocationPolicy(Decimal("0.5"))
-    withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
-    exp_def = ExperimentDefinition(
-        name=data["metadata"]["name"],
-        description=data["metadata"]["description"],
-        dataset=family.canonical,
-        horizon_months=longest_horizon_years * 12,
-        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-        cohorts=cohorts,
-        allocation_policies=(alloc,),
-        withdrawal_policies=(withdraw,),
-    )
-    plan = build_grid_research_plan(
-        exp_def,
-        family,
-        cohorts,
-        configs,
-        alloc,
-        withdraw,
-        default_horizon_years=longest_horizon_years,
-    )
+    config = StudyConfiguration.from_yaml(data)
+    built = build_study_plan(config, str(DATA_DIR), Money(Decimal("1000000"), Currency.EUR))
+    plan = built.plan
+    exp_def = built.experiment_definition
     t1 = time.perf_counter()
     print(f"plan built in {t1 - t0:.1f}s; units={len(plan.units):,}", flush=True)
     print(f"peak RSS after plan build: {peak_mib():.1f} MiB", flush=True)

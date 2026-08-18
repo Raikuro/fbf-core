@@ -77,9 +77,11 @@ def _contexts(dataset: Dataset, start: date, horizons: list[int]) -> list[Simula
 def test_fast_path_vs_reference_throughput() -> None:
     """Float closed form is orders of magnitude faster and outcome-equivalent."""
     dataset = _synthetic_dataset(260)
-    from cli.builders import build_parameter_configs, build_research_plan
+    from cli.builders import build_initial_portfolio
     from research.domain.cohort.generator import CohortGenerator
     from research.domain.experiment.definition import ExperimentDefinition
+    from research.domain.parameter.configuration import ParameterConfiguration
+    from research.domain.plan import materialize_research_plan
 
     cohorts = CohortGenerator.generate_rolling_monthly(dataset, 120)
     alloc = ConstantAllocationPolicy(Decimal("0.5"))
@@ -94,12 +96,14 @@ def test_fast_path_vs_reference_throughput() -> None:
         allocation_policies=(alloc,),
         withdrawal_policies=(withdraw,),
     )
-    plan = build_research_plan(
-        experiment_def,
-        cohorts,
-        build_parameter_configs({"equity_allocation": [0.5]}),
-        alloc,
-        withdraw,
+    plan = materialize_research_plan(
+        experiment_def=experiment_def,
+        canonical_trajectory=dataset,
+        cohorts=cohorts,
+        param_configs=(ParameterConfiguration({"equity_allocation": 0.5}),),
+        initial_portfolio=build_initial_portfolio(experiment_def.initial_wealth),
+        horizon_resolver=lambda c: 120,
+        policy_resolver=lambda c: (alloc, withdraw),
     )
 
     t0 = time.perf_counter()
@@ -158,25 +162,24 @@ def test_chained_vs_non_chained() -> None:
 
 def test_grid_plan_chaining_report() -> None:
     """A full synthetic grid's month-work is cut exactly by the family factor."""
-    from cli.builders import (
-        ResolvedDatasetFamily,
-        build_grid_research_plan,
-        build_parameter_configs,
-    )
+    from cli.builders import build_initial_portfolio
     from cli.fast_path import expected_chaining_report, reference_month_work
     from research.domain.cohort.generator import CohortGenerator
     from research.domain.experiment.definition import ExperimentDefinition
+    from research.domain.parameter.axis import ParameterAxis
+    from research.domain.parameter.configuration import ParameterConfiguration
+    from research.domain.parameter.engine import ParameterSweepEngine
+    from research.domain.plan import materialize_research_plan
 
     dataset = _synthetic_dataset(780)
     horizons = (30, 40, 50, 60)
-    family = ResolvedDatasetFamily(canonical=dataset, horizons={})
     cohorts = CohortGenerator.generate_rolling_monthly(dataset, max(horizons) * 12)
-    configs = build_parameter_configs(
-        {
-            "equity_allocation": [1.0, 0.75, 0.5, 0.25, 0.0],
-            "withdrawal_rate": [0.03, 0.035, 0.04, 0.045, 0.05],
-            "horizon_years": list(horizons),
-        }
+    configs = ParameterSweepEngine.cartesian_product(
+        [
+            ParameterAxis(name="equity_allocation", values=(1.0, 0.75, 0.5, 0.25, 0.0)),
+            ParameterAxis(name="withdrawal_rate", values=(0.03, 0.035, 0.04, 0.045, 0.05)),
+            ParameterAxis(name="horizon_years", values=horizons),
+        ]
     )
     alloc = ConstantAllocationPolicy(Decimal("0.75"))
     withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
@@ -190,8 +193,32 @@ def test_grid_plan_chaining_report() -> None:
         allocation_policies=(alloc,),
         withdrawal_policies=(withdraw,),
     )
-    plan = build_grid_research_plan(
-        exp_def, family, cohorts, configs, alloc, withdraw, default_horizon_years=max(horizons)
+    _alloc_by_weight: dict[Decimal, ConstantAllocationPolicy] = {}
+    _withdraw_by_rate: dict[Decimal, FixedRealWithdrawalPolicy] = {}
+
+    def _resolve_policies(
+        config: ParameterConfiguration,
+    ) -> tuple[ConstantAllocationPolicy, FixedRealWithdrawalPolicy]:
+        weight = Decimal(str(config.get("equity_allocation")))
+        resolved_alloc = _alloc_by_weight.get(weight)
+        if resolved_alloc is None:
+            resolved_alloc = ConstantAllocationPolicy(equity_allocation=weight)
+            _alloc_by_weight[weight] = resolved_alloc
+        rate = Decimal(str(config.get("withdrawal_rate")))
+        resolved_withd = _withdraw_by_rate.get(rate)
+        if resolved_withd is None:
+            resolved_withd = FixedRealWithdrawalPolicy(withdrawal_rate=rate)
+            _withdraw_by_rate[rate] = resolved_withd
+        return resolved_alloc, resolved_withd
+
+    plan = materialize_research_plan(
+        experiment_def=exp_def,
+        canonical_trajectory=dataset,
+        cohorts=cohorts,
+        param_configs=configs,
+        initial_portfolio=build_initial_portfolio(exp_def.initial_wealth),
+        horizon_resolver=lambda c: int(c.get("horizon_years")) * 12,
+        policy_resolver=_resolve_policies,
     )
 
     report = expected_chaining_report(plan)

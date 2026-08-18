@@ -26,59 +26,46 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
 
 import yaml
 
-from cli.builders import (
-    build_cohort_specs,
-    build_dataset_family,
-    build_grid_research_plan,
-    build_parameter_configs,
-)
-from cli.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
+from cli.builders import StudyConfiguration, build_study_plan
+from engine.application.simulation import SimulationResult
 from engine.domain.model.money import Currency, Money
 from infrastructure.execution.parallel_executor import parallel_execute
 from infrastructure.execution.reference_chaining import (
     ChainedReferenceSimulationExecutor,
 )
-from research.domain.experiment.definition import ExperimentDefinition
+from research.domain.cohort.specification import CohortSpecification
+from research.domain.plan import ResearchPlan
 
 DATA_DIR = Path("data/ern")
 STUDY = Path("examples/studies/ern_grid.yaml")
 
 
-def _cohort_plan(data: dict, cohorts: list, configs: list, alloc, withdraw):
-    family = build_dataset_family(data["datasets"], DATA_DIR)
-    longest_horizon_years = max(family.horizons)
-    exp_def = ExperimentDefinition(
-        name=data["metadata"]["name"],
-        description=data["metadata"]["description"],
-        dataset=family.canonical,
-        horizon_months=longest_horizon_years * 12,
-        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-        cohorts=cohorts,
-        allocation_policies=(alloc,),
-        withdrawal_policies=(withdraw,),
-    )
-    return build_grid_research_plan(
-        exp_def,
-        family,
-        cohorts,
-        configs,
-        alloc,
-        withdraw,
-        default_horizon_years=longest_horizon_years,
-    )
+def _cohort_plan(cohorts: tuple[CohortSpecification, ...]) -> ResearchPlan:
+    data = yaml.safe_load(STUDY.read_text())
+    config = StudyConfiguration.from_yaml(data)
+    built = build_study_plan(config, str(DATA_DIR), Money(Decimal("1000000"), Currency.EUR))
+    keep = {c.start_date for c in cohorts}
+    units = tuple(u for u in built.plan.units if u.cohort.start_date in keep)
+    return ResearchPlan(experiment_definition=built.plan.experiment_definition, units=units)
 
 
-def _slices(cohorts: list, size: int):
+def _slices(
+    cohorts: tuple[CohortSpecification, ...], size: int
+) -> Iterator[tuple[CohortSpecification, ...]]:
     for i in range(0, len(cohorts), size):
         yield cohorts[i : i + size]
 
 
-def compare_slice(ref_results, chain_results, total: int) -> list[str]:
+def compare_slice(
+    ref_results: tuple[SimulationResult, ...],
+    chain_results: tuple[SimulationResult, ...],
+) -> list[str]:
     mismatches: list[str] = []
     for i, (a, b) in enumerate(zip(ref_results, chain_results, strict=True)):
         as_, bs = a.statistics, b.statistics
@@ -107,12 +94,9 @@ def main() -> int:
     args = parser.parse_args()
 
     data = yaml.safe_load(STUDY.read_text())
-    family = build_dataset_family(data["datasets"], DATA_DIR)
-    longest_horizon_years = max(family.horizons)
-    cohorts = build_cohort_specs(family.canonical, longest_horizon_years * 12)
-    configs = build_parameter_configs(data["parameters"])
-    alloc = ConstantAllocationPolicy(Decimal("0.5"))
-    withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
+    config = StudyConfiguration.from_yaml(data)
+    built = build_study_plan(config, str(DATA_DIR), Money(Decimal("1000000"), Currency.EUR))
+    cohorts = built.cohorts
 
     chained_ex = ChainedReferenceSimulationExecutor()
 
@@ -125,7 +109,7 @@ def main() -> int:
           f"(slice={args.slice_cohorts}, workers={args.workers})", flush=True)
 
     for si, slice_cohorts in enumerate(slices, start=1):
-        plan = _cohort_plan(data, list(slice_cohorts), configs, alloc, withdraw)
+        plan = _cohort_plan(tuple(slice_cohorts))
         n = len(plan.units)
         print(f"[slice {si}/{len(slices)}] {n:,} units...", flush=True)
 
@@ -145,7 +129,7 @@ def main() -> int:
         chain_elapsed = t1 - t0
         chain_times.append(chain_elapsed)
 
-        mismatches = compare_slice(ref_res.results, chain_res.results, 0)
+        mismatches = compare_slice(ref_res.results, chain_res.results)
         total_mismatch += len(mismatches)
         total_units += n
         print(f"   ref {ref_elapsed:.1f}s / chain {chain_elapsed:.1f}s"

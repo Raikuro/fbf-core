@@ -344,7 +344,7 @@ def _slice_plan_units(
     """Split ``plan.units`` into cohort-aligned slices preserving plan order.
 
     Relies on the plan being cohort-major ordered (as produced by
-    ``materialize_grid_research_plan`` and ``materialize_research_plan``), so
+    ``materialize_research_plan``), so
     consecutive units sharing a ``start_date`` form one cohort group.
     """
     if slice_cohorts <= 0:

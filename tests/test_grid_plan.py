@@ -1,8 +1,7 @@
-"""Unit tests for grid plan materialization in ``research/domain/plan.py``.
+"""Unit tests for plan materialization in ``research/domain/plan.py``.
 
 Covers:
-- ``datasets_are_prefix_consistent`` value-based prefix checks
-- ``materialize_grid_research_plan`` per-unit horizons, per-parameter policies,
+- ``materialize_research_plan`` per-unit horizons, per-parameter policies,
   canonical-trajectory prefix slices, and shared slice identity
 """
 
@@ -28,8 +27,7 @@ from research.domain.cohort.specification import CohortSpecification
 from research.domain.experiment.definition import ExperimentDefinition
 from research.domain.parameter.configuration import ParameterConfiguration
 from research.domain.plan import (
-    datasets_are_prefix_consistent,
-    materialize_grid_research_plan,
+    materialize_research_plan,
 )
 
 # ---------------------------------------------------------------------------
@@ -144,49 +142,11 @@ def _policy_resolver(
 
 
 # ---------------------------------------------------------------------------
-# datasets_are_prefix_consistent tests
+# materialize_research_plan tests
 # ---------------------------------------------------------------------------
 
 
-class TestDatasetsArePrefixConsistent:
-    def test_returns_true_when_shorter_is_exact_prefix(self) -> None:
-        canonical = _make_dataset(60)
-        shorter = _make_dataset(36)
-
-        assert datasets_are_prefix_consistent(canonical, shorter)
-
-    def test_returns_false_when_snapshot_value_differs(self) -> None:
-        canonical = _make_dataset(60)
-        shorter_snapshots = list(_make_dataset(36).snapshots)
-        mutated = shorter_snapshots[10]
-        shorter_snapshots[10] = MarketSnapshot(
-            date=mutated.date,
-            index_levels={_make_asset(): Decimal("99.00")},
-            inflation=mutated.inflation,
-            inflation_cumulative=mutated.inflation_cumulative,
-            is_ath=mutated.is_ath,
-            is_underwater=mutated.is_underwater,
-            running_ath=mutated.running_ath,
-        )
-        shorter = Dataset(
-            snapshots=tuple(shorter_snapshots), frequency="monthly", version="1.0"
-        )
-
-        assert not datasets_are_prefix_consistent(canonical, shorter)
-
-    def test_returns_false_when_shorter_is_longer_than_canonical(self) -> None:
-        canonical = _make_dataset(36)
-        longer = _make_dataset(60)
-
-        assert not datasets_are_prefix_consistent(canonical, longer)
-
-
-# ---------------------------------------------------------------------------
-# materialize_grid_research_plan tests
-# ---------------------------------------------------------------------------
-
-
-class TestMaterializeGridResearchPlan:
+class TestMaterializeResearchPlan:
     def test_horizon_axis_produces_correct_per_unit_horizons(self) -> None:
         canonical = _make_dataset(60)
         cohorts = CohortGenerator.generate_rolling_monthly(canonical, 48)
@@ -199,7 +159,7 @@ class TestMaterializeGridResearchPlan:
         literal_alloc = StubAllocationPolicy(Decimal("0.75"))
         literal_withd = StubWithdrawalPolicy(Decimal("0.04"))
 
-        plan = materialize_grid_research_plan(
+        plan = materialize_research_plan(
             experiment_def=exp_def,
             canonical_trajectory=canonical,
             cohorts=cohorts,
@@ -231,7 +191,7 @@ class TestMaterializeGridResearchPlan:
         literal_alloc = StubAllocationPolicy(Decimal("0.75"))
         literal_withd = StubWithdrawalPolicy(Decimal("0.04"))
 
-        plan = materialize_grid_research_plan(
+        plan = materialize_research_plan(
             experiment_def=exp_def,
             canonical_trajectory=canonical,
             cohorts=cohorts,
@@ -262,7 +222,7 @@ class TestMaterializeGridResearchPlan:
         literal_alloc = StubAllocationPolicy(Decimal("0.75"))
         literal_withd = StubWithdrawalPolicy(Decimal("0.04"))
 
-        plan = materialize_grid_research_plan(
+        plan = materialize_research_plan(
             experiment_def=exp_def,
             canonical_trajectory=canonical,
             cohorts=cohorts,
@@ -282,7 +242,7 @@ class TestMaterializeGridResearchPlan:
         literal_alloc = StubAllocationPolicy(Decimal("0.60"))
         literal_withd = StubWithdrawalPolicy(Decimal("0.06"))
 
-        plan = materialize_grid_research_plan(
+        plan = materialize_research_plan(
             experiment_def=exp_def,
             canonical_trajectory=canonical,
             cohorts=cohorts,
@@ -308,7 +268,7 @@ class TestMaterializeGridResearchPlan:
         literal_alloc = StubAllocationPolicy(Decimal("0.75"))
         literal_withd = StubWithdrawalPolicy(Decimal("0.04"))
 
-        plan = materialize_grid_research_plan(
+        plan = materialize_research_plan(
             experiment_def=exp_def,
             canonical_trajectory=canonical,
             cohorts=cohorts,
@@ -333,7 +293,7 @@ class TestMaterializeGridResearchPlan:
         literal_alloc = StubAllocationPolicy(Decimal("0.75"))
         literal_withd = StubWithdrawalPolicy(Decimal("0.04"))
 
-        plan = materialize_grid_research_plan(
+        plan = materialize_research_plan(
             experiment_def=exp_def,
             canonical_trajectory=canonical,
             cohorts=cohorts,
@@ -356,7 +316,7 @@ class TestMaterializeGridResearchPlan:
         literal_alloc = StubAllocationPolicy(Decimal("0.75"))
         literal_withd = StubWithdrawalPolicy(Decimal("0.04"))
 
-        plan = materialize_grid_research_plan(
+        plan = materialize_research_plan(
             experiment_def=exp_def,
             canonical_trajectory=canonical,
             cohorts=cohorts,
@@ -379,7 +339,7 @@ class TestMaterializeGridResearchPlan:
         literal_withd = StubWithdrawalPolicy(Decimal("0.04"))
 
         with pytest.raises(ValueError, match="Insufficient dataset history"):
-            materialize_grid_research_plan(
+            materialize_research_plan(
                 experiment_def=exp_def,
                 canonical_trajectory=canonical,
                 cohorts=cohorts,

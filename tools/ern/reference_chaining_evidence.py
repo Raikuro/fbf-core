@@ -28,14 +28,8 @@ from pathlib import Path
 
 import yaml
 
-from cli.builders import (
-    build_cohort_specs,
-    build_dataset_family,
-    build_grid_research_plan,
-    build_parameter_configs,
-)
+from cli.builders import StudyConfiguration, build_study_plan
 from cli.fast_path import ChainedFastPathSimulationExecutor, FastPathSimulationExecutor
-from cli.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from engine.application.executor import SimulationExecutor
 from engine.application.simulation import SimulationResult
 from engine.domain.model.money import Currency, Money
@@ -46,46 +40,27 @@ from infrastructure.execution.parallel_executor import (
 from infrastructure.execution.reference_chaining import (
     ChainedReferenceSimulationExecutor,
 )
-from research.domain.experiment.definition import ExperimentDefinition
+from research.domain.plan import ResearchPlan
+from research.orchestration.result import ResearchExecutionResult
 
 DATA_DIR = Path("data/ern")
 STUDY = Path("examples/studies/ern_grid.yaml")
 
 
-def build_plan(subset_cohorts: int | None):
+def build_plan(subset_cohorts: int | None) -> ResearchPlan:
     data = yaml.safe_load(STUDY.read_text())
-    family = build_dataset_family(data["datasets"], DATA_DIR)
-    canonical = family.canonical
-    longest_horizon_years = max(family.horizons)
-    cohorts = build_cohort_specs(canonical, longest_horizon_years * 12)
-    if subset_cohorts is not None:
-        cohorts = cohorts[:subset_cohorts]
-    configs = build_parameter_configs(data["parameters"])
-    alloc = ConstantAllocationPolicy(Decimal("0.5"))
-    withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
-    exp_def = ExperimentDefinition(
-        name=data["metadata"]["name"],
-        description=data["metadata"]["description"],
-        dataset=canonical,
-        horizon_months=longest_horizon_years * 12,
-        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-        cohorts=cohorts,
-        allocation_policies=(alloc,),
-        withdrawal_policies=(withdraw,),
-    )
-    plan = build_grid_research_plan(
-        exp_def,
-        family,
-        cohorts,
-        configs,
-        alloc,
-        withdraw,
-        default_horizon_years=longest_horizon_years,
-    )
-    return plan
+    config = StudyConfiguration.from_yaml(data)
+    built = build_study_plan(config, str(DATA_DIR), Money(Decimal("1000000"), Currency.EUR))
+    if subset_cohorts is None:
+        return built.plan
+    keep = {c.start_date for c in built.cohorts[:subset_cohorts]}
+    units = tuple(u for u in built.plan.units if u.cohort.start_date in keep)
+    return ResearchPlan(experiment_definition=built.plan.experiment_definition, units=units)
 
 
-def run_parallel(plan, executor: SimulationExecutor, workers: int):
+def run_parallel(
+    plan: ResearchPlan, executor: SimulationExecutor, workers: int
+) -> tuple[ResearchExecutionResult, float]:
     start = time.perf_counter()
     result = parallel_execute(
         plan,
@@ -140,7 +115,7 @@ def main() -> int:
     plan = build_plan(args.subset)
     workers = args.workers or min(16, len(plan.units))
     n_units = len(plan.units)
-    month_work_ref = sum(u.horizon_months for u in plan.units)
+    month_work_ref = sum(u.horizon_months or 0 for u in plan.units)
     print(f"plan units: {n_units:,}")
     print(f"reference month-work (independent): {month_work_ref:,}")
     print(f"workers: {workers}")

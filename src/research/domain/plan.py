@@ -156,55 +156,6 @@ class ResearchPlan:
 
 def materialize_research_plan(
     experiment_def: ExperimentDefinition,
-    cohorts: tuple[CohortSpecification, ...],
-    param_configs: tuple[ParameterConfiguration, ...],
-    alloc_policy: AllocationPolicy,
-    withdrawal_policy: WithdrawalPolicy,
-    initial_portfolio: Portfolio,
-) -> ResearchPlan:
-    """Build a ResearchPlan with cohort-sliced Dataset objects.
-
-    Uses a local cache keyed by cohort start date to ensure each cohort's dataset
-    is sliced exactly once, and all parameter sweep units for the same cohort share
-    the exact same sliced Dataset instance.
-    """
-    dataset_cache: dict[date, Dataset] = {}
-    units: list[PlannedSimulationUnit] = []
-    for cohort in cohorts:
-        if cohort.start_date not in dataset_cache:
-            dataset_cache[cohort.start_date] = experiment_def.dataset.slice(
-                cohort.start_date, experiment_def.horizon_months
-            )
-        sliced_dataset = dataset_cache[cohort.start_date]
-        for param_config in param_configs:
-            units.append(
-                PlannedSimulationUnit(
-                    cohort=cohort,
-                    parameter_config=param_config,
-                    allocation_policy=alloc_policy,
-                    withdrawal_policy=withdrawal_policy,
-                    initial_portfolio=initial_portfolio,
-                    dataset=sliced_dataset,
-                    horizon_months=experiment_def.horizon_months,
-                )
-            )
-    return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))
-
-
-def datasets_are_prefix_consistent(canonical: Dataset, shorter: Dataset) -> bool:
-    """Return True if *shorter* is a value-identical prefix of *canonical*.
-
-    Compares the snapshot sequences value-wise (dates, index levels, inflation
-    and running indicators). A shorter dataset that is not an exact prefix of
-    the canonical trajectory cannot be replaced by a prefix slice of it.
-    """
-    if len(shorter.snapshots) > len(canonical.snapshots):
-        return False
-    return shorter.snapshots == canonical.snapshots[: len(shorter.snapshots)]
-
-
-def materialize_grid_research_plan(
-    experiment_def: ExperimentDefinition,
     canonical_trajectory: Dataset,
     cohorts: tuple[CohortSpecification, ...],
     param_configs: tuple[ParameterConfiguration, ...],
@@ -219,16 +170,15 @@ def materialize_grid_research_plan(
     All units are sliced from a single *canonical_trajectory*: a unit with a
     shorter horizon receives the prefix of the trajectory that the longest
     horizon would use. The trajectory is shared across the whole study and
-    never independently re-loaded per horizon (see ``datasets_are_prefix_consistent``).
+    never independently re-loaded per horizon.
 
     Parameters
     ----------
     experiment_def:
         The shared source study definition (canonical trajectory reference).
     canonical_trajectory:
-        The longest resolved dataset; shorter-horizon units are prefix slices
-        of it. Ownership belongs to the planning boundary that resolved the
-        declared dataset family.
+        The canonical dataset; shorter-horizon units are prefix slices of it.
+        Ownership belongs to the planning boundary that resolved it.
     cohorts:
         Horizon-feasible cohort specifications, generated against the longest
         horizon so every cohort is feasible for every declared horizon.
