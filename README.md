@@ -70,7 +70,7 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest                       # run all 690 tests
+pytest                       # run all 673 tests
 mypy --strict src            # type check
 ruff check src tests         # lint
 ```

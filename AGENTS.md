@@ -13,7 +13,7 @@ It contains the simulation engine, research library, and ERN oracle.
 | Root namespace | `fbf.core` |
 | Third-party runtime deps | **Zero** |
 | Python requirement | ≥ 3.13 |
-| Test suite | 690 tests (unit / integration / infrastructure / benchmarks / oracle / contract) |
+| Test suite | 673 tests (unit / integration / infrastructure / benchmarks / oracle / contract) |
 
 ---
 
