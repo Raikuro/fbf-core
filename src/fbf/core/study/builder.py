@@ -13,7 +13,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Money
@@ -39,18 +38,21 @@ from fbf.core.study.plan import (
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
-    """Load and parse a YAML file.  Raises FileNotFoundError or RuntimeError if PyYAML missing."""
+    """Load and parse a YAML file.  Raises FileNotFoundError, yaml.YAMLError, or ValueError."""
     try:
         import yaml
     except ImportError as err:
         raise RuntimeError(
-            "PyYAML is not installed in fbf-core. Pass a dict directly to StudyConfiguration.from_dict()."
+            (
+                "PyYAML is not installed in fbf-core. "
+                "Pass a dict directly to StudyConfiguration.from_dict()."
+            )
         ) from err
     raw = path.read_text(encoding="utf-8")
     data = yaml.safe_load(raw)
     if not isinstance(data, dict):
         msg = f"Expected YAML mapping at root of {path}, got {type(data).__name__}"
-        raise ValueError(msg)
+        raise yaml.YAMLError(msg)
     return data
 
 def resolve_dataset(identifier: str, data_dir: str | None) -> Dataset:
