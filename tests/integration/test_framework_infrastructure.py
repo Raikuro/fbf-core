@@ -157,11 +157,12 @@ class TestHelperFunctions:
             tmp_path / "custom.yaml",
             name="Custom Study",
             withdrawal_rate=0.05,
-            equity_ratio=0.60,
+            equity_values="0.60",
         )
         content = path.read_text(encoding="utf-8")
         assert "Custom Study" in content
         assert "0.05" in content
+        assert "equity_allocation: [0.60]" in content
 
 
 # ---------------------------------------------------------------------------

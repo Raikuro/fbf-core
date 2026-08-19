@@ -68,15 +68,13 @@ metadata:
 dataset:
   identifier: "TEST_DATASET"
 cohorts:
-  window_years: 4
+  horizon_years: [4]
 allocation_policy:
   type: "ConstantAllocationPolicy"
-  equity_allocation: 0.5
+  equity_allocation: [0.5]
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
-  withdrawal_rate: 0.04
-parameters:
-  equity_allocation: [0.5]
+  withdrawal_rate: [0.04]
 """
 
 
@@ -212,15 +210,13 @@ metadata:
 dataset:
   identifier: "TEST_DATASET"
 cohorts:
-  window_years: 4
+  horizon_years: [3, 4]
 allocation_policy:
   type: "ConstantAllocationPolicy"
-  equity_allocation: 0.5
+  equity_allocation: [0.5]
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
-  withdrawal_rate: 0.04
-parameters:
-  horizon_years: [3, 4]
+  withdrawal_rate: [0.04]
 """
 
     @pytest.fixture
@@ -252,8 +248,8 @@ parameters:
         assert "Longest Path:" in out
         assert "Month-Work:" in out
         assert "Per-Cell Results (grid):" in out
-        assert "cell: horizon_years=3" in out
-        assert "cell: horizon_years=4" in out
+        assert "cell: equity_allocation=0.5 withdrawal_rate=0.04 horizon_years=3" in out
+        assert "cell: equity_allocation=0.5 withdrawal_rate=0.04 horizon_years=4" in out
 
     def test_default_grid_uses_reference_chained_summary(
         self,
@@ -320,17 +316,13 @@ metadata:
 dataset:
   identifier: "TEST_DATASET"
 cohorts:
-  window_years: 4
+  horizon_years: [3, 4]
 allocation_policy:
   type: "ConstantAllocationPolicy"
-  equity_allocation: 0.5
+  equity_allocation: [0.5]
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
-  withdrawal_rate: 0.04
-parameters:
-  equity_allocation: [0.5]
   withdrawal_rate: [0.04]
-  horizon_years: [3, 4]
 """
 
     @pytest.fixture
@@ -381,15 +373,13 @@ metadata:
 dataset:
   identifier: "TEST_DATASET"
 cohorts:
-  window_years: 4
+  horizon_years: [3, 4]
 allocation_policy:
   type: "ConstantAllocationPolicy"
-  equity_allocation: 0.5
+  equity_allocation: [0.5]
 withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
-  withdrawal_rate: 0.04
-parameters:
-  horizon_years: [3, 4]
+  withdrawal_rate: [0.04]
 """
 
     @pytest.fixture
@@ -427,8 +417,8 @@ parameters:
         assert "Longest Path:" in out
         assert "Month-Work:" in out
         assert "Per-Cell Results (grid):" in out
-        assert "cell: horizon_years=3" in out
-        assert "cell: horizon_years=4" in out
+        assert "cell: equity_allocation=0.5 withdrawal_rate=0.04 horizon_years=3" in out
+        assert "cell: equity_allocation=0.5 withdrawal_rate=0.04 horizon_years=4" in out
 
     def test_reference_chained_reproduces_canonical_engine(self) -> None:
         """Reference Chained reproduces the canonical Decimal engine exactly on
@@ -479,70 +469,6 @@ parameters:
         assert rc == 2
         assert "--reference-chained" in out
         assert "--fast-path" in out
-
-
-class TestGridCliFourthAxis:
-    GRID_YAML = """\
-metadata:
-  name: "Grid Four Axis Study"
-dataset:
-  identifier: "TEST_DATASET"
-cohorts:
-  window_years: 4
-allocation_policy:
-  type: "ConstantAllocationPolicy"
-  equity_allocation: 0.5
-withdrawal_policy:
-  type: "FixedRealWithdrawalPolicy"
-  withdrawal_rate: 0.04
-parameters:
-  horizon_years: [3, 4]
-  n_duration: [5, 10]
-"""
-
-    @pytest.fixture
-    def mock_dataset(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from infrastructure.persistence.codecs import DefaultDatasetResolver
-
-        def mock_resolve(self: DefaultDatasetResolver, identifier: str) -> Dataset:
-            return _synthetic_dataset(500)
-
-        monkeypatch.setattr(DefaultDatasetResolver, "resolve", mock_resolve)
-
-    def test_fourth_axis_appears_in_every_cell_key(
-        self,
-        tmp_path: Path,
-        mock_dataset: None,
-        capsys: pytest.CaptureFixture[str],
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """A 4th parameter axis must not collapse cells differing on it.
-
-        Cells are keyed by the full parameter configuration, not by the ERN
-        triple; a study with ``n_duration`` therefore emits one cell line per
-        ``(horizon_years, n_duration)`` combination and every cell line carries
-        the 4th axis in its label.
-        """
-        import infrastructure.execution.reference_chaining as rchain
-        from cli.main import main
-
-        monkeypatch.setattr(rchain, "parallel_execute", _make_fake_executor_result)
-
-        study_file = tmp_path / "four_axis.yaml"
-        study_file.write_text(self.GRID_YAML, encoding="utf-8")
-        rc = main(["run", "--summary-only", "--no-persist", str(study_file)])
-        out = capsys.readouterr().out
-
-        assert rc == 0
-        assert "Per-Cell Results (grid):" in out
-        cell_lines = [line for line in out.splitlines() if line.startswith("cell: ")]
-        assert len(cell_lines) == 4
-        for line in cell_lines:
-            assert "horizon_years=" in line
-            assert "n_duration=" in line
-        assert any("n_duration=5" in line for line in cell_lines)
-        assert any("n_duration=10" in line for line in cell_lines)
-        assert all(line.count("units_run=") == 1 for line in cell_lines)
 
 
 def _make_fake_executor_result(plan: ResearchPlan, **kwargs: object) -> ResearchExecutionResult:
@@ -597,12 +523,12 @@ def _make_fake_executor_result(plan: ResearchPlan, **kwargs: object) -> Research
     )
 
 
-class TestBasePolicyScalarPreservation:
-    """A declared base scalar must be the actual policy when not overridden.
+class TestFalsyArrayValuePreservation:
+    """Declared array values are the actual policy even when falsy.
 
-    ``build_study_plan`` substitutes the study defaults only when the scalar is
-    *absent*; a legitimate explicit ``0.0`` (100% bonds / 0% withdrawal) must
-    survive — it must not be replaced by the 0.75 / 0.04 defaults via falsiness.
+    ``build_study_plan`` builds policies from the declared value arrays; a
+    legitimate explicit ``0.0`` (100% bonds / 0% withdrawal) must survive — it
+    must not be replaced by any default via falsiness.
     """
 
     @staticmethod
@@ -614,23 +540,22 @@ class TestBasePolicyScalarPreservation:
         config = StudyConfiguration.from_yaml(config_data)
         return build_study_plan(config, None, _WEALTH)
 
-    def test_zero_allocation_scalar_with_rate_axis(
+    def test_zero_allocation_value_in_array(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         built = self._build(
             {
                 "metadata": {"name": "zero-alloc"},
                 "dataset": {"identifier": "TEST_DATASET"},
-                "cohorts": {"window_years": 4},
+                "cohorts": {"horizon_years": [4]},
                 "allocation_policy": {
                     "type": "ConstantAllocationPolicy",
-                    "equity_allocation": 0.0,
+                    "equity_allocation": [0.0],
                 },
                 "withdrawal_policy": {
                     "type": "FixedRealWithdrawalPolicy",
-                    "withdrawal_rate": 0.04,
+                    "withdrawal_rate": [0.04],
                 },
-                "parameters": {"withdrawal_rate": [0.03, 0.04]},
             },
             monkeypatch,
         )
@@ -638,23 +563,22 @@ class TestBasePolicyScalarPreservation:
             alloc = cast(ConstantAllocationPolicy, unit.allocation_policy)
             assert alloc.equity_allocation == Decimal("0.0")
 
-    def test_zero_withdrawal_scalar_with_equity_axis(
+    def test_zero_withdrawal_value_in_array(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         built = self._build(
             {
                 "metadata": {"name": "zero-withdraw"},
                 "dataset": {"identifier": "TEST_DATASET"},
-                "cohorts": {"window_years": 4},
+                "cohorts": {"horizon_years": [4]},
                 "allocation_policy": {
                     "type": "ConstantAllocationPolicy",
-                    "equity_allocation": 0.5,
+                    "equity_allocation": [0.5],
                 },
                 "withdrawal_policy": {
                     "type": "FixedRealWithdrawalPolicy",
-                    "withdrawal_rate": 0.0,
+                    "withdrawal_rate": [0.0],
                 },
-                "parameters": {"equity_allocation": [0.5, 0.8]},
             },
             monkeypatch,
         )
