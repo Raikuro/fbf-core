@@ -258,7 +258,7 @@ class TestFloatPath:
 
 class TestChainingBitExact:
     @pytest.mark.parametrize("precision", ["float", "decimal"])
-    def test_chained_equals_independent(self, precision: str) -> None:
+    def test_chained_equals_direct_fast_path(self, precision: str) -> None:
         """Chained derivation is bit-identical to per-context evaluation."""
         dataset = _dataset(241)
         plan = build_grid_plan(
@@ -268,18 +268,18 @@ class TestChainingBitExact:
             rates=(0.04, 0.08),
         )
         prec = cast(Precision, precision)
-        independent = _execute(plan, FastPathSimulationExecutor(precision=prec))
+        direct = _execute(plan, FastPathSimulationExecutor(precision=prec))
         chained = _execute(plan, ChainedFastPathSimulationExecutor(precision=prec))
-        for unit, ind, ch in zip(plan.units, independent, chained, strict=True):
-            _assert_exact(ind, ch, unit, "success")
-            _assert_exact(ind, ch, unit, "failure_month")
-            _assert_exact(ind, ch, unit, "months_simulated")
-            _assert_exact(ind, ch, unit, "final_wealth")
+        for unit, d, ch in zip(plan.units, direct, chained, strict=True):
+            _assert_exact(d, ch, unit, "success")
+            _assert_exact(d, ch, unit, "failure_month")
+            _assert_exact(d, ch, unit, "months_simulated")
+            _assert_exact(d, ch, unit, "final_wealth")
 
 
 class TestReferenceChainingBitExact:
-    def test_chained_reference_matches_independent_reference(self) -> None:
-        """Reference chaining reproduces independent reference execution exactly."""
+    def test_chained_reference_matches_reference_engine(self) -> None:
+        """Reference chaining reproduces reference engine execution exactly."""
         dataset = _dataset(241)
         plan = build_grid_plan(
             dataset,

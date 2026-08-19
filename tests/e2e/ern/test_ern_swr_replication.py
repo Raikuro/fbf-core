@@ -23,10 +23,10 @@ created and per-month timelines are never materialized or transferred.
 
 Enable with ``RUN_ERN_E2E=1``; the full 180-cell grid also needs
 ``RUN_ERN_E2E_FULL=1``.  The fast-path acceptance check needs
-``ERN_E2E_FAST_PATH=1``.  Reference-chained is now the public default for the
-grid; the ``--reference-independent`` oracle-equivalence checks run with
-``ERN_E2E_REFERENCE_CHAINED=1``.  The default worker selection when
-``ERN_E2E_WORKERS`` is unset is the conservative ``min(8, cpu_count)``;
+``ERN_E2E_FAST_PATH=1``.  Reference Chained is the sole reference execution
+strategy (the no-flag default and ``--reference-chained`` are identical).
+The default worker selection when ``ERN_E2E_WORKERS`` is unset is the
+conservative ``min(8, cpu_count)``;
 ``ERN_E2E_WORKERS=N`` pins an exact override count and ``ERN_E2E_WORKERS=max``
 requests every available logical CPU.
 """
@@ -66,7 +66,6 @@ from .fixtures import PerCellStats, run_grid_study
 RUN_ERN_E2E = os.environ.get("RUN_ERN_E2E") == "1"
 RUN_ERN_E2E_FULL = RUN_ERN_E2E and os.environ.get("RUN_ERN_E2E_FULL") == "1"
 FAST_PATH_ENABLED = os.environ.get("ERN_E2E_FAST_PATH") == "1"
-REFERENCE_CHAINED_ENABLED = os.environ.get("ERN_E2E_REFERENCE_CHAINED") == "1"
 
 pytestmark = [
     pytest.mark.ern_e2e,
@@ -298,72 +297,6 @@ def test_full_grid_fast_path_reproduces_reference_success_rates(
         assert ref_cells[key] == fast_cells[key], (
             f"cell {key}: reference {ref_cells[key].success_percent:.2f}% vs "
             f"fast path {fast_cells[key].success_percent:.2f}%"
-        )
-
-
-@pytest.mark.skipif(
-    not REFERENCE_CHAINED_ENABLED,
-    reason="set ERN_E2E_REFERENCE_CHAINED=1 to run the default-vs-oracle "
-    "equivalence acceptance cells",
-)
-def test_default_chained_reproduces_independent_reference(
-    data_dir: Path, tmp_path: Path
-) -> None:
-    """The default Reference Chained path reproduces the independent Reference
-    engine exactly through the public CLI.
-
-    Runs the smoke grid twice (the no-flag default — Reference Chained for this
-    grid — then ``--reference-independent``, the canonical oracle) and asserts
-    every per-cell statistic is identical.  Reference chaining is bit-exact, so
-    equality is exact, not tolerance-based; oracle comparison stays on the
-    default-path tests above.
-    """
-    harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home_ref_chained")
-    workers = _resolve_workers_arg()
-    default_result, default_cells = run_grid_study(harness, SMOKE_GRID_YAML, workers, timeout=900)
-    oracle_result, oracle_cells = run_grid_study(
-        harness, SMOKE_GRID_YAML, workers, timeout=900, reference_independent=True
-    )
-
-    assert default_result.units_run == oracle_result.units_run == SMOKE_GRID_UNITS
-    assert set(default_cells) == set(oracle_cells)
-    for key in default_cells:
-        assert default_cells[key] == oracle_cells[key], (
-            f"cell {key}: default {default_cells[key].success_percent:.2f}% vs "
-            f"independent {oracle_cells[key].success_percent:.2f}%"
-        )
-
-
-@pytest.mark.skipif(
-    not (RUN_ERN_E2E_FULL and REFERENCE_CHAINED_ENABLED),
-    reason="set RUN_ERN_E2E_FULL=1 and ERN_E2E_REFERENCE_CHAINED=1 for the "
-    "full-grid default-vs-oracle equivalence check",
-)
-def test_full_grid_chained_reproduces_independent_reference(
-    data_dir: Path, tmp_path: Path
-) -> None:
-    """Full-grid default vs independent Reference equivalence across all 180 cells.
-
-    The complete 180-cell grid is executed twice through the public CLI
-    (the no-flag default — Reference Chained — then ``--reference-independent``)
-    and every per-cell statistic is compared exactly.  This extends the smoke
-    check to the full parameter space; oracle comparison stays on the
-    default-path tests.
-    """
-    harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home_ref_chained_full")
-    workers = _resolve_workers_arg()
-    default_result, default_cells = run_grid_study(harness, GRID_YAML, workers, timeout=3600)
-    oracle_result, oracle_cells = run_grid_study(
-        harness, GRID_YAML, workers, timeout=3600, reference_independent=True
-    )
-
-    assert default_result.units_run == oracle_result.units_run == FULL_GRID_UNITS
-    assert set(default_cells) == set(oracle_cells)
-    assert len(default_cells) == FULL_GRID_CELLS
-    for key in sorted(default_cells):
-        assert default_cells[key] == oracle_cells[key], (
-            f"cell {key}: default {default_cells[key].success_percent:.2f}% vs "
-            f"independent {oracle_cells[key].success_percent:.2f}%"
         )
 
 

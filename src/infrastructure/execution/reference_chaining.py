@@ -1,9 +1,9 @@
 """Reference horizon chaining for prefix-consistent datasets.
 
-Experimental executor that reuses a longest-horizon reference Decimal
-execution to derive shorter-horizon results for eligible, prefix-consistent
-context families. The canonical reference engine remains untouched; this
-executor delegates every independent evaluation to the standard engine path.
+Executor that reuses a longest-horizon reference Decimal execution to derive
+shorter-horizon results for eligible, prefix-consistent context families. The
+canonical reference engine remains untouched; this executor delegates every
+non-prefix evaluation to the standard engine path.
 """
 
 from __future__ import annotations

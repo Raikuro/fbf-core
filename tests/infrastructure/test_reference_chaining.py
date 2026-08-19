@@ -173,7 +173,7 @@ def _month_after(start: date, offset: int) -> date:
 
 
 class TestBuildDerivedResult:
-    def test_successful_derived_horizon_matches_independent_reference(self) -> None:
+    def test_successful_derived_horizon_matches_reference_engine(self) -> None:
         dataset = _make_flat_dataset(20)
         longest = _make_context(dataset, horizon_months=20, withdrawal_rate=Decimal("0.04"))
         shorter = _make_context(
@@ -184,16 +184,16 @@ class TestBuildDerivedResult:
 
         longest_result = _execute_reference(longest)
         derived_result = _build_derived_result(longest_result, longest.horizon_months, shorter)
-        independent_result = _execute_reference(shorter)
+        reference_result = _execute_reference(shorter)
 
-        _assert_results_equal(derived_result, independent_result)
+        _assert_results_equal(derived_result, reference_result)
         assert derived_result.statistics.success is True
         assert derived_result.statistics.failure_month is None
         assert derived_result.statistics.months_simulated == 12
-        assert derived_result.statistics.final_wealth == independent_result.statistics.final_wealth
+        assert derived_result.statistics.final_wealth == reference_result.statistics.final_wealth
         assert len(derived_result.timeline.monthly_results) == 12
 
-    def test_derived_horizon_before_failure_matches_independent_reference(self) -> None:
+    def test_derived_horizon_before_failure_matches_reference_engine(self) -> None:
         dataset = _make_flat_dataset(30)
         longest = _make_context(dataset, horizon_months=30, withdrawal_rate=Decimal("0.5"))
 
@@ -212,13 +212,13 @@ class TestBuildDerivedResult:
         derived_result = _build_derived_result(
             longest_result, longest.horizon_months, success_prefix
         )
-        independent_result = _execute_reference(success_prefix)
+        reference_result = _execute_reference(success_prefix)
 
-        _assert_results_equal(derived_result, independent_result)
+        _assert_results_equal(derived_result, reference_result)
         assert derived_result.statistics.success is True
         assert derived_result.statistics.failure_month is None
         assert derived_result.statistics.months_simulated == shorter_horizon
-        assert derived_result.statistics.final_wealth == independent_result.statistics.final_wealth
+        assert derived_result.statistics.final_wealth == reference_result.statistics.final_wealth
         assert len(derived_result.timeline.monthly_results) == shorter_horizon
 
     def test_failure_at_derived_horizon_boundary_includes_failure_month(self) -> None:
@@ -239,21 +239,21 @@ class TestBuildDerivedResult:
         derived_result = _build_derived_result(
             longest_result, longest.horizon_months, boundary_context
         )
-        independent_result = _execute_reference(boundary_context)
+        reference_result = _execute_reference(boundary_context)
 
-        _assert_results_equal(derived_result, independent_result)
+        _assert_results_equal(derived_result, reference_result)
         assert derived_result.statistics.success is False
         assert (
             derived_result.statistics.failure_month
-            == independent_result.statistics.failure_month
+            == reference_result.statistics.failure_month
         )
         assert (
             derived_result.statistics.months_simulated
-            == independent_result.statistics.months_simulated
+            == reference_result.statistics.months_simulated
         )
-        assert derived_result.statistics.final_wealth == independent_result.statistics.final_wealth
+        assert derived_result.statistics.final_wealth == reference_result.statistics.final_wealth
         assert len(derived_result.timeline.monthly_results) == (
-            independent_result.statistics.months_simulated
+            reference_result.statistics.months_simulated
         )
         # The reference runner breaks out of the pipeline before the failing
         # month is written, so the timeline ends at failure_month - 1.
@@ -282,11 +282,11 @@ class TestBuildDerivedResult:
 
         longest_result = _execute_reference(longest)
         derived_result = _build_derived_result(longest_result, longest.horizon_months, shorter)
-        independent_result = _execute_reference(shorter)
+        reference_result = _execute_reference(shorter)
 
-        _assert_results_equal(derived_result, independent_result)
+        _assert_results_equal(derived_result, reference_result)
         assert derived_result.statistics.success is True
-        assert derived_result.statistics.final_wealth == independent_result.statistics.final_wealth
+        assert derived_result.statistics.final_wealth == reference_result.statistics.final_wealth
         assert len(derived_result.timeline.monthly_results) == 8
 
     def test_derived_result_after_failure_matches_failure_statistics(self) -> None:
@@ -303,9 +303,9 @@ class TestBuildDerivedResult:
             withdrawal_rate=Decimal("0.5"),
         )
         derived_result = _build_derived_result(longest_result, longest.horizon_months, beyond)
-        independent_result = _execute_reference(beyond)
+        reference_result = _execute_reference(beyond)
 
-        _assert_results_equal(derived_result, independent_result)
+        _assert_results_equal(derived_result, reference_result)
         assert derived_result.statistics.failure_month == fm
         assert derived_result.statistics.months_simulated == fm
         assert derived_result.statistics.success is False
@@ -324,16 +324,16 @@ class TestBuildDerivedResult:
             withdrawal_rate=Decimal("0.5"),
         )
         derived_result = _build_derived_result(longest_result, longest.horizon_months, exact)
-        independent_result = _execute_reference(exact)
+        reference_result = _execute_reference(exact)
 
-        _assert_results_equal(derived_result, independent_result)
+        _assert_results_equal(derived_result, reference_result)
         assert derived_result.statistics.success is True
         assert derived_result.statistics.months_simulated == fm
-        assert derived_result.statistics.final_wealth == independent_result.statistics.final_wealth
+        assert derived_result.statistics.final_wealth == reference_result.statistics.final_wealth
 
 
 class TestChainedReferenceSimulationExecutor:
-    def test_chained_reference_matches_independent_reference_for_prefix_slices(self) -> None:
+    def test_chained_reference_matches_reference_engine_for_prefix_slices(self) -> None:
         dataset = _make_flat_dataset(30)
         longest = _make_context(dataset, horizon_months=30, withdrawal_rate=Decimal("0.5"))
         shorter = _make_context(
@@ -359,9 +359,9 @@ class TestChainedReferenceSimulationExecutor:
         assert executor.chaining_report.derived_results == 1
         assert executor.chaining_report.longest_path_evaluations == 1
 
-    def test_non_prefix_dataset_falls_back_to_independent_reference(self) -> None:
+    def test_non_prefix_dataset_falls_back_to_canonical_engine(self) -> None:
         """A shorter context whose dataset is not an identity prefix of the
-        longest is evaluated independently and never derived from it."""
+        longest is evaluated directly (never derived) by the chained executor."""
         dataset_a = _make_flat_dataset(30)
         dataset_b = _make_flat_dataset(24, price=Decimal("200"))
         longest = _make_context(
