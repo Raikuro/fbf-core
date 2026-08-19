@@ -18,8 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 REFERENCE_TOOL = REPO_ROOT / "tools" / "ern" / "reference_oracle.py"
 
 
-def _regenerate_oracle() -> Path:
-    out = Path(__file__).resolve().parent / "_generated_oracle_table.csv"
+def _regenerate_oracle(out: Path) -> Path:
     proc = subprocess.run(
         [sys.executable, str(REFERENCE_TOOL), "--output", str(out)],
         capture_output=True,
@@ -33,13 +32,10 @@ def _regenerate_oracle() -> Path:
 
 def test_pinned_oracle_matrix_matches_reference_tool(tmp_path: Path) -> None:
     """The committed oracle matrix must be exactly what the tool regenerates."""
-    generated = _regenerate_oracle()
-    try:
-        assert generated.read_text(encoding="utf-8") == ORACLE_CSV.read_text(
-            encoding="utf-8"
-        ), "pinned p49_oracle_table.csv is out of sync with tools/ern/reference_oracle.py"
-    finally:
-        generated.unlink(missing_ok=True)
+    generated = _regenerate_oracle(tmp_path / "generated_oracle_table.csv")
+    assert generated.read_text(encoding="utf-8") == ORACLE_CSV.read_text(
+        encoding="utf-8"
+    ), "pinned p49_oracle_table.csv is out of sync with tools/ern/reference_oracle.py"
 
 
 def test_published_anchors_hold() -> None:

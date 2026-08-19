@@ -8,7 +8,68 @@ from enum import StrEnum
 from typing import Any
 
 from fbf.core.execution.result import ResearchExecutionResult
-from fbf.core.execution.strategies.parallel_executor import parallel_execute, sequential_execute
+from fbf.core.execution.strategies.fast_path import FastPathValidationError
+
+
+def sequential_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
+    """Execute through the public sequential Core operation."""
+    from fbf.core.execution.strategies.parallel_executor import sequential_execute as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def parallel_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
+    """Execute through the public parallel Core operation."""
+    from fbf.core.execution.strategies.parallel_executor import parallel_execute as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def execute_reference_chained(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
+    """Execute the public exact chained-reference operation."""
+    from fbf.core.execution.strategies.reference_chaining import execute_reference_chained as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def expected_reference_chaining_report(*args: Any, **kwargs: Any) -> Any:
+    from fbf.core.execution.strategies.reference_chaining import (
+        expected_reference_chaining_report as implementation,
+    )
+
+    return implementation(*args, **kwargs)
+
+
+def reference_month_work(*args: Any, **kwargs: Any) -> int:
+    from fbf.core.execution.strategies.fast_path import reference_month_work as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def fast_path_unit_counts(*args: Any, **kwargs: Any) -> tuple[int, int]:
+    from fbf.core.execution.strategies.fast_path import fast_path_unit_counts as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def expected_chaining_report(*args: Any, **kwargs: Any) -> Any:
+    from fbf.core.execution.strategies.fast_path import expected_chaining_report as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def run_fast_path_validation(*args: Any, **kwargs: Any) -> Any:
+    from fbf.core.execution.strategies.fast_path import run_fast_path_validation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ChainedFastPathSimulationExecutor":
+        from fbf.core.execution.strategies.fast_path import ChainedFastPathSimulationExecutor
+
+        return ChainedFastPathSimulationExecutor
+    raise AttributeError(name)
 from fbf.core.study.builder import BuiltStudy, StudyPlanResult
 
 ProgressCallback = Callable[[int, int], None]
@@ -64,6 +125,16 @@ __all__ = [
     "ExecutionOptions",
     "execute_study_plan",
     "ResearchExecutionResult",
+    "parallel_execute",
+    "sequential_execute",
+    "ChainedFastPathSimulationExecutor",
+    "FastPathValidationError",
+    "reference_month_work",
+    "execute_reference_chained",
+    "expected_reference_chaining_report",
+    "fast_path_unit_counts",
+    "expected_chaining_report",
+    "run_fast_path_validation",
     "ProgressCallback",
     "ProgressEvent",
 ]

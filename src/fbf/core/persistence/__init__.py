@@ -6,8 +6,15 @@ from collections.abc import Sequence
 from typing import Any, Protocol
 
 from fbf.core.persistence.studies.sqlite.sqlite_repository import (
+    ExperimentIdentity,
     SQLiteRepository,
     SQLiteStudyRepository,
+)
+from fbf.core.persistence.studies.sqlite.context import create_persistence_context
+from fbf.core.persistence.studies.sqlite.errors import (
+    DuplicateStudyError,
+    PersistenceError,
+    RepositoryError,
 )
 
 
@@ -28,4 +35,9 @@ __all__ = [
     "create_study_repository",
     "SQLiteRepository",
     "SQLiteStudyRepository",
+    "ExperimentIdentity",
+    "create_persistence_context",
+    "DuplicateStudyError",
+    "PersistenceError",
+    "RepositoryError",
 ]

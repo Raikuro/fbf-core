@@ -1,0 +1,30 @@
+# Full ERN SWR grid as ONE research plan.
+#
+# 5 equity allocations x 9 real withdrawal rates x 4 horizons x 1739 cohorts
+# = 313,020 unique simulation units. The single canonical dataset (h720, 60y)
+# is sliced per unit: the ``cohorts.horizon_years`` array selects the prefixes
+# each unit receives.
+#
+# Run (dry-run / real construction check):
+#   sim-retire --data-dir data/ern run --dry-run examples/studies/ern_grid.yaml
+#   sim-retire --data-dir data/ern run examples/studies/ern_grid.yaml \
+#     --no-persist --summary-only
+
+metadata:
+  name: "ERN SWR Full Grid"
+  version: "1.0"
+  description: "ERN SWR grid: 5 weights x 9 rates x 4 horizons x 1739 cohorts"
+
+dataset:
+  identifier: "ern_swr_h720"
+
+cohorts:
+  horizon_years: [30, 40, 50, 60]
+
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: [1.0, 0.75, 0.5, 0.25, 0.0]
+
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: [0.03, 0.0325, 0.035, 0.0375, 0.04, 0.0425, 0.045, 0.0475, 0.05]

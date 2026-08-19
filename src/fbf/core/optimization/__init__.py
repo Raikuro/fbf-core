@@ -5,8 +5,15 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from fbf.core.optimization.strategy_comparator import StrategyComparator, StrategyComparisonReport
+from fbf.core.domain.optimizer.strategy_comparator import StrategyComparator
+from fbf.core.domain.optimizer.types import (
+    EvaluationResult,
+    GroupingDimension,
+    RankingRule,
+    StrategyComparisonReport,
+)
 from fbf.core.optimization.swr_optimizer import (
+    EvaluationOutcome,
     Evaluator,
     OptimizerOutcome,
     SWROptimizationResult,
@@ -34,9 +41,13 @@ def optimize_study_swr(
 
 __all__ = [
     "SWROptimizer",
+    "EvaluationOutcome",
     "SWROptimizationResult",
     "OptimizerOutcome",
     "StrategyComparator",
     "StrategyComparisonReport",
+    "EvaluationResult",
+    "GroupingDimension",
+    "RankingRule",
     "optimize_study_swr",
 ]

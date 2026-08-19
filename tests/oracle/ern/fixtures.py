@@ -4,16 +4,21 @@ Each machine-parseable ``cell: ...`` line printed by the CLI is keyed by
 ``(equity_allocation, withdrawal_rate, horizon_years)`` and parsed into
 a ``PerCellStats`` aggregate.
 
-``run_grid_study`` (which requires a CLI harness) lives in ``fbf-cli``'s
-``tests/oracle/ern/fixtures.py``.
+``run_grid_study`` is retained here as the black-box bridge used by the
+optional canonical engine-to-oracle acceptance suite.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+from tests.oracle.cli_harness import CliHarness, CliResult
 
 _CELL_LINE_RE = re.compile(r"^cell: (.*)$", re.MULTILINE)
+
+_CELL_HEADER = "Per-Cell Results (grid):"
 
 _CELL_FIELDS = (
     "equity_allocation",
@@ -79,3 +84,37 @@ def parse_per_cell_lines(
             success_rate=float(fields["success_rate"]),
         )
     return parsed
+
+
+def run_grid_study(
+    harness: CliHarness,
+    study_yaml: Path,
+    workers: int | str,
+    timeout: int = 3600,
+    fast_path: bool = False,
+    reference_chained: bool = False,
+) -> tuple[CliResult, dict[tuple[float, float, int], PerCellStats]]:
+    """Run one grid through the public CLI and return validated cell output."""
+    if fast_path and reference_chained:
+        raise ValueError("fast_path and reference_chained are mutually exclusive")
+    args = ["run", str(study_yaml), "--workers", str(workers), "--no-persist", "--summary-only"]
+    if fast_path:
+        args.append("--fast-path")
+    elif reference_chained:
+        args.append("--reference-chained")
+    result = harness.run(args, timeout=timeout)
+    if result.exit_code != 0:
+        raise RuntimeError(f"sim-retire run failed (exit={result.exit_code}): {result.stderr or result.stdout}")
+    if _CELL_HEADER not in result.stdout:
+        raise RuntimeError(f"sim-retire run printed no '{_CELL_HEADER}' section in its summary.")
+    cells = parse_per_cell_lines(result.stdout)
+    if not cells:
+        raise RuntimeError(f"No per-cell lines parsed from sim-retire run (exit={result.exit_code}).")
+    for key, stats in cells.items():
+        expected_rate = 1 - stats.units_failed / stats.units_run
+        if abs(stats.success_rate - expected_rate) > 1e-4:
+            raise RuntimeError(
+                f"cell {key}: success_rate={stats.success_rate} inconsistent with "
+                f"units_failed/units_run={expected_rate:.6f}"
+            )
+    return result, cells
