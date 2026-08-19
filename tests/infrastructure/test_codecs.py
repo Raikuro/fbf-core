@@ -21,21 +21,21 @@ from typing import Any
 
 import pytest
 
-from engine.application.simulation import (
+from fbf.core.domain.model.allocation import AllocationTarget
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.domain.model.money import Currency, Money
+from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
+from fbf.core.domain.policies.allocation_policy import AllocationPolicy
+from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
+from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
+from fbf.core.execution.pipeline.simulation import (
     SimulationResult,
     SimulationStatistics,
     SimulationTimeline,
 )
-from engine.domain.model.allocation import AllocationTarget
-from engine.domain.model.asset import AssetClass
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Currency, Money
-from engine.domain.model.portfolio import AssetHolding, Portfolio
-from engine.domain.policies.allocation_policy import AllocationPolicy
-from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
-from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
-from infrastructure.persistence import (
+from fbf.core.persistence.studies.sqlite import (
     AllocationPolicyCodec,
     DefaultDatasetResolver,
     PersistenceReconstructionContext,
@@ -44,11 +44,11 @@ from infrastructure.persistence import (
     StudyNotFoundError,
     WithdrawalPolicyCodec,
 )
-from infrastructure.persistence.codecs import (
+from fbf.core.persistence.studies.sqlite.codecs import (
     _ConcreteAllocationPolicy,
     _ConcreteWithdrawalPolicy,
 )
-from infrastructure.persistence.sqlite_repository import PolicyKind
+from fbf.core.persistence.studies.sqlite.sqlite_repository import PolicyKind
 
 # ---------------------------------------------------------------------------
 # Shared test fixtures
@@ -379,7 +379,7 @@ class TestSimulationResultCodec:
                 is_underwater=False,
                 running_ath=Decimal("100.00"),
             )
-            from engine.application.simulation import MonthlyResult
+            from fbf.core.execution.pipeline.simulation import MonthlyResult
             return MonthlyResult(
                 date=date.fromisoformat(date_str),
                 period_index=0,
@@ -439,7 +439,7 @@ class TestSimulationResultCodec:
 
     def test_monthly_portfolio_value_preserved(self) -> None:
         codec = SimulationResultCodec()
-        from engine.application.simulation import MonthlyResult
+        from fbf.core.execution.pipeline.simulation import MonthlyResult
 
         snap = MarketSnapshot(
             date=date(2000, 1, 1),
@@ -517,8 +517,8 @@ class TestSimulationResultCodec:
 
 
 def _make_experiment(dataset: Dataset, name: str = "codec-test-exp") -> Any:
-    from research.domain.cohort.specification import CohortSpecification
-    from research.domain.experiment.definition import ExperimentDefinition
+    from fbf.core.study.internal.cohort.specification import CohortSpecification
+    from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 
     return ExperimentDefinition(
         name=name,
@@ -549,11 +549,11 @@ def _make_cohort_dataset(month: int) -> Dataset:
 
 
 def _make_plan(experiment: Any, num_units: int = 2) -> Any:
-    from research.domain.cohort.specification import CohortSpecification
-    from research.domain.parameter.configuration import (
+    from fbf.core.study.internal.cohort.specification import CohortSpecification
+    from fbf.core.study.internal.parameter.configuration import (
         ParameterConfiguration,
     )
-    from research.domain.plan import PlannedSimulationUnit, ResearchPlan
+    from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
     units = tuple(
         PlannedSimulationUnit(
@@ -586,8 +586,8 @@ def _make_plan(experiment: Any, num_units: int = 2) -> Any:
 def test_sqlite_repository_integration_with_concrete_codecs(
     tmp_path: Path,
 ) -> None:
-    from infrastructure.persistence import SQLiteRepository
-    from infrastructure.persistence.sqlite_repository import (
+    from fbf.core.persistence.studies.sqlite import SQLiteRepository
+    from fbf.core.persistence.studies.sqlite.sqlite_repository import (
         ExperimentIdentity,
     )
 
@@ -639,11 +639,11 @@ def test_sqlite_repository_integration_with_concrete_codecs(
         _build_sim_context(unit, experiment)
         for unit in plan.units
     )
-    from engine.application.simulation import (
+    from fbf.core.execution.pipeline.simulation import (
         ExperimentDefinition as EngineExperimentDefinition,
         ExperimentRun,
     )
-    from research.orchestration.result import ResearchExecutionResult
+    from fbf.core.execution.result import ResearchExecutionResult
 
     engine_def = EngineExperimentDefinition(
         name=experiment.name,
@@ -672,7 +672,7 @@ def test_sqlite_repository_integration_with_concrete_codecs(
 def _build_sim_context(
     unit: Any, experiment: Any
 ) -> Any:
-    from engine.application.simulation_context import (
+    from fbf.core.execution.pipeline.simulation_context import (
         SimulationContext,
     )
 

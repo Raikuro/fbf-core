@@ -17,17 +17,17 @@ from pathlib import Path
 
 import pytest
 
-from engine.domain.model.asset import AssetClass
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from infrastructure.persistence import (
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.persistence.studies.sqlite import (
     DefaultDatasetResolver,
     PersistenceReconstructionContext,
     RepositoryError,
     StudyNotFoundError,
     create_persistence_context,
 )
-from infrastructure.persistence.context import (
+from fbf.core.persistence.studies.sqlite.context import (
     _dataset_to_dict,
     _dict_to_dataset,
     _load_dataset_from_file,

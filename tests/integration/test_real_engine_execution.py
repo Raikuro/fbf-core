@@ -22,17 +22,17 @@ from decimal import Decimal
 
 import pytest
 
-from cli.builders import build_initial_portfolio
-from cli.policies import ConstantAllocationPolicy, ConstantWithdrawalPolicy
-from engine.domain.model.asset import AssetClass
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Money
-from infrastructure.execution.parallel_executor import parallel_execute, sequential_execute
-from research.domain.cohort.specification import CohortSpecification
-from research.domain.experiment.definition import ExperimentDefinition
-from research.domain.parameter.configuration import ParameterConfiguration
-from research.domain.plan import ResearchPlan, materialize_research_plan
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.domain.model.money import Money
+from fbf.core.domain.policies import ConstantAllocationPolicy, ConstantWithdrawalPolicy
+from fbf.core.execution.strategies.parallel_executor import parallel_execute, sequential_execute
+from fbf.core.study.builder import build_initial_portfolio
+from fbf.core.study.internal.cohort.specification import CohortSpecification
+from fbf.core.study.internal.experiment.definition import ExperimentDefinition
+from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
+from fbf.core.study.plan import ResearchPlan, materialize_research_plan
 
 
 def _loader_asset(asset_id: str) -> AssetClass:
@@ -69,7 +69,7 @@ def _build_plan(horizon_months: int = 12, param_sweep: int = 1) -> tuple[Dataset
     A single cohort whose start date equals ``dataset.start_date`` satisfies the
     frozen engine's ``dataset[0].date == context.start_date`` contract without
     needing per-cohort dataset slicing (a separate, out-of-scope work item).  This
-    locks in the two authorised Model A fixes through the real engine.
+    locks in the two authorised Model A fixes through the real fbf.core.
     """
     dataset = _make_equity_bond_dataset(36)
     alloc = ConstantAllocationPolicy(equity_allocation=Decimal("0.75"))

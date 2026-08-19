@@ -1,0 +1,511 @@
+"""Integration tests for SimulationRunner.
+
+End-to-end tests verifying complete simulation execution across multiple months.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+from unittest.mock import Mock
+
+import pytest
+
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.domain.model.money import Currency, Money
+from fbf.core.domain.model.portfolio import Portfolio
+from fbf.core.execution.pipeline.pipeline import PipelineStep, SimulationPipeline
+from fbf.core.execution.pipeline.runner import SimulationRunner
+from fbf.core.execution.pipeline.simulation import (
+    ExecutionStatus,
+    MonthlyResult,
+    SimulationState,
+)
+from fbf.core.execution.pipeline.simulation_context import SimulationContext
+
+
+class IntegrationMarketSnapshot(MarketSnapshot):
+    """Market snapshot for integration tests."""
+
+    def __init__(self, snapshot_date: date) -> None:
+        object.__setattr__(self, "date", snapshot_date)
+
+
+class IntegrationPortfolio(Portfolio):
+    """Portfolio stub for integration tests."""
+
+    def __init__(self) -> None:
+        super().__init__(holdings=())
+
+
+class IntegrationDataset(Dataset):
+    """Dataset supporting multi-month snapshots."""
+
+    def __init__(self, num_months: int, start_date: date = date(2020, 1, 1)):
+        object.__setattr__(
+            self,
+            "snapshots",
+            [
+                IntegrationMarketSnapshot(
+                    date(
+                        start_date.year + (start_date.month + i - 1) // 12,
+                        ((start_date.month + i - 1) % 12) + 1,
+                        start_date.day,
+                    )
+                )
+                for i in range(num_months)
+            ],
+        )
+        object.__setattr__(self, "frequency", "monthly")
+        object.__setattr__(self, "version", "1.0")
+
+
+class MonthlyProgressionStep(PipelineStep):
+    """Step that advances simulation month and tracks execution."""
+
+    def __init__(self, sequence_order: int = 0):
+        self.sequence_order = sequence_order
+        self.execution_count = 0
+
+    def execute(self, state: SimulationState) -> SimulationState:
+        """Execute step, recording monthly result and advancing state."""
+        self.execution_count += 1
+
+        # Create monthly result for this month
+        market_snapshot = state.market_snapshot
+        assert market_snapshot is not None
+        monthly_result = MonthlyResult(
+            date=state.current_date,
+            period_index=state.period_index,
+            market_snapshot=market_snapshot,
+            portfolio=state.portfolio,
+            allocation=None,
+            allocation_target=None,
+            allocation_drift=None,
+            withdrawal_decision=None,
+            rebalance_result=None,
+            drawdown=0.0,
+            cumulative_return=1.0,
+            cumulative_inflation=1.0,
+            events=(),
+        )
+        state.monthly_results.append(monthly_result)
+
+        # Check if simulation should continue
+        next_period = state.period_index + 1
+        horizon = state.context.horizon_months
+
+        if next_period >= horizon:
+            # Simulation complete
+            state.status = ExecutionStatus.COMPLETED
+        else:
+            # Advance to next month
+            state.period_index = next_period
+            current_date = state.current_date
+            new_month = current_date.month + 1
+            new_year = current_date.year
+            if new_month > 12:
+                new_month = 1
+                new_year += 1
+            state.current_date = date(new_year, new_month, current_date.day)
+
+            # Get next market snapshot
+            if next_period < len(state.context.dataset):
+                state.market_snapshot = state.context.dataset[next_period]
+
+        return state
+
+
+def money(amount: str) -> Money:
+    return Money(Decimal(amount), Currency.EUR)
+
+
+# ============================================================================
+# Integration Tests
+# ============================================================================
+
+
+class TestSimulationRunnerIntegration:
+    """End-to-end integration tests for SimulationRunner."""
+
+    def test_complete_single_month_simulation(self) -> None:
+        """Verify complete simulation execution for a single month."""
+        dataset = IntegrationDataset(num_months=1)
+        context = SimulationContext(
+            experiment_name="test_integration",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=1,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=dataset,
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+
+        step = MonthlyProgressionStep(sequence_order=0)
+        pipeline = SimulationPipeline([step])
+        runner = SimulationRunner(pipeline)
+
+        result = runner.run(context)
+
+        # Verify execution
+        assert result.statistics.success is True
+        assert result.statistics.months_simulated == 1
+        assert len(result.timeline.monthly_results) == 1
+        assert step.execution_count == 1
+
+    def test_complete_three_month_simulation(self) -> None:
+        """Verify complete simulation execution for three months."""
+        dataset = IntegrationDataset(num_months=3)
+        context = SimulationContext(
+            experiment_name="test_integration_3m",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=3,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=dataset,
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+
+        step = MonthlyProgressionStep(sequence_order=0)
+        pipeline = SimulationPipeline([step])
+        runner = SimulationRunner(pipeline)
+
+        result = runner.run(context)
+
+        # Verify execution
+        assert result.statistics.success is True
+        assert result.statistics.months_simulated == 3
+        assert len(result.timeline.monthly_results) == 3
+        assert step.execution_count == 3
+
+    def test_complete_twelve_month_simulation(self) -> None:
+        """Verify complete simulation execution for full year."""
+        dataset = IntegrationDataset(num_months=12)
+        context = SimulationContext(
+            experiment_name="test_integration_1y",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=12,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=dataset,
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+
+        step = MonthlyProgressionStep(sequence_order=0)
+        pipeline = SimulationPipeline([step])
+        runner = SimulationRunner(pipeline)
+
+        result = runner.run(context)
+
+        # Verify execution
+        assert result.statistics.success is True
+        assert result.statistics.months_simulated == 12
+        assert len(result.timeline.monthly_results) == 12
+        assert step.execution_count == 12
+
+    def test_timeline_dates_progress_correctly(self) -> None:
+        """Verify timeline contains results with correct progressive dates."""
+        dataset = IntegrationDataset(num_months=3, start_date=date(2020, 3, 15))
+        context = SimulationContext(
+            experiment_name="test_dates",
+            cohort="2020-03",
+            start_date=date(2020, 3, 15),
+            horizon_months=3,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=dataset,
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+
+        step = MonthlyProgressionStep(sequence_order=0)
+        pipeline = SimulationPipeline([step])
+        runner = SimulationRunner(pipeline)
+
+        result = runner.run(context)
+
+        # Verify timeline progression
+        timeline = result.timeline.monthly_results
+        assert len(timeline) == 3
+
+        assert timeline[0].date == date(2020, 3, 15)
+        assert timeline[0].period_index == 0
+
+        assert timeline[1].date == date(2020, 4, 15)
+        assert timeline[1].period_index == 1
+
+        assert timeline[2].date == date(2020, 5, 15)
+        assert timeline[2].period_index == 2
+
+    def test_multi_step_pipeline_execution_order(self) -> None:
+        """Verify all pipeline steps execute in correct order for each month."""
+        dataset = IntegrationDataset(num_months=2)
+        context = SimulationContext(
+            experiment_name="test_multi_step",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=2,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=dataset,
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+
+        execution_log = []
+
+        class LoggingStep(PipelineStep):
+            def __init__(self, sequence_order: int, name: str):
+                self.sequence_order = sequence_order
+                self.name = name
+
+            def execute(self, state: SimulationState) -> SimulationState:
+                execution_log.append(
+                    f"Month {state.period_index}: {self.name}"
+                )
+                return state
+
+        class FinalProgressionStep(PipelineStep):
+            def __init__(self) -> None:
+                self.sequence_order = 2
+
+            def execute(self, state: SimulationState) -> SimulationState:
+                market_snapshot = state.market_snapshot
+                assert market_snapshot is not None
+                monthly_result = MonthlyResult(
+                    date=state.current_date,
+                    period_index=state.period_index,
+                    market_snapshot=market_snapshot,
+                    portfolio=state.portfolio,
+                    allocation=None,
+                    allocation_target=None,
+                    allocation_drift=None,
+                    withdrawal_decision=None,
+                    rebalance_result=None,
+                    drawdown=0.0,
+                    cumulative_return=1.0,
+                    cumulative_inflation=1.0,
+                    events=(),
+                )
+                state.monthly_results.append(monthly_result)
+
+                next_period = state.period_index + 1
+                if next_period >= state.context.horizon_months:
+                    state.status = ExecutionStatus.COMPLETED
+                else:
+                    state.period_index = next_period
+                    current_date = state.current_date
+                    new_month = current_date.month + 1
+                    new_year = current_date.year
+                    if new_month > 12:
+                        new_month = 1
+                        new_year += 1
+                    state.current_date = date(new_year, new_month, current_date.day)
+                    if next_period < len(state.context.dataset):
+                        state.market_snapshot = state.context.dataset[next_period]
+
+                return state
+
+        class FirstLoggingStep(LoggingStep):
+            """Distinct first logging step type for pipeline validation."""
+
+        class SecondLoggingStep(LoggingStep):
+            """Distinct second logging step type for pipeline validation."""
+
+        steps = [
+            FirstLoggingStep(0, "Step1"),
+            SecondLoggingStep(1, "Step2"),
+            FinalProgressionStep(),
+        ]
+        pipeline = SimulationPipeline(steps)
+        runner = SimulationRunner(pipeline)
+
+        runner.run(context)
+
+        # Verify execution order and count
+        assert len(execution_log) == 4  # 2 steps × 2 months
+        assert execution_log[0] == "Month 0: Step1"
+        assert execution_log[1] == "Month 0: Step2"
+        assert execution_log[2] == "Month 1: Step1"
+        assert execution_log[3] == "Month 1: Step2"
+
+    def test_simulation_terminates_on_failure(self) -> None:
+        """Verify simulation terminates immediately when failure_state is set."""
+        dataset = IntegrationDataset(num_months=12)
+        context = SimulationContext(
+            experiment_name="test_failure",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=12,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=dataset,
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+
+        class FailureStep(PipelineStep):
+            def __init__(self) -> None:
+                self.sequence_order = 0
+                self.execution_count = 0
+
+            def execute(self, state: SimulationState) -> SimulationState:
+                self.execution_count += 1
+
+                # Fail on month 3
+                if state.period_index == 2:
+                    state.failure_state = "Portfolio depleted"
+                    return state
+
+                # Create monthly result
+                market_snapshot = state.market_snapshot
+                assert market_snapshot is not None
+                monthly_result = MonthlyResult(
+                    date=state.current_date,
+                    period_index=state.period_index,
+                    market_snapshot=market_snapshot,
+                    portfolio=state.portfolio,
+                    allocation=None,
+                    allocation_target=None,
+                    allocation_drift=None,
+                    withdrawal_decision=None,
+                    rebalance_result=None,
+                    drawdown=0.0,
+                    cumulative_return=1.0,
+                    cumulative_inflation=1.0,
+                    events=(),
+                )
+                state.monthly_results.append(monthly_result)
+
+                # Advance if not failed
+                next_period = state.period_index + 1
+                if next_period < state.context.horizon_months:
+                    state.period_index = next_period
+                    current_date = state.current_date
+                    new_month = current_date.month + 1
+                    new_year = current_date.year
+                    if new_month > 12:
+                        new_month = 1
+                        new_year += 1
+                    state.current_date = date(new_year, new_month, current_date.day)
+                    if next_period < len(state.context.dataset):
+                        state.market_snapshot = state.context.dataset[next_period]
+                else:
+                    state.status = ExecutionStatus.COMPLETED
+
+                return state
+
+        step = FailureStep()
+        pipeline = SimulationPipeline([step])
+        runner = SimulationRunner(pipeline)
+
+        result = runner.run(context)
+
+        # Verify simulation stopped at failure
+        assert result.statistics.success is False
+        assert result.statistics.failure_month is not None
+        assert result.statistics.months_simulated == 2
+        assert step.execution_count == 3  # Months 0, 1, 2 (where it fails)
+
+    def test_result_immutability(self) -> None:
+        """Verify the returned SimulationResult is immutable."""
+        dataset = IntegrationDataset(num_months=1)
+        context = SimulationContext(
+            experiment_name="test_immutable",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=1,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=dataset,
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+
+        step = MonthlyProgressionStep(sequence_order=0)
+        pipeline = SimulationPipeline([step])
+        runner = SimulationRunner(pipeline)
+
+        result = runner.run(context)
+
+        # Attempt to modify should raise
+        with pytest.raises(AttributeError):
+            result.timeline = None  # type: ignore[misc, assignment]
+
+        with pytest.raises(AttributeError):
+            result.statistics = None  # type: ignore[misc, assignment]
+
+    def test_zero_horizon_completes_without_execution(self) -> None:
+        """Verify zero horizon completes without a dataset snapshot or step execution."""
+        dataset = IntegrationDataset(num_months=0)
+        context = SimulationContext(
+            experiment_name="test_zero",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=0,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=dataset,
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+
+        step = MonthlyProgressionStep(sequence_order=0)
+        pipeline = SimulationPipeline([step])
+        runner = SimulationRunner(pipeline)
+
+        result = runner.run(context)
+
+        # Verify zero execution
+        assert result.statistics.success is True
+        assert result.statistics.months_simulated == 0
+        assert len(result.timeline.monthly_results) == 0
+        assert step.execution_count == 0
+
+    def test_zero_horizon_with_initial_snapshot_completes_without_execution(self) -> None:
+        """Verify zero horizon ignores an available initial snapshot."""
+        context = SimulationContext(
+            experiment_name="test_zero_with_snapshot",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=0,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=IntegrationDataset(num_months=1),
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+        step = MonthlyProgressionStep(sequence_order=0)
+
+        result = SimulationRunner(SimulationPipeline([step])).run(context)
+
+        assert result.statistics.success is True
+        assert result.statistics.months_simulated == 0
+        assert step.execution_count == 0
+
+    def test_positive_horizon_requires_an_initial_snapshot(self) -> None:
+        """Verify a positive horizon rejects an empty dataset before execution."""
+        context = SimulationContext(
+            experiment_name="test_positive_empty_dataset",
+            cohort="2020-01",
+            start_date=date(2020, 1, 1),
+            horizon_months=1,
+            initial_wealth=money("1000000"),
+            initial_portfolio=IntegrationPortfolio(),
+            dataset=IntegrationDataset(num_months=0),
+            allocation_policy=Mock(),
+            withdrawal_policy=Mock(),
+        )
+        step = MonthlyProgressionStep(sequence_order=0)
+
+        with pytest.raises(ValueError, match="must provide an initial MarketSnapshot"):
+            SimulationRunner(SimulationPipeline([step])).run(context)
+
+        assert step.execution_count == 0

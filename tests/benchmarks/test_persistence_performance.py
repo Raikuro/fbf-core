@@ -15,13 +15,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from infrastructure.persistence import (
+from fbf.core.execution.result import ResearchExecutionResult
+from fbf.core.persistence.studies.sqlite import (
     PersistenceReconstructionContext,
     SQLiteRepository,
 )
-from infrastructure.persistence.sqlite_repository import ExperimentIdentity
-from research.domain.plan import ResearchPlan
-from research.orchestration.result import ResearchExecutionResult
+from fbf.core.persistence.studies.sqlite.sqlite_repository import ExperimentIdentity
+from fbf.core.study.plan import ResearchPlan
 
 from .conftest import (
     make_benchmark_repo,

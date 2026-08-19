@@ -21,20 +21,20 @@ from pathlib import Path
 
 import pytest
 
-from engine.domain.model.asset import AssetClass
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from infrastructure.persistence import (
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.persistence.studies.sqlite import (
     DatasetCache,
     DefaultDatasetResolver,
     clear_default_dataset_cache,
     context as context_module,
 )
-from infrastructure.persistence.context import (
+from fbf.core.persistence.studies.sqlite.context import (
     _dataset_to_dict,
     create_persistence_context,
 )
-from infrastructure.persistence.errors import StudyNotFoundError
+from fbf.core.persistence.studies.sqlite.errors import StudyNotFoundError
 
 EQ = AssetClass(id="equity", name="Equity", description="")
 BD = AssetClass(id="bond", name="Bond", description="")
@@ -165,7 +165,7 @@ class TestRepeatedResolution:
     def test_resolution_loads_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from cli.builders import resolve_dataset
+        from fbf.core.study.builder import resolve_dataset
 
         _write_dataset_file(tmp_path, "ds_a", [_snapshot(1), _snapshot(2)], version="A")
         calls = _count_file_loads(monkeypatch)
@@ -179,7 +179,7 @@ class TestRepeatedResolution:
     def test_resolution_returns_same_object(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from cli.builders import resolve_dataset
+        from fbf.core.study.builder import resolve_dataset
 
         _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
         _count_file_loads(monkeypatch)
@@ -191,7 +191,7 @@ class TestRepeatedResolution:
         assert a is b is c
 
     def test_unknown_identifier_still_raises(self, tmp_path: Path) -> None:
-        from cli.builders import resolve_dataset
+        from fbf.core.study.builder import resolve_dataset
 
         _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
         with pytest.raises(StudyNotFoundError):
@@ -242,7 +242,7 @@ class TestPrefixSlicing:
 @pytest.mark.skipif(not ERN_DATA_DIR.is_dir(), reason="ERN data directory not present")
 class TestErnPrefixIdentity:
     def test_h720_sliced_to_h360_equals_h360_dataset(self) -> None:
-        from cli.builders import resolve_dataset
+        from fbf.core.study.builder import resolve_dataset
 
         h360 = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
         h720 = resolve_dataset("ern_swr_h720", str(ERN_DATA_DIR))
@@ -255,7 +255,7 @@ class TestErnPrefixIdentity:
             assert _value_equal(got, expected)
 
     def test_cached_resolution_is_single_object_across_horizons(self) -> None:
-        from cli.builders import resolve_dataset
+        from fbf.core.study.builder import resolve_dataset
 
         h360a = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
         h360b = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
@@ -287,7 +287,7 @@ class TestPersistenceContextReuse:
     def test_persistence_context_and_resolve_dataset_share_objects(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from cli.builders import resolve_dataset
+        from fbf.core.study.builder import resolve_dataset
 
         _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
         calls = _count_file_loads(monkeypatch)

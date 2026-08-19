@@ -16,16 +16,16 @@ from typing import Any
 
 import pytest
 
-from engine.application.executor import SimulationExecutor
-from engine.application.simulation import ExperimentRun
-from infrastructure.execution import ExecutionConfig
-from infrastructure.execution.parallel_executor import (
+from fbf.core.execution.pipeline.executor import SimulationExecutor
+from fbf.core.execution.pipeline.simulation import ExperimentRun
+from fbf.core.execution.result import ResearchExecutionResult
+from fbf.core.execution.strategies import ExecutionConfig
+from fbf.core.execution.strategies.parallel_executor import (
     parallel_execute,
     sequential_execute,
 )
-from infrastructure.persistence.sqlite_repository import ExperimentIdentity
-from research.domain.plan import ResearchPlan
-from research.orchestration.result import ResearchExecutionResult
+from fbf.core.persistence.studies.sqlite.sqlite_repository import ExperimentIdentity
+from fbf.core.study.plan import ResearchPlan
 
 from .conftest import (
     make_benchmark_plan,

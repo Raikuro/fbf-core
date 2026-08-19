@@ -16,18 +16,21 @@ import time
 from datetime import date
 from decimal import Decimal
 
-from cli.builders import build_initial_portfolio
-from cli.fast_path import ChainedFastPathSimulationExecutor, FastPathSimulationExecutor
-from cli.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from engine.application.simulation import (
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.domain.model.money import Currency, Money
+from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
+from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
-from engine.application.simulation_context import SimulationContext
-from engine.domain.model.asset import AssetClass
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Currency, Money
-from infrastructure.execution.parallel_executor import sequential_execute
+from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.strategies.fast_path import (
+    ChainedFastPathSimulationExecutor,
+    FastPathSimulationExecutor,
+)
+from fbf.core.execution.strategies.parallel_executor import sequential_execute
+from fbf.core.study.builder import build_initial_portfolio
 
 EQ = AssetClass(id="equity", name="", description="")
 BD = AssetClass(id="bond", name="", description="")
@@ -77,11 +80,11 @@ def _contexts(dataset: Dataset, start: date, horizons: list[int]) -> list[Simula
 def test_fast_path_vs_reference_throughput() -> None:
     """Float closed form is orders of magnitude faster and outcome-equivalent."""
     dataset = _synthetic_dataset(260)
-    from cli.builders import build_initial_portfolio
-    from research.domain.cohort.generator import CohortGenerator
-    from research.domain.experiment.definition import ExperimentDefinition
-    from research.domain.parameter.configuration import ParameterConfiguration
-    from research.domain.plan import materialize_research_plan
+    from fbf.core.study.builder import build_initial_portfolio
+    from fbf.core.study.internal.cohort.generator import CohortGenerator
+    from fbf.core.study.internal.experiment.definition import ExperimentDefinition
+    from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
+    from fbf.core.study.plan import materialize_research_plan
 
     cohorts = CohortGenerator.generate_rolling_monthly(dataset, 120)
     alloc = ConstantAllocationPolicy(Decimal("0.5"))
@@ -162,14 +165,17 @@ def test_chained_vs_non_chained() -> None:
 
 def test_grid_plan_chaining_report() -> None:
     """A full synthetic grid's month-work is cut exactly by the family factor."""
-    from cli.builders import build_initial_portfolio
-    from cli.fast_path import expected_chaining_report, reference_month_work
-    from research.domain.cohort.generator import CohortGenerator
-    from research.domain.experiment.definition import ExperimentDefinition
-    from research.domain.parameter.axis import ParameterAxis
-    from research.domain.parameter.configuration import ParameterConfiguration
-    from research.domain.parameter.engine import ParameterSweepEngine
-    from research.domain.plan import materialize_research_plan
+    from fbf.core.execution.strategies.fast_path import (
+        expected_chaining_report,
+        reference_month_work,
+    )
+    from fbf.core.study.builder import build_initial_portfolio
+    from fbf.core.study.internal.cohort.generator import CohortGenerator
+    from fbf.core.study.internal.experiment.definition import ExperimentDefinition
+    from fbf.core.study.internal.parameter.axis import ParameterAxis
+    from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
+    from fbf.core.study.internal.parameter.engine import ParameterSweepEngine
+    from fbf.core.study.plan import materialize_research_plan
 
     dataset = _synthetic_dataset(780)
     horizons = (30, 40, 50, 60)

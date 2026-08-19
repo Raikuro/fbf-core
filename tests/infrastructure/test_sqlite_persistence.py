@@ -28,23 +28,24 @@ from typing import Any, cast
 
 import pytest
 
-from engine.application.simulation import (
+from fbf.core.domain.model.allocation import AllocationTarget
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.domain.model.money import Currency, Money
+from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
+from fbf.core.domain.policies.allocation_policy import AllocationPolicy
+from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
+from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
+from fbf.core.execution.pipeline.simulation import (
     ExperimentRun,
     SimulationResult,
     SimulationStatistics,
     SimulationTimeline,
 )
-from engine.application.simulation_context import SimulationContext
-from engine.domain.model.allocation import AllocationTarget
-from engine.domain.model.asset import AssetClass
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Currency, Money
-from engine.domain.model.portfolio import AssetHolding, Portfolio
-from engine.domain.policies.allocation_policy import AllocationPolicy
-from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
-from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
-from infrastructure.persistence import (
+from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.result import ResearchExecutionResult
+from fbf.core.persistence.studies.sqlite import (
     CorruptedDatabaseError,
     DuplicateStudyError,
     PersistenceError,
@@ -53,11 +54,11 @@ from infrastructure.persistence import (
     SQLiteRepository,
     StudyNotFoundError,
 )
-from infrastructure.persistence.codecs import (
+from fbf.core.persistence.studies.sqlite.codecs import (
     AllocationPolicyCodec,
     WithdrawalPolicyCodec,
 )
-from infrastructure.persistence.serializers import (
+from fbf.core.persistence.studies.sqlite.serializers import (
     deserialize_decimal,
     deserialize_parameter_config,
     deserialize_portfolio,
@@ -66,18 +67,17 @@ from infrastructure.persistence.serializers import (
     serialize_policy,
     serialize_portfolio,
 )
-from infrastructure.persistence.sqlite_repository import (
+from fbf.core.persistence.studies.sqlite.sqlite_repository import (
     ExperimentIdentity,
     PersistenceReconstructionContext,
     PolicyKind,
     SerializedSimulationResult,
     experiments_semantically_equivalent,
 )
-from research.domain.cohort.specification import CohortSpecification
-from research.domain.experiment.definition import ExperimentDefinition
-from research.domain.parameter.configuration import ParameterConfiguration
-from research.domain.plan import PlannedSimulationUnit, ResearchPlan
-from research.orchestration.result import ResearchExecutionResult
+from fbf.core.study.internal.cohort.specification import CohortSpecification
+from fbf.core.study.internal.experiment.definition import ExperimentDefinition
+from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
+from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
 # ---------------------------------------------------------------------------
 # Shared test dataset — reused so id() matches across save/load
@@ -395,7 +395,9 @@ def make_experiment_run(plan: ResearchPlan) -> ExperimentRun:
     sim_contexts = tuple(
         _build_sim_context(unit, plan.experiment_definition) for unit in plan.units
     )
-    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    from fbf.core.execution.pipeline.simulation import (
+        ExperimentDefinition as EngineExperimentDefinition,
+    )
     engine_def = EngineExperimentDefinition(
         name=plan.experiment_definition.name,
         description=plan.experiment_definition.description,
@@ -453,7 +455,7 @@ def test_schema_version_recorded(repo: SQLiteRepository) -> None:
     import sqlite3
     import tempfile as _tf
 
-    from infrastructure.persistence.schema import SCHEMA_VERSION
+    from fbf.core.persistence.studies.sqlite.schema import SCHEMA_VERSION
     with _tf.NamedTemporaryFile(suffix=".db", delete=False) as f:
         tmp_path = f.name
     try:
@@ -1040,7 +1042,9 @@ def test_execution_result_final_wealth_round_trip(repo: SQLiteRepository) -> Non
         _build_sim_context(unit, experiment)
         for unit in plan.units
     )
-    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    from fbf.core.execution.pipeline.simulation import (
+        ExperimentDefinition as EngineExperimentDefinition,
+    )
     engine_def = EngineExperimentDefinition(
         name=experiment.name,
         description=experiment.description,
@@ -1084,7 +1088,9 @@ def test_execution_result_success_flag_round_trip(repo: SQLiteRepository) -> Non
         _build_sim_context(unit, experiment)
         for unit in plan.units
     )
-    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    from fbf.core.execution.pipeline.simulation import (
+        ExperimentDefinition as EngineExperimentDefinition,
+    )
     engine_def = EngineExperimentDefinition(
         name=experiment.name,
         description=experiment.description,
@@ -1119,7 +1125,9 @@ def test_execution_result_unit_order_preserved(repo: SQLiteRepository) -> None:
         _build_sim_context(unit, experiment)
         for unit in plan.units
     )
-    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    from fbf.core.execution.pipeline.simulation import (
+        ExperimentDefinition as EngineExperimentDefinition,
+    )
     engine_def = EngineExperimentDefinition(
         name=experiment.name,
         description=experiment.description,
@@ -1161,7 +1169,9 @@ def test_execution_result_statistics_round_trip(repo: SQLiteRepository) -> None:
         _build_sim_context(unit, experiment)
         for unit in plan.units
     )
-    from engine.application.simulation import ExperimentDefinition as EngineExperimentDefinition
+    from fbf.core.execution.pipeline.simulation import (
+        ExperimentDefinition as EngineExperimentDefinition,
+    )
     engine_def = EngineExperimentDefinition(
         name=experiment.name,
         description=experiment.description,

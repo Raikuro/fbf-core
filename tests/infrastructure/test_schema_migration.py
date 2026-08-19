@@ -22,8 +22,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from infrastructure.persistence.schema import SCHEMA_VERSION
-from infrastructure.persistence.sqlite_repository import (
+from fbf.core.persistence.studies.sqlite.schema import SCHEMA_VERSION
+from fbf.core.persistence.studies.sqlite.sqlite_repository import (
     ExperimentIdentity,
     SQLiteRepository,
 )

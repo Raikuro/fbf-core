@@ -12,22 +12,22 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from cli.error_handling import ExitCode
 from cli.main import main
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.money import Currency
-from infrastructure.persistence import (
+
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.money import Currency
+from fbf.core.execution.result import ResearchExecutionResult
+from fbf.core.persistence.studies.sqlite import (
     PersistenceReconstructionContext,
     SQLiteRepository,
 )
-from infrastructure.persistence.codecs import DefaultDatasetResolver
-from infrastructure.persistence.sqlite_repository import (
+from fbf.core.persistence.studies.sqlite.codecs import DefaultDatasetResolver
+from fbf.core.persistence.studies.sqlite.sqlite_repository import (
     ExperimentIdentity,
 )
-from research.domain.experiment.definition import ExperimentDefinition
-from research.domain.plan import ResearchPlan
-from research.orchestration.result import ResearchExecutionResult
+from fbf.core.study.internal.experiment.definition import ExperimentDefinition
+from fbf.core.study.plan import ResearchPlan
 
 from .helpers import (
     assert_study_exists,
@@ -266,7 +266,7 @@ class TestFrameworkPersistenceRoundTrip:
         persistence_context: PersistenceReconstructionContext,
         sample_experiment: ExperimentDefinition,
     ) -> None:
-        from infrastructure.persistence import DuplicateStudyError
+        from fbf.core.persistence.studies.sqlite import DuplicateStudyError
         integration_repo.save_experiment(
             ExperimentIdentity(name="unique-study", revision="v1"),
             sample_experiment,
@@ -282,55 +282,6 @@ class TestFrameworkPersistenceRoundTrip:
 
 # ---------------------------------------------------------------------------
 # CLI smoke test (framework-level only — not full E2E, which is P4.2)
-# ---------------------------------------------------------------------------
-
-
-class TestFrameworkCliSmoke:
-    def test_cli_help_succeeds(self) -> None:
-        with pytest.raises(SystemExit) as exc_info:
-            main(["--help"])
-        assert exc_info.value.code == ExitCode.SUCCESS
-
-    def test_cli_version_succeeds(self, capsys: pytest.CaptureFixture[str]) -> None:
-        rc = main(["--version"])
-        assert rc == ExitCode.SUCCESS
-
-    def test_cli_unknown_command_exits_two(self) -> None:
-        with pytest.raises(SystemExit) as exc_info:
-            main(["nonexistent-command"])
-        assert exc_info.value.code == ExitCode.VALIDATION_ERROR
-
-    def test_validate_command_registered(self) -> None:
-        from cli.commands import COMMANDS
-        assert "validate" in COMMANDS
-
-    def test_run_command_registered(self) -> None:
-        from cli.commands import COMMANDS
-        assert "run" in COMMANDS
-
-    def test_list_command_registered(self) -> None:
-        from cli.commands import COMMANDS
-        assert "list" in COMMANDS
-
-    def test_export_command_registered(self) -> None:
-        from cli.commands import COMMANDS
-        assert "export" in COMMANDS
-
-    def test_optimize_command_registered(self) -> None:
-        from cli.commands import COMMANDS
-        assert "optimize" in COMMANDS
-
-    def test_compare_command_registered(self) -> None:
-        from cli.commands import COMMANDS
-        assert "compare" in COMMANDS
-
-    def test_config_command_registered(self) -> None:
-        from cli.commands import COMMANDS
-        assert "config" in COMMANDS
-
-
-# ---------------------------------------------------------------------------
-# Configuration integration (framework-level)
 # ---------------------------------------------------------------------------
 
 

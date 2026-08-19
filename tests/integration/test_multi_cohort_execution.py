@@ -13,25 +13,25 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from engine.domain.model.allocation import AllocationTarget
-from engine.domain.model.asset import AssetClass
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Currency, Money
-from engine.domain.model.portfolio import AssetHolding, Portfolio
-from engine.domain.policies.allocation_policy import AllocationPolicy
-from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
-from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
-from infrastructure.execution.parallel_executor import (
+from fbf.core.domain.model.allocation import AllocationTarget
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.domain.model.money import Currency, Money
+from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
+from fbf.core.domain.policies.allocation_policy import AllocationPolicy
+from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
+from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
+from fbf.core.execution.executor import ResearchExecutor
+from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
     parallel_execute,
     sequential_execute,
 )
-from research.domain.cohort.specification import CohortSpecification
-from research.domain.experiment.definition import ExperimentDefinition
-from research.domain.parameter.configuration import ParameterConfiguration
-from research.domain.plan import ResearchPlan, materialize_research_plan
-from research.orchestration.executor import ResearchExecutor
+from fbf.core.study.internal.cohort.specification import CohortSpecification
+from fbf.core.study.internal.experiment.definition import ExperimentDefinition
+from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
+from fbf.core.study.plan import ResearchPlan, materialize_research_plan
 
 _ASSET = AssetClass(id="acwi", name="ACWI", description="Global equities")
 

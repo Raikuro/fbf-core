@@ -14,24 +14,27 @@ from pathlib import Path
 
 import pytest
 
-from engine.domain.model.asset import AssetClass
-from engine.domain.model.dataset import Dataset
-from engine.domain.model.decision_context import DecisionContext
-from engine.domain.model.market_snapshot import MarketSnapshot
-from engine.domain.model.money import Currency, Money
-from engine.domain.policies.allocation_policy import AllocationPolicy
-from engine.domain.policies.decisions import AllocationDecision, WithdrawalDecision
-from engine.domain.policies.withdrawal_policy import WithdrawalPolicy
-from infrastructure.persistence.codecs import DefaultDatasetResolver
-from infrastructure.persistence.context import _load_dataset_from_file, create_persistence_context
-from infrastructure.persistence.errors import StudyNotFoundError
-from infrastructure.persistence.sqlite_repository import (
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.decision_context import DecisionContext
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.domain.model.money import Currency, Money
+from fbf.core.domain.policies.allocation_policy import AllocationPolicy
+from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
+from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
+from fbf.core.persistence.studies.sqlite.codecs import DefaultDatasetResolver
+from fbf.core.persistence.studies.sqlite.context import (
+    _load_dataset_from_file,
+    create_persistence_context,
+)
+from fbf.core.persistence.studies.sqlite.errors import StudyNotFoundError
+from fbf.core.persistence.studies.sqlite.sqlite_repository import (
     ExperimentIdentity,
     PersistenceReconstructionContext,
     SQLiteRepository,
 )
-from research.domain.cohort.specification import CohortSpecification
-from research.domain.experiment.definition import ExperimentDefinition
+from fbf.core.study.internal.cohort.specification import CohortSpecification
+from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 
 
 def _make_dummy_dataset(
