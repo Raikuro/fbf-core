@@ -309,10 +309,16 @@ def _longest_horizon_years(config: StudyConfiguration) -> int:
 def _make_horizon_resolver(
     config: StudyConfiguration,
 ) -> Callable[[ParameterConfiguration], int]:
-    """Per-configuration horizon: the ``horizon_years`` value in months."""
+    """Per-configuration horizon: the ``horizon_years`` value in observations.
+
+    The ERN cash-flow timeline needs one observation for the pre-retirement
+    month-end (``d_{c-1}``, where the initial withdrawal is priced) plus one
+    per retirement month, i.e. ``horizon_years * 12 + 1`` observations for a
+    ``horizon_years``-year retirement.
+    """
 
     def resolve(param_config: ParameterConfiguration) -> int:
-        return int(param_config.get("horizon_years")) * 12
+        return int(param_config.get("horizon_years")) * 12 + 1
 
     return resolve
 
@@ -388,12 +394,13 @@ def build_study_plan(
     """
     dataset = resolve_dataset(config.dataset_identifier, data_dir)
     longest_horizon_years = _longest_horizon_years(config)
-    longest_horizon_months = longest_horizon_years * 12
+    longest_horizon_months = longest_horizon_years * 12 + 1
     cohorts = build_cohort_specs(dataset, longest_horizon_months)
     if not cohorts:
         raise ValueError(
             f"Dataset {config.dataset_identifier!r} is too small for a "
-            f"{longest_horizon_years}-year ({longest_horizon_months}-month) horizon"
+            f"{longest_horizon_years}-year "
+            f"({longest_horizon_months}-observation) horizon"
         )
     param_configs = _build_unified_parameter_configs(config)
 
