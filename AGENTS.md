@@ -13,7 +13,7 @@ It contains the simulation engine, research library, and ERN oracle.
 | Root namespace | `fbf.core` |
 | Third-party runtime deps | **Zero** |
 | Python requirement | ≥ 3.13 |
-| Test suite | 673 tests (unit / integration / infrastructure / benchmarks / oracle / contract) |
+| Test suite | 692 tests (unit / integration / infrastructure / benchmarks / oracle / contract) |
 
 ---
 
@@ -32,6 +32,13 @@ It contains the simulation engine, research library, and ERN oracle.
 7. **Do not add `argparse`, `sys.argv`, or any presentation logic to Core.**
 8. **Do not modify `tests/oracle/ern/`** constants without a corresponding update to
    the canonical ERN acceptance matrix and explicit user approval.
+9. **Datasets are external to the wheel.** Never embed datasets in the package or
+   hardcode dataset paths; discovery is explicit via `data_dir` (see `DATASETS.md`).
+10. **No machine-specific absolute paths** (`/tmp/`, `/home/`, `/Users/`, `C:\`) in
+    `src/` or `tests/` — tests use `tmp_path` (enforced by `tests/contract/`).
+11. **External CLI-binary use is confined to `tests/oracle/`** — the black-box ERN
+    harness is the only test surface allowed to drive the installed `sim-retire` binary
+    (enforced by `tests/contract/test_core_boundaries.py`).
 
 ---
 
@@ -41,7 +48,35 @@ It contains the simulation engine, research library, and ERN oracle.
 |------|---------|----------------|
 | Tier 1 | `fbf.core` (root `__init__`) | All consumers |
 | Tier 2 | `fbf.core.domain`, `fbf.core.domain.model`, `fbf.core.domain.policies`, `fbf.core.study`, `fbf.core.execution`, `fbf.core.optimization`, `fbf.core.persistence` | CLI and Core |
-| Tier 3 | All other submodules | Core tests only — never CLI |
+| Tier 3 | All other submodules | Core tests only — never CLI production. CLI **tests** may use a small, explicitly documented allow-list (see `fbf-cli/tests/contract/test_cli_boundaries.py`). |
+
+---
+
+## Quality Gate
+
+Run every command below from a clean checkout **before** committing to `fbf-core`.
+This is the reproducible Phase 2 closure gate (2.10). A change that does not
+pass every step is not committed.
+
+```bash
+# 1. Lint — must report "All checks passed!"
+ruff check src tests
+
+# 2. Type check — must report "Success: no issues found in N source files"
+mypy --strict src
+
+# 3. Full test suite — must be 0 failed
+pytest -p no:cacheprovider
+
+# 4. Boundary contract — repository independence + tier discipline
+pytest tests/contract/
+
+# 5. ERN oracle gate (CI / release only) — uses SIM_RETIRE_BIN + RUN_ERN_E2E
+#    Run separately: pytest tests/oracle/ with the ERN environment (see report §E).
+```
+
+`ruff` runs with `--fix` for auto-applicable findings, but the final state must
+be clean under the plain `ruff check src tests` form above.
 
 ---
 

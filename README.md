@@ -101,10 +101,19 @@ fbf-core/
 │   └── contract/                    # architectural boundary assertions
 ├── ARCHITECTURE.md
 ├── AGENTS.md
+├── DATASETS.md                # dataset distribution & ownership model
 └── pyproject.toml
 ```
 
 ---
+
+## Datasets
+
+Datasets (e.g. the ERN bundle in `data/ern/`) are intentionally **not** packaged in the
+`fbf-core` wheel. They are consumed through the generic *Dataset Directory* contract: point
+`--data-dir` (CLI) or the `data_dir` Core API parameter at a directory of
+`<identifier>.json` dataset files. Resolution, caching, versioning, and reproducibility
+rules are documented in [DATASETS.md](./DATASETS.md).
 
 ## Architecture
 

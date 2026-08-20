@@ -60,7 +60,7 @@ def test_invalid_values_raise(bad: str) -> None:
 
 
 def test_worker_count_passes_through_to_cli_argv(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The resolved count must reach the real CLI as ``--workers N``.
 
@@ -78,19 +78,20 @@ def test_worker_count_passes_through_to_cli_argv(
 
     monkeypatch.setattr(CliHarness, "run", fake_run)
     harness = CliHarness(
-        cli=Path("/nonexistent/sim-retire"),
+        cli=Path("__no_such_cli__"),
         data_dir=Path("data/ern"),
-        home_dir=Path("/tmp/x"),
+        home_dir=tmp_path,
     )
 
     workers = resolve_e2e_workers(ERN_E2E_MAX_WORKERS, host_cpu_count=32)
-    harness.run_study(Path("/tmp/study.yaml"), workers=workers, persist=False)
+    study_path = tmp_path / "study.yaml"
+    harness.run_study(study_path, workers=workers, persist=False)
 
     # run_study hands the exact worker count to CliHarness.run, which builds
     # the final subprocess argv (prefixing the CLI binary and --data-dir).
     assert captured["args"] == [
         "run",
-        "/tmp/study.yaml",
+        str(study_path),
         "--workers",
         "32",
         "--no-persist",

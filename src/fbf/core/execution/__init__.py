@@ -9,6 +9,7 @@ from typing import Any
 
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.execution.strategies.fast_path import FastPathValidationError
+from fbf.core.study.builder import BuiltStudy, StudyPlanResult
 
 
 def sequential_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
@@ -27,7 +28,9 @@ def parallel_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
 
 def execute_reference_chained(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
     """Execute the public exact chained-reference operation."""
-    from fbf.core.execution.strategies.reference_chaining import execute_reference_chained as implementation
+    from fbf.core.execution.strategies.reference_chaining import (
+        execute_reference_chained as implementation,
+    )
 
     return implementation(*args, **kwargs)
 
@@ -70,7 +73,6 @@ def __getattr__(name: str) -> Any:
 
         return ChainedFastPathSimulationExecutor
     raise AttributeError(name)
-from fbf.core.study.builder import BuiltStudy, StudyPlanResult
 
 ProgressCallback = Callable[[int, int], None]
 

@@ -249,3 +249,15 @@ cd fbf-cli && python -m build --wheel
 6. CLI imports exclusively through the public Core API (Tier 1 and Tier 2).
 7. No history is rewritten in either repository after the P1.9/P1.10 migration commit.
 8. The legacy monorepo (`simulador_jubilacion`) is preserved as a read-only historical archive.
+
+## 10. Dataset Distribution & Ownership Model
+
+Datasets are **not** shipped in the `fbf-core` wheel; they are external artifacts consumed
+through the generic **Dataset Directory** contract (a directory of `<identifier>.json`
+files, identified by filename stem, versioned by an in-file `version` field). Dataset
+resolution, loading, and process-local caching are owned by fbf-core
+(`persistence.studies.sqlite`: `DatasetCache`, `DefaultDatasetResolver`,
+`_load_datasets_from_dir`; study-facing resolver `fbf.core.study.builder.resolve_dataset`).
+The CLI is a pass-through for `--data-dir` only. Installed-only deployments must supply a
+Dataset Directory explicitly. See [DATASETS.md](./DATASETS.md) for the full decision and
+contract.

@@ -104,12 +104,16 @@ def run_grid_study(
         args.append("--reference-chained")
     result = harness.run(args, timeout=timeout)
     if result.exit_code != 0:
-        raise RuntimeError(f"sim-retire run failed (exit={result.exit_code}): {result.stderr or result.stdout}")
+        raise RuntimeError(
+            f"sim-retire run failed (exit={result.exit_code}): {result.stderr or result.stdout}"
+        )
     if _CELL_HEADER not in result.stdout:
         raise RuntimeError(f"sim-retire run printed no '{_CELL_HEADER}' section in its summary.")
     cells = parse_per_cell_lines(result.stdout)
     if not cells:
-        raise RuntimeError(f"No per-cell lines parsed from sim-retire run (exit={result.exit_code}).")
+        raise RuntimeError(
+            f"No per-cell lines parsed from sim-retire run (exit={result.exit_code})."
+        )
     for key, stats in cells.items():
         expected_rate = 1 - stats.units_failed / stats.units_run
         if abs(stats.success_rate - expected_rate) > 1e-4:
