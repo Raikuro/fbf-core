@@ -12,10 +12,8 @@ from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 import pytest
-from cli.main import main
 
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
@@ -235,16 +233,3 @@ def study_yaml_path(tmp_path: Path) -> Path:
     path = tmp_path / "study.yaml"
     path.write_text(_INTEGRATION_STUDY_YAML, encoding="utf-8")
     return path
-
-
-# ---------------------------------------------------------------------------
-# CLI invocation helper
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def invoke_cli() -> Any:
-    """Return a callable that invokes CLI main() with args and captures output."""
-    def _invoke(args: list[str]) -> int:
-        return main(args)
-    return _invoke

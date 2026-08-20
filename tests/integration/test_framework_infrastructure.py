@@ -9,11 +9,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 import pytest
-from cli.error_handling import ExitCode
-from cli.main import main
 
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency
@@ -22,7 +19,6 @@ from fbf.core.persistence.studies.sqlite import (
     PersistenceReconstructionContext,
     SQLiteRepository,
 )
-from fbf.core.persistence.studies.sqlite.codecs import DefaultDatasetResolver
 from fbf.core.persistence.studies.sqlite.sqlite_repository import (
     ExperimentIdentity,
 )
@@ -88,9 +84,6 @@ class TestConftestFixtures:
         content = study_yaml_path.read_text(encoding="utf-8")
         assert "Integration Test Study" in content
         assert "metadata" in content
-
-    def test_invoke_cli_is_callable(self, invoke_cli: Any) -> None:
-        assert callable(invoke_cli)
 
 
 # ---------------------------------------------------------------------------
@@ -278,28 +271,6 @@ class TestFrameworkPersistenceRoundTrip:
                 sample_experiment,
                 persistence_context,
             )
-
-
-# ---------------------------------------------------------------------------
-# CLI smoke test (framework-level only — not full E2E, which is P4.2)
-# ---------------------------------------------------------------------------
-
-
-class TestFrameworkConfigIntegration:
-    def test_config_validate_minimal(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        config_yaml = tmp_path / "config.yaml"
-        config_yaml.write_text(
-            "database:\n  path: test.db\noutput:\n  default_format: csv\n"
-            "execution:\n  default_workers: 4\nlogging:\n  level: INFO\n",
-            encoding="utf-8",
-        )
-        with monkeypatch.context() as m:
-            m.setattr(DefaultDatasetResolver, "resolve", lambda self, id: make_dataset(120))
-            rc = main(["--config", str(config_yaml), "validate", str(tmp_path / "study.yaml")])
-        # file-not-found → validation error (expected; no study yaml provided)
-        assert rc == ExitCode.VALIDATION_ERROR
 
 
 # ---------------------------------------------------------------------------

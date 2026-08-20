@@ -221,7 +221,7 @@ class TestResearchExecutorConstructor:
     def test_does_not_instantiate_any_internal_collaborators(self) -> None:
         """Executor must receive its collaborator by injection, never create one."""
         mock_exec = Mock()
-        with (patch("research.orchestration.executor.SimulationExecutor") as patched_cls,):
+        with (patch("fbf.core.execution.executor.SimulationExecutor") as patched_cls,):
             ResearchExecutor(simulation_executor=mock_exec)
             patched_cls.assert_not_called()
 
@@ -815,7 +815,7 @@ class TestResearchExecutorScopeGuards:
         plan = make_plan(units=(make_unit(year=2000),))
         executor, mock_sim_exec = make_executor(simulation_results=(make_simulation_result(),))
 
-        ctx_patch = "research.orchestration.executor.ResearchExecutor._create_context_for_unit"
+        ctx_patch = "fbf.core.execution.executor.ResearchExecutor._create_context_for_unit"
         with patch(ctx_patch) as ctx_method:
             ctx_method.return_value = Mock(spec=SimulationContext)
             mock_sim_exec.execute.return_value = make_experiment_run((make_simulation_result(),))

@@ -62,7 +62,12 @@ def test_invalid_values_raise(bad: str) -> None:
 def test_worker_count_passes_through_to_cli_argv(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The resolved count must reach the real CLI as ``--workers N``."""
+    """The resolved count must reach the real CLI as ``--workers N``.
+
+    The harness is constructed with an explicit ``cli`` path so no ``sim-retire``
+    console script needs to be present: this is a pure Core-side argv-contract
+    test and must not depend on the CLI binary.
+    """
     captured: dict[str, Any] = {}
 
     def fake_run(harness_self: CliHarness, args: list[str], timeout: int) -> Any:
@@ -72,7 +77,11 @@ def test_worker_count_passes_through_to_cli_argv(
         return CliResult(exit_code=0, stdout="", stderr="")
 
     monkeypatch.setattr(CliHarness, "run", fake_run)
-    harness = CliHarness(data_dir=Path("data/ern"), home_dir=Path("/tmp/x"))
+    harness = CliHarness(
+        cli=Path("/nonexistent/sim-retire"),
+        data_dir=Path("data/ern"),
+        home_dir=Path("/tmp/x"),
+    )
 
     workers = resolve_e2e_workers(ERN_E2E_MAX_WORKERS, host_cpu_count=32)
     harness.run_study(Path("/tmp/study.yaml"), workers=workers, persist=False)
