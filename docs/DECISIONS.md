@@ -51,30 +51,27 @@ value per array. No backward compatibility with earlier configuration formats.
 
 ---
 
-## Reference Chained Execution
+## Multi-Horizon Execution
 
-**Decision:** The execution model uses reference chaining — execute the
-longest horizon per family, derive shorter horizons by truncation. Chaining
-splits into cohort-aligned slices, dispatches via parallel execution, and
-merges back in plan order.
+**Decision:** The execution model uses horizon derivation — execute the
+longest horizon per family, derive shorter horizons by truncation. Derived
+results reuse identical objects. Splits into cohort-aligned slices,
+dispatches via parallel execution, and merges back in plan order.
 
 **Why:** 3× month-work reduction without correctness sacrifice (e.g. 169M →
 56M months). Derived results reuse identical objects. Bit-exact with
 independent execution on the full 313,020-unit ERN grid. Slice-based
-dispatch is mandatory because whole-plan chained materialization would hold
+dispatch is mandatory because whole-plan materialization would hold
 ~0.37 MiB per unit, extrapolating to ~110 GiB for a full grid.
 
 **Alternatives rejected:** Maintaining an independent whole-horizon
-reference execution path — rejected because chaining is bit-exact and makes
-the independent path redundant. Whole-plan sequential chaining — rejected
-due to memory exhaustion at scale.
+reference execution path — rejected because derivation is bit-exact and
+makes the independent path redundant. Whole-plan sequential execution —
+rejected due to memory exhaustion at scale.
 
-**Consequence:** Two execution paths share the chaining architecture:
-reference chained (full Decimal pipeline, bit-exact, default) and fast path
-(float closed-form recurrence, approximate, opt-in via `--fast-path`).
-Both use slice-based dispatch for memory safety. Cohort alignment preserves
-horizon family grouping. No independent (unchained) reference execution
-path exists.
+**Consequence:** Both the reference engine and the fast path use the same
+slice-based dispatch for memory safety. Cohort alignment preserves horizon
+family grouping. No independent reference execution path exists.
 
 ---
 
@@ -144,9 +141,9 @@ divergences are documented and pinned.
 ## Fast Path Three-Tier Model
 
 **Decision:** The fast path operates in three tiers:
-1. **Reference Chained** — full Decimal pipeline, bit-exact, default.
-2. **Decimal Fast Path** — potential exact optimization for eligible policy
-   family, must prove bit-exact equivalence with the reference.
+1. **Reference** — full Decimal pipeline, bit-exact, default, authoritative.
+2. **Decimal Fast Path** — exact optimization for eligible policy family,
+   proven bit-exact with the reference, retained as a performance optimization.
 3. **Float Fast Path** — approximate, opt-in, non-authoritative, exploratory.
 
 **Why:** The non-chained `FastPathSimulationExecutor` had no concrete
@@ -156,7 +153,7 @@ point. Removing the non-chained version simplifies the API surface and
 eliminates dead code.
 
 **Alternatives rejected:** Keeping the non-chained executor for
-hypothetical future use — rejected because YAGNI and the chained version
+hypothetical future use — rejected because YAGNI and the current version
 subsumes all functionality.
 
 **Consequence:** `ChainedFastPathSimulationExecutor` inherits

@@ -65,8 +65,8 @@ There is **no umbrella `fbf/.git`** and no monorepo layer.
   `SimulationStatisticsBuilder` after the simulation loop completes.
 * **Closed-form fast path** — analytical recurrence for constant-policy studies,
   validated to be bit-exact against the reference pipeline.
-* **Reference-chaining execution** — deterministic multi-worker execution,
-  historical chaining for prefix-consistent multi-horizon grids.
+* **Multi-horizon execution** — deterministic multi-worker execution for
+  prefix-consistent multi-horizon grids.
 * **Simulation executor** — application-layer coordinator only. No financial
   model, no monthly execution, no statistics. Delegates to `SimulationRunner`
   via dependency injection. One public operation: `execute(experiment) →

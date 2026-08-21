@@ -19,12 +19,11 @@ where the engine fails at month ``m`` when ``V_m < C`` (depletion at the
 withdrawal step).  Success, failure month, and final wealth are derived from
 this O(horizon) recurrence instead of running the full 9-step pipeline.
 Measured on the ERN 180-cell grid (313,020 units) at equal worker count
-(``--workers max``) the combined ``--fast-path`` (float closed form + horizon
-chaining) is approximately 41x faster end-to-end than the reference Decimal
-engine; chaining contributes approximately 1.8x on top of the 3x month-work
-reduction.  These are host-dependent session measurements; the committed
-benchmark suite (``tests/benchmarks/``) asserts outcome equivalence, not these
-wall-clock figures.
+(``--workers max``) the combined ``--fast-path`` (float closed form +
+multi-horizon execution) is approximately 41x faster end-to-end than the
+reference Decimal engine.  These are host-dependent session measurements; the
+committed benchmark suite (``tests/benchmarks/``) asserts outcome equivalence,
+not these wall-clock figures.
 
 The reference (Decimal, full pipeline) engine is intentionally untouched: this
 module wraps it and delegates every non-eligible context back to it.  Eligible

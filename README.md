@@ -22,7 +22,7 @@ persistence layer.
 | **Deterministic Decimal arithmetic** | All monetary calculations use `decimal.Decimal`. No floating-point drift. |
 | **9-Step monthly pipeline** | Canonical per-month simulation: withdrawal, rebalance, market evolution, and seven other steps. |
 | **Closed-form fast path** | Analytical recurrence for constant-policy studies, validated bit-exact against the reference pipeline. |
-| **Reference chaining** | Deterministic historical-dataset chaining for multi-worker cohort execution. |
+| **Multi-horizon execution** | Deterministic derivation for multi-worker cohort execution. |
 | **SWR optimisation** | Binary-search solver for maximum safe withdrawal rate across a parameter space. |
 | **ERN oracle** | Canonical acceptance matrix for regression testing against published ERN data. |
 | **Study planning** | Cohort generators, parameter axes, experiment definitions. |

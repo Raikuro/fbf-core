@@ -24,8 +24,8 @@ validated, and never alter default behaviour.
 
 The reference monthly pipeline (`decimal.Decimal`, step-by-step) is the
 **canonical source of truth** for simulation correctness. Both the closed-form
-fast path and the chained execution strategy are *derived* from it and must
-produce bit-equivalent results.
+fast path and the multi-horizon execution strategy are *derived* from it and
+must produce bit-equivalent results.
 
 This design exists because:
 
@@ -36,15 +36,15 @@ This design exists because:
 * Having a single reference engine makes correctness verifiable by
   construction rather than by sampling.
 
-The fast path validates against the reference. Chaining reuses reference
-results. Neither replaces the reference.
+The fast path validates against the reference. Multi-horizon execution
+reuses reference results. Neither replaces the reference.
 
 ---
 
-## Chaining
+## Multi-Horizon Execution
 
 Multi-horizon study grids have prefix-consistent datasets: shorter horizons
-are prefix subsets of the longest horizon. Chaining executes only the
+are prefix subsets of the longest horizon. Execution runs only the
 longest-horizon context per family, then derives shorter horizons by
 truncation.
 
@@ -52,11 +52,11 @@ truncation.
 months) without any correctness sacrifice. Derived results reuse identical
 `MonthlySimulationResult` objects and `Decimal` statistics.
 
-**Why slice-based dispatch is mandatory:** Whole-plan chained
-materialization would hold ~0.37 MiB per unit, extrapolating to ~110 GiB
-for a full grid. Sliced dispatch bounds peak per-worker memory. Slices are
-cohort-aligned (cohorts never split) to preserve horizon families. Result
-merging is order-preserving, making sliced execution equivalent to
+**Why slice-based dispatch is mandatory:** Whole-plan materialization would
+hold ~0.37 MiB per unit, extrapolating to ~110 GiB for a full grid. Sliced
+dispatch bounds peak per-worker memory. Slices are cohort-aligned (cohorts
+never split) to preserve horizon families. Result merging is
+order-preserving, making sliced execution equivalent to
 whole-plan.
 
 ---
@@ -193,7 +193,7 @@ after_simulation`. Same `DecisionContext` must produce identical
 * **Document every optimisation.** Record what changed and why.
 * **Correctness before performance.** Engine, research, and optimization
   layers are frozen; never trade correctness for speed.
-* **Opt-in only.** Performance modes (fast path, chaining) are activated
+* **Opt-in only.** Performance modes (fast path, multi-horizon execution) are activated
   explicitly and never affect default behaviour.
 * **Memory boundedness.** Plan-build RSS is measured. Parallel memory is
   bounded by slice sizing. Whole-plan materialization is explicitly
@@ -262,7 +262,7 @@ through the facade is subject to change without notice.
 * **Float fast path for production use:** Rejected because it creates an
   unbounded accuracy-conformance surface. The reference engine remains the
   semantic oracle; the fast path validates against it.
-* **Whole-plan sequential chaining:** Rejected due to ~110 GiB memory
+* **Whole-plan sequential execution:** Rejected due to ~110 GiB memory
   extrapolation. Slice-based dispatch is mandatory.
 * **Base/fallback policy scalar duality:** Rejected in favour of a
   universal arrays-only model. The Cartesian product of three value arrays
@@ -271,8 +271,8 @@ through the facade is subject to change without notice.
   eliminates base/fallback redundancy and precedence ambiguity.
 * **Grid-ness inferred from shape:** Rejected. Exactly one
   policy-resolution rule applies to all study kinds.
-* **Independent whole-horizon reference execution:** Rejected. Reference
-  chaining is bit-exact and makes the independent path redundant.
+* **Independent whole-horizon reference execution:** Rejected. Multi-horizon
+  derivation is bit-exact and makes the independent path redundant.
 
 ---
 
