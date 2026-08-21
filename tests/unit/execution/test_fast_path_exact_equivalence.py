@@ -222,6 +222,31 @@ class TestFloatPath:
                 f"(unit h={unit.horizon_months} config={unit.parameter_config})"
             )
 
+    def test_wealth_bound_across_parameter_sweep(self) -> None:
+        """Float wealth deviation stays bounded across a wide parameter sweep."""
+        dataset = _dataset(300)
+        plan = build_grid_plan(
+            dataset,
+            horizons=(1, 2, 3, 5),
+            weights=(0.0, 0.25, 0.5, 0.75, 1.0),
+            rates=(0.03, 0.04, 0.05, 0.08),
+        )
+        reference = _execute(plan)
+        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        max_diff = Decimal("0")
+
+        for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
+            _assert_exact(ref, got, unit, "success")
+            _assert_exact(ref, got, unit, "failure_month")
+            _assert_exact(ref, got, unit, "months_simulated")
+            diff = abs(ref.statistics.final_wealth.amount - got.statistics.final_wealth.amount)
+            if diff > max_diff:
+                max_diff = diff
+
+        assert max_diff <= FLOAT_WEALTH_TOLERANCE, (
+            f"max final_wealth diff {max_diff} > {FLOAT_WEALTH_TOLERANCE}"
+        )
+
     def test_non_boundary_flat_control_matches_outcomes(self) -> None:
         """On flat data without an exact-equality boundary, float matches exactly."""
         plan = build_grid_plan(_dataset(25, flat=True), (2,), rates=(0.3,))
@@ -231,6 +256,30 @@ class TestFloatPath:
             _assert_exact(ref, got, unit, "success")
             _assert_exact(ref, got, unit, "failure_month")
             _assert_exact(ref, got, unit, "months_simulated")
+
+    def test_single_month_context(self) -> None:
+        """Float handles single-month horizon correctly."""
+        dataset = _dataset(25)
+        plan = build_grid_plan(dataset, (1,), rates=(0.04,))
+        reference = _execute(plan)
+        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
+            _assert_exact(ref, got, unit, "success")
+            _assert_exact(ref, got, unit, "failure_month")
+            _assert_exact(ref, got, unit, "months_simulated")
+
+    def test_long_horizon_context(self) -> None:
+        """Float handles long horizon (600 months) correctly."""
+        dataset = _dataset(610)
+        plan = build_grid_plan(dataset, (5,), rates=(0.04,))
+        reference = _execute(plan)
+        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
+            _assert_exact(ref, got, unit, "success")
+            _assert_exact(ref, got, unit, "failure_month")
+            _assert_exact(ref, got, unit, "months_simulated")
+            diff = abs(ref.statistics.final_wealth.amount - got.statistics.final_wealth.amount)
+            assert diff <= FLOAT_WEALTH_TOLERANCE
 
     def test_exact_equality_boundary_flip_is_pinned(self) -> None:
         """Float may flip outcomes at crafted V_m == C boundaries.
