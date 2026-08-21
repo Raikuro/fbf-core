@@ -20,13 +20,11 @@ withdrawal step).  Success, failure month, and final wealth are derived from
 this O(horizon) recurrence instead of running the full 9-step pipeline.
 Measured on the ERN 180-cell grid (313,020 units) at equal worker count
 (``--workers max``) the combined ``--fast-path`` (float closed form + horizon
-chaining) is ≈41x faster end-to-end than the reference Decimal engine
-(≈35 s vs ≈1,440 s wall-clock this session); chaining contributes ≈1.8x
-(66.6 s un-chained vs 37.5 s chained at 8 workers) on top of the 3x
-month-work reduction (169,030,800 → 56,343,600 months).  These are
-host-dependent session measurements; the committed benchmark suite
-(``tests/benchmarks/``) asserts outcome equivalence, not these wall-clock
-figures.
+chaining) is approximately 41x faster end-to-end than the reference Decimal
+engine; chaining contributes approximately 1.8x on top of the 3x month-work
+reduction.  These are host-dependent session measurements; the committed
+benchmark suite (``tests/benchmarks/``) asserts outcome equivalence, not these
+wall-clock figures.
 
 The reference (Decimal, full pipeline) engine is intentionally untouched: this
 module wraps it and delegates every non-eligible context back to it.  Eligible
@@ -34,12 +32,12 @@ contexts can be evaluated in ``float`` (fast; exact outcome/failure month, final
 wealth within ~1e-5 EUR) or ``decimal`` (bit-exact: replicates the reference's
 per-month per-asset Decimal arithmetic so success, failure month and final
 wealth match to the last digit); the ``float`` path is validated against the
-reference engine by ``tests/cli/test_fast_path.py``.
+reference engine by ``run_fast_path_validation``.
 
 This path is a guarded optimization.  It is only exercised when the CLI caller
-explicitly selects ``FastPathSimulationExecutor`` / ``ChainedFastPathSimulationExecutor``
-(e.g. via the ``--fast-path`` flag on ``sim-retire run``); the default execution
-path remains the reference fbf.core.
+explicitly selects ``ChainedFastPathSimulationExecutor`` (e.g. via the
+``--fast-path`` flag on ``sim-retire run``); the default execution path remains
+the reference fbf.core.
 """
 
 from __future__ import annotations
@@ -512,36 +510,7 @@ def evaluate_closed_form(
     return _build_result(context, path, context.horizon_months)
 
 
-class FastPathSimulationExecutor(SimulationExecutor):
-    """SimulationExecutor that uses the closed form for eligible contexts.
 
-    Non-eligible contexts are delegated to the reference engine unchanged.
-    ``precision`` selects the closed-form arithmetic; the reference path always
-    runs the standard Decimal pipeline.
-    """
-
-    def __init__(
-        self,
-        reference_executor: SimulationExecutor | None = None,
-        precision: Precision = "float",
-    ) -> None:
-        self._reference = reference_executor or _create_default_simulation_executor()
-        self._precision = precision
-
-    def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
-        results: list[SimulationResult] = []
-        for context in definition.simulation_contexts:
-            if is_fast_path_eligible(context):
-                results.append(evaluate_closed_form(context, self._precision))
-            else:
-                single = EngineExperimentDefinition(
-                    name=definition.name,
-                    description=definition.description,
-                    simulation_contexts=(context,),
-                )
-                run = self._reference.execute(single)
-                results.append(run.simulation_results[0])
-        return ExperimentRun(definition=definition, simulation_results=tuple(results))
 
 
 def _unit_simulation_context(plan: ResearchPlan, unit: PlannedSimulationUnit) -> SimulationContext:
@@ -576,10 +545,10 @@ def fast_path_unit_counts(plan: ResearchPlan) -> tuple[int, int]:
     """Return ``(fast_path_units, reference_units)`` for a *plan*.
 
     Mirrors ``ResearchExecutor``'s unit -> ``SimulationContext`` translation so
-    the count reflects exactly which units ``FastPathSimulationExecutor`` would
-    evaluate via the closed form.  It is used by the CLI to report fast-path
-    coverage in the completion summary; eligibility is deterministic and does
-    not depend on the execution path (sequential or parallel).
+    the count reflects exactly which units ``ChainedFastPathSimulationExecutor``
+    would evaluate via the closed form.  It is used by the CLI to report
+    fast-path coverage in the completion summary; eligibility is deterministic
+    and does not depend on the execution path (sequential or parallel).
     """
     fast_units = sum(
         1 for unit in plan.units if is_fast_path_eligible(_unit_simulation_context(plan, unit))
@@ -775,9 +744,9 @@ def run_fast_path_validation(
     """Validate a deterministic sample of *plan* against the Decimal reference.
 
     Executes a ``select_validation_units`` sample through **both** the float
-    fast path (``FastPathSimulationExecutor(precision="float")``, the exact path
-    ``--fast-path`` requests) and the canonical Decimal reference engine, then
-    compares outcome, failure month and (on success) final wealth.
+    closed-form evaluation (the exact path ``--fast-path`` requests) and the
+    canonical Decimal reference engine, then compares outcome, failure month
+    and (on success) final wealth.
 
     Raises ``FastPathValidationError`` on the first divergence, identifying the
     diverging unit (cohort start date and parameter configuration) and the
@@ -795,11 +764,12 @@ def run_fast_path_validation(
 
     sub_plan = ResearchPlan(experiment_definition=plan.experiment_definition, units=sample)
     reference_results = sequential_execute(sub_plan, summary_only=True).results
-    fast_results = sequential_execute(
-        sub_plan,
-        simulation_executor=FastPathSimulationExecutor(precision="float"),
-        summary_only=True,
-    ).results
+    fast_results = tuple(
+        evaluate_closed_form(
+            _unit_simulation_context(sub_plan, unit), "float"
+        )
+        for unit in sample
+    )
 
     for unit, reference, fast in zip(sample, reference_results, fast_results, strict=True):
         problems = _compare_fast_path_result(reference, fast, tolerance)
@@ -812,7 +782,7 @@ def run_fast_path_validation(
     return len(sample), eligible_count
 
 
-class ChainedFastPathSimulationExecutor(FastPathSimulationExecutor):
+class ChainedFastPathSimulationExecutor(SimulationExecutor):
     """Closed-form executor that chains horizons sharing the same cohort.
 
     Contexts in a definition that share the same cohort start date, initial
@@ -846,7 +816,8 @@ class ChainedFastPathSimulationExecutor(FastPathSimulationExecutor):
         reference_executor: SimulationExecutor | None = None,
         precision: Precision = "float",
     ) -> None:
-        super().__init__(reference_executor, precision)
+        self._reference = reference_executor or _create_default_simulation_executor()
+        self._precision = precision
         self._last_report: ChainingReport | None = None
 
     @property

@@ -29,7 +29,6 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from fbf.core.execution.pipeline.pipeline import SimulationPipeline
 from fbf.core.execution.pipeline.runner import SimulationRunner
-from fbf.core.execution.pipeline.simulation import ExperimentDefinition as EngineExperiment
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.pipeline.steps.allocation_decision_step import AllocationDecisionStep
 from fbf.core.execution.pipeline.steps.build_decision_context_step import BuildDecisionContextStep
@@ -40,7 +39,7 @@ from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import Portfolio
 from fbf.core.execution.pipeline.steps.simulation_state_update_step import SimulationStateUpdateStep
 from fbf.core.execution.pipeline.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from fbf.core.execution.pipeline.steps.withdrawal_execution_step import WithdrawalExecutionStep
-from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
+from fbf.core.execution.strategies.fast_path import evaluate_closed_form
 from fbf.core.study import StudyConfiguration, build_study_plan
 from tools.ern.reference_oracle import (
     build_extended,
@@ -140,7 +139,9 @@ def _engine_contexts(plan, by_horizon, weight, rate, horizon_years, cohorts):
     )
 
 
-def _engine_success(plan, by_horizon, weight, rate, horizon_years, precision) -> list[bool]:
+def _engine_success(
+    plan, by_horizon, weight, rate, horizon_years, cohorts, precision
+) -> list[bool]:
     """Per-cohort engine success for a full cell (fast path, chosen precision)."""
     units = by_horizon[HORIZON_MONTHS[horizon_years]]
     cap = plan.experiment_definition.initial_wealth
@@ -158,16 +159,12 @@ def _engine_success(plan, by_horizon, weight, rate, horizon_years, precision) ->
             allocation_policy=alloc,
             withdrawal_policy=withdraw,
         )
-        for unit in units
+        for i, unit in enumerate(units)
+        if i in cohorts
     )
-    executor = FastPathSimulationExecutor(precision=precision)
-    results = executor.execute(
-        EngineExperiment(
-            name=plan.experiment_definition.name,
-            description=plan.experiment_definition.description,
-            simulation_contexts=contexts,
-        )
-    ).simulation_results
+    results = tuple(
+        evaluate_closed_form(ctx, precision) for ctx in contexts
+    )
     return [r.statistics.success for r in results]
 
 

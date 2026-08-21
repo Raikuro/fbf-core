@@ -1,10 +1,10 @@
 """Equivalence tests for the closed-form fast path vs the reference fbf.core.
 
-Verifies that ``FastPathSimulationExecutor`` (float and decimal precision) and
-``ChainedFastPathSimulationExecutor`` reproduce the reference Decimal pipeline's
-``success`` / ``failure_month`` exactly and ``final_wealth`` within a cent, on
-synthetic random-walk data.  Real-ERN equivalence is covered by the gated
-``ern_e2e`` tests below and the P4.9 acceptance suite.
+Verifies that ``ChainedFastPathSimulationExecutor`` (float and decimal precision)
+reproduces the reference Decimal pipeline's ``success`` / ``failure_month``
+exactly and ``final_wealth`` within a cent, on synthetic random-walk data.
+Real-ERN equivalence is covered by the gated ``ern_e2e`` tests below and the
+P4.9 acceptance suite.
 """
 
 from __future__ import annotations
@@ -34,9 +34,9 @@ from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.fast_path import (
     FAST_PATH_VALIDATION_MAX_UNITS,
     ChainedFastPathSimulationExecutor,
-    FastPathSimulationExecutor,
     FastPathValidationError,
     Precision,
+    evaluate_closed_form,
     evaluate_path,
     fast_path_unit_counts,
     is_fast_path_eligible,
@@ -117,8 +117,12 @@ def run_reference(plan: ResearchPlan) -> tuple[SimulationResult, ...]:
 
 
 def run_fast(plan: ResearchPlan, precision: Precision) -> tuple[SimulationResult, ...]:
-    executor = FastPathSimulationExecutor(precision=precision)
-    return sequential_execute(plan, simulation_executor=executor, summary_only=True).results
+    from fbf.core.execution.strategies.fast_path import _unit_simulation_context
+
+    contexts = [_unit_simulation_context(plan, unit) for unit in plan.units]
+    return tuple(
+        evaluate_closed_form(ctx, precision) for ctx in contexts
+    )
 
 
 def assert_equivalent(
@@ -152,7 +156,7 @@ def test_float_matches_decimal() -> None:
 
 
 def test_chained_executor_matches_reference() -> None:
-    """Chained mixed-horizon execution reproduces the reference per-horizon."""
+    """Chained mixed-horizon execution reproduces per-context closed-form results."""
     dataset = make_synthetic_dataset(n_months=620)
     start = date(1900, 1, 1)
     horizons = [120, 240, 360, 480]
@@ -173,12 +177,11 @@ def test_chained_executor_matches_reference() -> None:
     definition = EngineExperimentDefinition(
         name="synth", description="chaining study", simulation_contexts=tuple(contexts)
     )
-    reference = FastPathSimulationExecutor(precision="float")
+    direct = tuple(evaluate_closed_form(ctx, "float") for ctx in contexts)
     chained = ChainedFastPathSimulationExecutor(precision="float")
 
-    ref_run = reference.execute(definition)
     chained_run = chained.execute(definition)
-    for ref, got in zip(ref_run.simulation_results, chained_run.simulation_results, strict=True):
+    for ref, got in zip(direct, chained_run.simulation_results, strict=True):
         assert ref.statistics.success == got.statistics.success
         assert ref.statistics.failure_month == got.statistics.failure_month
         assert (
@@ -237,7 +240,7 @@ def test_non_eligible_falls_back_to_reference() -> None:
     reference = sequential_execute(non_eligible_plan, summary_only=True).results
     fast = sequential_execute(
         non_eligible_plan,
-        simulation_executor=FastPathSimulationExecutor(precision="float"),
+        simulation_executor=ChainedFastPathSimulationExecutor(precision="float"),
         summary_only=True,
     ).results
 
@@ -294,13 +297,15 @@ def _make_chaining_context(
 def _assert_chained_matches_per_context(
     definition: EngineExperimentDefinition,
 ) -> None:
-    """The chained executor must reproduce per-context fast-path results."""
-    reference = FastPathSimulationExecutor(precision="float")
+    """The chained executor must reproduce per-context closed-form results."""
+    direct = tuple(
+        evaluate_closed_form(ctx, "float")
+        for ctx in definition.simulation_contexts
+    )
     chained = ChainedFastPathSimulationExecutor(precision="float")
-    expected = reference.execute(definition).simulation_results
     got = chained.execute(definition).simulation_results
-    assert len(expected) == len(got)
-    for ref, fast in zip(expected, got, strict=True):
+    assert len(direct) == len(got)
+    for ref, fast in zip(direct, got, strict=True):
         assert ref.statistics == fast.statistics
 
 

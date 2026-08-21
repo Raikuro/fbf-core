@@ -2,8 +2,8 @@
 
 Measures, on a synthetic random-walk dataset:
   1. reference pipeline vs float closed form (per-cohort throughput),
-  2. non-chained vs chained multi-horizon execution (wall time + outcome
-     equivalence).
+  2. chained multi-horizon execution (wall time + outcome equivalence
+     vs direct closed-form evaluation).
 
 These are informational timing benchmarks (they print and assert equivalence,
 not strict wall-clock thresholds).
@@ -27,7 +27,7 @@ from fbf.core.execution.pipeline.simulation import (
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.fast_path import (
     ChainedFastPathSimulationExecutor,
-    FastPathSimulationExecutor,
+    evaluate_closed_form,
 )
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
 from fbf.core.study.builder import build_initial_portfolio
@@ -116,7 +116,7 @@ def test_fast_path_vs_reference_throughput() -> None:
     t0 = time.perf_counter()
     fast = sequential_execute(
         plan,
-        simulation_executor=FastPathSimulationExecutor(precision="float"),
+        simulation_executor=ChainedFastPathSimulationExecutor(precision="float"),
         summary_only=True,
     )
     t_fast = time.perf_counter() - t0
@@ -133,8 +133,8 @@ def test_fast_path_vs_reference_throughput() -> None:
     )
 
 
-def test_chained_vs_non_chained() -> None:
-    """Chained multi-horizon execution is faster and outcome-equivalent."""
+def test_chained_matches_direct_closed_form() -> None:
+    """Chained multi-horizon execution is outcome-equivalent to direct closed-form."""
     dataset = _synthetic_dataset(320)
     start = date(1900, 1, 1)
     contexts = _contexts(dataset, start, [120, 240])
@@ -142,24 +142,22 @@ def test_chained_vs_non_chained() -> None:
         name="bench", description="bench", simulation_contexts=tuple(contexts)
     )
 
-    plain = FastPathSimulationExecutor(precision="float")
+    direct = tuple(
+        evaluate_closed_form(ctx, "float") for ctx in contexts
+    )
     chained = ChainedFastPathSimulationExecutor(precision="float")
-
-    t0 = time.perf_counter()
-    non_chained = plain.execute(definition)
-    t_non = time.perf_counter() - t0
 
     t0 = time.perf_counter()
     chained_run = chained.execute(definition)
     t_chained = time.perf_counter() - t0
 
-    for a, b in zip(non_chained.simulation_results, chained_run.simulation_results, strict=True):
+    for a, b in zip(direct, chained_run.simulation_results, strict=True):
         assert a.statistics.success == b.statistics.success
         assert a.statistics.failure_month == b.statistics.failure_month
 
     print(
-        f"chaining: non-chained {t_non * 1000:.1f}ms vs chained {t_chained * 1000:.1f}ms "
-        f"({t_non / t_chained:.1f}x, {len(contexts)} contexts)"
+        f"chaining: chained {t_chained * 1000:.1f}ms "
+        f"({len(contexts)} contexts)"
     )
 
 

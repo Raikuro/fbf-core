@@ -34,7 +34,6 @@ from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.strategies.fast_path import (
     ChainedFastPathSimulationExecutor,
-    FastPathSimulationExecutor,
     Precision,
 )
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
@@ -171,7 +170,7 @@ class TestDecimalPathBitExact:
             rates=(0.04, 0.1),
         )
         reference = _execute(plan)
-        decimal = _execute(plan, FastPathSimulationExecutor(precision="decimal"))
+        decimal = _execute(plan, ChainedFastPathSimulationExecutor(precision="decimal"))
 
         for unit, ref, got in zip(plan.units, reference, decimal, strict=True):
             _assert_exact(ref, got, unit, "success")
@@ -192,7 +191,7 @@ class TestDecimalPathBitExact:
             dataset = _dataset(max(horizons) * 12 + 1, flat=True)
             plan = build_grid_plan(dataset, horizons, rates=rates)
             reference = _execute(plan)
-            decimal = _execute(plan, FastPathSimulationExecutor(precision="decimal"))
+            decimal = _execute(plan, ChainedFastPathSimulationExecutor(precision="decimal"))
             for unit, ref, got in zip(plan.units, reference, decimal, strict=True):
                 _assert_exact(ref, got, unit, "success")
                 _assert_exact(ref, got, unit, "failure_month")
@@ -211,7 +210,7 @@ class TestFloatPath:
             rates=(0.04, 0.1),
         )
         reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
 
         for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
             _assert_exact(ref, got, unit, "success")
@@ -227,7 +226,7 @@ class TestFloatPath:
         """On flat data without an exact-equality boundary, float matches exactly."""
         plan = build_grid_plan(_dataset(25, flat=True), (2,), rates=(0.3,))
         reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
         for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
             _assert_exact(ref, got, unit, "success")
             _assert_exact(ref, got, unit, "failure_month")
@@ -245,7 +244,7 @@ class TestFloatPath:
         """
         plan = build_grid_plan(_dataset(25, flat=True), (2,), rates=(0.5,))
         reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
         assert all(ref.statistics.success for ref in reference)  # reference: all success
         assert all(not got.statistics.success for got in float_path)  # float: all fail at 23
         for got in float_path:
@@ -258,8 +257,8 @@ class TestFloatPath:
 
 class TestChainingBitExact:
     @pytest.mark.parametrize("precision", ["float", "decimal"])
-    def test_chained_equals_direct_fast_path(self, precision: str) -> None:
-        """Chained derivation is bit-identical to per-context evaluation."""
+    def test_chained_equals_direct_closed_form(self, precision: str) -> None:
+        """Chained derivation is bit-identical to per-context closed-form evaluation."""
         dataset = _dataset(241)
         plan = build_grid_plan(
             dataset,
@@ -268,7 +267,7 @@ class TestChainingBitExact:
             rates=(0.04, 0.08),
         )
         prec = cast(Precision, precision)
-        direct = _execute(plan, FastPathSimulationExecutor(precision=prec))
+        direct = _execute(plan, ChainedFastPathSimulationExecutor(precision=prec))
         chained = _execute(plan, ChainedFastPathSimulationExecutor(precision=prec))
         for unit, d, ch in zip(plan.units, direct, chained, strict=True):
             _assert_exact(d, ch, unit, "success")
