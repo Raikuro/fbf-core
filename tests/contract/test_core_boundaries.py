@@ -194,8 +194,18 @@ def test_public_facade_symbols() -> None:
         "create_study_repository",
         "CoreError",
         "__version__",
+        "BuiltStudy",
+        "CohortGenerator",
+        "CohortSpecification",
+        "ExperimentDefinition",
+        "ParameterAxis",
+        "ParameterConfiguration",
+        "ParameterSweepEngine",
+        "PlannedSimulationUnit",
+        "ResearchPlan",
     }
     actual_symbols = set(fbf.core.__all__)
-    assert expected_symbols.issubset(
-        actual_symbols
-    ), f"Missing facade symbols: {expected_symbols - actual_symbols}"
+    assert expected_symbols == actual_symbols, (
+        f"Facade mismatch. Missing: {expected_symbols - actual_symbols}, "
+        f"Unexpected: {actual_symbols - expected_symbols}"
+    )

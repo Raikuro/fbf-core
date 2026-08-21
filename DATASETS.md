@@ -1,6 +1,6 @@
 # Dataset Distribution & Ownership Model
 
-**Status:** Adopted — Phase 2 closure decision (2.8).
+**Status:** Adopted.
 **Scope:** All datasets consumed by the framework (e.g. the ERN dataset bundle in
 `data/ern/`). The model is generic; nothing here is ERN-specific.
 
@@ -41,9 +41,8 @@ structurally excluded from the wheel. This is enforced by a contract test
   unrelated lifecycles.
 - **Wheel hygiene.** Keeping the wheel small and data-free makes builds fast and
   reproducible and avoids licensing/ownership questions about data inside a Python package.
-- **Parity with the legacy framework.** The legacy `simulador_jubilacion` also managed
-  `data/ern/` in the repository rather than in the installed package; the split preserves
-  that model rather than introducing a new one.
+- **Precedent.** This pattern was validated in prior projects and proven to work for
+  deployments that require reproducibility and data provenance control.
 
 ## 3. How does an installed-only deployment obtain or locate datasets?
 
@@ -80,7 +79,7 @@ only supply a path.
 | `fbf.core.persistence.studies.sqlite.context._load_datasets_from_dir` | Directory → `{identifier: Dataset}` scan (`*.json` files) |
 | `fbf.core.persistence.studies.sqlite.codecs.DefaultDatasetResolver` | Identifier/version → `Dataset` resolution (canonical identifier, legacy unique-version fallback, ambiguity/not-found errors) |
 | `fbf.core.study.builder.resolve_dataset` | The public study-facing resolver used by `build_study_plan` |
-| `fbf.cli` | Pass-through only: exposes `--data-dir` and forwards it into `build_study_plan` / `create_persistence_context`. No loading or discovery logic lives in the CLI |
+| External CLI consumers | Pass-through only: expose `--data-dir` and forward it into `build_study_plan` / `create_persistence_context`. No loading or discovery logic lives in the consumer |
 
 There is no environment-variable, well-known-path, or ERN-specific discovery mechanism.
 If `data_dir` is `None`, resolution uses an empty resolver and any lookup fails with a
@@ -126,7 +125,20 @@ The contract is deliberately generic — the framework never hardcodes `data/ern
 specific identifiers, or horizon families. The ERN bundle is simply a particular Dataset
 Directory using the same contract.
 
-## 6. Caching and local materialization
+## 6. Dataset model invariants
+
+The `Dataset` domain object (`fbf.core.domain.model.dataset`) enforces three
+structural invariants at construction time:
+
+1. **Non-empty:** a Dataset must contain at least one `MarketSnapshot`.
+2. **Ordered by date:** snapshots must be in chronological order.
+3. **Unique dates:** no two snapshots may share the same date.
+
+These invariants are enforced by `Dataset.__post_init__` and validated by the
+test suite. A Dataset that violates any of these constraints raises `ValueError`
+at construction time.
+
+## 7. Caching and local materialization
 
 - `DatasetCache` loads each canonical directory path at most once per process; repeated
   resolution returns the identical `Dataset` object (identity preserved across resolvers,
@@ -137,7 +149,7 @@ Directory using the same contract.
 - Local materialization **is** the Dataset Directory; there is no cache-rebuild or
   remote-sync stage.
 
-## 7. How should future datasets be distributed?
+## 8. How should future datasets be distributed?
 
 - Add a new `<identifier>.json` file to a Dataset Directory (and release it in a new
   dataset bundle, if bundles are used).
@@ -147,13 +159,13 @@ Directory using the same contract.
 - The framework code itself does not change when a dataset is added; the loader is
   schema-driven, not identifier-driven.
 
-## 8. Reproducibility and dataset versioning
+## 9. Reproducibility and dataset versioning
 
 - Every dataset carries a `version` marker; datasets in one bundle should share the
   bundle's version for easy provenance checks.
 - Reproducibility at the run level is anchored by `dataset.identifier` in the study YAML,
   plus the recorded `dataset_identifier` column in persisted studies.
-- The ERN certification (P1.12) is the reference case: the oracle matrix is pinned, and
+- The ERN certification is the reference case: the oracle matrix is pinned, and
   acceptance is exact-`Decimal` equality against it. Changing the dataset bundle requires
   re-certifying against the pinned matrix.
 - Consumers should record `dataset.identifier` **and** `dataset.version` (both available on
