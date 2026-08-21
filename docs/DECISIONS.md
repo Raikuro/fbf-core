@@ -138,3 +138,29 @@ are insufficient; the arithmetic order must replicate the reference exactly.
 remain the final arbiter of correctness. The decimal fast path produces
 identical results to the reference engine on all fields. Float boundary
 divergences are documented and pinned.
+
+---
+
+## Fast Path Three-Tier Model
+
+**Decision:** The fast path operates in three tiers:
+1. **Reference Chained** — full Decimal pipeline, bit-exact, default.
+2. **Decimal Fast Path** — potential exact optimization for eligible policy
+   family, must prove bit-exact equivalence with the reference.
+3. **Float Fast Path** — approximate, opt-in, non-authoritative, exploratory.
+
+**Why:** The non-chained `FastPathSimulationExecutor` had no concrete
+production use case. All CLI invocations route through
+`ChainedFastPathSimulationExecutor`, which is the sole fast-path entry
+point. Removing the non-chained version simplifies the API surface and
+eliminates dead code.
+
+**Alternatives rejected:** Keeping the non-chained executor for
+hypothetical future use — rejected because YAGNI and the chained version
+subsumes all functionality.
+
+**Consequence:** `ChainedFastPathSimulationExecutor` inherits
+`SimulationExecutor` directly. `run_fast_path_validation()` calls
+`evaluate_closed_form()` directly. Tests verify equivalence against
+direct closed-form evaluation, not against the removed non-chained
+executor.
