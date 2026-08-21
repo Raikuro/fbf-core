@@ -129,3 +129,25 @@ class TestRealEngineParallel:
         result = parallel_execute(plan, max_workers=2)
         assert len(result.results) == expected
         assert all(r.statistics.success for r in result.results)
+
+    @pytest.mark.parametrize("param_sweep", [4])
+    def test_parallel_matches_sequential(self, param_sweep: int) -> None:
+        """parallel_execute matches sequential_execute results exactly."""
+        _, plan = _build_plan(param_sweep=param_sweep)
+        sequential = sequential_execute(plan)
+        parallel = parallel_execute(plan, max_workers=2)
+
+        assert len(sequential.results) == len(parallel.results)
+        for i, (seq, par) in enumerate(zip(sequential.results, parallel.results, strict=True)):
+            assert seq.statistics.success == par.statistics.success, (
+                f"Unit {i}: success diverged"
+            )
+            assert seq.statistics.failure_month == par.statistics.failure_month, (
+                f"Unit {i}: failure_month diverged"
+            )
+            assert seq.statistics.months_simulated == par.statistics.months_simulated, (
+                f"Unit {i}: months_simulated diverged"
+            )
+            assert seq.statistics.final_wealth == par.statistics.final_wealth, (
+                f"Unit {i}: final_wealth diverged"
+            )

@@ -209,3 +209,36 @@ def test_public_facade_symbols() -> None:
         f"Facade mismatch. Missing: {expected_symbols - actual_symbols}, "
         f"Unexpected: {actual_symbols - expected_symbols}"
     )
+
+
+def test_simulation_runner_and_executor_have_no_financial_domain_imports() -> None:
+    """SimulationRunner and SimulationExecutor must not import financial-domain details.
+
+    These classes are orchestration-only: they coordinate pipeline steps and
+    delegate to injected policies. They must never import financial-domain
+    implementation details (asset classes, market data, portfolio construction,
+    policy implementations).
+    """
+    import fbf.core.execution.pipeline.executor as executor_mod
+    import fbf.core.execution.pipeline.runner as runner_mod
+
+    forbidden_prefixes = (
+        "fbf.core.domain.model",
+        "fbf.core.domain.policies",
+        "fbf.core.study",
+    )
+
+    for mod in (runner_mod, executor_mod):
+        source = Path(mod.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(mod.__file__))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not any(alias.name.startswith(p) for p in forbidden_prefixes), (
+                        f"Financial-domain import in {mod.__name__}:{node.lineno}: {alias.name}"
+                    )
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                assert not any(module.startswith(p) for p in forbidden_prefixes), (
+                    f"Financial-domain import in {mod.__name__}:{node.lineno}: {module}"
+                )
