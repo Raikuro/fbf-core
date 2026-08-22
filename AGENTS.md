@@ -65,18 +65,52 @@ ruff check src tests
 # 2. Type check — must report "Success: no issues found in N source files"
 mypy --strict src
 
-# 3. Full test suite — must be 0 failed
+# 3. Full test suite (excluding heavyweight E2E) — must be 0 failed
+#    The ern_e2e marker tests are skipped by default (RUN_ERN_E2E unset).
+#    Routine agent validation MUST NOT enable RUN_ERN_E2E.
 pytest -p no:cacheprovider
 
 # 4. Boundary contract — repository independence + tier discipline
 pytest tests/contract/
-
-# 5. ERN oracle gate (CI / release only) — uses SIM_RETIRE_BIN + RUN_ERN_E2E
-#    Run separately: pytest tests/oracle/ with the ERN environment.
 ```
 
 `ruff` runs with `--fix` for auto-applicable findings, but the final state must
 be clean under the plain `ruff check src tests` form above.
+
+### Heavyweight E2E / Oracle Tests
+
+The ERN SWR replication tests in `tests/oracle/ern/` are heavyweight workloads
+(313,020 simulation units across 180 grid cells). They are **not part of the
+routine quality gate** and must never be enabled automatically.
+
+**Invocation hierarchy (opt-in via environment variables):**
+
+| Scope | Env vars | Grid | Approx. units |
+|-------|----------|------|---------------|
+| Routine validation | *(none)* | E2E skipped | 0 |
+| Smoke E2E | `RUN_ERN_E2E=1` | 2×2×2 = 8 cells | 13,912 |
+| Full grid | `RUN_ERN_E2E=1` + `RUN_ERN_E2E_FULL=1` | 5×9×4 = 180 cells | 313,020 |
+| Fast-path full grid | `RUN_ERN_E2E=1` + `RUN_ERN_E2E_FULL=1` + `ERN_E2E_FAST_PATH=1` | 180 cells × 2 paths | 626,040 |
+
+**Manual invocation (developer workstation or CI only):**
+
+```bash
+# Smoke grid (quick sanity check):
+RUN_ERN_E2E=1 pytest tests/oracle/ -v
+
+# Full 180-cell acceptance grid:
+RUN_ERN_E2E=1 RUN_ERN_E2E_FULL=1 pytest tests/oracle/ -v
+
+# Full grid with fast-path equivalence:
+RUN_ERN_E2E=1 RUN_ERN_E2E_FULL=1 ERN_E2E_FAST_PATH=1 pytest tests/oracle/ -v
+```
+
+Worker count is controlled by `ERN_E2E_WORKERS` (default: `min(8, cpu_count)`).
+Set `ERN_E2E_WORKERS=max` for all available logical CPUs.
+
+**Agents must not run `pytest tests/oracle/` with E2E env vars enabled as part
+of routine changes.** The oracle tests are a deliberate manual verification tool,
+not an automatic gate.
 
 ---
 
