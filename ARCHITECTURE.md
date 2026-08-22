@@ -242,7 +242,8 @@ python -m build --wheel
 3. Monetary values use `decimal.Decimal` — no `float` for `Money` objects or
    monetary domain operations. Derived statistical metrics may use other numeric
    representations where explicitly appropriate.
-4. The fast path is bit-exact against the reference monthly pipeline.
+4. The Decimal fast path is bit-exact against the reference monthly pipeline.
+   The Float fast path is approximate and opt-in.
 5. ERN oracle acceptance matrix passes with exact `Decimal` equality (no float tolerance).
 6. External consumers import exclusively through the public Core API (Tier 1 and Tier 2).
 7. No history is rewritten in either repository after the initial migration commit.
