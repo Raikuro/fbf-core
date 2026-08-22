@@ -31,3 +31,12 @@ file.
 
 - Add a test proving repeated execution of the same runner and context produces
   identical `SimulationResult` values.
+
+## load_yaml() Runtime Error Clarity
+
+- `fbf.core.study.builder.load_yaml()` is a supported Tier 2 API that performs
+  a lazy `import yaml`. When PyYAML is not installed, it raises a `RuntimeError`
+  with a clear message suggesting `StudyConfiguration.from_dict()` as an
+  alternative. Consider whether this error message should explicitly name the
+  required pip extra (`pip install fbf-core[dev]`) or whether the current
+  message is sufficient for the intended dependency model.
