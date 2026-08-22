@@ -140,7 +140,7 @@ def _engine_contexts(plan, by_horizon, weight, rate, horizon_years, cohorts):
 
 
 def _engine_success(
-    plan, by_horizon, weight, rate, horizon_years, cohorts, precision
+    plan, by_horizon, weight, rate, horizon_years, precision, *, cohorts: set[int] | None = None
 ) -> list[bool]:
     """Per-cohort engine success for a full cell (fast path, chosen precision)."""
     units = by_horizon[HORIZON_MONTHS[horizon_years]]
@@ -160,7 +160,7 @@ def _engine_success(
             withdrawal_policy=withdraw,
         )
         for i, unit in enumerate(units)
-        if i in cohorts
+        if cohorts is None or i in cohorts
     )
     results = tuple(
         evaluate_closed_form(ctx, precision) for ctx in contexts
