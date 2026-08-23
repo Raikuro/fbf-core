@@ -71,7 +71,7 @@ rejected due to memory exhaustion at scale.
 
 **Consequence:** Both the reference engine and the fast path use the same
 slice-based dispatch for memory safety. Cohort alignment preserves horizon
-family grouping. No independent reference execution path exists.
+family grouping.
 
 ---
 
@@ -146,18 +146,15 @@ divergences are documented and pinned.
    proven bit-exact with the reference, retained as a performance optimization.
 3. **Float Fast Path** — approximate, opt-in, non-authoritative, exploratory.
 
-**Why:** The non-chained `FastPathSimulationExecutor` had no concrete
-production use case. All CLI invocations route through
-`ChainedFastPathSimulationExecutor`, which is the sole fast-path entry
-point. Removing the non-chained version simplifies the API surface and
-eliminates dead code.
+**Why:** An earlier non-essential executor variant was removed because all
+CLI invocations route through the standard fast-path entry point.
+Removing the redundant version simplifies the API surface and eliminates
+dead code.
 
-**Alternatives rejected:** Keeping the non-chained executor for
-hypothetical future use — rejected because YAGNI and the current version
-subsumes all functionality.
+**Alternatives rejected:** Keeping the redundant executor for hypothetical
+future use — rejected because YAGNI and the current version subsumes all
+functionality.
 
-**Consequence:** `ChainedFastPathSimulationExecutor` inherits
-`SimulationExecutor` directly. `run_fast_path_validation()` calls
-`evaluate_closed_form()` directly. Tests verify equivalence against
-direct closed-form evaluation, not against the removed non-chained
-executor.
+**Consequence:** The fast-path executor inherits `SimulationExecutor`
+directly. `run_fast_path_validation()` calls `evaluate_closed_form()`
+directly. Tests verify equivalence against direct closed-form evaluation.

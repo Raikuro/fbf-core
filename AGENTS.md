@@ -114,6 +114,88 @@ not an automatic gate.
 
 ---
 
+## Commit Governance
+
+### Phase completion vs. commit authorization
+
+A phase is **not complete until its final commit has been created successfully**.
+
+However, completing the implementation work does **not** give the agent implicit
+permission to create that commit.
+
+The required workflow is:
+
+1. Implement the approved scope.
+2. Run all required validation and quality gates.
+3. Review the final diff and confirm that only the approved phase scope is included.
+4. Prepare the repository for the final phase commit.
+5. **Stop and request explicit user authorization to create the commit.**
+6. Do not run `git commit` before that authorization is given.
+7. After explicit authorization, create **exactly one commit for the phase**.
+8. Verify the commit hash and that the working tree is clean.
+9. Only then report the phase as `COMPLETE`.
+
+The states must remain distinct:
+
+* **Implementation complete** — all planned changes are implemented.
+* **Validation complete** — all required quality gates pass.
+* **Ready for commit** — final diff reviewed and approved in scope.
+* **Phase complete** — final commit successfully created.
+
+Before authorization, report:
+
+> `PHASE X READY FOR COMMIT — AWAITING AUTHORIZATION`
+
+Do **not** report:
+
+> `PHASE X COMPLETE`
+
+until the commit actually exists.
+
+### One-commit-per-phase rule
+
+Each phase is an atomic delivery unit and must produce **exactly one final commit**.
+
+Do not create intermediate commits for individual tasks, fixes, tests,
+documentation changes, or sub-phases unless explicitly authorized otherwise.
+
+If corrections are required before the final commit:
+
+* modify the working tree;
+* rerun the relevant validation;
+* do not create an intermediate/corrective commit.
+
+### Explicit commit authorization
+
+Immediately before creating the final phase commit, explicitly ask the user
+for authorization.
+
+The request must state:
+
+* which phase is being committed;
+* the exact scope/files included;
+* validation results;
+* that the working tree is ready;
+* that exactly one commit will be created.
+
+For example:
+
+> Phase X implementation and validation are complete. The final diff contains
+> only the approved Phase X scope, all quality gates pass, and the working
+> tree is ready. May I create the single final Phase X commit?
+
+Do not interpret generic instructions such as "finish Phase X", "close Phase X",
+or "continue" as implicit permission to commit.
+
+Only an explicit authorization to create the commit permits `git commit`.
+
+After authorization, create the single commit, verify its hash and clean
+working tree, and only then declare the phase complete.
+
+This policy applies to all future phases unless explicitly overridden by the user.
+
+---
+
 ## Adding a New Public Symbol
 
 1. Implement in the appropriate subpackage (`domain/`, `execution/`, etc.).

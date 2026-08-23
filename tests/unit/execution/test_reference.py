@@ -1,4 +1,4 @@
-"""Unit tests for reference horizon chaining helper behaviour."""
+"""Unit tests for reference horizon helper behaviour."""
 
 from __future__ import annotations
 
@@ -22,13 +22,13 @@ from fbf.core.execution.pipeline.simulation import (
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.execution.strategies.parallel_executor import _create_default_simulation_executor
-from fbf.core.execution.strategies.reference_chaining import (
-    ChainedReferenceSimulationExecutor,
+from fbf.core.execution.strategies.reference import (
+    ReferenceSimulationExecutor,
     _build_derived_result,
     _dataset_is_identity_prefix,
-    _reference_chaining_group_key,
+    _reference_group_key,
     _slice_plan_units,
-    execute_reference_chained,
+    execute_reference,
 )
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
@@ -117,7 +117,7 @@ def _make_grid_plan(
 
     Each cohort carries one unit per horizon; the dataset is sliced per
     ``(cohort.start_date, horizon)`` so every shorter-horizon unit is an
-    identity prefix of its cohort's longest-horizon unit (chaining-eligible).
+    identity prefix of its cohort's longest-horizon unit (reference-eligible).
     """
     configs = tuple(
         ParameterConfiguration(
@@ -134,7 +134,7 @@ def _make_grid_plan(
         for offset in cohort_offsets
     )
     exp_def = ExperimentDefinition(
-        name="grid-chaining",
+        name="grid-reference",
         description="slice regression fixture",
         dataset=dataset,
         horizon_months=max(horizons),
@@ -332,8 +332,8 @@ class TestBuildDerivedResult:
         assert derived_result.statistics.final_wealth == reference_result.statistics.final_wealth
 
 
-class TestChainedReferenceSimulationExecutor:
-    def test_chained_reference_matches_reference_engine_for_prefix_slices(self) -> None:
+class TestReferenceSimulationExecutor:
+    def test_reference_matches_reference_engine_for_prefix_slices(self) -> None:
         dataset = _make_flat_dataset(30)
         longest = _make_context(dataset, horizon_months=30, withdrawal_rate=Decimal("0.5"))
         shorter = _make_context(
@@ -342,7 +342,7 @@ class TestChainedReferenceSimulationExecutor:
             withdrawal_rate=Decimal("0.5"),
         )
 
-        executor = ChainedReferenceSimulationExecutor()
+        executor = ReferenceSimulationExecutor()
         definition = EngineExperimentDefinition(
             name="test",
             description="test",
@@ -355,13 +355,13 @@ class TestChainedReferenceSimulationExecutor:
 
         assert run.simulation_results[0] == reference_long
         assert run.simulation_results[1] == reference_short
-        assert executor.chaining_report is not None
-        assert executor.chaining_report.derived_results == 1
-        assert executor.chaining_report.longest_path_evaluations == 1
+        assert executor.report is not None
+        assert executor.report.derived_results == 1
+        assert executor.report.longest_path_evaluations == 1
 
     def test_non_prefix_dataset_falls_back_to_canonical_engine(self) -> None:
         """A shorter context whose dataset is not an identity prefix of the
-        longest is evaluated directly (never derived) by the chained executor."""
+        longest is evaluated directly (never derived) by the reference executor."""
         dataset_a = _make_flat_dataset(30)
         dataset_b = _make_flat_dataset(24, price=Decimal("200"))
         longest = _make_context(
@@ -370,11 +370,11 @@ class TestChainedReferenceSimulationExecutor:
         shorter = _make_context(
             dataset_b, horizon_months=24, withdrawal_rate=Decimal("0.04")
         )
-        assert _reference_chaining_group_key(longest) == _reference_chaining_group_key(shorter)
+        assert _reference_group_key(longest) == _reference_group_key(shorter)
         assert dataset_a is not dataset_b
         assert not _dataset_is_identity_prefix(shorter, longest)
 
-        executor = ChainedReferenceSimulationExecutor()
+        executor = ReferenceSimulationExecutor()
         definition = EngineExperimentDefinition(
             name="test",
             description="test",
@@ -387,9 +387,9 @@ class TestChainedReferenceSimulationExecutor:
 
         assert run.simulation_results[0] == reference_long
         assert run.simulation_results[1] == reference_short
-        assert executor.chaining_report is not None
-        assert executor.chaining_report.independent_evaluations == 1
-        assert executor.chaining_report.derived_results == 0
+        assert executor.report is not None
+        assert executor.report.independent_evaluations == 1
+        assert executor.report.derived_results == 0
 
     def test_mixed_prefix_and_non_prefix_reports_count_derived_and_independent(self) -> None:
         """A family with both eligible and ineligible shorter contexts reports
@@ -409,7 +409,7 @@ class TestChainedReferenceSimulationExecutor:
             withdrawal_rate=Decimal("0.04"),
         )
 
-        executor = ChainedReferenceSimulationExecutor()
+        executor = ReferenceSimulationExecutor()
         definition = EngineExperimentDefinition(
             name="test",
             description="test",
@@ -423,17 +423,17 @@ class TestChainedReferenceSimulationExecutor:
         assert run.simulation_results[0] == _execute_reference(longest)
         assert run.simulation_results[1] == reference_prefix
         assert run.simulation_results[2] == reference_non_prefix
-        assert executor.chaining_report is not None
-        assert executor.chaining_report.derived_results == 1
-        assert executor.chaining_report.independent_evaluations == 1
-        assert executor.chaining_report.longest_path_evaluations == 1
+        assert executor.report is not None
+        assert executor.report.derived_results == 1
+        assert executor.report.independent_evaluations == 1
+        assert executor.report.longest_path_evaluations == 1
 
 
 class TestSliceDispatchMemorySafety:
-    """The CLI chained path must never hand the whole plan to one executor call.
+    """The CLI reference path must never hand the whole plan to one executor call.
 
-    Whole-plan chained materialization holds ~0.37 MiB of timeline payload per
-    unit (~110 GiB for the ERN grid), so ``execute_reference_chained`` splits the
+    Whole-plan reference materialization holds ~0.37 MiB of timeline payload per
+    unit (~110 GiB for the ERN grid), so ``execute_reference`` splits the
     plan into cohort-aligned slices and dispatches each slice separately.  These
     tests pin that contract and the slice == whole-plan equivalence.
     """
@@ -480,10 +480,10 @@ class TestSliceDispatchMemorySafety:
         for slice_units in slices:
             assert len(slice_units) < len(plan.units)
 
-    def test_execute_reference_chained_dispatch_never_uses_whole_plan(
+    def test_execute_reference_dispatch_never_uses_whole_plan(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import fbf.core.execution.strategies.reference_chaining as rc
+        import fbf.core.execution.strategies.reference as ref
 
         dataset = _make_flat_dataset(80)
         plan = _make_grid_plan(
@@ -510,8 +510,8 @@ class TestSliceDispatchMemorySafety:
                 summary_only=summary_only,
             )
 
-        monkeypatch.setattr(rc, "parallel_execute", _spy_slice_executor)
-        execute_reference_chained(plan, max_workers=2, slice_cohorts=3)
+        monkeypatch.setattr(ref, "parallel_execute", _spy_slice_executor)
+        execute_reference(plan, max_workers=2, slice_cohorts=3)
 
         assert len(dispatched) >= 3
         for sub_units in dispatched:
@@ -525,8 +525,8 @@ class TestSliceDispatchMemorySafety:
         )
         assert len(plan.units) == 18
 
-        whole = execute_reference_chained(plan, max_workers=1, slice_cohorts=100)
-        sliced = execute_reference_chained(plan, max_workers=1, slice_cohorts=2)
+        whole = execute_reference(plan, max_workers=1, slice_cohorts=100)
+        sliced = execute_reference(plan, max_workers=1, slice_cohorts=2)
 
         assert len(whole.experiment_result.simulation_results) == len(plan.units)
         assert len(sliced.experiment_result.simulation_results) == len(plan.units)

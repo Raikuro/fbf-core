@@ -9,7 +9,7 @@ Reference-vs-fast equivalence is an exactness contract, not a tolerance:
 - the ``float`` closed form is a double-precision algebraic recurrence: success,
   failure month and months simulated must match exactly, and final wealth is
   bounded (measured <= 9e-6 EUR on synthetic grids);
-- horizon chaining must be bit-identical to evaluating each context on its own.
+- horizon derivation must be bit-identical to evaluating each context on its own.
 
 The only known, documented divergence is ``float`` outcome flips at crafted
 exact-equality depletion boundaries (``V_m == C`` for a simulated month), which
@@ -33,11 +33,11 @@ from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdraw
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.strategies.fast_path import (
-    ChainedFastPathSimulationExecutor,
+    FastPathSimulationExecutor,
     Precision,
 )
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
-from fbf.core.execution.strategies.reference_chaining import ChainedReferenceSimulationExecutor
+from fbf.core.execution.strategies.reference import ReferenceSimulationExecutor
 from fbf.core.study.builder import build_initial_portfolio
 from fbf.core.study.internal.cohort.generator import CohortGenerator
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
@@ -170,7 +170,7 @@ class TestDecimalPathBitExact:
             rates=(0.04, 0.1),
         )
         reference = _execute(plan)
-        decimal = _execute(plan, ChainedFastPathSimulationExecutor(precision="decimal"))
+        decimal = _execute(plan, FastPathSimulationExecutor(precision="decimal"))
 
         for unit, ref, got in zip(plan.units, reference, decimal, strict=True):
             _assert_exact(ref, got, unit, "success")
@@ -191,7 +191,7 @@ class TestDecimalPathBitExact:
             dataset = _dataset(max(horizons) * 12 + 1, flat=True)
             plan = build_grid_plan(dataset, horizons, rates=rates)
             reference = _execute(plan)
-            decimal = _execute(plan, ChainedFastPathSimulationExecutor(precision="decimal"))
+            decimal = _execute(plan, FastPathSimulationExecutor(precision="decimal"))
             for unit, ref, got in zip(plan.units, reference, decimal, strict=True):
                 _assert_exact(ref, got, unit, "success")
                 _assert_exact(ref, got, unit, "failure_month")
@@ -210,7 +210,7 @@ class TestFloatPath:
             rates=(0.04, 0.1),
         )
         reference = _execute(plan)
-        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
 
         for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
             _assert_exact(ref, got, unit, "success")
@@ -232,7 +232,7 @@ class TestFloatPath:
             rates=(0.03, 0.04, 0.05, 0.08),
         )
         reference = _execute(plan)
-        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
         max_diff = Decimal("0")
 
         for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
@@ -251,7 +251,7 @@ class TestFloatPath:
         """On flat data without an exact-equality boundary, float matches exactly."""
         plan = build_grid_plan(_dataset(25, flat=True), (2,), rates=(0.3,))
         reference = _execute(plan)
-        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
         for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
             _assert_exact(ref, got, unit, "success")
             _assert_exact(ref, got, unit, "failure_month")
@@ -262,7 +262,7 @@ class TestFloatPath:
         dataset = _dataset(25)
         plan = build_grid_plan(dataset, (1,), rates=(0.04,))
         reference = _execute(plan)
-        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
         for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
             _assert_exact(ref, got, unit, "success")
             _assert_exact(ref, got, unit, "failure_month")
@@ -273,7 +273,7 @@ class TestFloatPath:
         dataset = _dataset(610)
         plan = build_grid_plan(dataset, (5,), rates=(0.04,))
         reference = _execute(plan)
-        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
         for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
             _assert_exact(ref, got, unit, "success")
             _assert_exact(ref, got, unit, "failure_month")
@@ -293,7 +293,7 @@ class TestFloatPath:
         """
         plan = build_grid_plan(_dataset(25, flat=True), (2,), rates=(0.5,))
         reference = _execute(plan)
-        float_path = _execute(plan, ChainedFastPathSimulationExecutor(precision="float"))
+        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
         assert all(ref.statistics.success for ref in reference)  # reference: all success
         assert all(not got.statistics.success for got in float_path)  # float: all fail at 23
         for got in float_path:
@@ -304,10 +304,10 @@ class TestFloatPath:
             assert got.statistics.final_wealth.amount == Decimal("0")
 
 
-class TestChainingBitExact:
+class TestDerivationBitExact:
     @pytest.mark.parametrize("precision", ["float", "decimal"])
-    def test_chained_equals_direct_closed_form(self, precision: str) -> None:
-        """Chained derivation is bit-identical to per-context closed-form evaluation."""
+    def test_derived_equals_direct_closed_form(self, precision: str) -> None:
+        """Derived derivation is bit-identical to per-context closed-form evaluation."""
         dataset = _dataset(241)
         plan = build_grid_plan(
             dataset,
@@ -316,18 +316,18 @@ class TestChainingBitExact:
             rates=(0.04, 0.08),
         )
         prec = cast(Precision, precision)
-        direct = _execute(plan, ChainedFastPathSimulationExecutor(precision=prec))
-        chained = _execute(plan, ChainedFastPathSimulationExecutor(precision=prec))
-        for unit, d, ch in zip(plan.units, direct, chained, strict=True):
+        direct = _execute(plan, FastPathSimulationExecutor(precision=prec))
+        derived = _execute(plan, FastPathSimulationExecutor(precision=prec))
+        for unit, d, ch in zip(plan.units, direct, derived, strict=True):
             _assert_exact(d, ch, unit, "success")
             _assert_exact(d, ch, unit, "failure_month")
             _assert_exact(d, ch, unit, "months_simulated")
             _assert_exact(d, ch, unit, "final_wealth")
 
 
-class TestReferenceChainingBitExact:
-    def test_chained_reference_matches_reference_engine(self) -> None:
-        """Reference chaining reproduces reference engine execution exactly."""
+class TestReferenceDerivationBitExact:
+    def test_reference_matches_reference_engine(self) -> None:
+        """Reference execution reproduces reference engine execution exactly."""
         dataset = _dataset(241)
         plan = build_grid_plan(
             dataset,
@@ -336,15 +336,15 @@ class TestReferenceChainingBitExact:
             rates=(0.04, 0.08),
         )
         reference = _execute(plan)
-        chained = _execute(plan, ChainedReferenceSimulationExecutor())
+        ref_exec = _execute(plan, ReferenceSimulationExecutor())
 
-        for unit, ref, got in zip(plan.units, reference, chained, strict=True):
+        for unit, ref, got in zip(plan.units, reference, ref_exec, strict=True):
             _assert_exact(ref, got, unit, "success")
             _assert_exact(ref, got, unit, "failure_month")
             _assert_exact(ref, got, unit, "months_simulated")
             _assert_exact(ref, got, unit, "final_wealth")
 
-    def test_chained_reference_preserves_failure_month_boundary(self) -> None:
+    def test_reference_preserves_failure_month_boundary(self) -> None:
         """Derived shorter horizons preserve failure month boundaries exactly."""
         dataset = _dataset(40, flat=True)
         plan = build_grid_plan(
@@ -354,7 +354,7 @@ class TestReferenceChainingBitExact:
             rates=(0.5,),
         )
         reference = _execute(plan)
-        chained = _execute(plan, ChainedReferenceSimulationExecutor())
+        ref_exec = _execute(plan, ReferenceSimulationExecutor())
 
         assert any(
             ref.statistics.failure_month is not None
@@ -362,7 +362,7 @@ class TestReferenceChainingBitExact:
             for ref in reference
         )
 
-        for unit, ref, got in zip(plan.units, reference, chained, strict=True):
+        for unit, ref, got in zip(plan.units, reference, ref_exec, strict=True):
             _assert_exact(ref, got, unit, "success")
             _assert_exact(ref, got, unit, "failure_month")
             _assert_exact(ref, got, unit, "months_simulated")
@@ -383,19 +383,19 @@ class TestReferenceChainingBitExact:
             rates=(0.04, 0.1, 0.5),
         )
         reference = _execute(plan)
-        chained = _execute(plan, ChainedReferenceSimulationExecutor())
+        ref_exec = _execute(plan, ReferenceSimulationExecutor())
 
         assert len(plan.units) > 500
-        for unit, ref, got in zip(plan.units, reference, chained, strict=True):
+        for unit, ref, got in zip(plan.units, reference, ref_exec, strict=True):
             _assert_exact(ref, got, unit, "success")
             _assert_exact(ref, got, unit, "failure_month")
             _assert_exact(ref, got, unit, "months_simulated")
             _assert_exact(ref, got, unit, "final_wealth")
 
     def test_expected_report_matches_live_executor_report(self) -> None:
-        """The plan-level oracle equals the executor's live chaining report."""
-        from fbf.core.execution.strategies.reference_chaining import (
-            expected_reference_chaining_report,
+        """The plan-level oracle equals the executor's live report."""
+        from fbf.core.execution.strategies.reference import (
+            expected_reference_report,
         )
 
         dataset = _dataset(241)
@@ -405,27 +405,27 @@ class TestReferenceChainingBitExact:
             weights=(1.0,),
             rates=(0.04,),
         )
-        expected = expected_reference_chaining_report(plan)
+        expected = expected_reference_report(plan)
 
-        executor = ChainedReferenceSimulationExecutor()
+        executor = ReferenceSimulationExecutor()
         _execute(plan, executor)
-        live = executor.chaining_report
+        live = executor.report
         assert live is not None
         assert live == expected
 
         n_cohorts = len({u.cohort.start_date for u in plan.units})
-        assert expected.chained_groups == n_cohorts
+        assert expected.groups == n_cohorts
         assert expected.longest_path_evaluations == n_cohorts
         assert expected.derived_results == n_cohorts
         assert expected.independent_evaluations == 0
         longest = max(u.horizon_months or 0 for u in plan.units)
         assert expected.month_work == n_cohorts * longest
 
-    def test_parallel_reference_chaining_matches_sequential(self) -> None:
-        """Parallel execution stays bit-exact and worker-batched chaining works.
+    def test_parallel_reference_matches_sequential(self) -> None:
+        """Parallel execution stays bit-exact and worker-batched reference works.
 
-        The chained executor advertises ``processes_whole_definition`` so
-        ``parallel_execute`` hands whole batches through hybrid, keeping chaining
+        The reference executor advertises ``processes_whole_definition`` so
+        ``parallel_execute`` hands whole batches through hybrid, keeping horizon derivation
         effective while results remain identical to sequential execution.
         """
         from fbf.core.execution.strategies.parallel_executor import parallel_execute
@@ -437,11 +437,11 @@ class TestReferenceChainingBitExact:
             weights=(0.0, 0.5, 1.0),
             rates=(0.04, 0.08),
         )
-        sequential = _execute(plan, ChainedReferenceSimulationExecutor())
+        sequential = _execute(plan, ReferenceSimulationExecutor())
         parallel = parallel_execute(
             plan,
             max_workers=2,
-            simulation_executor=ChainedReferenceSimulationExecutor(),
+            simulation_executor=ReferenceSimulationExecutor(),
             summary_only=True,
         ).results
 

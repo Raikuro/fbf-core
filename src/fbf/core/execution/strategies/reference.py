@@ -1,4 +1,4 @@
-"""Reference horizon chaining for prefix-consistent datasets.
+"""Reference execution with horizon derivation for prefix-consistent datasets.
 
 Executor that reuses a longest-horizon reference Decimal execution to derive
 shorter-horizon results for eligible, prefix-consistent context families. The
@@ -33,19 +33,19 @@ from fbf.core.execution.strategies.parallel_executor import (
 )
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
-# Memory-safety budget for the CLI's chained Reference dispatch. Each completed
-# chained result materializes ~0.37 MiB of timeline payload per unit, so a slice
-# of ``workers * _CHAINED_MAX_UNITS_PER_WORKER`` units keeps per-worker residency
+# Memory-safety budget for the CLI's Reference dispatch. Each completed
+# result materializes ~0.37 MiB of timeline payload per unit, so a slice
+# of ``workers * _MAX_UNITS_PER_WORKER`` units keeps per-worker residency
 # under ~1 GiB (e.g. 16 workers x 2048 units ~ 12 GiB peak aggregate, inside the
-# documented 15 GiB host) while never splitting a cohort (horizon chaining is
+# documented 15 GiB host) while never splitting a cohort (horizon derivation is
 # preserved exactly). Whole-plan materialization would need ~110 GiB.
-_CHAINED_MAX_UNITS_PER_WORKER = 2048
+_MAX_UNITS_PER_WORKER = 2048
 
 
 @dataclass(frozen=True)
-class ReferenceChainingReport:
+class ReferenceReport:
     logical_units: int
-    chained_groups: int
+    groups: int
     longest_path_evaluations: int
     derived_results: int
     independent_evaluations: int
@@ -76,7 +76,7 @@ def _dataset_is_identity_prefix_memo(
     return result
 
 
-def _reference_chaining_group_key(context: SimulationContext) -> tuple[object, ...]:
+def _reference_group_key(context: SimulationContext) -> tuple[object, ...]:
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
     return (
@@ -97,12 +97,12 @@ def _unit_horizon_months(plan: ResearchPlan, unit: PlannedSimulationUnit) -> int
     )
 
 
-def _unit_chaining_group_key(
+def _unit_group_key(
     plan: ResearchPlan, unit: PlannedSimulationUnit
 ) -> tuple[object, ...]:
-    """Return the plan-level chaining group key for *unit*.
+    """Return the plan-level group key for *unit*.
 
-    Mirrors ``_reference_chaining_group_key`` on the fields the research
+    Mirrors ``_reference_group_key`` on the fields the research
     orchestrator maps into a ``SimulationContext`` (see
     ``ResearchExecutor._create_context_for_unit``): cohort start date, policy
     scalars, experiment initial wealth and the unit's initial portfolio.
@@ -143,21 +143,21 @@ def _unit_dataset_is_identity_prefix_memo(
     return result
 
 
-def expected_reference_chaining_report(plan: ResearchPlan) -> ReferenceChainingReport:
-    """Compute the chaining report *plan* would produce, without executing.
+def expected_reference_report(plan: ResearchPlan) -> ReferenceReport:
+    """Compute the report *plan* would produce, without executing.
 
-    Applies exactly the same grouping (``_unit_chaining_group_key``) and dataset
+    Applies exactly the same grouping (``_unit_group_key``) and dataset
     prefix guard (``_unit_dataset_is_identity_prefix``) as
-    :class:`ChainedReferenceSimulationExecutor`, so the report is the
+    :class:`ReferenceSimulationExecutor`, so the report is the
     execution-independent truth for the plan: the longest horizon per family is
     evaluated once through the canonical Reference and every shorter
     prefix-consistent horizon is derived from it.  It is used by the CLI to
-    report chaining coverage and by tests to prove that chaining actually
+    report coverage and by tests to prove that horizon derivation actually
     happens (the executor records the same numbers live).
     """
     groups: dict[tuple[object, ...], list[PlannedSimulationUnit]] = {}
     for unit in plan.units:
-        groups.setdefault(_unit_chaining_group_key(plan, unit), []).append(unit)
+        groups.setdefault(_unit_group_key(plan, unit), []).append(unit)
 
     prefix_memo: dict[tuple[int, int], bool] = {}
     longest_evaluations = 0
@@ -177,9 +177,9 @@ def expected_reference_chaining_report(plan: ResearchPlan) -> ReferenceChainingR
                 independent += 1
                 month_work += _unit_horizon_months(plan, unit)
 
-    return ReferenceChainingReport(
+    return ReferenceReport(
         logical_units=len(plan.units),
-        chained_groups=len(groups),
+        groups=len(groups),
         longest_path_evaluations=longest_evaluations,
         derived_results=derived,
         independent_evaluations=independent,
@@ -241,8 +241,8 @@ def _build_derived_result(
     return SimulationResult(timeline=timeline, statistics=statistics)
 
 
-class ChainedReferenceSimulationExecutor(SimulationExecutor):
-    """Reference executor with horizon chaining for prefix-consistent datasets."""
+class ReferenceSimulationExecutor(SimulationExecutor):
+    """Reference executor with horizon derivation for prefix-consistent datasets."""
 
     processes_whole_definition = True
 
@@ -251,10 +251,10 @@ class ChainedReferenceSimulationExecutor(SimulationExecutor):
         reference_executor: SimulationExecutor | None = None,
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
-        self._last_report: ReferenceChainingReport | None = None
+        self._last_report: ReferenceReport | None = None
 
     @property
-    def chaining_report(self) -> ReferenceChainingReport | None:
+    def report(self) -> ReferenceReport | None:
         return self._last_report
 
     def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
@@ -263,7 +263,7 @@ class ChainedReferenceSimulationExecutor(SimulationExecutor):
         order: list[tuple[int, int]] = []
 
         for index, context in enumerate(definition.simulation_contexts):
-            key = _reference_chaining_group_key(context)
+            key = _reference_group_key(context)
             if key not in key_to_group:
                 key_to_group[key] = len(group_contexts)
                 group_contexts.append([])
@@ -302,9 +302,9 @@ class ChainedReferenceSimulationExecutor(SimulationExecutor):
             context = definition.simulation_contexts[index]
             ordered_results.append(results[id(context)])
 
-        self._last_report = ReferenceChainingReport(
+        self._last_report = ReferenceReport(
             logical_units=len(definition.simulation_contexts),
-            chained_groups=len(group_contexts),
+            groups=len(group_contexts),
             longest_path_evaluations=len(group_contexts),
             derived_results=derived_count,
             independent_evaluations=independent_count,
@@ -326,15 +326,15 @@ class ChainedReferenceSimulationExecutor(SimulationExecutor):
         return run.simulation_results[0]
 
 
-# Memory-safe slice dispatch for the CLI's --reference-chained path.
+# Memory-safe slice dispatch for the CLI's Reference path.
 #
-# Whole-plan chained materialization holds ~0.37 MiB of timeline payload per
+# Whole-plan materialization holds ~0.37 MiB of timeline payload per
 # unit (~110 GiB for the ERN grid), so the CLI never hands the whole plan to a
 # single executor call.  It splits the plan into cohort-aligned slices (a cohort
 # is never split, so every horizon family stays grouped and the exact month-work
 # reduction is preserved) and runs each slice through ``parallel_execute`` with
-# the chained executor, then merges results back in original plan order.
-_DEFAULT_CHAINED_SLICE_COHORTS = 100
+# the Reference executor, then merges results back in original plan order.
+_DEFAULT_SLICE_COHORTS = 100
 
 
 def _slice_plan_units(
@@ -364,17 +364,17 @@ def _slice_plan_units(
     return slices
 
 
-def execute_reference_chained(
+def execute_reference(
     plan: ResearchPlan,
     max_workers: int | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     summary_only: bool = False,
-    slice_cohorts: int = _DEFAULT_CHAINED_SLICE_COHORTS,
+    slice_cohorts: int = _DEFAULT_SLICE_COHORTS,
 ) -> ResearchExecutionResult:
-    """Execute *plan* through the chained Reference executor in cohort slices.
+    """Execute *plan* through the Reference executor in cohort slices.
 
     Each slice is dispatched through ``parallel_execute`` with a shared
-    ``ChainedReferenceSimulationExecutor`` and the per-slice results are merged
+    ``ReferenceSimulationExecutor`` and the per-slice results are merged
     back into a single ``ResearchExecutionResult`` preserving original plan
     order and index provenance.  Progress is reported once per completed slice
     with global completed/total counts.
@@ -382,7 +382,7 @@ def execute_reference_chained(
     workers = default_max_workers() if max_workers is None or max_workers <= 0 else max_workers
 
     slices = _slice_plan_units(plan, slice_cohorts)
-    executor = ChainedReferenceSimulationExecutor()
+    executor = ReferenceSimulationExecutor()
 
     all_results: list[SimulationResult] = []
     all_contexts: list[SimulationContext] = []

@@ -1,6 +1,6 @@
 """Equivalence tests for the closed-form fast path vs the reference fbf.core.
 
-Verifies that ``ChainedFastPathSimulationExecutor`` (float and decimal precision)
+Verifies that ``FastPathSimulationExecutor`` (float and decimal precision)
 reproduces the reference Decimal pipeline's ``success`` / ``failure_month``
 exactly and ``final_wealth`` within a cent, on synthetic random-walk data.
 Real-ERN equivalence is covered by the gated ``ern_e2e`` tests below and the
@@ -33,7 +33,7 @@ from fbf.core.execution.pipeline.simulation import (
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.fast_path import (
     FAST_PATH_VALIDATION_MAX_UNITS,
-    ChainedFastPathSimulationExecutor,
+    FastPathSimulationExecutor,
     FastPathValidationError,
     Precision,
     evaluate_closed_form,
@@ -155,8 +155,8 @@ def test_float_matches_decimal() -> None:
     assert_equivalent(run_fast(plan, "decimal"), run_fast(plan, "float"))
 
 
-def test_chained_executor_matches_reference() -> None:
-    """Chained mixed-horizon execution reproduces per-context closed-form results."""
+def test_executor_matches_reference() -> None:
+    """Multi-horizon execution reproduces per-context closed-form results."""
     dataset = make_synthetic_dataset(n_months=620)
     start = date(1900, 1, 1)
     horizons = [120, 240, 360, 480]
@@ -175,13 +175,13 @@ def test_chained_executor_matches_reference() -> None:
         for h in horizons
     ]
     definition = EngineExperimentDefinition(
-        name="synth", description="chaining study", simulation_contexts=tuple(contexts)
+        name="synth", description="multi-horizon study", simulation_contexts=tuple(contexts)
     )
     direct = tuple(evaluate_closed_form(ctx, "float") for ctx in contexts)
-    chained = ChainedFastPathSimulationExecutor(precision="float")
+    executor = FastPathSimulationExecutor(precision="float")
 
-    chained_run = chained.execute(definition)
-    for ref, got in zip(direct, chained_run.simulation_results, strict=True):
+    executor_run = executor.execute(definition)
+    for ref, got in zip(direct, executor_run.simulation_results, strict=True):
         assert ref.statistics.success == got.statistics.success
         assert ref.statistics.failure_month == got.statistics.failure_month
         assert (
@@ -190,8 +190,8 @@ def test_chained_executor_matches_reference() -> None:
         )
 
 
-def test_chained_executor_shares_longest_path() -> None:
-    """The chained executor evaluates each distinct cohort's longest horizon once."""
+def test_executor_shares_longest_path() -> None:
+    """The executor evaluates each distinct cohort's longest horizon once."""
     dataset = make_synthetic_dataset(n_months=620)
     start = date(1900, 1, 1)
     horizons = [120, 240, 360, 480]
@@ -240,7 +240,7 @@ def test_non_eligible_falls_back_to_reference() -> None:
     reference = sequential_execute(non_eligible_plan, summary_only=True).results
     fast = sequential_execute(
         non_eligible_plan,
-        simulation_executor=ChainedFastPathSimulationExecutor(precision="float"),
+        simulation_executor=FastPathSimulationExecutor(precision="float"),
         summary_only=True,
     ).results
 
@@ -278,7 +278,7 @@ def test_eligibility_requires_dataset_covering_horizon() -> None:
     )) is True
 
 
-def _make_chaining_context(
+def _make_multi_horizon_context(
     dataset: Dataset, start: date, horizon: int, wealth: int
 ) -> SimulationContext:
     return SimulationContext(
@@ -294,22 +294,22 @@ def _make_chaining_context(
     )
 
 
-def _assert_chained_matches_per_context(
+def _assert_executor_matches_per_context(
     definition: EngineExperimentDefinition,
 ) -> None:
-    """The chained executor must reproduce per-context closed-form results."""
+    """The executor must reproduce per-context closed-form results."""
     direct = tuple(
         evaluate_closed_form(ctx, "float")
         for ctx in definition.simulation_contexts
     )
-    chained = ChainedFastPathSimulationExecutor(precision="float")
-    got = chained.execute(definition).simulation_results
+    executor = FastPathSimulationExecutor(precision="float")
+    got = executor.execute(definition).simulation_results
     assert len(direct) == len(got)
     for ref, fast in zip(direct, got, strict=True):
         assert ref.statistics == fast.statistics
 
 
-def test_chained_executor_refuses_different_initial_wealth() -> None:
+def test_executor_refuses_different_initial_wealth() -> None:
     """F2: contexts differing only in initial wealth must never be cross-derived."""
     dataset = make_synthetic_dataset(n_months=620)
     start = date(1900, 1, 1)
@@ -317,15 +317,15 @@ def test_chained_executor_refuses_different_initial_wealth() -> None:
         name="synth",
         description="f2 wealth",
         simulation_contexts=(
-            _make_chaining_context(dataset.slice(start, 120), start, 120, 1_000_000),
-            _make_chaining_context(dataset.slice(start, 240), start, 240, 500_000),
+            _make_multi_horizon_context(dataset.slice(start, 120), start, 120, 1_000_000),
+            _make_multi_horizon_context(dataset.slice(start, 240), start, 240, 500_000),
         ),
     )
-    _assert_chained_matches_per_context(definition)
+    _assert_executor_matches_per_context(definition)
 
 
-def test_chained_executor_refuses_non_prefix_dataset() -> None:
-    """F2: contexts sharing a key but with divergent data must not be chained."""
+def test_executor_refuses_non_prefix_dataset() -> None:
+    """F2: contexts sharing a key but with divergent data must not be derived."""
     dataset_a = make_synthetic_dataset(n_months=620, seed=1)
     dataset_b = make_synthetic_dataset(n_months=620, seed=2)
     start = date(1900, 1, 1)
@@ -333,11 +333,11 @@ def test_chained_executor_refuses_non_prefix_dataset() -> None:
         name="synth",
         description="f2 data",
         simulation_contexts=(
-            _make_chaining_context(dataset_a.slice(start, 120), start, 120, 1_000_000),
-            _make_chaining_context(dataset_b.slice(start, 240), start, 240, 1_000_000),
+            _make_multi_horizon_context(dataset_a.slice(start, 120), start, 120, 1_000_000),
+            _make_multi_horizon_context(dataset_b.slice(start, 240), start, 240, 1_000_000),
         ),
     )
-    _assert_chained_matches_per_context(definition)
+    _assert_executor_matches_per_context(definition)
 
 
 def _replace_withdrawal_policies(

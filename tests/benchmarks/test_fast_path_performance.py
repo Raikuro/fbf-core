@@ -1,8 +1,8 @@
-"""Performance benchmarks for the closed-form fast path and horizon chaining.
+"""Performance benchmarks for the closed-form fast path and horizon derivation.
 
 Measures, on a synthetic random-walk dataset:
   1. reference pipeline vs float closed form (per-cohort throughput),
-  2. chained multi-horizon execution (wall time + outcome equivalence
+  2. multi-horizon execution (wall time + outcome equivalence
      vs direct closed-form evaluation).
 
 These are informational timing benchmarks (they print and assert equivalence,
@@ -26,7 +26,7 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.fast_path import (
-    ChainedFastPathSimulationExecutor,
+    FastPathSimulationExecutor,
     evaluate_closed_form,
 )
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
@@ -116,7 +116,7 @@ def test_fast_path_vs_reference_throughput() -> None:
     t0 = time.perf_counter()
     fast = sequential_execute(
         plan,
-        simulation_executor=ChainedFastPathSimulationExecutor(precision="float"),
+        simulation_executor=FastPathSimulationExecutor(precision="float"),
         summary_only=True,
     )
     t_fast = time.perf_counter() - t0
@@ -173,7 +173,7 @@ def test_decimal_fast_path_vs_reference_throughput() -> None:
     t0 = time.perf_counter()
     decimal_path = sequential_execute(
         plan,
-        simulation_executor=ChainedFastPathSimulationExecutor(precision="decimal"),
+        simulation_executor=FastPathSimulationExecutor(precision="decimal"),
         summary_only=True,
     )
     t_decimal = time.perf_counter() - t0
@@ -192,8 +192,8 @@ def test_decimal_fast_path_vs_reference_throughput() -> None:
     )
 
 
-def test_chained_matches_direct_closed_form() -> None:
-    """Chained multi-horizon execution is outcome-equivalent to direct closed-form."""
+def test_horizon_derivation_matches_direct_closed_form() -> None:
+    """Multi-horizon execution is outcome-equivalent to direct closed-form."""
     dataset = _synthetic_dataset(320)
     start = date(1900, 1, 1)
     contexts = _contexts(dataset, start, [120, 240])
@@ -204,28 +204,28 @@ def test_chained_matches_direct_closed_form() -> None:
     direct = tuple(
         evaluate_closed_form(ctx, "float") for ctx in contexts
     )
-    chained = ChainedFastPathSimulationExecutor(precision="float")
+    executor = FastPathSimulationExecutor(precision="float")
 
     t0 = time.perf_counter()
-    chained_run = chained.execute(definition)
-    t_chained = time.perf_counter() - t0
+    executor_run = executor.execute(definition)
+    t_executor = time.perf_counter() - t0
 
-    for a, b in zip(direct, chained_run.simulation_results, strict=True):
+    for a, b in zip(direct, executor_run.simulation_results, strict=True):
         assert a.statistics.success == b.statistics.success
         assert a.statistics.failure_month == b.statistics.failure_month
         assert a.statistics.months_simulated == b.statistics.months_simulated
         assert a.statistics.final_wealth == b.statistics.final_wealth
 
     print(
-        f"chaining: chained {t_chained * 1000:.1f}ms "
+        f"horizon derivation: {t_executor * 1000:.1f}ms "
         f"({len(contexts)} contexts)"
     )
 
 
-def test_grid_plan_chaining_report() -> None:
+def test_grid_plan_horizon_derivation_report() -> None:
     """A full synthetic grid's month-work is cut exactly by the family factor."""
     from fbf.core.execution.strategies.fast_path import (
-        expected_chaining_report,
+        expected_report,
         reference_month_work,
     )
     from fbf.core.study.builder import build_initial_portfolio
@@ -286,24 +286,24 @@ def test_grid_plan_chaining_report() -> None:
         policy_resolver=_resolve_policies,
     )
 
-    report = expected_chaining_report(plan)
+    report = expected_report(plan)
     ref_work = reference_month_work(plan)
     ratio = ref_work / report.month_work
 
-    assert report.chained_groups == len(cohorts) * len(configs) // len(horizons)
-    assert report.derived_results == len(plan.units) - report.chained_groups
+    assert report.groups == len(cohorts) * len(configs) // len(horizons)
+    assert report.derived_results == len(plan.units) - report.groups
     assert report.independent_evaluations == 0
 
     t0 = time.perf_counter()
-    chained = sequential_execute(
+    result = sequential_execute(
         plan,
-        simulation_executor=ChainedFastPathSimulationExecutor(precision="float"),
+        simulation_executor=FastPathSimulationExecutor(precision="float"),
         summary_only=True,
     )
-    t_chained = time.perf_counter() - t0
-    assert len(chained.results) == len(plan.units)
+    t_result = time.perf_counter() - t0
+    assert len(result.results) == len(plan.units)
     print(
-        f"grid chaining: {len(plan.units):,} units -> {report.chained_groups:,} "
+        f"grid horizon derivation: {len(plan.units):,} units -> {report.groups:,} "
         f"families, month-work {report.month_work:,}/{ref_work:,} "
-        f"({ratio:.1f}x reduction), ran in {t_chained * 1000:.1f}ms"
+        f"({ratio:.1f}x reduction), ran in {t_result * 1000:.1f}ms"
     )

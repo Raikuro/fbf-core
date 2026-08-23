@@ -23,8 +23,8 @@ created and per-month timelines are never materialized or transferred.
 
 Enable with ``RUN_ERN_E2E=1``; the full 180-cell grid also needs
 ``RUN_ERN_E2E_FULL=1``.  The fast-path acceptance check needs
-``ERN_E2E_FAST_PATH=1``.  Reference Chained is the sole reference execution
-strategy (the no-flag default and ``--reference-chained`` are identical).
+``ERN_E2E_FAST_PATH=1``.  Reference is the sole reference execution
+strategy (the no-flag default and ``--reference`` are identical).
 The default worker selection when ``ERN_E2E_WORKERS`` is unset is the
 conservative ``min(8, cpu_count)``;
 ``ERN_E2E_WORKERS=N`` pins an exact override count and ``ERN_E2E_WORKERS=max``
@@ -162,7 +162,7 @@ def test_smoke_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: Oracl
     """The reduced single-plan smoke grid reproduces the oracle.
 
     Exercises the same one-subprocess / one-plan / per-cell-summary architecture
-    as the full grid at a fraction of the chained-Reference wall time.  The two
+    as the full grid at a fraction of the Reference wall time.  The two
     smoke anchors hard-fail; every other smoke cell is held to the +/-1pp
     tolerance.
     """
@@ -287,8 +287,8 @@ def test_full_grid_fast_path_reproduces_reference_success_rates(
     """Full-grid reference vs fast-path equivalence across all 180 cells.
 
     The complete 180-cell grid is executed twice through the public CLI
-    (the default Reference Chained path, which is bit-exact with the canonical
-    engine, then ``--fast-path`` with horizon chaining) and every per-cell
+    (the default Reference path, which is bit-exact with the canonical
+    engine, then ``--fast-path`` with horizon derivation) and every per-cell
     statistic is compared.  This extends the smoke-level fast-path equivalence
     check to the full parameter space; oracle comparison stays on the
     reference-path tests.

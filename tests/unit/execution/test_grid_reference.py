@@ -1,16 +1,16 @@
-"""Grid-study fast-path chaining: live report, CLI integration, validation.
+"""Grid-study fast-path reference: live report, CLI integration, validation.
 
 Grid studies (``--fast-path`` on a plan with a ``horizon_years`` axis) reuse
 each cohort's longest horizon as the single evaluation and derive the shorter
 horizons as prefix paths.  These tests pin the instrumentation around that
 behaviour:
 
-- the live ``ChainedFastPathSimulationExecutor`` report matches the plan-level
-  ``expected_chaining_report`` oracle,
-- the CLI prints chaining and per-cell summaries for grid fast-path runs,
-- Reference Chained is the sole reference execution strategy: every reference
-  run (no flag, or ``--reference-chained``) routes through the chained
-  Reference executor for chainable and single-horizon plans alike,
+- the live ``FastPathSimulationExecutor`` report matches the plan-level
+  ``expected_report`` oracle,
+- the CLI prints reference and per-cell summaries for grid fast-path runs,
+- Reference is the sole reference execution strategy: every reference
+  run routes through the Reference executor for derivable and single-horizon
+  plans alike,
 - F7 validation sampling is stratified so every horizon is covered.
 """
 
@@ -30,8 +30,8 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from fbf.core.execution.strategies.fast_path import (
     FAST_PATH_VALIDATION_MAX_UNITS,
-    ChainedFastPathSimulationExecutor,
-    expected_chaining_report,
+    FastPathSimulationExecutor,
+    expected_report,
     select_validation_units,
 )
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
@@ -137,17 +137,17 @@ def build_grid_plan(
     )
 
 
-class TestGridChainingReport:
+class TestGridReferenceReport:
     def test_live_report_matches_expected_oracle(self) -> None:
         """The executor records exactly what the plan-level oracle predicts."""
         plan = build_grid_plan(_synthetic_dataset())
-        expected = expected_chaining_report(plan)
-        assert expected.chained_groups == len(plan.units) // len({u.parameter_config for u in plan})
+        expected = expected_report(plan)
+        assert expected.groups == len(plan.units) // len({u.parameter_config for u in plan})
 
-        executor = ChainedFastPathSimulationExecutor(precision="float")
+        executor = FastPathSimulationExecutor(precision="float")
         sequential_execute(plan, simulation_executor=executor, summary_only=True)
 
-        live = executor.chaining_report
+        live = executor.report
         assert live is not None
         assert live == expected
         assert live.logical_units == len(plan.units)
@@ -155,18 +155,18 @@ class TestGridChainingReport:
         longest = max(h for h in (u.horizon_months for u in plan.units) if h is not None)
         assert live.longest_path_evaluations * longest == live.month_work
 
-    def test_chained_grid_matches_reference_outcomes(self) -> None:
+    def test_fast_path_grid_matches_reference_outcomes(self) -> None:
         """Derived shorter horizons reproduce reference success/failure."""
         plan = build_grid_plan(_synthetic_dataset())
         reference = sequential_execute(plan, summary_only=True).results
-        chained = sequential_execute(
+        fast_path = sequential_execute(
             plan,
-            simulation_executor=ChainedFastPathSimulationExecutor(precision="float"),
+            simulation_executor=FastPathSimulationExecutor(precision="float"),
             summary_only=True,
         ).results
 
-        assert len(chained) == len(reference)
-        for ref, got in zip(reference, chained, strict=True):
+        assert len(fast_path) == len(reference)
+        for ref, got in zip(reference, fast_path, strict=True):
             assert ref.statistics.success == got.statistics.success
             assert ref.statistics.failure_month == got.statistics.failure_month
 

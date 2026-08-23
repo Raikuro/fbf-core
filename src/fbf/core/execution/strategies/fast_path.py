@@ -34,7 +34,7 @@ wealth match to the last digit); the ``float`` path is validated against the
 reference engine by ``run_fast_path_validation``.
 
 This path is a guarded optimization.  It is only exercised when the CLI caller
-explicitly selects ``ChainedFastPathSimulationExecutor`` (e.g. via the
+explicitly selects ``FastPathSimulationExecutor`` (e.g. via the
 ``--fast-path`` flag on ``sim-retire run``); the default execution path remains
 the reference fbf.core.
 """
@@ -126,25 +126,25 @@ class ClosedFormPath:
 
 
 @dataclass(frozen=True)
-class ChainingReport:
-    """Instrumentation summary of a chained multi-horizon execution.
+class DerivationReport:
+    """Instrumentation summary of a multi-horizon execution.
 
     Provides an execution-independent statement of how much mathematical work a
-    chained run performs versus the reference path, plus the group structure the
-    chaining produced.  It is computed deterministically from a plan (or a
+    fast-path run performs versus the reference path, plus the group structure the
+    horizon derivation produced.  It is computed deterministically from a plan (or a
     definition) and is also recorded live by
-    :class:`ChainedFastPathSimulationExecutor` after each ``execute``.
+    :class:`FastPathSimulationExecutor` after each ``execute``.
 
     Attributes
     ----------
     logical_units:
         Total number of simulation units/contexts in the study.
-    chained_groups:
+    groups:
         Number of (cohort, equity, rate, wealth, portfolio) families whose
         contexts share a group key and are evaluated together.
     longest_path_evaluations:
         Number of times a single longest-horizon path was evaluated and reused
-        to derive shorter horizons (one per chained group).
+        to derive shorter horizons (one per group).
     derived_results:
         Number of results obtained by reading a shorter horizon off a reused
         longest-horizon path instead of re-simulating it.
@@ -153,13 +153,13 @@ class ChainingReport:
         non-prefix datasets, or singleton groups).
     month_work:
         Total recurrence months actually simulated.  For the reference path this
-        equals ``sum(unit.horizon_months)``; for the fully chained ERN grid it
-        is ``chained_groups * 720`` (the longest horizon evaluated once per
+        equals ``sum(unit.horizon_months)``; for the fully derived ERN grid it
+        is ``groups * 720`` (the longest horizon evaluated once per
         family), exactly 3x below the reference count.
     """
 
     logical_units: int
-    chained_groups: int
+    groups: int
     longest_path_evaluations: int
     derived_results: int
     independent_evaluations: int
@@ -233,19 +233,19 @@ def _index_series(context: SimulationContext) -> dict[object, tuple[Decimal, ...
 def _dataset_is_identity_prefix(candidate: SimulationContext, longest: SimulationContext) -> bool:
     """Return True when *candidate*'s dataset is a prefix of *longest*'s.
 
-    Horizon chaining derives shorter horizons from a single longest-horizon
+    Horizon derivation derives shorter horizons from a single longest-horizon
     path, which is only valid when the shorter context follows the identical
     index trajectory (dataset values) for every month it simulates.  The check
     is *identity-based*: it passes only when the candidate's ``MarketSnapshot``
     objects are the very same objects held by the longest context's dataset.
     ``Dataset.slice`` shares the underlying snapshot objects, so the legitimate
-    prefix-sliced chaining pattern (the same source trajectory sliced to
+    prefix-sliced derivation pattern (the same source trajectory sliced to
     different horizons) passes in O(months) cheap identity comparisons with no
     Decimal work.
 
     Contexts built from different data fail the check and are evaluated
     individually; their results are never derived from another context's path.
-    Failing to chain is always safe (correct results, just no reuse).
+    Failing to derive is always safe (correct results, just no reuse).
     """
     candidate_snapshots = candidate.dataset.snapshots
     longest_snapshots = longest.dataset.snapshots
@@ -275,8 +275,8 @@ def _dataset_is_identity_prefix_memo(
     return result
 
 
-def _chaining_group_key(context: SimulationContext) -> tuple[object, ...]:
-    """Return the chaining group key for *context*.
+def _group_key(context: SimulationContext) -> tuple[object, ...]:
+    """Return the group key for *context*.
 
     F2: contexts may share a longest-horizon path only when they agree on cohort
     start date, equity allocation, withdrawal rate, initial wealth and initial
@@ -544,7 +544,7 @@ def fast_path_unit_counts(plan: ResearchPlan) -> tuple[int, int]:
     """Return ``(fast_path_units, reference_units)`` for a *plan*.
 
     Mirrors ``ResearchExecutor``'s unit -> ``SimulationContext`` translation so
-    the count reflects exactly which units ``ChainedFastPathSimulationExecutor``
+    the count reflects exactly which units ``FastPathSimulationExecutor``
     would evaluate via the closed form.  It is used by the CLI to report
     fast-path coverage in the completion summary; eligibility is deterministic
     and does not depend on the execution path (sequential or parallel).
@@ -569,23 +569,23 @@ def reference_month_work(plan: ResearchPlan) -> int:
     )
 
 
-def expected_chaining_report(plan: ResearchPlan) -> ChainingReport:
-    """Compute the chaining report *plan* would produce, without executing.
+def expected_report(plan: ResearchPlan) -> DerivationReport:
+    """Compute the report *plan* would produce, without executing.
 
-    Applies exactly the same grouping (``_chaining_group_key``) and dataset
+    Applies exactly the same grouping (``_group_key``) and dataset
     prefix guard (``_dataset_is_identity_prefix``) as
-    :class:`ChainedFastPathSimulationExecutor`, so the report is the
+    :class:`FastPathSimulationExecutor`, so the report is the
     execution-independent truth for the plan: the longest horizon per group is
     evaluated once and every shorter prefix-consistent horizon is derived from
-    it.  It is used by the CLI to report chaining coverage and by tests to prove
-    that chaining actually happens (the executor records the same numbers live).
+    it.  It is used by the CLI to report coverage and by tests to prove
+    that horizon derivation actually happens (the executor records the same numbers live).
     """
     groups: dict[tuple[object, ...], list[SimulationContext]] = {}
     for unit in plan.units:
         context = _unit_simulation_context(plan, unit)
         if not is_fast_path_eligible(context):
             continue
-        groups.setdefault(_chaining_group_key(context), []).append(context)
+        groups.setdefault(_group_key(context), []).append(context)
 
     prefix_memo: dict[tuple[int, int], bool] = {}
     longest_evaluations = 0
@@ -615,9 +615,9 @@ def expected_chaining_report(plan: ResearchPlan) -> ChainingReport:
         if not is_fast_path_eligible(_unit_simulation_context(plan, unit))
     )
 
-    return ChainingReport(
+    return DerivationReport(
         logical_units=len(plan.units),
-        chained_groups=len(groups),
+        groups=len(groups),
         longest_path_evaluations=longest_evaluations,
         derived_results=derived,
         independent_evaluations=independent,
@@ -781,8 +781,8 @@ def run_fast_path_validation(
     return len(sample), eligible_count
 
 
-class ChainedFastPathSimulationExecutor(SimulationExecutor):
-    """Closed-form executor that chains horizons sharing the same cohort.
+class FastPathSimulationExecutor(SimulationExecutor):
+    """Closed-form executor that derives shorter horizons from a common path.
 
     Contexts in a definition that share the same cohort start date, initial
     wealth, initial portfolio, allocation weights and withdrawal rate are
@@ -791,23 +791,23 @@ class ChainedFastPathSimulationExecutor(SimulationExecutor):
     state of the shorter horizon instead of re-simulating earlier months,
     reducing total month-work.
 
-    Chaining is only performed when the shorter contexts' datasets are a prefix
+    Derivation is only performed when the shorter contexts' datasets are a prefix
     of the longest context's dataset (same ``MarketSnapshot`` objects).
     Contexts that share a group key but carry different data, initial wealth or
     initial portfolio are evaluated individually; their results are never
     derived from another context's path.
 
-    Because chaining is a whole-definition optimisation, ``execute`` consumes
+    Because horizon derivation is a whole-definition optimisation, ``execute`` consumes
     the full definition at once.  Progress wrappers that delegate one context at
     a time would silently defeat it; the executor therefore advertises
     ``processes_whole_definition = True`` so ``_ProgressReportingSimulationExecutor``
     passes the full definition through unchanged.  After every ``execute`` the
-    live ``chaining_report`` records the actual groups, longest-path evaluations,
+    live ``report`` records the actual groups, longest-path evaluations,
     derived results and month-work performed.
     """
 
     # Advertise whole-definition execution so progress wrappers never split the
-    # definition into single-context calls (which would disable chaining).
+    # definition into single-context calls (which would disable horizon derivation).
     processes_whole_definition = True
 
     def __init__(
@@ -817,10 +817,10 @@ class ChainedFastPathSimulationExecutor(SimulationExecutor):
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
         self._precision = precision
-        self._last_report: ChainingReport | None = None
+        self._last_report: DerivationReport | None = None
 
     @property
-    def chaining_report(self) -> ChainingReport | None:
+    def report(self) -> DerivationReport | None:
         """Return the report recorded by the most recent ``execute`` call."""
         return self._last_report
 
@@ -833,7 +833,7 @@ class ChainedFastPathSimulationExecutor(SimulationExecutor):
             if not is_fast_path_eligible(context):
                 order.append((index, -1))
                 continue
-            key = _chaining_group_key(context)
+            key = _group_key(context)
             if key not in key_to_group:
                 group_id = len(group_contexts)
                 key_to_group[key] = group_id
@@ -889,9 +889,9 @@ class ChainedFastPathSimulationExecutor(SimulationExecutor):
             else:
                 ordered_results.append(results[id(definition.simulation_contexts[index])])
 
-        self._last_report = ChainingReport(
+        self._last_report = DerivationReport(
             logical_units=len(definition.simulation_contexts),
-            chained_groups=len(group_contexts),
+            groups=len(group_contexts),
             longest_path_evaluations=len(group_contexts),
             derived_results=derived_count,
             independent_evaluations=independent_count,

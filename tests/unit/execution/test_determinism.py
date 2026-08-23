@@ -23,7 +23,7 @@ from decimal import Decimal
 
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.strategies.fast_path import (
-    ChainedFastPathSimulationExecutor,
+    FastPathSimulationExecutor,
     evaluate_closed_form,
 )
 from fbf.core.execution.strategies.parallel_executor import (
@@ -32,8 +32,8 @@ from fbf.core.execution.strategies.parallel_executor import (
     parallel_execute,
     sequential_execute,
 )
-from fbf.core.execution.strategies.reference_chaining import (
-    ChainedReferenceSimulationExecutor,
+from fbf.core.execution.strategies.reference import (
+    ReferenceSimulationExecutor,
 )
 
 from .conftest import make_context, make_dataset, make_engine_def, make_plan
@@ -176,7 +176,7 @@ class TestDecimalFastPathRepeatability:
         dataset = make_dataset(721)
         contexts = [make_context(dataset, 720, w=0.5, r=0.04)]
         engine_def = make_engine_def(contexts)
-        executor = ChainedFastPathSimulationExecutor()
+        executor = FastPathSimulationExecutor()
 
         run_a = executor.execute(engine_def)
         run_b = executor.execute(engine_def)
@@ -213,7 +213,7 @@ class TestReferenceDecimalEquivalence:
         engine_def = make_engine_def([context])
 
         ref_executor = _create_default_simulation_executor()
-        fp_executor = ChainedFastPathSimulationExecutor(precision="decimal")
+        fp_executor = FastPathSimulationExecutor(precision="decimal")
 
         ref_run = ref_executor.execute(engine_def)
         fp_run = fp_executor.execute(engine_def)
@@ -240,7 +240,7 @@ class TestReferenceDecimalEquivalence:
         engine_def = make_engine_def(contexts)
 
         ref_executor = _create_default_simulation_executor()
-        fp_executor = ChainedFastPathSimulationExecutor(precision="decimal")
+        fp_executor = FastPathSimulationExecutor(precision="decimal")
 
         ref_run = ref_executor.execute(engine_def)
         fp_run = fp_executor.execute(engine_def)
@@ -251,18 +251,18 @@ class TestReferenceDecimalEquivalence:
         ):
             _assert_decimal_fast_path_exact(r, f, f"grid unit {i}")
 
-    def test_chained_reference_matches_reference_engine(self) -> None:
-        """ChainedReferenceSimulationExecutor matches reference engine."""
+    def test_reference_matches_reference_engine(self) -> None:
+        """ReferenceSimulationExecutor matches reference engine."""
         plan = make_plan(cohorts=2, horizons=[361, 720])
         seq_result = sequential_execute(plan)
-        chained_executor = ChainedReferenceSimulationExecutor()
-        chained_result = sequential_execute(plan, simulation_executor=chained_executor)
+        reference_executor = ReferenceSimulationExecutor()
+        reference_result = sequential_execute(plan, simulation_executor=reference_executor)
 
-        assert len(seq_result.results) == len(chained_result.results)
+        assert len(seq_result.results) == len(reference_result.results)
         for i, (s, c) in enumerate(
-            zip(seq_result.results, chained_result.results, strict=True)
+            zip(seq_result.results, reference_result.results, strict=True)
         ):
-            _assert_reference_result_identical(s, c, f"chained vs reference unit {i}")
+            _assert_reference_result_identical(s, c, f"reference vs reference unit {i}")
 
 
 # ---------------------------------------------------------------------------
@@ -287,12 +287,12 @@ class TestFloatFastPathRepeatability:
         assert result_a.statistics.months_simulated == result_b.statistics.months_simulated
         assert result_a.statistics.final_wealth == result_b.statistics.final_wealth
 
-    def test_float_chained_repeated_execution(self) -> None:
-        """Two Float Fast Path chained runs produce identical results."""
+    def test_float_fast_path_simulator_repeated_execution(self) -> None:
+        """Two Float Fast Path simulator runs produce identical results."""
         dataset = make_dataset(721)
         contexts = [make_context(dataset, 720, w=0.5, r=0.04)]
         engine_def = make_engine_def(contexts)
-        executor = ChainedFastPathSimulationExecutor()
+        executor = FastPathSimulationExecutor()
 
         run_a = executor.execute(engine_def)
         run_b = executor.execute(engine_def)

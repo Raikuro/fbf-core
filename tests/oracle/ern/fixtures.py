@@ -92,16 +92,16 @@ def run_grid_study(
     workers: int | str,
     timeout: int = 3600,
     fast_path: bool = False,
-    reference_chained: bool = False,
+    reference: bool = False,
 ) -> tuple[CliResult, dict[tuple[float, float, int], PerCellStats]]:
     """Run one grid through the public CLI and return validated cell output."""
-    if fast_path and reference_chained:
-        raise ValueError("fast_path and reference_chained are mutually exclusive")
+    if fast_path and reference:
+        raise ValueError("fast_path and reference are mutually exclusive")
     args = ["run", str(study_yaml), "--workers", str(workers), "--no-persist", "--summary-only"]
     if fast_path:
         args.append("--fast-path")
-    elif reference_chained:
-        args.append("--reference-chained")
+    elif reference:
+        args.append("--reference")
     result = harness.run(args, timeout=timeout)
     if result.exit_code != 0:
         raise RuntimeError(

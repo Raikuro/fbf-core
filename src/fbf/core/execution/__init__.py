@@ -26,18 +26,18 @@ def parallel_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
     return implementation(*args, **kwargs)
 
 
-def execute_reference_chained(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
-    """Execute the public exact chained-reference operation."""
-    from fbf.core.execution.strategies.reference_chaining import (
-        execute_reference_chained as implementation,
+def execute_reference(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
+    """Execute the public Reference operation."""
+    from fbf.core.execution.strategies.reference import (
+        execute_reference as implementation,
     )
 
     return implementation(*args, **kwargs)
 
 
-def expected_reference_chaining_report(*args: Any, **kwargs: Any) -> Any:
-    from fbf.core.execution.strategies.reference_chaining import (
-        expected_reference_chaining_report as implementation,
+def expected_reference_report(*args: Any, **kwargs: Any) -> Any:
+    from fbf.core.execution.strategies.reference import (
+        expected_reference_report as implementation,
     )
 
     return implementation(*args, **kwargs)
@@ -55,8 +55,8 @@ def fast_path_unit_counts(*args: Any, **kwargs: Any) -> tuple[int, int]:
     return implementation(*args, **kwargs)
 
 
-def expected_chaining_report(*args: Any, **kwargs: Any) -> Any:
-    from fbf.core.execution.strategies.fast_path import expected_chaining_report as implementation
+def expected_report(*args: Any, **kwargs: Any) -> Any:
+    from fbf.core.execution.strategies.fast_path import expected_report as implementation
 
     return implementation(*args, **kwargs)
 
@@ -68,10 +68,10 @@ def run_fast_path_validation(*args: Any, **kwargs: Any) -> Any:
 
 
 def __getattr__(name: str) -> Any:
-    if name == "ChainedFastPathSimulationExecutor":
-        from fbf.core.execution.strategies.fast_path import ChainedFastPathSimulationExecutor
+    if name == "FastPathSimulationExecutor":
+        from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
 
-        return ChainedFastPathSimulationExecutor
+        return FastPathSimulationExecutor
     raise AttributeError(name)
 
 ProgressCallback = Callable[[int, int], None]
@@ -129,13 +129,13 @@ __all__ = [
     "ResearchExecutionResult",
     "parallel_execute",
     "sequential_execute",
-    "ChainedFastPathSimulationExecutor",
+    "FastPathSimulationExecutor",
     "FastPathValidationError",
     "reference_month_work",
-    "execute_reference_chained",
-    "expected_reference_chaining_report",
+    "execute_reference",
+    "expected_reference_report",
     "fast_path_unit_counts",
-    "expected_chaining_report",
+    "expected_report",
     "run_fast_path_validation",
     "ProgressCallback",
     "ProgressEvent",

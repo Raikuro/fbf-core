@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Isolate plan-build vs execution memory for the chained executor.
+"""Isolate plan-build vs execution memory for the executor.
 
 Measures: (1) peak RSS after building the full 313,020-unit plan (no execution);
-(2) peak RSS after a short parallel chained run restricted to ONE worker batch.
+(2) peak RSS after a short parallel run restricted to ONE worker batch.
 This tells us whether the full-grid parallel run can be bounded by slicing into
 cohort-sized sub-plans rather than dispatching the whole plan at once.
 """
@@ -25,8 +25,8 @@ from fbf.core.execution.strategies.parallel_executor import (
     _execute_batch_on_shared_state,
     _initialize_worker,
 )
-from fbf.core.execution.strategies.reference_chaining import (
-    ChainedReferenceSimulationExecutor,
+from fbf.core.execution.strategies.reference import (
+    ReferenceSimulationExecutor,
 )
 
 DATA_DIR = Path("data/ern")
@@ -50,7 +50,7 @@ def main() -> int:
 
     slice_units = plan.units[: 5 * 180]
     print(f"\nin-process one-batch run on {len(slice_units)} units...", flush=True)
-    _initialize_worker(exp_def, slice_units, ChainedReferenceSimulationExecutor())
+    _initialize_worker(exp_def, slice_units, ReferenceSimulationExecutor())
     t2 = time.perf_counter()
     batch = slice_units[: 3 * 180]
     results = _execute_batch_on_shared_state(batch, summary_only=True)

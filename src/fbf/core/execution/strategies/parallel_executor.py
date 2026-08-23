@@ -67,9 +67,9 @@ class _ProgressReportingSimulationExecutor(SimulationExecutor):
     orchestrator contract or simulation semantics.
 
     Executors that advertise ``processes_whole_definition = True`` (e.g. the
-    chained fast path) are passed the full definition unchanged: splitting it
+    fast path) are passed the full definition unchanged: splitting it
     into single-context calls would silently disable their cross-context
-    optimisation (horizon chaining).  Progress is then reported once, after the
+    optimisation (horizon derivation).  Progress is then reported once, after the
     whole definition completes.
     """
 
@@ -270,9 +270,9 @@ def _execute_batch_on_shared_state(
     Memory is bounded per worker: timelines are stripped (or a result discarded)
     as each unit completes, so a worker never holds more than one unit's monthly
     payload regardless of the dispatch batch size.  Executors that advertise
-    ``processes_whole_definition = True`` (e.g. the chained fast path) still
+    ``processes_whole_definition = True`` (e.g. the fast path) still
     receive the whole batch as a single definition, since splitting it would
-    silently disable their cross-context optimisation (horizon chaining); their
+    silently disable their cross-context optimisation (horizon derivation); their
     footprint is small because they never materialize per-month timelines.
     """
     exp_def = _WORKER_EXPERIMENT_DEFINITION

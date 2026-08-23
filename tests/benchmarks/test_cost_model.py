@@ -1,7 +1,7 @@
 """Cost model benchmarks for Phase 3 architectural investigation.
 
 Measures the three optimization categories:
-  A. Mathematical work reduction (horizon chaining, fast path)
+  A. Mathematical work reduction (horizon derivation, fast path)
   B. Execution-overhead reduction (process creation, IPC, serialization)
   C. IO/data-access reduction (dataset loading, resolution, slicing)
 
@@ -25,7 +25,7 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.fast_path import (
-    ChainedFastPathSimulationExecutor,
+    FastPathSimulationExecutor,
     evaluate_closed_form,
 )
 from fbf.core.execution.strategies.parallel_executor import (
@@ -161,23 +161,23 @@ class TestMathematicalWorkCost:
         print(f"\n[COST-A] Fast path (float) per unit (720 months): {elapsed*1000:.1f}ms")
         print(f"[COST-A]   per month: {elapsed/720*1000:.3f}ms")
 
-    def test_horizon_chaining_work_reduction(self) -> None:
-        """Measure work reduction from horizon chaining (4 horizons per cohort)."""
+    def test_horizon_derivation_work_reduction(self) -> None:
+        """Measure work reduction from horizon derivation (4 horizons per cohort)."""
         dataset = _make_dataset(721)
         start = date(1900, 1, 1)
         horizons = [361, 481, 601, 721]  # 30, 40, 50, 60 years
 
-        # Without chaining: evaluate each horizon independently
+        # Without horizon derivation: evaluate each horizon independently
         t0 = time.perf_counter()
         for h in horizons:
             ctx = _make_context(dataset, start, h)
             evaluate_closed_form(ctx, "decimal")
-        no_chain_time = time.perf_counter() - t0
+        no_derivation_time = time.perf_counter() - t0
 
-        # With chaining: evaluate longest, derive shorter
+        # With horizon derivation: evaluate longest, derive shorter
         contexts = [_make_context(dataset, start, h) for h in horizons]
         engine_def = _make_engine_def(contexts)
-        executor = ChainedFastPathSimulationExecutor()
+        executor = FastPathSimulationExecutor()
 
         # Warm up
         executor.execute(engine_def)
@@ -185,12 +185,12 @@ class TestMathematicalWorkCost:
         t0 = time.perf_counter()
         for _ in range(10):
             executor.execute(engine_def)
-        chain_time = (time.perf_counter() - t0) / 10
+        derivation_time = (time.perf_counter() - t0) / 10
 
-        print("\n[COST-A] Horizon chaining (4 horizons per cohort):")
-        print(f"[COST-A]   without chaining: {no_chain_time*1000:.1f}ms")
-        print(f"[COST-A]   with chaining:    {chain_time*1000:.1f}ms")
-        print(f"[COST-A]   reduction:        {(1 - chain_time/no_chain_time)*100:.0f}%")
+        print("\n[COST-A] Horizon derivation (4 horizons per cohort):")
+        print(f"[COST-A]   without derivation: {no_derivation_time*1000:.1f}ms")
+        print(f"[COST-A]   with derivation:    {derivation_time*1000:.1f}ms")
+        print(f"[COST-A]   reduction:          {(1 - derivation_time/no_derivation_time)*100:.0f}%")
 
     def test_grid_work_distribution(self) -> None:
         """Measure work for a grid: 5 weights x 9 rates x 4 horizons = 180 cells."""
@@ -209,8 +209,8 @@ class TestMathematicalWorkCost:
         ]
         engine_def = _make_engine_def(contexts)
 
-        # Measure chained fast path
-        executor = ChainedFastPathSimulationExecutor()
+        # Measure fast path
+        executor = FastPathSimulationExecutor()
         executor.execute(engine_def)  # warm up
 
         t0 = time.perf_counter()
@@ -339,7 +339,7 @@ class TestExecutionOverheadCost:
         )
         plan = ResearchPlan(experiment_definition=experiment, units=units)
 
-        executor = ChainedFastPathSimulationExecutor()
+        executor = FastPathSimulationExecutor()
 
         # Sequential
         t0 = time.perf_counter()
@@ -417,14 +417,14 @@ class TestCombinedCostModel:
         ]
         engine_def = _make_engine_def(contexts)
 
-        # Measure chained fast path
-        executor = ChainedFastPathSimulationExecutor()
+        # Measure fast path
+        executor = FastPathSimulationExecutor()
         executor.execute(engine_def)  # warm up
         t0 = time.perf_counter()
         executor.execute(engine_def)
         fast_time = time.perf_counter() - t0
 
-        # Measure reference pipeline (no chaining)
+        # Measure reference pipeline
         from fbf.core.execution.strategies.parallel_executor import (
             _create_default_simulation_executor,
         )
@@ -436,6 +436,6 @@ class TestCombinedCostModel:
         ref_time = time.perf_counter() - t0
 
         print("\n[COST] ERN smoke grid (8 cells, 1 cohort):")
-        print(f"[COST]   reference (no chaining): {ref_time*1000:.1f}ms")
-        print(f"[COST]   chained fast path:       {fast_time*1000:.1f}ms")
-        print(f"[COST]   speedup:                 {ref_time/fast_time:.1f}x")
+        print(f"[COST]   reference:        {ref_time*1000:.1f}ms")
+        print(f"[COST]   fast path:        {fast_time*1000:.1f}ms")
+        print(f"[COST]   speedup:          {ref_time/fast_time:.1f}x")
