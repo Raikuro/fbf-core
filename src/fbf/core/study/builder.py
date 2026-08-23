@@ -43,10 +43,9 @@ def load_yaml(path: Path) -> dict[str, Any]:
         import yaml
     except ImportError as err:
         raise RuntimeError(
-
-                "PyYAML is not installed in fbf-core. "
-                "Pass a dict directly to StudyConfiguration.from_dict()."
-
+            "PyYAML is not installed. YAML loading is an optional capability "
+            "that requires PyYAML. Install it with: pip install fbf-core[dev]. "
+            "Alternatively, pass a dict directly to StudyConfiguration.from_dict()."
         ) from err
     raw = path.read_text(encoding="utf-8")
     data = yaml.safe_load(raw)

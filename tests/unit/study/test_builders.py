@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from fbf.core.domain.model.allocation import Allocation, AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
@@ -108,3 +110,27 @@ def test_constant_allocation_policy_assets_present_in_snapshot() -> None:
 
     snapshot_keys = {_loader_asset("equity"), _loader_asset("bond")}
     assert set(decision.allocation_target.weights) == snapshot_keys
+
+
+class TestLoadYamlError:
+    """Tests for load_yaml() error behaviour when PyYAML is unavailable."""
+
+    def test_load_yaml_missing_pyyaml_error_message(self) -> None:
+        """When PyYAML is not installed, load_yaml() raises RuntimeError with clear guidance."""
+        import sys
+        import unittest.mock
+        from pathlib import Path
+
+        from fbf.core.study.builder import load_yaml
+
+        # Temporarily remove yaml from sys.modules to simulate missing PyYAML
+        yaml_module = sys.modules.pop("yaml", None)
+        try:
+            with (
+                unittest.mock.patch.dict(sys.modules, {"yaml": None}),
+                pytest.raises(RuntimeError, match="PyYAML is not installed"),
+            ):
+                load_yaml(Path("/nonexistent.yaml"))
+        finally:
+            if yaml_module is not None:
+                sys.modules["yaml"] = yaml_module
