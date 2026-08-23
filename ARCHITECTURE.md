@@ -267,7 +267,30 @@ contract.
 
 ---
 
-## 12. Persistence
+## 12. Execution Data Flow
+
+Simulation execution operates on materialized, immutable dataset data prepared
+before task execution.
+
+Workers operate on the materialized experiment data supplied by the execution
+layer and do not independently resolve or reload datasets from persistence for
+individual simulation tasks.
+
+Simulation execution does not access persistence or SQL. Persistence is a
+separate concern outside the simulation execution path.
+
+Performance analysis distinguishes three independent optimization categories:
+
+1. mathematical work;
+2. execution overhead;
+3. data-access/IO.
+
+Optimization decisions must be based on measurement rather than assuming that
+an improvement in one category addresses another.
+
+---
+
+## 13. Persistence
 
 The persistence layer provides SQLite-backed storage for study results. Key
 properties:
@@ -294,7 +317,7 @@ See [docs/DESIGN.md](./docs/DESIGN.md) for persistence design rationale.
 
 ---
 
-## 13. Architectural Principles
+## 14. Architectural Principles
 
 ### Specification-Driven Development
 
