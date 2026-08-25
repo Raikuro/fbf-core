@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Money
@@ -25,3 +26,4 @@ class SimulationContext:
     dataset: Dataset
     allocation_policy: AllocationPolicy
     withdrawal_policy: WithdrawalPolicy
+    final_value_target: Decimal | None = None

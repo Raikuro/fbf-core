@@ -50,7 +50,7 @@ from tools.ern.reference_oracle import (
 
 from .constants import COHORTS_PER_CELL, RATES
 
-DATA_DIR = Path("data/ern").resolve()
+DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
 HORIZON_MONTHS = {30: 361, 40: 481, 50: 601, 60: 721}
 WEIGHT = 0.0
 DIVERGENT_CELLS = [(WEIGHT, rate, 30) for rate in RATES]

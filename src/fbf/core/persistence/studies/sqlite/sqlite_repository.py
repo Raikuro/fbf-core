@@ -1391,12 +1391,15 @@ class SQLiteRepository:
         cohort_id = self._get_or_create_cohort_id(conn, experiment_id, unit.cohort)
 
         # Save unit metadata
+        fvt = unit.final_value_target
+        final_value_target_str = serialize_decimal(fvt) if fvt is not None else None
         conn.execute(
             """
             INSERT INTO planned_units (
                 unit_id, plan_id, unit_index, cohort_id, param_config_id,
-                allocation_policy_id, withdrawal_policy_id, initial_portfolio_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                allocation_policy_id, withdrawal_policy_id, initial_portfolio_json,
+                final_value_target
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 unit_id,
@@ -1417,6 +1420,7 @@ class SQLiteRepository:
                         ]
                     }
                 ),
+                final_value_target_str,
             ),
         )
 
@@ -1507,7 +1511,7 @@ class SQLiteRepository:
         rows = conn.execute(
             """
             SELECT unit_index, cohort_id, param_config_id, allocation_policy_id,
-                   withdrawal_policy_id, initial_portfolio_json
+                   withdrawal_policy_id, initial_portfolio_json, final_value_target
             FROM planned_units
             WHERE plan_id = ?
             ORDER BY unit_index
@@ -1524,13 +1528,18 @@ class SQLiteRepository:
             allocation_policy_id,
             withdrawal_policy_id,
             initial_portfolio_json,
+            final_value_target_raw,
         ) in rows:
+            from decimal import Decimal
+
             from fbf.core.study.plan import PlannedSimulationUnit
+
             cohort = self._load_cohort_by_id(conn, cohort_id)
             param_config = self._load_parameter_config(conn, param_config_id)
             allocation_policy = self._load_allocation_policy(conn, allocation_policy_id, context)
             withdrawal_policy = self._load_withdrawal_policy(conn, withdrawal_policy_id, context)
             portfolio = self._load_portfolio(conn, initial_portfolio_json)
+            final_value_target = Decimal(final_value_target_raw) if final_value_target_raw else None
 
             cohort_start = cohort.start_date
             if cohort_start not in dataset_cache:
@@ -1547,6 +1556,7 @@ class SQLiteRepository:
                     withdrawal_policy=withdrawal_policy,
                     initial_portfolio=portfolio,
                     dataset=unit_dataset,
+                    final_value_target=final_value_target,
                 )
             )
 

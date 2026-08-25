@@ -252,6 +252,7 @@ python -m build --wheel
 10. **Policy determinism:** Same `DecisionContext` produces identical `PolicyDecision`.
 11. **Portfolio invariant:** Total wealth equals sum of asset holdings; no negative holdings; allocation sums to 100%.
 12. **Executor boundary:** `SimulationExecutor` is an application-layer coordinator only — no financial model, no pipeline steps, no statistics.
+13. **Trajectory identity:** A trajectory is defined by (start cohort/date, allocation parameters, withdrawal parameters, initial wealth, initial portfolio, other state-affecting simulation inputs). Evaluation-only dimensions such as `final_value_target` MUST NOT participate in trajectory identity and MUST NOT cause additional trajectory execution. See [docs/DECISIONS.md](./docs/DECISIONS.md#evaluation-dimensions-vs-simulation-dimensions).
 
 ## 11. Dataset Distribution & Ownership Model
 

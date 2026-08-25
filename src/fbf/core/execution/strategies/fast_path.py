@@ -276,13 +276,11 @@ def _dataset_is_identity_prefix_memo(
 
 
 def _group_key(context: SimulationContext) -> tuple[object, ...]:
-    """Return the group key for *context*.
+    """Trajectory key: excludes final_value_target (an evaluation dimension).
 
-    F2: contexts may share a longest-horizon path only when they agree on cohort
-    start date, equity allocation, withdrawal rate, initial wealth and initial
-    portfolio.  Any other difference forces independent evaluation (the dataset
-    prefix guard is applied separately per context, see
-    ``_dataset_is_identity_prefix``).
+    Contexts with different final_value_target values but identical trajectory
+    parameters share a single closed-form path.  The FV check is applied
+    per-target after the path is evaluated.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
@@ -482,6 +480,11 @@ def _build_result(
     path: ClosedFormPath,
     horizon: int,
 ) -> SimulationResult:
+    """Build a result from a closed-form path for a given horizon.
+
+    The FV check is NOT applied here — it is handled by the executor's
+    multi-target evaluation loop.
+    """
     withdrawal = path.withdrawal
     success, failure_month, final_wealth, months_simulated = _outcome_for_horizon(
         path, horizon, withdrawal
@@ -496,6 +499,31 @@ def _build_result(
     )
     return SimulationResult(
         timeline=SimulationTimeline(monthly_results=()),
+        statistics=statistics,
+    )
+
+
+def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> SimulationResult:
+    """Return a copy of *result* with the FV check applied for *context*'s target."""
+    if context.final_value_target is None:
+        return result
+    survived = result.statistics.success
+    if survived:
+        threshold = context.final_value_target * context.initial_wealth.amount
+        if result.statistics.final_wealth.amount < threshold:
+            survived = False
+    if survived == result.statistics.success:
+        return result
+    statistics = SimulationStatistics(
+        final_wealth=result.statistics.final_wealth,
+        max_drawdown=result.statistics.max_drawdown,
+        success=survived,
+        failure_month=None if survived else context.horizon_months,
+        months_simulated=result.statistics.months_simulated,
+        execution_time_seconds=result.statistics.execution_time_seconds,
+    )
+    return SimulationResult(
+        timeline=result.timeline,
         statistics=statistics,
     )
 
@@ -537,6 +565,7 @@ def _unit_simulation_context(plan: ResearchPlan, unit: PlannedSimulationUnit) ->
         dataset=unit.dataset,
         allocation_policy=unit.allocation_policy,
         withdrawal_policy=unit.withdrawal_policy,
+        final_value_target=unit.final_value_target,
     )
 
 
@@ -844,8 +873,7 @@ class FastPathSimulationExecutor(SimulationExecutor):
             order.append((index, group_id))
 
         # Evaluate each group's longest horizon once, then derive the rest.
-        # Contexts whose dataset is not a prefix of the longest context's are
-        # evaluated individually so their results are never cross-derived.
+        # FV check is applied per-context after trajectory evaluation.
         prefix_memo: dict[tuple[int, int], bool] = {}
         results: dict[int, SimulationResult] = {}
         derived_count = 0
@@ -855,20 +883,24 @@ class FastPathSimulationExecutor(SimulationExecutor):
             longest_ctx = max(contexts, key=lambda c: c.horizon_months)
             path = evaluate_path(longest_ctx, self._precision)
             month_work += longest_ctx.horizon_months
-            by_horizon: dict[int, SimulationResult] = {}
+            # Cache derived results by (horizon, target) to avoid redundant work
+            # when multiple contexts share the same horizon and target.
+            derived_cache: dict[tuple[int, object], SimulationResult] = {}
             for ctx in contexts:
+                cache_key = (ctx.horizon_months, ctx.final_value_target)
                 if ctx is longest_ctx or _dataset_is_identity_prefix_memo(
                     ctx, longest_ctx, prefix_memo
                 ):
-                    if ctx.horizon_months not in by_horizon:
-                        by_horizon[ctx.horizon_months] = _build_result(
-                            longest_ctx, path, ctx.horizon_months
-                        )
-                    results[id(ctx)] = by_horizon[ctx.horizon_months]
+                    if cache_key not in derived_cache:
+                        base = _build_result(longest_ctx, path, ctx.horizon_months)
+                        derived_cache[cache_key] = _apply_fv_check(base, ctx)
+                    results[id(ctx)] = derived_cache[cache_key]
                     if ctx is not longest_ctx:
                         derived_count += 1
                 else:
-                    results[id(ctx)] = evaluate_closed_form(ctx, self._precision)
+                    results[id(ctx)] = _apply_fv_check(
+                        evaluate_closed_form(ctx, self._precision), ctx
+                    )
                     independent_count += 1
                     month_work += ctx.horizon_months
 

@@ -6,7 +6,7 @@ and ``research_plans`` to support idempotent logical deletion / restoration
 equivalence rule implemented in ``SQLiteRepository``).
 """
 
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 
 PRAGMA_FOREIGN_KEYS = "PRAGMA foreign_keys = ON"
 PRAGMA_WAL = "PRAGMA journal_mode = WAL"
@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS planned_units (
     allocation_policy_id TEXT NOT NULL REFERENCES policies(policy_id),
     withdrawal_policy_id TEXT NOT NULL REFERENCES policies(policy_id),
     initial_portfolio_json TEXT NOT NULL,
+    final_value_target TEXT,
     UNIQUE(plan_id, unit_index),
     UNIQUE(plan_id, cohort_id, param_config_id)
 );
@@ -154,6 +155,11 @@ MIGRATIONS = [
         "research_plans",
         "deleted_at",
         "ALTER TABLE research_plans ADD COLUMN deleted_at TEXT",
+    ),
+    (
+        "planned_units",
+        "final_value_target",
+        "ALTER TABLE planned_units ADD COLUMN final_value_target TEXT",
     ),
 ]
 

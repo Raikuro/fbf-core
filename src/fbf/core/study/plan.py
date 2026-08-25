@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from fbf.core.domain.model.dataset import Dataset
@@ -62,6 +63,7 @@ class PlannedSimulationUnit:
     initial_portfolio: Portfolio
     dataset: Dataset
     horizon_months: int | None = None
+    final_value_target: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.cohort is None:
@@ -164,6 +166,7 @@ def materialize_research_plan(
     policy_resolver: Callable[
         [ParameterConfiguration], tuple[AllocationPolicy, WithdrawalPolicy]
     ],
+    target_resolver: Callable[[ParameterConfiguration], Decimal | None] | None = None,
 ) -> ResearchPlan:
     """Build a ResearchPlan whose units take horizon and policies per parameter config.
 
@@ -193,6 +196,11 @@ def materialize_research_plan(
     policy_resolver:
         Maps a parameter configuration to the ``(allocation, withdrawal)``
         policy pair for its unit.
+    target_resolver:
+        Maps a parameter configuration to its ``final_value_target``
+        (a ``Decimal`` fraction of initial wealth, or ``None`` when no
+        final-value criterion is configured).  When ``None`` is passed,
+        all units default to ``final_value_target=None``.
 
     Returns
     -------
@@ -206,6 +214,9 @@ def materialize_research_plan(
         for param_config in param_configs:
             horizon_months = horizon_resolver(param_config)
             alloc_policy, withdrawal_policy = policy_resolver(param_config)
+            final_value_target = (
+                target_resolver(param_config) if target_resolver is not None else None
+            )
             cache_key = (cohort.start_date, horizon_months)
             if cache_key not in dataset_cache:
                 dataset_cache[cache_key] = canonical_trajectory.slice(
@@ -220,6 +231,7 @@ def materialize_research_plan(
                     initial_portfolio=initial_portfolio,
                     dataset=dataset_cache[cache_key],
                     horizon_months=horizon_months,
+                    final_value_target=final_value_target,
                 )
             )
     return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))

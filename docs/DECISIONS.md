@@ -158,3 +158,54 @@ functionality.
 **Consequence:** The fast-path executor inherits `SimulationExecutor`
 directly. `run_fast_path_validation()` calls `evaluate_closed_form()`
 directly. Tests verify equivalence against direct closed-form evaluation.
+
+---
+
+## Evaluation Dimensions vs Simulation Dimensions
+
+**Decision:** `final_value_target` is an evaluation dimension, not a
+simulation dimension. It MUST NOT participate in trajectory identity and
+MUST NOT cause additional trajectory execution.
+
+**Why:** A trajectory is defined by its simulation inputs: start cohort/date,
+allocation parameters, withdrawal parameters, initial wealth, initial
+portfolio, and other state-affecting inputs. `final_value_target` is a
+post-simulation classification criterion — it determines whether a completed
+trajectory "succeeded" by checking final wealth against a threshold. It does
+not affect any month-by-month simulation state.
+
+When `final_value_target` is included in the Cartesian product (as in the
+ERN Part 2 900-cell grid), the planning layer expands logical units by the
+number of targets (5×). However, the Reference executor correctly
+deduplicates trajectory evaluation: contexts with different
+`final_value_target` values but identical trajectory parameters share a
+single simulation path. The FV check is applied per-target after path
+evaluation.
+
+Measured overhead of the current representation (5 FV targets vs 0):
+
+| FV targets | Units | Worker exec | Total | Exec ratio |
+|-----------|------:|------------:|------:|-----------:|
+| 0 | 313,020 | 585s | 588s | 1.00x |
+| 1 | 313,020 | 586s | 589s | 1.00x |
+| 2 | 626,040 | 593s | 597s | 1.01x |
+| 5 | 1,565,100 | 609s | 637s | 1.07x |
+
+Worker execution time is nearly constant — the same 78,255 unique
+trajectories execute regardless of FV target count. The 7% increase for
+5 targets comes from additional iteration over expanded context lists,
+not from trajectory re-simulation.
+
+**Alternatives rejected:** Separating `TrajectoryPlan` from
+`EvaluationPlan` — rejected because the ~8.5% overhead (50s on a 588s
+run) does not justify the API complexity and correctness risk. The
+existing deduplication mechanism already achieves the core optimization.
+
+**Consequence:** Future evaluation-only dimensions (e.g., alternative
+success criteria, preservation thresholds, drawdown limits) must follow
+the same pattern: excluded from trajectory identity, applied per-target
+after trajectory evaluation. If the overhead becomes material with many
+more targets, a `TrajectoryPlan` / `EvaluationPlan` separation can be
+revisited with empirical evidence.
+
+---

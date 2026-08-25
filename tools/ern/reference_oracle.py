@@ -40,6 +40,10 @@ import csv
 import sys
 from pathlib import Path
 
+_TOOL_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _TOOL_DIR.parents[1]
+_DATA_DIR = _REPO_ROOT / "data" / "ern"
+
 FEE = 0.0005
 R_EQ_FWD = (1.066) ** (1 / 12) - 1.0
 R_BD_FWD0 = 0.0
@@ -123,13 +127,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--source",
         type=Path,
-        default=Path("data/ern/ern_real_returns_1871_2016.csv"),
+        default=_DATA_DIR / "ern_real_returns_1871_2016.csv",
         help="Path to the extracted ERN real-returns CSV",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/ern/p49_oracle_table.csv"),
+        default=_DATA_DIR / "p49_oracle_table.csv",
         help="Output path for the oracle matrix CSV",
     )
     args = parser.parse_args(argv)

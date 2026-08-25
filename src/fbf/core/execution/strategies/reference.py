@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import cast
 
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
@@ -77,6 +78,12 @@ def _dataset_is_identity_prefix_memo(
 
 
 def _reference_group_key(context: SimulationContext) -> tuple[object, ...]:
+    """Trajectory key: excludes final_value_target (an evaluation dimension).
+
+    Contexts with different final_value_target values but identical trajectory
+    parameters share a single simulation path.  The FV check is applied
+    per-target after the trajectory is evaluated.
+    """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
     return (
@@ -195,13 +202,36 @@ def _compute_portfolio_value(portfolio: Portfolio, market_snapshot: MarketSnapsh
     return total
 
 
+def _evaluate_fv_target(
+    survived: bool,
+    final_wealth: Money,
+    initial_wealth: Money,
+    final_value_target: Decimal | None,
+) -> bool:
+    """Evaluate the final-value success criterion.
+
+    Returns True when the trajectory survived AND (no target OR
+    final_wealth >= target * initial_wealth).
+    """
+    if not survived:
+        return False
+    if final_value_target is None:
+        return True
+    threshold = final_value_target * initial_wealth.amount
+    return final_wealth.amount >= threshold
+
+
 def _build_derived_result(
     longest_result: SimulationResult,
     longest_horizon: int,
     context: SimulationContext,
 ) -> SimulationResult:
+    """Build a derived result for a shorter-horizon context from the longest path.
+
+    The FV check is applied using the context's own final_value_target.
+    """
     if context.horizon_months == longest_horizon:
-        return longest_result
+        return _apply_fv_check(longest_result, context)
 
     failure_month = longest_result.statistics.failure_month
     prefix = tuple(longest_result.timeline.monthly_results[: context.horizon_months])
@@ -211,11 +241,14 @@ def _build_derived_result(
             prefix[-1].portfolio,
             prefix[-1].market_snapshot,
         )
+        survived = _evaluate_fv_target(
+            True, final_wealth, context.initial_wealth, context.final_value_target
+        )
         statistics = SimulationStatistics(
             final_wealth=final_wealth,
             max_drawdown=longest_result.statistics.max_drawdown,
-            success=True,
-            failure_month=None,
+            success=survived,
+            failure_month=None if survived else context.horizon_months,
             months_simulated=context.horizon_months,
             execution_time_seconds=0.0,
         )
@@ -239,6 +272,37 @@ def _build_derived_result(
     )
     timeline = SimulationTimeline(monthly_results=prefix)
     return SimulationResult(timeline=timeline, statistics=statistics)
+
+
+def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> SimulationResult:
+    """Return a copy of *result* with the FV check applied for *context*'s target.
+
+    When the context has no final_value_target, the result is returned unchanged.
+    When the target causes a previously-successful result to fail, the failure
+    month is set to the horizon boundary.
+    """
+    if context.final_value_target is None:
+        return result
+    survived = _evaluate_fv_target(
+        result.statistics.success,
+        result.statistics.final_wealth,
+        context.initial_wealth,
+        context.final_value_target,
+    )
+    if survived == result.statistics.success:
+        return result
+    statistics = SimulationStatistics(
+        final_wealth=result.statistics.final_wealth,
+        max_drawdown=result.statistics.max_drawdown,
+        success=survived,
+        failure_month=None if survived else context.horizon_months,
+        months_simulated=result.statistics.months_simulated,
+        execution_time_seconds=result.statistics.execution_time_seconds,
+    )
+    return SimulationResult(
+        timeline=result.timeline,
+        statistics=statistics,
+    )
 
 
 class ReferenceSimulationExecutor(SimulationExecutor):
@@ -283,17 +347,22 @@ class ReferenceSimulationExecutor(SimulationExecutor):
             longest_horizon = longest_ctx.horizon_months
             month_work += longest_horizon
 
+            # Evaluate FV for the longest context's own target.
+            results[id(longest_ctx)] = _apply_fv_check(longest_result, longest_ctx)
+
             for ctx in contexts:
                 if ctx is longest_ctx:
-                    results[id(ctx)] = longest_result
                     continue
                 if _dataset_is_identity_prefix_memo(ctx, longest_ctx, prefix_memo):
+                    # Derive from the longest path, applying this context's FV target.
                     results[id(ctx)] = _build_derived_result(
                         longest_result, longest_horizon, ctx
                     )
                     derived_count += 1
                 else:
-                    results[id(ctx)] = self._evaluate_reference(ctx)
+                    results[id(ctx)] = _apply_fv_check(
+                        self._evaluate_reference(ctx), ctx
+                    )
                     independent_count += 1
                     month_work += ctx.horizon_months
 

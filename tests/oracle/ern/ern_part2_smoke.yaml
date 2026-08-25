@@ -1,0 +1,28 @@
+# ERN Part 2 smoke grid: FV=0% (control) + FV=100 (new criterion).
+#
+# 1 weight x 1 rate x 1 horizon x 2 targets x 2099 cohorts = 4,198 units.
+# FV=0% is the existing ERN Part 1 semantic (control anchor: 95%).
+# FV=100 exercises the new final-value criterion: final wealth must be
+# >= 100 * initial_wealth (the portfolio is valued at ~101x initial_wealth
+# due to index levels, so this threshold is non-trivially satisfied).
+
+metadata:
+  name: "ERN Part 2 Smoke"
+  version: "1.0"
+  description: "Part 2 smoke: FV=0% (control) + FV=100 (new criterion)"
+
+dataset:
+  identifier: "ern_swr_h720"
+
+cohorts:
+  horizon_years: [30]
+
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: [0.5]
+
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: [0.04]
+
+final_value_target: [0.0, 100.0]

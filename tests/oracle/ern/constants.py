@@ -16,7 +16,8 @@ import csv
 import os
 from pathlib import Path
 
-DATA_DIR = Path("data/ern")
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+DATA_DIR = _REPO_ROOT / "data" / "ern"
 ORACLE_CSV = DATA_DIR / "p49_oracle_table.csv"
 RETURNS_CSV = DATA_DIR / "ern_real_returns_1871_2016.csv"
 

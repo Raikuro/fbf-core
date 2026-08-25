@@ -76,7 +76,8 @@ pytestmark = [
     ),
 ]
 
-GRID_YAML = Path("examples/studies/ern_grid.yaml").resolve()
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+GRID_YAML = _REPO_ROOT / "examples" / "studies" / "ern_grid.yaml"
 SMOKE_GRID_YAML = Path(__file__).resolve().parent / "ern_grid_smoke.yaml"
 
 _PERCENT_SCALE = Decimal("1")

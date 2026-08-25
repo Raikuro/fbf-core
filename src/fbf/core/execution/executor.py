@@ -205,4 +205,5 @@ class ResearchExecutor:
 
             allocation_policy=unit.allocation_policy,
             withdrawal_policy=unit.withdrawal_policy,
+            final_value_target=unit.final_value_target,
         )

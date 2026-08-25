@@ -128,6 +128,28 @@ def _parse_decimal_values(policy: dict[str, Any], key: str) -> tuple[Decimal, ..
     return tuple(values)
 
 
+def _parse_optional_decimal_array(
+    data: dict[str, Any], key: str
+) -> tuple[Decimal, ...] | None:
+    """Parse an optional decimal value array from the study YAML root mapping.
+
+    Returns ``None`` when the key is absent or explicitly set to ``null``.
+    Raises ``ValueError`` when the key is present but structurally invalid.
+    """
+    raw = data.get(key)
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"{key} must be a non-empty list of decimal numbers when provided")
+    values: list[Decimal] = []
+    for item in raw:
+        try:
+            values.append(Decimal(str(item)))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError(f"{key} must contain only decimal numbers") from None
+    return tuple(values)
+
+
 def build_allocation_policy(policy_type: str, scalar: Decimal) -> AllocationPolicy:
     """Build the concrete allocation policy for the declared YAML ``type``."""
     if policy_type != "ConstantAllocationPolicy":
@@ -178,6 +200,7 @@ class StudyConfiguration:
     withdrawal_policy_type: str
     withdrawal_policy_values: tuple[Decimal, ...]
     horizon_years: tuple[int, ...]
+    final_value_target_values: tuple[Decimal, ...] | None = None
 
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
@@ -246,6 +269,10 @@ class StudyConfiguration:
             withdrawal_policy, "withdrawal_rate"
         )
 
+        final_value_target_values = _parse_optional_decimal_array(
+            data, "final_value_target"
+        )
+
         return cls(
             name=str(metadata.get("name", "Unnamed Study")),
             description=str(metadata.get("description", "")),
@@ -256,6 +283,7 @@ class StudyConfiguration:
             withdrawal_policy_type=withdrawal_policy_type,
             withdrawal_policy_values=withdrawal_policy_values,
             horizon_years=horizon_years,
+            final_value_target_values=final_value_target_values,
         )
 
 
@@ -297,6 +325,13 @@ def _build_unified_parameter_configs(
             values=tuple(int(value) for value in config.horizon_years),
         ),
     ]
+    if config.final_value_target_values is not None:
+        axes.append(
+            ParameterAxis(
+                name="final_value_target",
+                values=tuple(float(value) for value in config.final_value_target_values),
+            )
+        )
     return ParameterSweepEngine.cartesian_product(axes)
 
 
@@ -348,6 +383,25 @@ def _make_policy_resolver(
             resolved_withd = build_withdrawal_policy(config.withdrawal_policy_type, rate)
             _withdraw_by_rate[rate] = resolved_withd
         return resolved_alloc, resolved_withd
+
+    return resolve
+
+
+def _make_target_resolver(
+    config: StudyConfiguration,
+) -> Callable[[ParameterConfiguration], Decimal | None]:
+    """Per-configuration final-value target from the study's declared value array.
+
+    Returns ``None`` when no ``final_value_target`` axis is declared.
+    """
+    if config.final_value_target_values is None:
+        return lambda param_config: None
+
+    def resolve(param_config: ParameterConfiguration) -> Decimal | None:
+        raw = param_config.get("final_value_target")
+        if raw is None:
+            return None
+        return Decimal(str(raw))
 
     return resolve
 
@@ -425,6 +479,7 @@ def build_study_plan(
         initial_portfolio=portfolio,
         horizon_resolver=_make_horizon_resolver(config),
         policy_resolver=_make_policy_resolver(config),
+        target_resolver=_make_target_resolver(config),
     )
     return BuiltStudy(
         plan=plan,

@@ -40,23 +40,28 @@ class DefaultSimulationStatisticsBuilder(SimulationStatisticsBuilder):
     def build(self, state: SimulationState) -> SimulationStatistics:
         """Construct statistics from the completed state.
 
-        Currently constructs:
-        - final_wealth: from state.current_wealth or context.initial_wealth
-        - success: from status == COMPLETED and no failure_state
-        - failure_month: from state.period_index if failed
-        - months_simulated: from timeline length
+        Success requires:
+        1. The simulation survived every month (status == COMPLETED, no failure_state).
+        2. If a ``final_value_target`` is configured, the final wealth must be
+           >= target_fraction * initial_wealth.
 
-        Deferred to future calculators:
-        - max_drawdown: requires timeline analysis
-        - execution_time_seconds: requires timing instrumentation
+        Depletion during execution is an intrinsic failure and takes precedence:
+        a depleted portfolio is always unsuccessful regardless of the target.
         """
         from fbf.core.execution.pipeline.simulation import ExecutionStatus
 
         final_wealth = state.current_wealth or state.context.initial_wealth
-        success = (
+        survived = (
             state.status == ExecutionStatus.COMPLETED
             and state.failure_state is None
         )
+
+        success = survived
+        if survived and state.context.final_value_target is not None:
+            threshold = state.context.final_value_target * state.context.initial_wealth.amount
+            if final_wealth.amount < threshold:
+                success = False
+
         failure_month = state.period_index if state.failure_state else None
 
         return SimulationStatistics(
