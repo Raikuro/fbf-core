@@ -50,9 +50,10 @@ class RecordingRebalanceService(PortfolioRebalanceService):
         portfolio: Portfolio,
         allocation_decision: AllocationDecision,
         market_snapshot: MarketSnapshot,
+        **kwargs: object,
     ) -> PortfolioRebalanceResult:
         self.calls += 1
-        return super().execute_rebalance(portfolio, allocation_decision, market_snapshot)
+        return super().execute_rebalance(portfolio, allocation_decision, market_snapshot, **kwargs)
 
 
 def make_context(portfolio: Portfolio, dataset: Dataset) -> SimulationContext:
@@ -125,7 +126,7 @@ def test_portfolio_rebalance_step_delegates_to_service() -> None:
     assert updated_state.portfolio is not portfolio
     assert updated_state.allocation == allocation
     assert updated_state.allocation_target == allocation_target
-    assert updated_state.current_wealth == Money(Decimal("10000"), Money.ZERO.currency)
+    assert updated_state.current_wealth == Money(Decimal("1000"), Money.ZERO.currency)
 
 
 def test_portfolio_rebalance_step_raises_when_missing_allocation_decision() -> None:

@@ -54,7 +54,9 @@ class PortfolioMarketEvolutionService:
         new_holdings = self._evolve_holdings(portfolio, market_snapshot)
         evolved_portfolio = Portfolio(tuple(new_holdings))
         current_value = self._calculate_portfolio_value(evolved_portfolio, market_snapshot)
-        allocation = self._build_allocation(evolved_portfolio, current_value, market_snapshot)
+        allocation = self._build_allocation(
+            evolved_portfolio, current_value, market_snapshot, _precomputed_value=current_value
+        )
 
         return PortfolioMarketEvolutionResult(
             portfolio=evolved_portfolio,
@@ -95,6 +97,8 @@ class PortfolioMarketEvolutionService:
         portfolio: Portfolio,
         portfolio_value: Money,
         market_snapshot: MarketSnapshot,
+        *,
+        _precomputed_value: Money | None = None,
     ) -> Allocation:
         ordered = _canonical_asset_order(
             {holding.asset_class for holding in portfolio.holdings}
@@ -123,10 +127,15 @@ class PortfolioMarketEvolutionService:
             price = self._fetch_price(holding.asset_class, market_snapshot)
             values[holding.asset_class] = holding.units * price
 
+        if _precomputed_value is not None:
+            total = _precomputed_value.amount
+        else:
+            total = portfolio_value.amount
+
         weights = {}
         allocated = Decimal("0")
         for asset_class in ordered[:-1]:
-            weight = values[asset_class] / portfolio_value.amount
+            weight = values[asset_class] / total
             weights[asset_class] = weight
             allocated += weight
         weights[ordered[-1]] = Decimal("1") - allocated

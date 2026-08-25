@@ -24,6 +24,7 @@ class PortfolioRebalanceStep(PipelineStep):
             portfolio=state.portfolio,
             allocation_decision=state.allocation_decision,
             market_snapshot=state.market_snapshot,
+            portfolio_value=state.current_wealth,
         )
 
         state.portfolio = result.portfolio

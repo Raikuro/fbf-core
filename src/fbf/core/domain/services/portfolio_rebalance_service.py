@@ -45,6 +45,8 @@ class PortfolioRebalanceService:
         portfolio: Portfolio,
         allocation_decision: AllocationDecision,
         market_snapshot: MarketSnapshot,
+        *,
+        portfolio_value: Money | None = None,
     ) -> PortfolioRebalanceResult:
         if portfolio is None:
             raise ValueError("Portfolio is required")
@@ -57,7 +59,8 @@ class PortfolioRebalanceService:
         if allocation_target is None:
             raise ValueError("AllocationDecision.allocation_target is required")
 
-        portfolio_value = self._calculate_portfolio_value(portfolio, market_snapshot)
+        if portfolio_value is None:
+            portfolio_value = self._calculate_portfolio_value(portfolio, market_snapshot)
         if portfolio_value.amount < Decimal("0"):
             raise ValueError("Portfolio value must not be negative")
 
