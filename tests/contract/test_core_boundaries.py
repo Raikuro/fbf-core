@@ -203,6 +203,10 @@ def test_public_facade_symbols() -> None:
         "ParameterSweepEngine",
         "PlannedSimulationUnit",
         "ResearchPlan",
+        "Profiler",
+        "NoOpProfiler",
+        "ExecutionProfiler",
+        "ProfileReport",
     }
     actual_symbols = set(fbf.core.__all__)
     assert expected_symbols == actual_symbols, (

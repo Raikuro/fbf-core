@@ -32,6 +32,7 @@ from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import Portfolio
 from fbf.core.execution.pipeline.steps.simulation_state_update_step import SimulationStateUpdateStep
 from fbf.core.execution.pipeline.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from fbf.core.execution.pipeline.steps.withdrawal_execution_step import WithdrawalExecutionStep
+from fbf.core.execution.profiling import Profiler
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
@@ -403,6 +404,7 @@ def sequential_execute(
     simulation_executor: SimulationExecutor | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     summary_only: bool = False,
+    profiler: Profiler | None = None,
 ) -> ResearchExecutionResult:
     """Execute a research plan sequentially with a single worker.
 
@@ -417,6 +419,8 @@ def sequential_execute(
     summary_only:
         When True, per-month timelines are stripped from the returned results
         (aggregate statistics only).
+    profiler:
+        Optional profiler for timing.  Default is ``NoOpProfiler`` (zero overhead).
 
     Returns
     -------
@@ -430,7 +434,7 @@ def sequential_execute(
             progress_callback,
             total=len(plan.units),
         )
-    research_executor = ResearchExecutor(sim_exec)
+    research_executor = ResearchExecutor(sim_exec, profiler=profiler)
     result = research_executor.execute(plan)
     if summary_only:
         return _strip_result_timelines(result)
@@ -444,6 +448,7 @@ def parallel_execute(
     simulation_executor: SimulationExecutor | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
     summary_only: bool = False,
+    profiler: Profiler | None = None,
 ) -> ResearchExecutionResult:
     """Execute a research plan in parallel using ProcessPoolExecutor.
 
@@ -465,6 +470,10 @@ def parallel_execute(
         When True, workers strip per-month timelines before transferring results
         back to the parent (aggregate statistics only). Avoids shipping hundreds
         of megabytes of monthly payloads when the caller only needs aggregates.
+    profiler:
+        Optional profiler for timing.  Default is ``NoOpProfiler`` (zero overhead).
+        The profiler runs in the parent process only; worker processes do not
+        profile (they have their own address space).
 
     Returns
     -------
@@ -485,6 +494,7 @@ def parallel_execute(
             simulation_executor=simulation_executor,
             progress_callback=progress_callback,
             summary_only=summary_only,
+            profiler=profiler,
         )
 
     if effective_workers == 1:
@@ -493,6 +503,7 @@ def parallel_execute(
             simulation_executor=simulation_executor,
             progress_callback=progress_callback,
             summary_only=summary_only,
+            profiler=profiler,
         )
 
     if (

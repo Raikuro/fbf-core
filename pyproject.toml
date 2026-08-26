@@ -58,6 +58,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = ["-ra", "--strict-markers"]
+markers = [
+    "ern_e2e: end-to-end ERN validation requiring the real execution path / CLI",
+]
 
 [tool.coverage.run]
 branch = true

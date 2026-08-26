@@ -25,6 +25,7 @@ from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
@@ -44,14 +45,23 @@ class ResearchExecutor:
         A fully initialised ``SimulationExecutor`` instance injected by the caller.
         ``ResearchExecutor`` never instantiates runners, generators, policies, or
         any other collaborator internally.
+    profiler:
+        Optional profiler for timing the orchestrator phase.  Default is
+        ``NoOpProfiler`` (zero overhead).  The profiler is resolved once
+        at the execution boundary and passed here.
     """
 
-    def __init__(self, simulation_executor: SimulationExecutor) -> None:
+    def __init__(
+        self,
+        simulation_executor: SimulationExecutor,
+        profiler: Profiler | None = None,
+    ) -> None:
         if simulation_executor is None:
             raise ValueError("simulation_executor cannot be None")
         if not callable(getattr(simulation_executor, "execute", None)):
             raise ValueError("simulation_executor must expose a callable execute() method")
         self._simulation_executor = simulation_executor
+        self._profiler = profiler or NoOpProfiler()
 
     def execute(self, plan: ResearchPlan) -> ResearchExecutionResult:
         """Execute an immutable ResearchPlan exactly once via SimulationExecutor.
@@ -86,6 +96,8 @@ class ResearchExecutor:
             If ``SimulationExecutor`` raises an unexpected exception during execution.
             The original exception is preserved as the cause.
         """
+        profiler = self._profiler
+
         # --- Step 1: Defensive structural validation ---
         if not isinstance(plan, ResearchPlan):
             raise InvalidResearchPlanError(f"execute() expected a ResearchPlan, got {type(plan)!r}")
@@ -99,6 +111,7 @@ class ResearchExecutor:
         # --- Step 2: Translate all units before calling SimulationExecutor ---
         # Full upfront translation ensures the complete plan can be expressed as engine
         # contexts before we make any engine call (fail-fast guarantee).
+        profiler.start("context_translation")
         contexts: list[SimulationContext] = []
         for idx, unit in enumerate(plan.units):
             try:
@@ -112,6 +125,7 @@ class ResearchExecutor:
                     f"(cohort={unit.cohort.start_date.isoformat()!r}) "
                     f"to SimulationContext: {err}"
                 ) from err
+        profiler.stop("context_translation")
 
         # --- Step 3: Build the engine experiment definition and delegate exactly once ---
         engine_definition = EngineExperimentDefinition(
@@ -119,6 +133,7 @@ class ResearchExecutor:
             description=plan.experiment_definition.description,
             simulation_contexts=tuple(contexts),
         )
+        profiler.start("engine_execution")
         try:
             experiment_run = self._simulation_executor.execute(engine_definition)
         except Exception as err:
@@ -126,6 +141,7 @@ class ResearchExecutor:
                 f"SimulationExecutor delegation failed for experiment "
                 f"{plan.experiment_definition.name!r}: {err}"
             ) from err
+        profiler.stop("engine_execution")
 
         # --- Step 4: Return result preserving lossless index provenance ---
         return ResearchExecutionResult(plan=plan, experiment_result=experiment_run)

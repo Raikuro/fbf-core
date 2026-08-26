@@ -20,12 +20,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import yaml
 
-from fbf.core.study.builder import StudyConfiguration, build_study_plan
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
 from fbf.core.execution.strategies.reference import (
     ReferenceSimulationExecutor,
 )
+from fbf.core.study.builder import StudyConfiguration, build_study_plan
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.plan import ResearchPlan
 

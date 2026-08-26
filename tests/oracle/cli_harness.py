@@ -70,7 +70,8 @@ def locate_cli() -> Path:
     Resolution order:
       1. ``SIM_RETIRE_BIN`` environment variable.
       2. The directory containing the current interpreter (venv bin dir).
-      3. ``sim-retire`` on ``PATH``.
+      3. Sibling ``fbf-cli/.venv/bin/sim-retire`` in repository workspace.
+      4. ``sim-retire`` on ``PATH``.
     """
     env_path = os.environ.get("SIM_RETIRE_BIN")
     if env_path:
@@ -82,6 +83,11 @@ def locate_cli() -> Path:
     candidate = interpreter_dir / "sim-retire"
     if candidate.is_file():
         return candidate
+
+    repo_root = Path(__file__).resolve().parents[2]
+    sibling_cli = repo_root.parent / "fbf-cli" / ".venv" / "bin" / "sim-retire"
+    if sibling_cli.is_file():
+        return sibling_cli
 
     path_candidate = shutil.which("sim-retire")
     if path_candidate:

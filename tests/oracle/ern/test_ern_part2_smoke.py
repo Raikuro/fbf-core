@@ -18,6 +18,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from tests.oracle.cli_harness import CliHarness
 
 from .constants import DATA_DIR
@@ -122,7 +124,10 @@ class TestPart2SmokeE2E:
         3. Structural invariants: correct unit count, cell count, per-cell
            field layout including ``final_value_target``.
         """
-        harness = CliHarness(data_dir=Path(DATA_DIR), home_dir=tmp_path / "home")
+        try:
+            harness = CliHarness(data_dir=Path(DATA_DIR), home_dir=tmp_path / "home")
+        except FileNotFoundError as exc:
+            pytest.skip(f"CLI binary not available: {exc}")
         result = harness.run(
             [
                 "run",

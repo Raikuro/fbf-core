@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import yaml
 
-from fbf.core.study.builder import StudyConfiguration, build_study_plan
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution.strategies.parallel_executor import (
     _execute_batch_on_shared_state,
@@ -28,6 +27,7 @@ from fbf.core.execution.strategies.parallel_executor import (
 from fbf.core.execution.strategies.reference import (
     ReferenceSimulationExecutor,
 )
+from fbf.core.study.builder import StudyConfiguration, build_study_plan
 
 DATA_DIR = Path("data/ern")
 STUDY = Path("examples/studies/ern_grid.yaml")

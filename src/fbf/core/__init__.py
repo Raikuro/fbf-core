@@ -6,6 +6,10 @@ from fbf.core.errors import CoreError
 from fbf.core.execution import (
     ExecutionMode,
     ExecutionOptions,
+    ExecutionProfiler,
+    NoOpProfiler,
+    Profiler,
+    ProfileReport,
     ResearchExecutionResult,
     execute_study_plan,
 )
@@ -50,4 +54,8 @@ __all__ = [
     "create_study_repository",
     "CoreError",
     "__version__",
+    "Profiler",
+    "NoOpProfiler",
+    "ExecutionProfiler",
+    "ProfileReport",
 ]

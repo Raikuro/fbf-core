@@ -59,6 +59,7 @@ from fbf.core.execution.pipeline.simulation import (
     SimulationTimeline,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
     sequential_execute,
@@ -843,9 +844,11 @@ class FastPathSimulationExecutor(SimulationExecutor):
         self,
         reference_executor: SimulationExecutor | None = None,
         precision: Precision = "float",
+        profiler: Profiler | None = None,
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
         self._precision = precision
+        self._profiler = profiler or NoOpProfiler()
         self._last_report: DerivationReport | None = None
 
     @property
@@ -854,6 +857,9 @@ class FastPathSimulationExecutor(SimulationExecutor):
         return self._last_report
 
     def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
+        profiler = self._profiler
+
+        profiler.start("fast_path_grouping")
         key_to_group: dict[tuple[object, ...], int] = {}
         group_contexts: list[list[SimulationContext]] = []
         order: list[tuple[int, int]] = []  # (definition index, group_id or -1)
@@ -871,9 +877,11 @@ class FastPathSimulationExecutor(SimulationExecutor):
                 group_id = key_to_group[key]
             group_contexts[group_id].append(context)
             order.append((index, group_id))
+        profiler.stop("fast_path_grouping")
 
         # Evaluate each group's longest horizon once, then derive the rest.
         # FV check is applied per-context after trajectory evaluation.
+        profiler.start("fast_path_evaluation")
         prefix_memo: dict[tuple[int, int], bool] = {}
         results: dict[int, SimulationResult] = {}
         derived_count = 0
@@ -903,8 +911,10 @@ class FastPathSimulationExecutor(SimulationExecutor):
                     )
                     independent_count += 1
                     month_work += ctx.horizon_months
+        profiler.stop("fast_path_evaluation")
 
         # Assemble results in original definition order.
+        profiler.start("fast_path_assembly")
         ordered_results: list[SimulationResult] = []
         for index, group_id in order:
             if group_id == -1:
@@ -920,6 +930,7 @@ class FastPathSimulationExecutor(SimulationExecutor):
                 month_work += context.horizon_months
             else:
                 ordered_results.append(results[id(definition.simulation_contexts[index])])
+        profiler.stop("fast_path_assembly")
 
         self._last_report = DerivationReport(
             logical_units=len(definition.simulation_contexts),
@@ -929,5 +940,10 @@ class FastPathSimulationExecutor(SimulationExecutor):
             independent_evaluations=independent_count,
             month_work=month_work,
         )
+
+        profiler.record("fast_path_groups", len(group_contexts))
+        profiler.record("fast_path_derived", derived_count)
+        profiler.record("fast_path_independent", independent_count)
+        profiler.record("fast_path_month_work", month_work)
 
         return ExperimentRun(definition=definition, simulation_results=tuple(ordered_results))

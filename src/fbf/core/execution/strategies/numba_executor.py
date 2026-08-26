@@ -56,6 +56,7 @@ from fbf.core.execution.pipeline.simulation import (
     SimulationTimeline,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.strategies.fast_path import (
     _group_key,
     _index_series,
@@ -133,8 +134,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
     def __init__(
         self,
         reference_executor: SimulationExecutor | None = None,
+        profiler: Profiler | None = None,
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
+        self._profiler = profiler or NoOpProfiler()
         self._last_report: NumbaReport | None = None
         self._gf_cache: dict[GFKey, Any] = {}
         self._price_float_cache: dict[_PriceCacheKey, NDArray[np.float64]] = {}
@@ -151,7 +154,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
         return self._gf_cache
 
     def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
+        profiler = self._profiler
+
         # --- Pass 1: group eligible contexts and find max horizon per GF key ---
+        profiler.start("numba_grouping")
         key_to_group: dict[tuple[object, ...], int] = {}
         group_contexts: list[list[SimulationContext]] = []
         order: list[tuple[int, int]] = []
@@ -178,18 +184,24 @@ class NumbaSimulationExecutor(SimulationExecutor):
             if h > gf_key_to_max_horizon.get(gf_k, 0):
                 gf_key_to_max_horizon[gf_k] = h
                 gf_key_to_sample_ctx[gf_k] = context
+        profiler.stop("numba_grouping")
 
         # --- Pass 2: precompute growth factors at max horizon per cache key ---
+        profiler.start("numba_growth_factors")
         from fbf.core.execution.strategies.numba_kernel import (
             _compute_growth_factors_numpy,
             _materialize_price_float,
             _simulate_trajectory,
         )
 
+        gf_cache_new = 0
+        gf_cache_reused = 0
         for gf_k, max_h in gf_key_to_max_horizon.items():
             cached = self._gf_cache.get(gf_k)
             if cached is not None and len(cached) >= max_h:
+                gf_cache_reused += 1
                 continue
+            gf_cache_new += 1
             # Use the precomputed sample context (longest horizon for this key).
             sample_ctx = gf_key_to_sample_ctx[gf_k]
             weights = _weights_by_class(sample_ctx)
@@ -217,14 +229,16 @@ class NumbaSimulationExecutor(SimulationExecutor):
             self._gf_cache[gf_k] = _compute_growth_factors_numpy(
                 weights_f, prices_f, max_h
             )
+        profiler.stop("numba_growth_factors")
 
         # --- Pass 3: simulate each group using cached growth factors ---
+        profiler.start("numba_kernel_execution")
         results: dict[int, SimulationResult] = {}
         derived_count = 0
         independent_count = 0
         month_work = 0
-        gf_hits = len(gf_key_to_max_horizon)
-        gf_misses = 0
+        gf_hits = gf_cache_reused
+        gf_misses = gf_cache_new
 
         for _, contexts in enumerate(group_contexts):
             # All contexts in a group share trajectory parameters; only horizon differs.
@@ -292,8 +306,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     horizon_result_cache[cache_key] = result
                     results[id(ctx)] = result
                     derived_count += 1
+        profiler.stop("numba_kernel_execution")
 
         # Assemble results in original definition order.
+        profiler.start("numba_assembly")
         ordered_results: list[SimulationResult] = []
         for index, group_id in order:
             if group_id == -1:
@@ -309,6 +325,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 month_work += context.horizon_months
             else:
                 ordered_results.append(results[id(definition.simulation_contexts[index])])
+        profiler.stop("numba_assembly")
 
         self._last_report = NumbaReport(
             logical_units=len(definition.simulation_contexts),
@@ -324,6 +341,13 @@ class NumbaSimulationExecutor(SimulationExecutor):
             gf_cache_hits=gf_hits,
             gf_cache_misses=gf_misses,
         )
+
+        profiler.record("numba_groups", len(group_contexts))
+        profiler.record("numba_derived", derived_count)
+        profiler.record("numba_independent", independent_count)
+        profiler.record("numba_month_work", month_work)
+        profiler.record("numba_gf_cache_hits", gf_hits)
+        profiler.record("numba_gf_cache_misses", gf_misses)
 
         return ExperimentRun(definition=definition, simulation_results=tuple(ordered_results))
 

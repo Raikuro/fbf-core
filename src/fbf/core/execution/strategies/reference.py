@@ -26,6 +26,7 @@ from fbf.core.execution.pipeline.simulation import (
     SimulationTimeline,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
@@ -313,8 +314,10 @@ class ReferenceSimulationExecutor(SimulationExecutor):
     def __init__(
         self,
         reference_executor: SimulationExecutor | None = None,
+        profiler: Profiler | None = None,
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
+        self._profiler = profiler or NoOpProfiler()
         self._last_report: ReferenceReport | None = None
 
     @property
@@ -322,6 +325,9 @@ class ReferenceSimulationExecutor(SimulationExecutor):
         return self._last_report
 
     def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
+        profiler = self._profiler
+
+        profiler.start("reference_grouping")
         key_to_group: dict[tuple[object, ...], int] = {}
         group_contexts: list[list[SimulationContext]] = []
         order: list[tuple[int, int]] = []
@@ -334,7 +340,9 @@ class ReferenceSimulationExecutor(SimulationExecutor):
             group_id = key_to_group[key]
             group_contexts[group_id].append(context)
             order.append((index, group_id))
+        profiler.stop("reference_grouping")
 
+        profiler.start("reference_evaluation")
         results: dict[int, SimulationResult] = {}
         derived_count = 0
         independent_count = 0
@@ -365,11 +373,14 @@ class ReferenceSimulationExecutor(SimulationExecutor):
                     )
                     independent_count += 1
                     month_work += ctx.horizon_months
+        profiler.stop("reference_evaluation")
 
+        profiler.start("reference_assembly")
         ordered_results: list[SimulationResult] = []
         for index, _ in order:
             context = definition.simulation_contexts[index]
             ordered_results.append(results[id(context)])
+        profiler.stop("reference_assembly")
 
         self._last_report = ReferenceReport(
             logical_units=len(definition.simulation_contexts),
@@ -379,6 +390,11 @@ class ReferenceSimulationExecutor(SimulationExecutor):
             independent_evaluations=independent_count,
             month_work=month_work,
         )
+
+        profiler.record("reference_groups", len(group_contexts))
+        profiler.record("reference_derived", derived_count)
+        profiler.record("reference_independent", independent_count)
+        profiler.record("reference_month_work", month_work)
 
         return ExperimentRun(
             definition=definition,
@@ -439,6 +455,7 @@ def execute_reference(
     progress_callback: Callable[[int, int], None] | None = None,
     summary_only: bool = False,
     slice_cohorts: int = _DEFAULT_SLICE_COHORTS,
+    profiler: Profiler | None = None,
 ) -> ResearchExecutionResult:
     """Execute *plan* through the Reference executor in cohort slices.
 
@@ -451,7 +468,7 @@ def execute_reference(
     workers = default_max_workers() if max_workers is None or max_workers <= 0 else max_workers
 
     slices = _slice_plan_units(plan, slice_cohorts)
-    executor = ReferenceSimulationExecutor()
+    executor = ReferenceSimulationExecutor(profiler=profiler)
 
     all_results: list[SimulationResult] = []
     all_contexts: list[SimulationContext] = []
@@ -469,6 +486,7 @@ def execute_reference(
             simulation_executor=executor,
             progress_callback=None,
             summary_only=summary_only,
+            profiler=profiler,
         )
         all_results.extend(sub_result.experiment_result.simulation_results)
         all_contexts.extend(sub_result.experiment_result.definition.simulation_contexts)

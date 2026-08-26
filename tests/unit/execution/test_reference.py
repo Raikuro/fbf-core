@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
@@ -499,6 +500,7 @@ class TestSliceDispatchMemorySafety:
             simulation_executor: SimulationExecutor | None = None,
             progress_callback: Callable[[int, int], None] | None = None,
             summary_only: bool = False,
+            **kwargs: Any,
         ) -> ResearchExecutionResult:
             dispatched.append(len(sub_plan.units))
             from fbf.core.execution.strategies.parallel_executor import sequential_execute
@@ -508,6 +510,7 @@ class TestSliceDispatchMemorySafety:
                 simulation_executor=simulation_executor,
                 progress_callback=progress_callback,
                 summary_only=summary_only,
+                **kwargs,
             )
 
         monkeypatch.setattr(ref, "parallel_execute", _spy_slice_executor)
