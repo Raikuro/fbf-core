@@ -37,6 +37,7 @@ class PerCellStats:
     units_run: int
     units_failed: int
     success_rate: float
+    final_value_target: float | None = None
 
     @property
     def success_percent(self) -> float:
@@ -45,20 +46,20 @@ class PerCellStats:
 
 def parse_per_cell_lines(
     stdout: str,
-) -> dict[tuple[float, float, int], PerCellStats]:
+) -> dict[tuple[float, float, int, float | None], PerCellStats]:
     """Parse the CLI's machine-parseable per-cell summary lines.
 
-    Each line has the stable layout
+    Each line has the layout
     ``cell: equity_allocation=<w> withdrawal_rate=<r> horizon_years=<h>
-    units_run=<n> units_failed=<m> success_rate=<s>`` and is keyed by
-    ``(equity_allocation, withdrawal_rate, horizon_years)``.
+    [final_value_target=<fv>] units_run=<n> units_failed=<m> success_rate=<s>``
+    and is keyed by ``(equity_allocation, withdrawal_rate, horizon_years, final_value_target)``.
 
     Raises
     ------
     ValueError
         If any cell line is malformed, missing a required field, or duplicated.
     """
-    parsed: dict[tuple[float, float, int], PerCellStats] = {}
+    parsed: dict[tuple[float, float, int, float | None], PerCellStats] = {}
     for match in _CELL_LINE_RE.finditer(stdout):
         fields: dict[str, str] = {}
         for token in match.group(1).split():
@@ -71,10 +72,16 @@ def parse_per_cell_lines(
         missing = [name for name in _CELL_FIELDS if name not in fields]
         if missing:
             raise ValueError(f"Cell line missing fields {missing}: {match.group(1)!r}")
+        fv_target = (
+            float(fields["final_value_target"])
+            if "final_value_target" in fields
+            else None
+        )
         key = (
             float(fields["equity_allocation"]),
             float(fields["withdrawal_rate"]),
             int(fields["horizon_years"]),
+            fv_target,
         )
         if key in parsed:
             raise ValueError(f"Duplicate cell {key!r}")
@@ -82,6 +89,7 @@ def parse_per_cell_lines(
             units_run=int(fields["units_run"]),
             units_failed=int(fields["units_failed"]),
             success_rate=float(fields["success_rate"]),
+            final_value_target=fv_target,
         )
     return parsed
 
@@ -93,7 +101,7 @@ def run_grid_study(
     timeout: int = 3600,
     fast_path: bool = False,
     reference: bool = False,
-) -> tuple[CliResult, dict[tuple[float, float, int], PerCellStats]]:
+) -> tuple[CliResult, dict[tuple[float, float, int, float | None], PerCellStats]]:
     """Run one grid through the public CLI and return validated cell output."""
     if fast_path and reference:
         raise ValueError("fast_path and reference are mutually exclusive")

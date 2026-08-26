@@ -86,3 +86,13 @@ Execution Options & Profiling Boundary  (ExecutionOptions, Profiler)
 - **Timeline Retention**: Full reference execution materializes monthly timelines (`SimulationTimeline`).
 - **Summary-Only (`--summary-only`)**: Discards per-month timelines, retaining only `SimulationStatistics` (final wealth, drawdown, success, failure month).
 - **Persistence (`--persist-study`)**: SQLite database storage requires full per-month timelines. Therefore, `--summary-only` and `--fast-path` cannot be combined with `--persist-study`.
+
+---
+
+## 6. ERN Study Representation (ERN1 vs ERN2 Consolidation)
+
+- **Unified Model**: ERN1 (classic Safe Withdrawal Rate with depletion criterion) is a strict semantic subset of ERN2 ($\text{ERN1} \equiv \text{ERN2}$ with `final_value_target = 0.0`).
+- **Target Axis**:
+  - `final_value_target = 0.0`: Depletion target, reproducing the former ERN1 SWR acceptance grid against the canonical oracle.
+  - `final_value_target > 0.0`: Final-capital requirement target (e.g. `100.0` for 100% inflation-adjusted wealth preservation).
+- **Consolidated Fixtures**: Both depletion and final-capital targets are defined within unified ERN2 study configurations (`ern_part2_smoke.yaml` and `ern_part2_full.yaml`), eliminating duplicate independent ERN1 test definitions.

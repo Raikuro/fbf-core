@@ -107,13 +107,19 @@ FULL_GRID_CELLS = len(WEIGHTS) * len(RATES) * len(HORIZON_YEARS)
 COHORTS_PER_CELL = 1739
 FULL_GRID_UNITS = FULL_GRID_CELLS * COHORTS_PER_CELL
 
-# The reduced parameter space of the cheap smoke-grid fixture
-# (tests/e2e/ern/ern_grid_smoke.yaml): 2 x 2 x 2 = 8 cells.
-SMOKE_WEIGHTS: list[float] = [0.5, 0.0]
-SMOKE_RATES: list[float] = [0.04, 0.05]
-SMOKE_HORIZONS: list[int] = [30, 60]
-SMOKE_GRID_CELLS = len(SMOKE_WEIGHTS) * len(SMOKE_RATES) * len(SMOKE_HORIZONS)
-SMOKE_GRID_UNITS = SMOKE_GRID_CELLS * COHORTS_PER_CELL
+# The minimal parameter space of the ERN2 smoke-grid fixture
+# (tests/oracle/ern/ern_part2_smoke.yaml):
+# 1 weight x 1 rate x 1 horizon (30y) x 2 targets (FV=0.0 control + FV=100.0)
+# x 2099 cohorts = 4,198 units.
+SMOKE_WEIGHTS: list[float] = [0.5]
+SMOKE_RATES: list[float] = [0.04]
+SMOKE_HORIZONS: list[int] = [30]
+SMOKE_FV_TARGETS: list[float] = [0.0, 100.0]
+SMOKE_GRID_CELLS = (
+    len(SMOKE_WEIGHTS) * len(SMOKE_RATES) * len(SMOKE_HORIZONS) * len(SMOKE_FV_TARGETS)
+)
+SMOKE_GRID_COHORTS = 2099
+SMOKE_GRID_UNITS = SMOKE_GRID_CELLS * SMOKE_GRID_COHORTS
 
 # Hard-fail acceptance anchors from the ERN paper Table 1 (Section 5.2).
 ANCHOR_CELLS = [
