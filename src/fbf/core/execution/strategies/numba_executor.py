@@ -138,6 +138,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
         self._last_report: NumbaReport | None = None
         self._gf_cache: dict[GFKey, Any] = {}
         self._price_float_cache: dict[_PriceCacheKey, NDArray[np.float64]] = {}
+        self._index_series_cache: dict[_PriceCacheKey, dict[object, tuple[Decimal, ...]]] = {}
 
     @property
     def report(self) -> NumbaReport | None:
@@ -192,7 +193,13 @@ class NumbaSimulationExecutor(SimulationExecutor):
             # Use the precomputed sample context (longest horizon for this key).
             sample_ctx = gf_key_to_sample_ctx[gf_k]
             weights = _weights_by_class(sample_ctx)
-            series = _index_series(sample_ctx)
+
+            # Cache _index_series by (start_date, n_prices) — independent of allocation.
+            n_prices = sample_ctx.horizon_months
+            series_key: _PriceCacheKey = (gf_k[0], n_prices)
+            if series_key not in self._index_series_cache:
+                self._index_series_cache[series_key] = _index_series(sample_ctx)
+            series = self._index_series_cache[series_key]
             asset_classes = tuple(series.keys())
 
             # Cache price arrays by (start_date, n_prices) — independent of allocation.

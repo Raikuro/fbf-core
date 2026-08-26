@@ -551,3 +551,124 @@ class TestPriceFloatCache:
         gf_new = _compute_growth_factors_numpy(w_new, prices_f, 120)
 
         np.testing.assert_array_equal(gf_old, gf_new)
+
+
+class TestIndexSeriesCache:
+    """Tests for the dataset-level _index_series cache (R7.10)."""
+
+    def test_same_key_reuses_series(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx1 = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        ctx2 = _make_context(ds, horizon=120, w=0.75, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx1, ctx2),
+        )
+        executor.execute(defn)
+        # Same start_date, same n_prices → one index_series cache entry
+        assert len(executor._index_series_cache) == 1
+
+    def test_different_start_dates_separate_entries(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds1 = _make_dataset(241)
+        ctx1 = _make_context(ds1, horizon=120, w=0.5, r=0.04)
+        from datetime import timedelta
+        ds2_shifted = _make_dataset(241)
+        shifted_snaps = [
+            MarketSnapshot(
+                date=s.date + timedelta(days=365),
+                index_levels=s.index_levels,
+                inflation=s.inflation,
+                inflation_cumulative=s.inflation_cumulative,
+                is_ath=s.is_ath,
+                is_underwater=s.is_underwater,
+                running_ath=s.running_ath,
+            )
+            for s in ds2_shifted.snapshots
+        ]
+        ds2_shifted = Dataset(snapshots=shifted_snaps, frequency="monthly", version="1.0")
+        ctx2 = _make_context(ds2_shifted, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx1, ctx2),
+        )
+        executor.execute(defn)
+        # Different start_dates → two cache entries
+        assert len(executor._index_series_cache) == 2
+
+    def test_different_n_prices_separate_entries(self) -> None:
+        executor = NumbaSimulationExecutor()
+        # Two datasets with different start dates AND different lengths
+        ds_short = _make_dataset(121)
+        ds_long = _make_dataset(241)
+        ctx1 = _make_context(ds_short, horizon=120, w=0.5, r=0.04)
+        from datetime import timedelta
+        long_snaps = [
+            MarketSnapshot(
+                date=s.date + timedelta(days=365),
+                index_levels=s.index_levels,
+                inflation=s.inflation,
+                inflation_cumulative=s.inflation_cumulative,
+                is_ath=s.is_ath,
+                is_underwater=s.is_underwater,
+                running_ath=s.running_ath,
+            )
+            for s in ds_long.snapshots
+        ]
+        ds_long_shifted = Dataset(snapshots=long_snaps, frequency="monthly", version="1.0")
+        ctx2 = _make_context(ds_long_shifted, horizon=240, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx1, ctx2),
+        )
+        executor.execute(defn)
+        # Different start_dates + different n_prices → two cache entries
+        assert len(executor._index_series_cache) == 2
+
+    def test_cached_series_not_mutated(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        executor.execute(defn)
+        key = (ds[0].date, 120)
+        series1 = executor._index_series_cache[key]
+        # Make a copy of the first value
+        first_vals = dict(series1.items())
+        executor.execute(defn)
+        series2 = executor._index_series_cache[key]
+        for ac in first_vals:
+            assert first_vals[ac] == series2[ac]
+
+    def test_executor_instances_isolated(self) -> None:
+        exec_a = NumbaSimulationExecutor()
+        exec_b = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        exec_a.execute(defn)
+        assert len(exec_a._index_series_cache) == 1
+        assert len(exec_b._index_series_cache) == 0
+
+    def test_numerical_equivalence_with_uncached(self) -> None:
+        """Cached _index_series produces same values as uncached."""
+        from fbf.core.execution.strategies.fast_path import _index_series
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        executor.execute(defn)
+
+        # Get cached series
+        key = (ds[0].date, 120)
+        cached_series = executor._index_series_cache[key]
+
+        # Compute uncached
+        uncached_series = _index_series(ctx)
+
+        for ac in cached_series:
+            assert cached_series[ac] == uncached_series[ac]
