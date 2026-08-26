@@ -11,6 +11,7 @@ import random
 from datetime import date
 from decimal import Decimal
 
+import numpy as np
 import pytest
 
 from fbf.core.domain.model.asset import AssetClass
@@ -23,6 +24,7 @@ from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.strategies.fast_path import _index_series, _weights_by_class
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
@@ -418,3 +420,134 @@ class TestGrowthFactorCache:
         key = (ds[0].date, Decimal("0.5"))
         assert key in executor.gf_cache
         assert len(executor.gf_cache[key]) == 240  # max horizon - 1 for the dummy entry
+
+
+class TestPriceFloatCache:
+    """Tests for the dataset-level price float cache (R7.9)."""
+
+    def test_same_start_date_reuses_prices(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx1 = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        ctx2 = _make_context(ds, horizon=120, w=0.75, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx1, ctx2),
+        )
+        executor.execute(defn)
+        # Same start_date, same n_prices → one price cache entry
+        assert len(executor._price_float_cache) == 1
+
+    def test_different_start_dates_separate_entries(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds1 = _make_dataset(241)
+        ctx1 = _make_context(ds1, horizon=120, w=0.5, r=0.04)
+        # Second context with different dataset (different date)
+        from datetime import timedelta
+        ds2_shifted = _make_dataset(241)
+        # Manually shift dates
+        shifted_snaps = []
+        for s in ds2_shifted.snapshots:
+            shifted_snaps.append(MarketSnapshot(
+                date=s.date + timedelta(days=365),
+                index_levels=s.index_levels,
+                inflation=s.inflation,
+                inflation_cumulative=s.inflation_cumulative,
+                is_ath=s.is_ath,
+                is_underwater=s.is_underwater,
+                running_ath=s.running_ath,
+            ))
+        ds2_shifted = Dataset(snapshots=shifted_snaps, frequency="monthly", version="1.0")
+        ctx2 = _make_context(ds2_shifted, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx1, ctx2),
+        )
+        executor.execute(defn)
+        # Different start_dates → two price cache entries
+        assert len(executor._price_float_cache) == 2
+
+    def test_different_dataset_lengths_separate_entries(self) -> None:
+        executor = NumbaSimulationExecutor()
+        # Two datasets with same start_date but different lengths
+        ds_short = _make_dataset(121)
+        ds_long = _make_dataset(241)
+        ctx1 = _make_context(ds_short, horizon=120, w=0.5, r=0.04)
+        # Use ds_long but with a different start date to force separate price materialization
+        from datetime import timedelta
+        long_snaps = [
+            MarketSnapshot(
+                date=s.date + timedelta(days=365),
+                index_levels=s.index_levels,
+                inflation=s.inflation,
+                inflation_cumulative=s.inflation_cumulative,
+                is_ath=s.is_ath,
+                is_underwater=s.is_underwater,
+                running_ath=s.running_ath,
+            )
+            for s in ds_long.snapshots
+        ]
+        ds_long_shifted = Dataset(snapshots=long_snaps, frequency="monthly", version="1.0")
+        ctx2 = _make_context(ds_long_shifted, horizon=240, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx1, ctx2),
+        )
+        executor.execute(defn)
+        # Different start_dates + different n_prices → two price cache entries
+        assert len(executor._price_float_cache) == 2
+
+    def test_cached_prices_not_mutated(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        executor.execute(defn)
+        # Cache key is (start_date, n_prices) where n_prices = horizon
+        key = (ds[0].date, 120)
+        arr1 = executor._price_float_cache[key].copy()
+        executor.execute(defn)
+        arr2 = executor._price_float_cache[key]
+        np.testing.assert_array_equal(arr1, arr2)
+
+    def test_executor_instances_isolated(self) -> None:
+        exec_a = NumbaSimulationExecutor()
+        exec_b = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        exec_a.execute(defn)
+        assert len(exec_a._price_float_cache) == 1
+        assert len(exec_b._price_float_cache) == 0
+
+    def test_numerical_equivalence_with_old_path(self) -> None:
+        """Price cache produces same GF as _materialize_float_series."""
+        from fbf.core.execution.strategies.numba_kernel import (
+            _compute_growth_factors_numpy,
+            _materialize_float_series,
+        )
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        executor.execute(defn)
+
+        # Get cached prices — key uses horizon (120), not dataset length (241)
+        key = (ds[0].date, 120)
+        prices_f = executor._price_float_cache[key]
+
+        # Compute using old path
+        weights = _weights_by_class(ctx)
+        series = _index_series(ctx)
+        asset_classes = tuple(series.keys())
+        w_old, p_old, _ = _materialize_float_series(asset_classes, weights, series)
+        gf_old = _compute_growth_factors_numpy(w_old, p_old, 120)
+
+        # Compute using new path
+        w_new = np.array([float(weights[ac]) for ac in asset_classes], dtype=np.float64)
+        gf_new = _compute_growth_factors_numpy(w_new, prices_f, 120)
+
+        np.testing.assert_array_equal(gf_old, gf_new)

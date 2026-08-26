@@ -69,8 +69,8 @@ from fbf.core.execution.strategies.parallel_executor import (
 # Type for growth-factor cache key: (start_date, equity_allocation)
 GFKey = tuple[date, Decimal]
 
-# Type for float-series cache key: (GF key, number of price snapshots)
-_FloatCacheKey = tuple[date, Decimal, int]
+# Type for price-float cache key: (start_date, number of price snapshots)
+_PriceCacheKey = tuple[date, int]
 
 
 @dataclass(frozen=True)
@@ -137,9 +137,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
         self._reference = reference_executor or _create_default_simulation_executor()
         self._last_report: NumbaReport | None = None
         self._gf_cache: dict[GFKey, Any] = {}
-        self._float_series_cache: dict[
-            _FloatCacheKey, tuple[NDArray[np.float64], NDArray[np.float64], int]
-        ] = {}
+        self._price_float_cache: dict[_PriceCacheKey, NDArray[np.float64]] = {}
 
     @property
     def report(self) -> NumbaReport | None:
@@ -183,7 +181,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
         # --- Pass 2: precompute growth factors at max horizon per cache key ---
         from fbf.core.execution.strategies.numba_kernel import (
             _compute_growth_factors_numpy,
-            _materialize_float_series,
+            _materialize_price_float,
             _simulate_trajectory,
         )
 
@@ -197,15 +195,21 @@ class NumbaSimulationExecutor(SimulationExecutor):
             series = _index_series(sample_ctx)
             asset_classes = tuple(series.keys())
 
-            # Materialize Decimal→float once per GF key + series length, then use vectorized GF.
-            float_key: _FloatCacheKey = (gf_k[0], gf_k[1], len(series[asset_classes[0]]))
-            if float_key not in self._float_series_cache:
-                w_f, p_f, n_p = _materialize_float_series(
-                    asset_classes, weights, series
+            # Cache price arrays by (start_date, n_prices) — independent of allocation.
+            price_key: _PriceCacheKey = (
+                gf_k[0], len(series[asset_classes[0]])
+            )
+            if price_key not in self._price_float_cache:
+                self._price_float_cache[price_key] = _materialize_price_float(
+                    asset_classes, series
                 )
-                self._float_series_cache[float_key] = (w_f, p_f, n_p)
-            w_f, p_f, _ = self._float_series_cache[float_key]
-            self._gf_cache[gf_k] = _compute_growth_factors_numpy(w_f, p_f, max_h)
+            prices_f = self._price_float_cache[price_key]
+            weights_f = np.array(
+                [float(weights[ac]) for ac in asset_classes], dtype=np.float64
+            )
+            self._gf_cache[gf_k] = _compute_growth_factors_numpy(
+                weights_f, prices_f, max_h
+            )
 
         # --- Pass 3: simulate each group using cached growth factors ---
         results: dict[int, SimulationResult] = {}

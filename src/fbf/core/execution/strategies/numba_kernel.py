@@ -235,6 +235,33 @@ def compute_growth_factors(
     return growth_factors
 
 
+def _materialize_price_float(
+    asset_classes: tuple[object, ...],
+    price_series: dict[object, tuple[Decimal, ...]],
+) -> NDArray[np.float64]:
+    """Convert Decimal price series to a float64 array.
+
+    This is the dataset-level materialization: prices depend only on the
+    market trajectory, not on allocation weights.  Cache by
+    ``(start_date, n_prices)``.
+
+    Returns
+    -------
+    NDArray of float64, shape ``(n_assets, n_prices)``.
+    """
+    n_assets = len(asset_classes)
+    n_prices = len(price_series[asset_classes[0]])
+
+    prices_float = np.empty((n_assets, n_prices), dtype=np.float64)
+
+    for j, asset_class in enumerate(asset_classes):
+        series = price_series[asset_class]
+        for m in range(n_prices):
+            prices_float[j, m] = float(series[m])
+
+    return prices_float
+
+
 def _materialize_float_series(
     asset_classes: tuple[object, ...],
     target_weights: dict[object, Decimal],
