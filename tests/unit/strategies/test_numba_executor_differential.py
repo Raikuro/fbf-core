@@ -240,3 +240,163 @@ class TestNumbaExecutorRandomized:
         assert len(ref) == len(contexts)
         for i, h in enumerate(horizons):
             _assert_matches(ref[i], numba[i], f"random_group_s{seed}_h{h}")
+
+
+class TestGrowthFactorCache:
+    """Tests for the growth-factor cache in NumbaSimulationExecutor."""
+
+    def test_identical_key_one_computation(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        executor.execute(defn)
+        keys_before = list(executor.gf_cache.keys())
+        assert len(keys_before) == 1
+
+        executor.execute(defn)
+        keys_after = list(executor.gf_cache.keys())
+        assert len(keys_after) == 1
+        assert keys_before == keys_after
+
+    def test_same_start_date_reuses_cache(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds1 = _make_dataset(241)
+        d1 = ds1[0].date
+        ctx1 = _make_context(ds1, horizon=120, w=0.5, r=0.04)
+        defn1 = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx1,),
+        )
+        executor.execute(defn1)
+
+        ds2 = _make_dataset(241)
+        ctx2 = _make_context(ds2, horizon=120, w=0.5, r=0.04)
+        defn2 = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx2,),
+        )
+        executor.execute(defn2)
+
+        assert len(executor.gf_cache) == 1
+        assert (d1, Decimal("0.5")) in executor.gf_cache
+
+    def test_different_start_date_separate_entries(self) -> None:
+        executor = NumbaSimulationExecutor()
+
+        ds1 = _make_dataset(241)
+        ctx1 = _make_context(ds1, horizon=120, w=0.5, r=0.04)
+        defn1 = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx1,),
+        )
+        executor.execute(defn1)
+
+        snapshots2 = [
+            MarketSnapshot(
+                date=date(2000, 1, 1),
+                index_levels={_EQ: Decimal("100"), _BD: Decimal("100")},
+                inflation=Decimal("0"),
+                inflation_cumulative=Decimal("0"),
+                is_ath=True,
+                is_underwater=False,
+                running_ath=Decimal("100"),
+            ),
+            *[
+                MarketSnapshot(
+                    date=date(2000 + (m + 1) // 12, (m + 1) % 12 + 1, 1),
+                    index_levels={
+                        _EQ: Decimal("100") * Decimal("1.006") ** (m + 1),
+                        _BD: Decimal("100") * Decimal("1.002") ** (m + 1),
+                    },
+                    inflation=Decimal("0"),
+                    inflation_cumulative=Decimal("0"),
+                    is_ath=True,
+                    is_underwater=False,
+                    running_ath=Decimal("100"),
+                )
+                for m in range(120)
+            ],
+        ]
+        ds2 = Dataset(snapshots=snapshots2, frequency="monthly", version="1.0")
+        ctx2 = _make_context(ds2, horizon=120, w=0.5, r=0.04)
+        defn2 = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx2,),
+        )
+        executor.execute(defn2)
+
+        assert len(executor.gf_cache) == 2
+        key1 = (date(1900, 1, 1), Decimal("0.5"))
+        key2 = (date(2000, 1, 1), Decimal("0.5"))
+        assert key1 in executor.gf_cache
+        assert key2 in executor.gf_cache
+
+    def test_different_weight_separate_entry(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx_a = _make_context(ds, horizon=120, w=0.3, r=0.04)
+        defn_a = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx_a,),
+        )
+        executor.execute(defn_a)
+
+        ctx_b = _make_context(ds, horizon=120, w=0.7, r=0.04)
+        defn_b = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx_b,),
+        )
+        executor.execute(defn_b)
+
+        assert len(executor.gf_cache) == 2
+        key_a = (ds[0].date, Decimal("0.3"))
+        key_b = (ds[0].date, Decimal("0.7"))
+        assert key_a in executor.gf_cache
+        assert key_b in executor.gf_cache
+
+    def test_same_weight_different_rate_same_cache(self) -> None:
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx_a = _make_context(ds, horizon=120, w=0.5, r=0.03)
+        defn_a = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx_a,),
+        )
+        executor.execute(defn_a)
+
+        ctx_b = _make_context(ds, horizon=120, w=0.5, r=0.05)
+        defn_b = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx_b,),
+        )
+        executor.execute(defn_b)
+
+        assert len(executor.gf_cache) == 1
+        key = (ds[0].date, Decimal("0.5"))
+        assert key in executor.gf_cache
+
+    def test_cached_array_not_mutated(self) -> None:
+        import numpy as np
+
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        executor.execute(defn)
+
+        key = (ds[0].date, Decimal("0.5"))
+        arr1 = executor.gf_cache[key].copy()
+        executor.execute(defn)
+        arr2 = executor.gf_cache[key]
+
+        np.testing.assert_array_equal(arr1, arr2)
+
+    def test_executor_instances_isolated(self) -> None:
+        exec_a = NumbaSimulationExecutor()
+        exec_b = NumbaSimulationExecutor()
+        ds = _make_dataset(241)
+        ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,),
+        )
+        exec_a.execute(defn)
+
+        assert len(exec_a.gf_cache) == 1
+        assert len(exec_b.gf_cache) == 0
