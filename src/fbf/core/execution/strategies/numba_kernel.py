@@ -235,6 +235,67 @@ def compute_growth_factors(
     return growth_factors
 
 
+def _materialize_float_series(
+    asset_classes: tuple[object, ...],
+    target_weights: dict[object, Decimal],
+    price_series: dict[object, tuple[Decimal, ...]],
+) -> tuple[NDArray[np.float64], NDArray[np.float64], int]:
+    """Convert Decimal weights and price series to float arrays once.
+
+    Returns
+    -------
+    tuple of (weights_float, prices_float, n_prices)
+        weights_float: shape (n_assets,), float64
+        prices_float: shape (n_assets, n_prices), float64
+        n_prices: number of price points per asset
+    """
+    n_assets = len(asset_classes)
+    n_prices = len(price_series[asset_classes[0]])
+
+    weights_float = np.empty(n_assets, dtype=np.float64)
+    prices_float = np.empty((n_assets, n_prices), dtype=np.float64)
+
+    for j, asset_class in enumerate(asset_classes):
+        weights_float[j] = float(target_weights[asset_class])
+        series = price_series[asset_class]
+        for m in range(n_prices):
+            prices_float[j, m] = float(series[m])
+
+    return weights_float, prices_float, n_prices
+
+
+def _compute_growth_factors_numpy(
+    weights_float: NDArray[np.float64],
+    prices_float: NDArray[np.float64],
+    horizon: int,
+) -> NDArray[np.float64]:
+    """Compute growth factors using vectorized NumPy operations.
+
+    Parameters
+    ----------
+    weights_float:
+        Float64 array of target allocation weights, shape (n_assets,).
+    prices_float:
+        Float64 array of price series, shape (n_assets, n_prices).
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    NDArray of float64 growth factors, length = horizon.
+    """
+    n_prices = prices_float.shape[1]
+    n_growth = min(horizon - 1, n_prices - 1)
+
+    ratios = prices_float[:, 1:] / prices_float[:, :-1]
+    growth = np.dot(weights_float, ratios)
+
+    growth_factors = np.ones(horizon, dtype=np.float64)
+    growth_factors[:n_growth] = growth[:n_growth]
+
+    return growth_factors
+
+
 def simulate_single(
     growth_factors: NDArray[np.float64],
     initial_value: Money,
