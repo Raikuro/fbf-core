@@ -148,6 +148,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
         group_contexts: list[list[SimulationContext]] = []
         order: list[tuple[int, int]] = []
         gf_key_to_max_horizon: dict[GFKey, int] = {}
+        gf_key_to_sample_ctx: dict[GFKey, SimulationContext] = {}
 
         for index, context in enumerate(definition.simulation_contexts):
             if not _is_numba_eligible(context):
@@ -163,11 +164,12 @@ class NumbaSimulationExecutor(SimulationExecutor):
             group_contexts[group_id].append(context)
             order.append((index, group_id))
 
-            # Track max horizon per growth-factor cache key.
+            # Track max horizon and sample context per growth-factor cache key.
             gf_k = _gf_cache_key(context)
             h = context.horizon_months
             if h > gf_key_to_max_horizon.get(gf_k, 0):
                 gf_key_to_max_horizon[gf_k] = h
+                gf_key_to_sample_ctx[gf_k] = context
 
         # --- Pass 2: precompute growth factors at max horizon per cache key ---
         from fbf.core.execution.strategies.numba_kernel import (
@@ -179,17 +181,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
             cached = self._gf_cache.get(gf_k)
             if cached is not None and len(cached) >= max_h:
                 continue
-            # Use the context with the longest horizon to ensure the series
-            # is long enough for the full GF array computation.
-            sample_ctx = max(
-                (
-                    ctx
-                    for contexts in group_contexts
-                    for ctx in contexts
-                    if _gf_cache_key(ctx) == gf_k
-                ),
-                key=lambda c: c.horizon_months,
-            )
+            # Use the precomputed sample context (longest horizon for this key).
+            sample_ctx = gf_key_to_sample_ctx[gf_k]
             weights = _weights_by_class(sample_ctx)
             series = _index_series(sample_ctx)
             asset_classes = tuple(series.keys())

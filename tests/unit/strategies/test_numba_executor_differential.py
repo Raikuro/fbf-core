@@ -400,3 +400,21 @@ class TestGrowthFactorCache:
 
         assert len(exec_a.gf_cache) == 1
         assert len(exec_b.gf_cache) == 0
+
+    def test_pass2_uses_precomputed_sample_context(self) -> None:
+        """Regression: Pass 2 must not scan all contexts per GF key (O(n²))."""
+        executor = NumbaSimulationExecutor()
+        ds = _make_dataset(721)
+        # Create many contexts sharing the same GF key but different horizons.
+        # The old O(n²) implementation would scan all contexts for each key.
+        contexts = [_make_context(ds, horizon=h, w=0.5, r=0.04) for h in range(12, 252, 12)]
+        defn = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=tuple(contexts),
+        )
+
+        executor.execute(defn)
+
+        # The GF array must use the longest horizon (240 months).
+        key = (ds[0].date, Decimal("0.5"))
+        assert key in executor.gf_cache
+        assert len(executor.gf_cache[key]) == 240  # max horizon - 1 for the dummy entry
