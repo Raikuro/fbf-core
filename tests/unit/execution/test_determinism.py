@@ -5,8 +5,6 @@ Establishes and validates the execution contracts:
 - Reference repeatability: bit-exact across runs
 - Decimal Fast Path repeatability: bit-exact across runs
 - Reference ↔ Decimal Fast Path equivalence: bit-exact where eligible
-- Float Fast Path repeatability: deterministic across runs
-- Float Fast Path ↔ Reference comparison: tolerance-based (1e-4 EUR)
 
 The Fast Path eligibility contract requires:
 - ConstantAllocationPolicy
@@ -18,8 +16,6 @@ The Fast Path eligibility contract requires:
 """
 
 from __future__ import annotations
-
-from decimal import Decimal
 
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.strategies.fast_path import (
@@ -37,12 +33,6 @@ from fbf.core.execution.strategies.reference import (
 )
 
 from .conftest import make_context, make_dataset, make_engine_def, make_plan
-
-# Tolerance for Float Fast Path final_wealth comparison with Reference.
-# Documented bound: measured deviation <= 9e-6 EUR; 1e-4 EUR is the
-# published upper bound with headroom.
-FLOAT_WEALTH_TOLERANCE = Decimal("1e-4")
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -91,26 +81,6 @@ def _assert_decimal_fast_path_exact(
         f"{msg}: final_wealth differs (Decimal should be bit-exact)"
     )
 
-
-def _assert_float_fast_path_bounded(
-    ref: SimulationResult,
-    fp: SimulationResult,
-    msg: str,
-) -> None:
-    """Assert Float Fast Path matches Reference within documented tolerance."""
-    assert ref.statistics.success == fp.statistics.success, (
-        f"{msg}: success differs (Float must match exactly)"
-    )
-    assert ref.statistics.failure_month == fp.statistics.failure_month, (
-        f"{msg}: failure_month differs (Float must match exactly)"
-    )
-    assert ref.statistics.months_simulated == fp.statistics.months_simulated, (
-        f"{msg}: months_simulated differs (Float must match exactly)"
-    )
-    diff = abs(ref.statistics.final_wealth.amount - fp.statistics.final_wealth.amount)
-    assert diff <= FLOAT_WEALTH_TOLERANCE, (
-        f"{msg}: final_wealth diff {diff} exceeds tolerance {FLOAT_WEALTH_TOLERANCE}"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -188,12 +158,12 @@ class TestDecimalFastPathRepeatability:
             _assert_reference_result_identical(a, b, f"decimal fast path run {i}")
 
     def test_decimal_closed_form_repeated(self) -> None:
-        """evaluate_closed_form(decimal) produces identical results across calls."""
+        """evaluate_closed_form() produces identical results across calls."""
         dataset = make_dataset(721)
         context = make_context(dataset, 720, w=0.5, r=0.04)
 
-        result_a = evaluate_closed_form(context, "decimal")
-        result_b = evaluate_closed_form(context, "decimal")
+        result_a = evaluate_closed_form(context)
+        result_b = evaluate_closed_form(context)
 
         _assert_reference_result_identical(result_a, result_b, "decimal closed form")
 
@@ -213,7 +183,7 @@ class TestReferenceDecimalEquivalence:
         engine_def = make_engine_def([context])
 
         ref_executor = _create_default_simulation_executor()
-        fp_executor = FastPathSimulationExecutor(precision="decimal")
+        fp_executor = FastPathSimulationExecutor()
 
         ref_run = ref_executor.execute(engine_def)
         fp_run = fp_executor.execute(engine_def)
@@ -240,7 +210,7 @@ class TestReferenceDecimalEquivalence:
         engine_def = make_engine_def(contexts)
 
         ref_executor = _create_default_simulation_executor()
-        fp_executor = FastPathSimulationExecutor(precision="decimal")
+        fp_executor = FastPathSimulationExecutor()
 
         ref_run = ref_executor.execute(engine_def)
         fp_run = fp_executor.execute(engine_def)
@@ -264,109 +234,3 @@ class TestReferenceDecimalEquivalence:
         ):
             _assert_reference_result_identical(s, c, f"reference vs reference unit {i}")
 
-
-# ---------------------------------------------------------------------------
-# Float Fast Path Repeatability
-# ---------------------------------------------------------------------------
-
-
-class TestFloatFastPathRepeatability:
-    """Repeated Float Fast Path execution produces deterministic results."""
-
-    def test_float_fast_path_repeated_execution(self) -> None:
-        """Two Float Fast Path runs produce identical results."""
-        dataset = make_dataset(721)
-        context = make_context(dataset, 720, w=0.5, r=0.04)
-
-        result_a = evaluate_closed_form(context, "float")
-        result_b = evaluate_closed_form(context, "float")
-
-        # Float is deterministic: same inputs produce same outputs
-        assert result_a.statistics.success == result_b.statistics.success
-        assert result_a.statistics.failure_month == result_b.statistics.failure_month
-        assert result_a.statistics.months_simulated == result_b.statistics.months_simulated
-        assert result_a.statistics.final_wealth == result_b.statistics.final_wealth
-
-    def test_float_fast_path_simulator_repeated_execution(self) -> None:
-        """Two Float Fast Path simulator runs produce identical results."""
-        dataset = make_dataset(721)
-        contexts = [make_context(dataset, 720, w=0.5, r=0.04)]
-        engine_def = make_engine_def(contexts)
-        executor = FastPathSimulationExecutor()
-
-        run_a = executor.execute(engine_def)
-        run_b = executor.execute(engine_def)
-
-        assert len(run_a.simulation_results) == len(run_b.simulation_results)
-        for _i, (a, b) in enumerate(
-            zip(run_a.simulation_results, run_b.simulation_results, strict=True)
-        ):
-            assert a.statistics.success == b.statistics.success
-            assert a.statistics.failure_month == b.statistics.failure_month
-            assert a.statistics.months_simulated == b.statistics.months_simulated
-            assert a.statistics.final_wealth == b.statistics.final_wealth
-
-
-# ---------------------------------------------------------------------------
-# Float Fast Path ↔ Reference Comparison
-# ---------------------------------------------------------------------------
-
-
-class TestFloatReferenceComparison:
-    """Float Fast Path matches Reference within documented tolerance."""
-
-    def test_float_matches_reference_outcomes(self) -> None:
-        """Float Fast Path matches Reference on success, failure_month, months_simulated."""
-        dataset = make_dataset(721)
-        context = make_context(dataset, 720, w=0.5, r=0.04)
-        engine_def = make_engine_def([context])
-
-        ref_executor = _create_default_simulation_executor()
-        ref_run = ref_executor.execute(engine_def)
-        ref_result = ref_run.simulation_results[0]
-
-        fp_result = evaluate_closed_form(context, "float")
-
-        assert ref_result.statistics.success == fp_result.statistics.success
-        assert ref_result.statistics.failure_month == fp_result.statistics.failure_month
-        assert ref_result.statistics.months_simulated == fp_result.statistics.months_simulated
-
-    def test_float_matches_reference_wealth_bounded(self) -> None:
-        """Float Fast Path final_wealth is within tolerance of Reference."""
-        dataset = make_dataset(721)
-        context = make_context(dataset, 720, w=0.5, r=0.04)
-        engine_def = make_engine_def([context])
-
-        ref_executor = _create_default_simulation_executor()
-        ref_run = ref_executor.execute(engine_def)
-        ref_result = ref_run.simulation_results[0]
-
-        fp_result = evaluate_closed_form(context, "float")
-
-        _assert_float_fast_path_bounded(ref_result, fp_result, "float vs reference")
-
-    def test_float_matches_reference_across_grid(self) -> None:
-        """Float Fast Path wealth deviation is bounded across a parameter grid."""
-        dataset = make_dataset(721)
-        weights = [0.5, 0.25, 0.0]
-        rates = [0.04, 0.05]
-        horizons = [361, 720]
-
-        ref_executor = _create_default_simulation_executor()
-
-        for w in weights:
-            for r in rates:
-                for h in horizons:
-                    context = make_context(dataset, h, w, r)
-                    engine_def = make_engine_def([context])
-
-                    ref_run = ref_executor.execute(engine_def)
-                    ref_result = ref_run.simulation_results[0]
-
-                    fp_result = evaluate_closed_form(context, "float")
-
-                    _assert_float_fast_path_bounded(
-                        ref_result,
-                        fp_result,
-                        f"grid w={w} r={r} h={h}",
-                    )

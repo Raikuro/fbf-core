@@ -1,98 +1,165 @@
-# FBF Execution-Mode Architecture & Matrix
+# Execution Architecture
 
-This document provides a comprehensive guide to the execution architecture, numerical backends, execution strategies, and configuration matrix of the **FIRE Backtesting Framework (FBF)**.
+This document describes the public execution model, internal implementation mapping, and strategy routing policy for the FBF execution engine.
 
 ---
 
-## 1. Architectural Model
+## 1. Public Backend and Strategy Model
 
-Execution in FBF is decoupled into four orthogonal dimensions:
+### ExecutionBackend
 
-```text
-CLI / API Configuration
-         │
-         ▼
-Execution Options & Profiling Boundary  (ExecutionOptions, Profiler)
-         │
-         ├── Numerical Backend / Executor  (Reference, Fast Path Float/Decimal, Numba)
-         └── Execution Strategy            (Sequential, Parallel)
+| Value | Contract |
+|-------|----------|
+| `DEFAULT` | Exact Decimal semantics. Optimized fast path when eligible; internal fallback to legacy Decimal reference for ineligible contexts. |
+| `FAST` | Maximum-throughput float64 semantics. Requires the optional Numba dependency (`pip install fbf-core[numba]`). |
+
+### ExecutionStrategy
+
+| Value | Contract |
+|-------|----------|
+| `AUTO` | The execution backend chooses the appropriate strategy based on workload size, backend capabilities, and available host resources. |
+| `SEQUENTIAL` | Force single-process execution regardless of workload. |
+| `PARALLEL` | Explicitly request multiprocessing. Not supported by `FAST`; raises `ValueError`. |
+
+---
+
+## 2. Backend × Strategy Matrix
+
+| Backend | AUTO | SEQUENTIAL | PARALLEL |
+|---------|------|------------|----------|
+| `DEFAULT` | Workload-aware routing (see §3) | Force sequential | Force parallel |
+| `FAST` | Always sequential | Sequential | **ValueError** |
+
+### Unsupported Combinations
+
+`FAST + PARALLEL` raises a clear `ValueError` with the message:
+
+> FAST backend does not support parallel execution. Use strategy=ExecutionStrategy.AUTO or strategy=ExecutionStrategy.SEQUENTIAL instead.
+
+---
+
+## 3. AUTO Routing Policy for DEFAULT
+
+When `strategy=AUTO` and `backend=DEFAULT`, the execution layer selects sequential or parallel based on:
+
+- **Workload size**: total number of simulation units in the plan
+- **Available workers**: the `workers` option (resource hint / upper bound) or host CPU count
+- **Parallel threshold**: plans with fewer than `_DEFAULT_PARALLEL_UNIT_THRESHOLD` (500) units always execute sequentially
+
+The routing logic:
+
+```
+available_workers = workers if workers is not None else min(8, os.cpu_count())
+use_parallel = (total_units >= 500) and (available_workers > 1)
 ```
 
-1. **Numerical Backend / Executor**: Determines the algorithm and number representation used to evaluate individual simulation contexts.
-2. **Execution Strategy**: Determines how work is dispatched across CPU workers (`sequential_execute` vs `parallel_execute`).
-3. **Horizon Derivation**: Optimisation that evaluates the longest horizon once per family and derives shorter-horizon results.
-4. **Profiling**: Instrumentation resolved once at the execution boundary (`ExecutionProfiler` vs `NoOpProfiler`).
+Key design points:
+
+- `workers` is an optional resource hint, not a directive to parallelize
+- `workers=8, strategy=AUTO` does NOT automatically imply parallel execution
+- `workers=8, strategy=SEQUENTIAL` must remain sequential
+- `workers=8, strategy=PARALLEL` explicitly requests parallel execution
+- `workers=None` inspects host capabilities and uses a conservative default
+
+For `FAST`, AUTO always resolves to sequential because parallel execution was measured as counterproductive at all scales.
+
+The threshold is derived from measured sequential-vs-parallel crossover data on the reference development host (4 workers, 120-month horizon, Fast Path Decimal):
+
+| Units | Sequential | Parallel (4 workers) | Speedup | Verdict |
+|-------|-----------|---------------------|---------|---------|
+| 100 | 111ms | 115ms | 0.97x | Neutral |
+| 200 | 231ms | 268ms | 0.86x | Neutral |
+| 300 | 345ms | 319ms | 1.08x | Neutral |
+| 400 | 453ms | 355ms | 1.28x | Parallel |
+| 500 | 578ms | 407ms | 1.42x | Parallel |
+| 1,000 | 1,119ms | 672ms | 1.66x | Parallel |
+| 5,000 | 5,516ms | 2,348ms | 2.35x | Parallel |
+
+The threshold (500) is an execution-routing policy, not a backend invariant — it may be adjusted as batching, execution overhead, or host hardware changes.
 
 ---
 
-## 2. Complete Execution Mode Matrix
+## 4. Internal Implementation Mapping
 
-| Backend / Path | Precision | Strategy | Horizon Derivation | Fallback Behavior | Eligibility Requirements | CLI Flag | API Entry |
-|---|---|---|---|---|---|---|---|
-| **Default Pipeline** | Decimal | Sequential / Parallel | ❌ None (direct evaluation) | N/A (canonical reference engine) | All contexts | N/A (default for non-derived API runs) | `execute_study_plan(built, options)` (default) |
-| **Reference (Horizon Derivation)** | Decimal | Sequential / Parallel | ✅ Reuse longest path per family | Evaluates non-derivable contexts directly | `ConstantAllocationPolicy` + `FixedRealWithdrawalPolicy` | Default or `--reference` | `execute_reference(plan, ...)` |
-| **Fast Path Float** | `float64` | Sequential / Parallel | ✅ Reuses closed-form recurrence | Delegates non-eligible to default Decimal pipeline | `ConstantAlloc` + `FixedWithdrawal` + 2-asset portfolio | `--fast-path` | `FastPathSimulationExecutor(precision="float")` |
-| **Fast Path Decimal** | Decimal | Sequential / Parallel | ✅ Reuses closed-form recurrence | Delegates non-eligible to default Decimal pipeline | Same as Fast Path Float | N/A (API only) | `FastPathSimulationExecutor(precision="decimal")` |
-| **Numba Accelerated** | NumPy / Numba `float64` | Sequential / Parallel | ✅ Reuses longest path GF array | Delegates non-eligible to default Decimal pipeline | `ConstantAlloc` + `FixedWithdrawal` + 2-asset portfolio | N/A (API only) | `execute_numba(plan, ...)` or `options.use_numba=True` |
+The public `DEFAULT`/`FAST` names describe the user-facing contract. The current implementation mapping is an internal detail that may evolve:
 
----
+```
+DEFAULT
+  → FastPathSimulationExecutor
+       → eligible contexts: bit-exact Decimal closed-form recurrence
+       → ineligible contexts: Legacy Reference Decimal (automatic internal fallback)
 
-## 3. Detailed Backend Descriptions
+FAST
+  → NumbaSimulationExecutor
+       → Numba JIT scalar kernel, float64 arithmetic
+       → sequential execution only
+```
 
-### A. Reference Decimal Engine (Canonical Oracle)
-- **Class**: `SimulationExecutor(SimulationRunner(...))`
-- **Module**: `fbf.core.execution.pipeline.executor`
-- **Representation**: 100% `Decimal` arithmetic using Python's `decimal.Decimal`.
-- **Pipeline**: Full 9-step monthly simulation pipeline (`InitializeAllocationStep`, `BuildDecisionContextStep`, `WithdrawalDecisionStep`, `WithdrawalExecutionStep`, `AllocationDecisionStep`, `PortfolioRebalanceStep`, `MarketEvolutionStep`, `MonthlyResultBuilderStep`, `SimulationStateUpdateStep`).
-- **Guarantees**: Absolute canonical truth. Defines the mathematical model of the framework.
+### Dependency Model
 
-### B. Reference Executor with Horizon Derivation
-- **Class**: `ReferenceSimulationExecutor`
-- **Module**: `fbf.core.execution.strategies.reference`
-- **Representation**: `Decimal` arithmetic.
-- **Behavior**: Groups context families sharing identical trajectory parameters `(start_date, equity_allocation, withdrawal_rate, initial_wealth, initial_portfolio)`. Evaluates the longest horizon through the canonical Reference pipeline, and derives shorter-horizon results by reading off prefix timelines.
-- **CLI Default**: Running `sim-retire run <yaml>` without backend flags defaults to this executor. Memory-safe dispatch partitions large plans into cohort-aligned slices of 100 cohorts.
+```
+pip install fbf-core
+    → DEFAULT backend available (no external dependencies)
 
-### C. Fast Path (Float & Decimal)
-- **Class**: `FastPathSimulationExecutor`
-- **Module**: `fbf.core.execution.strategies.fast_path`
-- **Representation**: `float64` (fast closed-form) or `Decimal` (bit-exact closed-form).
-- **Recurrence**:
-  \[
-  V_0 = \text{value}(\text{portfolio}_0), \quad C = V_0 \times \frac{\text{withdrawal\_rate}}{12}, \quad V_{m+1} = (V_m - C) \times g_m
-  \]
-- **Eligibility**: Restricted to 2-asset portfolios (equity + bond) under `ConstantAllocationPolicy` and `FixedRealWithdrawalPolicy`. Non-eligible contexts fall back to `ReferenceSimulationExecutor`.
-- **CLI Flag**: `--fast-path` selects `precision="float"`. `precision="decimal"` is available programmatically.
+pip install fbf-core[numba]
+    → FAST backend available
+```
 
-### D. Numba Accelerated Backend
-- **Class**: `NumbaSimulationExecutor`
-- **Module**: `fbf.core.execution.strategies.numba_executor`
-- **Representation**: Numba JIT scalar kernel operating on float64 NumPy arrays.
-- **Growth Factor Cache**: Precomputes growth factor arrays keyed by `(start_date, equity_allocation)`. For the ERN 78,255 trajectory group workload, this reduces GF array construction to 8,695 unique arrays.
-- **Whole Definition Flag**: Sets `processes_whole_definition = True` so batch dispatchers pass whole plans intact to maximize cross-context GF caching.
+When FAST is requested but Numba is not installed, `execute_study_plan` raises a clear `ModuleNotFoundError`:
+
+> FAST backend requires the optional Numba dependency. Install it with: pip install fbf-core[numba]
+
+No silent fallback to DEFAULT occurs.
 
 ---
 
-## 4. Execution Strategies & Dispatching
+## 5. Legacy Reference
 
-- **Sequential (`sequential_execute`)**: Executes all units in a single process. When fine-grained progress callbacks are provided, non-grouped executors process unit-by-unit.
-- **Parallel (`parallel_execute`)**: Uses `concurrent.futures.ProcessPoolExecutor` with initializer-seeded worker state (`_initialize_worker`) so large experiment definitions and datasets are pickled once per process, not per task.
-- **Cohort-Slice Dispatch**: Used by `execute_reference` to process large workloads in memory-safe cohort slices, ensuring timeline materialization stays under memory limits while preserving family-level horizon derivation.
+The legacy Reference engine (full 9-step Decimal pipeline) is:
 
----
+- **Mathematically unchanged**: the canonical oracle for correctness
+- **Unavailable as a public backend**: not an `ExecutionBackend` value
+- **Internally reachable**: as automatic fallback for DEFAULT when the fast path is ineligible
+- **Available for testing**: differential and regression tests verify equivalence
 
-## 5. Summary & Persistence Constraints
-
-- **Timeline Retention**: Full reference execution materializes monthly timelines (`SimulationTimeline`).
-- **Summary-Only (`--summary-only`)**: Discards per-month timelines, retaining only `SimulationStatistics` (final wealth, drawdown, success, failure month).
-- **Persistence (`--persist-study`)**: SQLite database storage requires full per-month timelines. Therefore, `--summary-only` and `--fast-path` cannot be combined with `--persist-study`.
+It should not be selected automatically as an independent execution mode.
 
 ---
 
-## 6. ERN Study Representation (ERN1 vs ERN2 Consolidation)
+## 6. Profiling
 
-- **Unified Model**: ERN1 (classic Safe Withdrawal Rate with depletion criterion) is a strict semantic subset of ERN2 ($\text{ERN1} \equiv \text{ERN2}$ with `final_value_target = 0.0`).
-- **Target Axis**:
-  - `final_value_target = 0.0`: Depletion target, reproducing the former ERN1 SWR acceptance grid against the canonical oracle.
-  - `final_value_target > 0.0`: Final-capital requirement target (e.g. `100.0` for 100% inflation-adjusted wealth preservation).
-- **Consolidated Fixtures**: Both depletion and final-capital targets are defined within unified ERN2 study configurations (`ern_part2_smoke.yaml` and `ern_part2_full.yaml`), eliminating duplicate independent ERN1 test definitions.
+Profiling is injected through the execution boundary. The default `NoOpProfiler` has zero overhead. Pass `ExecutionProfiler()` via `ExecutionOptions.with_profiling()` to collect phase timings. The profiler is resolved once at the execution boundary and propagated to executors — no scattered conditionals.
+
+---
+
+## 7. Configuration Examples
+
+```python
+from fbf.core.execution import ExecutionBackend, ExecutionOptions, execute_study_plan
+
+# Default: exact Decimal, automatic routing
+execute_study_plan(built)
+
+# Explicit sequential
+execute_study_plan(built, options=ExecutionOptions(
+    backend=ExecutionBackend.DEFAULT,
+    strategy=ExecutionStrategy.SEQUENTIAL,
+))
+
+# Explicit parallel with worker limit
+execute_study_plan(built, options=ExecutionOptions(
+    backend=ExecutionBackend.DEFAULT,
+    strategy=ExecutionStrategy.PARALLEL,
+    workers=4,
+))
+
+# FAST backend (requires numba)
+execute_study_plan(built, options=ExecutionOptions(
+    backend=ExecutionBackend.FAST,
+))
+
+# With profiling
+execute_study_plan(built, options=ExecutionOptions.with_profiling(
+    backend=ExecutionBackend.DEFAULT,
+))
+```

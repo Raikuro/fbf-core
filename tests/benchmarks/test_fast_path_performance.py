@@ -1,7 +1,7 @@
 """Performance benchmarks for the closed-form fast path and horizon derivation.
 
 Measures, on a synthetic random-walk dataset:
-  1. reference pipeline vs float closed form (per-cohort throughput),
+  1. reference pipeline vs closed form (per-cohort throughput),
   2. multi-horizon execution (wall time + outcome equivalence
      vs direct closed-form evaluation).
 
@@ -77,63 +77,6 @@ def _contexts(dataset: Dataset, start: date, horizons: list[int]) -> list[Simula
     ]
 
 
-def test_fast_path_vs_reference_throughput() -> None:
-    """Float closed form is orders of magnitude faster and outcome-equivalent."""
-    dataset = _synthetic_dataset(260)
-    from fbf.core.study.builder import build_initial_portfolio
-    from fbf.core.study.internal.cohort.generator import CohortGenerator
-    from fbf.core.study.internal.experiment.definition import ExperimentDefinition
-    from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
-    from fbf.core.study.plan import materialize_research_plan
-
-    cohorts = CohortGenerator.generate_rolling_monthly(dataset, 120)
-    alloc = ConstantAllocationPolicy(Decimal("0.5"))
-    withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
-    experiment_def = ExperimentDefinition(
-        name="bench",
-        description="bench",
-        dataset=dataset,
-        horizon_months=120,
-        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-        cohorts=cohorts,
-        allocation_policies=(alloc,),
-        withdrawal_policies=(withdraw,),
-    )
-    plan = materialize_research_plan(
-        experiment_def=experiment_def,
-        canonical_trajectory=dataset,
-        cohorts=cohorts,
-        param_configs=(ParameterConfiguration({"equity_allocation": 0.5}),),
-        initial_portfolio=build_initial_portfolio(experiment_def.initial_wealth),
-        horizon_resolver=lambda c: 120,
-        policy_resolver=lambda c: (alloc, withdraw),
-    )
-
-    t0 = time.perf_counter()
-    reference = sequential_execute(plan, summary_only=True)
-    t_reference = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    fast = sequential_execute(
-        plan,
-        simulation_executor=FastPathSimulationExecutor(precision="float"),
-        summary_only=True,
-    )
-    t_fast = time.perf_counter() - t0
-
-    for ref, got in zip(reference.results, fast.results, strict=True):
-        assert ref.statistics.success == got.statistics.success
-        assert ref.statistics.failure_month == got.statistics.failure_month
-        assert ref.statistics.months_simulated == got.statistics.months_simulated
-
-    n = len(plan.units)
-    print(
-        f"fast path: reference {t_reference / n * 1000:.1f}ms/cohort vs "
-        f"closed-form {t_fast / n * 1000:.3f}ms/cohort "
-        f"({t_reference / t_fast:.0f}x, {n} cohorts)"
-    )
-
-
 def test_decimal_fast_path_vs_reference_throughput() -> None:
     """Decimal closed form is bit-exact with reference and faster."""
     dataset = _synthetic_dataset(260)
@@ -173,7 +116,7 @@ def test_decimal_fast_path_vs_reference_throughput() -> None:
     t0 = time.perf_counter()
     decimal_path = sequential_execute(
         plan,
-        simulation_executor=FastPathSimulationExecutor(precision="decimal"),
+        simulation_executor=FastPathSimulationExecutor(),
         summary_only=True,
     )
     t_decimal = time.perf_counter() - t0
@@ -202,9 +145,9 @@ def test_horizon_derivation_matches_direct_closed_form() -> None:
     )
 
     direct = tuple(
-        evaluate_closed_form(ctx, "float") for ctx in contexts
+        evaluate_closed_form(ctx) for ctx in contexts
     )
-    executor = FastPathSimulationExecutor(precision="float")
+    executor = FastPathSimulationExecutor()
 
     t0 = time.perf_counter()
     executor_run = executor.execute(definition)
@@ -297,7 +240,7 @@ def test_grid_plan_horizon_derivation_report() -> None:
     t0 = time.perf_counter()
     result = sequential_execute(
         plan,
-        simulation_executor=FastPathSimulationExecutor(precision="float"),
+        simulation_executor=FastPathSimulationExecutor(),
         summary_only=True,
     )
     t_result = time.perf_counter() - t0

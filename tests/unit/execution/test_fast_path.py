@@ -1,10 +1,9 @@
 """Equivalence tests for the closed-form fast path vs the reference fbf.core.
 
-Verifies that ``FastPathSimulationExecutor`` (float and decimal precision)
-reproduces the reference Decimal pipeline's ``success`` / ``failure_month``
-exactly and ``final_wealth`` within a cent, on synthetic random-walk data.
-Real-ERN equivalence is covered by the gated ``ern_e2e`` tests below and the
-P4.9 acceptance suite.
+Verifies that ``FastPathSimulationExecutor`` reproduces the reference Decimal
+pipeline's ``success`` / ``failure_month`` exactly and ``final_wealth`` within
+a cent, on synthetic random-walk data.  Real-ERN equivalence is covered by
+the gated ``ern_e2e`` tests below and the P4.9 acceptance suite.
 """
 
 from __future__ import annotations
@@ -35,7 +34,6 @@ from fbf.core.execution.strategies.fast_path import (
     FAST_PATH_VALIDATION_MAX_UNITS,
     FastPathSimulationExecutor,
     FastPathValidationError,
-    Precision,
     evaluate_closed_form,
     evaluate_path,
     fast_path_unit_counts,
@@ -116,12 +114,12 @@ def run_reference(plan: ResearchPlan) -> tuple[SimulationResult, ...]:
     return sequential_execute(plan, summary_only=True).results
 
 
-def run_fast(plan: ResearchPlan, precision: Precision) -> tuple[SimulationResult, ...]:
+def run_fast(plan: ResearchPlan) -> tuple[SimulationResult, ...]:
     from fbf.core.execution.strategies.fast_path import _unit_simulation_context
 
     contexts = [_unit_simulation_context(plan, unit) for unit in plan.units]
     return tuple(
-        evaluate_closed_form(ctx, precision) for ctx in contexts
+        evaluate_closed_form(ctx) for ctx in contexts
     )
 
 
@@ -137,22 +135,10 @@ def assert_equivalent(
             assert diff <= FINAL_WEALTH_ABS_TOL, f"final_wealth diff {diff}"
 
 
-@pytest.mark.parametrize("horizon,weight,rate", [(120, 0.5, 0.04), (180, 0.25, 0.045)])
-def test_float_matches_reference(horizon: int, weight: float, rate: float) -> None:
-    plan = build_plan(make_synthetic_dataset(), horizon, weight, rate)
-    assert_equivalent(run_reference(plan), run_fast(plan, "float"))
-
-
 @pytest.mark.parametrize("horizon,weight,rate", [(120, 0.5, 0.04), (180, 1.0, 0.03)])
 def test_decimal_matches_reference(horizon: int, weight: float, rate: float) -> None:
     plan = build_plan(make_synthetic_dataset(), horizon, weight, rate)
-    assert_equivalent(run_reference(plan), run_fast(plan, "decimal"))
-
-
-def test_float_matches_decimal() -> None:
-    """Float and decimal closed forms agree with each other on outcomes."""
-    plan = build_plan(make_synthetic_dataset(), 180, 0.5, 0.04)
-    assert_equivalent(run_fast(plan, "decimal"), run_fast(plan, "float"))
+    assert_equivalent(run_reference(plan), run_fast(plan))
 
 
 def test_executor_matches_reference() -> None:
@@ -177,8 +163,8 @@ def test_executor_matches_reference() -> None:
     definition = EngineExperimentDefinition(
         name="synth", description="multi-horizon study", simulation_contexts=tuple(contexts)
     )
-    direct = tuple(evaluate_closed_form(ctx, "float") for ctx in contexts)
-    executor = FastPathSimulationExecutor(precision="float")
+    direct = tuple(evaluate_closed_form(ctx) for ctx in contexts)
+    executor = FastPathSimulationExecutor()
 
     executor_run = executor.execute(definition)
     for ref, got in zip(direct, executor_run.simulation_results, strict=True):
@@ -210,7 +196,7 @@ def test_executor_shares_longest_path() -> None:
         for h in horizons
     ]
     longest_ctx = contexts[-1]
-    path = evaluate_path(longest_ctx, "float")
+    path = evaluate_path(longest_ctx)
     # All four horizons must be derivable from the single longest-horizon path.
     assert len(path.monthly_values) == 480 or path.failure_month is not None
     assert path.failure_month is None or path.failure_month < 480
@@ -240,7 +226,7 @@ def test_non_eligible_falls_back_to_reference() -> None:
     reference = sequential_execute(non_eligible_plan, summary_only=True).results
     fast = sequential_execute(
         non_eligible_plan,
-        simulation_executor=FastPathSimulationExecutor(precision="float"),
+        simulation_executor=FastPathSimulationExecutor(),
         summary_only=True,
     ).results
 
@@ -299,10 +285,10 @@ def _assert_executor_matches_per_context(
 ) -> None:
     """The executor must reproduce per-context closed-form results."""
     direct = tuple(
-        evaluate_closed_form(ctx, "float")
+        evaluate_closed_form(ctx)
         for ctx in definition.simulation_contexts
     )
-    executor = FastPathSimulationExecutor(precision="float")
+    executor = FastPathSimulationExecutor()
     got = executor.execute(definition).simulation_results
     assert len(direct) == len(got)
     for ref, fast in zip(direct, got, strict=True):
@@ -414,9 +400,9 @@ class TestFastPathValidation:
         real_evaluate = evaluate_path
 
         def doubled_evaluate(
-            context: SimulationContext, precision: Precision
+            context: SimulationContext,
         ) -> ClosedFormPath:
-            path = real_evaluate(context, precision)
+            path = real_evaluate(context)
             return ClosedFormPath(
                 monthly_values=tuple(v * Decimal("2") for v in path.monthly_values),
                 failure_month=path.failure_month,

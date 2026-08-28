@@ -18,25 +18,13 @@ recurrence on the portfolio value ``V``:
 where the engine fails at month ``m`` when ``V_m < C`` (depletion at the
 withdrawal step).  Success, failure month, and final wealth are derived from
 this O(horizon) recurrence instead of running the full 9-step pipeline.
-Measured on the ERN 180-cell grid (313,020 units) at equal worker count
-(``--workers max``) the combined ``--fast-path`` (float closed form +
-multi-horizon execution) is approximately 41x faster end-to-end than the
-reference Decimal engine.  These are host-dependent session measurements; the
-committed benchmark suite (``tests/benchmarks/``) asserts outcome equivalence,
-not these wall-clock figures.
 
-The reference (Decimal, full pipeline) engine is intentionally untouched: this
-module wraps it and delegates every non-eligible context back to it.  Eligible
-contexts can be evaluated in ``float`` (fast; exact outcome/failure month, final
-wealth within ~1e-5 EUR) or ``decimal`` (bit-exact: replicates the reference's
-per-month per-asset Decimal arithmetic so success, failure month and final
-wealth match to the last digit); the ``float`` path is validated against the
-reference engine by ``run_fast_path_validation``.
+The fast path uses bit-exact Decimal arithmetic, producing results identical
+to the Legacy Reference engine for eligible workloads.  Non-eligible contexts
+are automatically delegated to the Legacy Reference fallback.
 
-This path is a guarded optimization.  It is only exercised when the CLI caller
-explicitly selects ``FastPathSimulationExecutor`` (e.g. via the
-``--fast-path`` flag on ``sim-retire run``); the default execution path remains
-the reference fbf.core.
+This is the default execution backend.  It is selected automatically when no
+explicit backend is specified.
 """
 
 from __future__ import annotations
@@ -44,7 +32,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal, cast
+from typing import cast
 
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.money import Currency, Money
@@ -67,8 +55,6 @@ from fbf.core.execution.strategies.parallel_executor import (
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
 _EquityId = "equity"
-
-Precision = Literal["float", "decimal"]
 
 # --- F7 validation constants -------------------------------------------------
 # Deterministic sample seed so ``--fast-path --validate`` always picks the same
@@ -296,17 +282,13 @@ def _group_key(context: SimulationContext) -> tuple[object, ...]:
 
 def evaluate_path(
     context: SimulationContext,
-    precision: Precision = "float",
 ) -> ClosedFormPath:
-    """Evaluate *context* with the closed-form recurrence.
+    """Evaluate *context* with the bit-exact Decimal closed-form recurrence.
 
     Parameters
     ----------
     context:
         A context validated by :func:`is_fast_path_eligible`.
-    precision:
-        ``"float"`` (fast; ~1e-15 per step) or ``"decimal"`` (bit-exact
-        replica of the reference pipeline's Decimal arithmetic).
     """
     initial_snapshot = context.dataset[0]
     total = Money.ZERO
@@ -318,28 +300,15 @@ def evaluate_path(
 
     weights = _weights_by_class(context)
     series = _index_series(context)
-    asset_classes = tuple(series.keys())
     horizon = context.horizon_months
 
-    if precision == "float":
-        monthly, failure_month = _evaluate_float_recurrence(
-            weights=weights,
-            series=series,
-            asset_classes=asset_classes,
-            horizon=horizon,
-            v0=float(total.amount),
-            c=float(withdrawal),
-        )
-        post = [v - withdrawal for v in monthly]
-        failure_residual = None
-    else:
-        monthly, post, failure_month, failure_residual = _evaluate_decimal_recurrence(
-            holdings=tuple(context.initial_portfolio.holdings),
-            weights=weights,
-            series=series,
-            horizon=horizon,
-            c=withdrawal,
-        )
+    monthly, post, failure_month, failure_residual = _evaluate_decimal_recurrence(
+        holdings=tuple(context.initial_portfolio.holdings),
+        weights=weights,
+        series=series,
+        horizon=horizon,
+        c=withdrawal,
+    )
 
     return ClosedFormPath(
         withdrawal=withdrawal,
@@ -348,32 +317,6 @@ def evaluate_path(
         post_withdrawal_values=tuple(post),
         failure_residual=failure_residual,
     )
-
-
-def _evaluate_float_recurrence(
-    weights: dict[object, Decimal],
-    series: dict[object, tuple[Decimal, ...]],
-    asset_classes: tuple[object, ...],
-    horizon: int,
-    v0: float,
-    c: float,
-) -> tuple[list[Decimal], int | None]:
-    """Closed-form recurrence in double precision (fast path)."""
-    w = [float(weights[a]) for a in asset_classes]
-    idx = [[float(v) for v in series[a][: horizon + 1]] for a in asset_classes]
-    monthly: list[Decimal] = []
-    value = v0
-    for m in range(horizon):
-        if value < c:
-            monthly.append(_to_decimal(value))
-            return monthly, m
-        monthly.append(_to_decimal(value))
-        if m < horizon - 1:
-            growth = 0.0
-            for j in range(len(asset_classes)):
-                growth += w[j] * (idx[j][m + 1] / idx[j][m])
-            value = (value - c) * growth
-    return monthly, None
 
 
 def _evaluate_decimal_recurrence(
@@ -531,10 +474,9 @@ def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> Sim
 
 def evaluate_closed_form(
     context: SimulationContext,
-    precision: Precision = "float",
 ) -> SimulationResult:
     """Return a ``SimulationResult`` for *context* via the closed form."""
-    path = evaluate_path(context, precision)
+    path = evaluate_path(context)
     return _build_result(context, path, context.horizon_months)
 
 
@@ -795,7 +737,7 @@ def run_fast_path_validation(
     reference_results = sequential_execute(sub_plan, summary_only=True).results
     fast_results = tuple(
         evaluate_closed_form(
-            _unit_simulation_context(sub_plan, unit), "float"
+            _unit_simulation_context(sub_plan, unit)
         )
         for unit in sample
     )
@@ -843,11 +785,9 @@ class FastPathSimulationExecutor(SimulationExecutor):
     def __init__(
         self,
         reference_executor: SimulationExecutor | None = None,
-        precision: Precision = "float",
         profiler: Profiler | None = None,
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
-        self._precision = precision
         self._profiler = profiler or NoOpProfiler()
         self._last_report: DerivationReport | None = None
 
@@ -889,7 +829,7 @@ class FastPathSimulationExecutor(SimulationExecutor):
         month_work = 0
         for _, contexts in enumerate(group_contexts):
             longest_ctx = max(contexts, key=lambda c: c.horizon_months)
-            path = evaluate_path(longest_ctx, self._precision)
+            path = evaluate_path(longest_ctx)
             month_work += longest_ctx.horizon_months
             # Cache derived results by (horizon, target) to avoid redundant work
             # when multiple contexts share the same horizon and target.
@@ -907,7 +847,7 @@ class FastPathSimulationExecutor(SimulationExecutor):
                         derived_count += 1
                 else:
                     results[id(ctx)] = _apply_fv_check(
-                        evaluate_closed_form(ctx, self._precision), ctx
+                        evaluate_closed_form(ctx), ctx
                     )
                     independent_count += 1
                     month_work += ctx.horizon_months

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from fbf.core.errors import CoreError
 from fbf.core.execution import (
-    ExecutionMode,
+    ExecutionBackend,
     ExecutionOptions,
     ExecutionProfiler,
+    ExecutionStrategy,
     NoOpProfiler,
     Profiler,
     ProfileReport,
@@ -45,7 +46,8 @@ __all__ = [
     "ParameterConfiguration",
     "ParameterAxis",
     "ExperimentDefinition",
-    "ExecutionMode",
+    "ExecutionBackend",
+    "ExecutionStrategy",
     "ExecutionOptions",
     "execute_study_plan",
     "ResearchExecutionResult",

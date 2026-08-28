@@ -144,7 +144,7 @@ class TestGridReferenceReport:
         expected = expected_report(plan)
         assert expected.groups == len(plan.units) // len({u.parameter_config for u in plan})
 
-        executor = FastPathSimulationExecutor(precision="float")
+        executor = FastPathSimulationExecutor()
         sequential_execute(plan, simulation_executor=executor, summary_only=True)
 
         live = executor.report
@@ -161,7 +161,7 @@ class TestGridReferenceReport:
         reference = sequential_execute(plan, summary_only=True).results
         fast_path = sequential_execute(
             plan,
-            simulation_executor=FastPathSimulationExecutor(precision="float"),
+            simulation_executor=FastPathSimulationExecutor(),
             summary_only=True,
         ).results
 

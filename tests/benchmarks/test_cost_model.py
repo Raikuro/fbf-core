@@ -128,34 +128,34 @@ class TestMathematicalWorkCost:
         print(f"[COST-A]   per month: {elapsed/720*1000:.3f}ms")
 
     def test_fast_path_decimal_per_unit_cost(self) -> None:
-        """Time the closed-form fast path (decimal) for a single unit."""
+        """Time the closed-form fast path for a single unit."""
         dataset = _make_dataset(721)
         context = _make_context(dataset, date(1900, 1, 1), 720)
 
         # Warm up
-        evaluate_closed_form(context, "decimal")
+        evaluate_closed_form(context)
 
         # Measure
         t0 = time.perf_counter()
         for _ in range(100):
-            evaluate_closed_form(context, "decimal")
+            evaluate_closed_form(context)
         elapsed = (time.perf_counter() - t0) / 100
 
         print(f"\n[COST-A] Fast path (decimal) per unit (720 months): {elapsed*1000:.1f}ms")
         print(f"[COST-A]   per month: {elapsed/720*1000:.3f}ms")
 
     def test_fast_path_float_per_unit_cost(self) -> None:
-        """Time the closed-form fast path (float) for a single unit."""
+        """Time the closed-form fast path for a single unit."""
         dataset = _make_dataset(721)
         context = _make_context(dataset, date(1900, 1, 1), 720)
 
         # Warm up
-        evaluate_closed_form(context, "float")
+        evaluate_closed_form(context)
 
         # Measure
         t0 = time.perf_counter()
         for _ in range(1000):
-            evaluate_closed_form(context, "float")
+            evaluate_closed_form(context)
         elapsed = (time.perf_counter() - t0) / 1000
 
         print(f"\n[COST-A] Fast path (float) per unit (720 months): {elapsed*1000:.1f}ms")
@@ -171,7 +171,7 @@ class TestMathematicalWorkCost:
         t0 = time.perf_counter()
         for h in horizons:
             ctx = _make_context(dataset, start, h)
-            evaluate_closed_form(ctx, "decimal")
+            evaluate_closed_form(ctx)
         no_derivation_time = time.perf_counter() - t0
 
         # With horizon derivation: evaluate longest, derive shorter

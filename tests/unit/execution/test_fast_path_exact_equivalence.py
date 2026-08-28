@@ -21,9 +21,6 @@ from __future__ import annotations
 import random
 from datetime import date
 from decimal import Decimal
-from typing import cast
-
-import pytest
 
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
@@ -34,7 +31,6 @@ from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.strategies.fast_path import (
     FastPathSimulationExecutor,
-    Precision,
 )
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
 from fbf.core.execution.strategies.reference import ReferenceSimulationExecutor
@@ -50,10 +46,6 @@ EQ = AssetClass(id="equity", name="", description="")
 BD = AssetClass(id="bond", name="", description="")
 
 _WEALTH = Money(Decimal("1000000"), Currency.EUR)
-
-# Measured float final-wealth deviation vs the reference across synthetic grids
-# is <= 9e-6 EUR; 1e-4 is the documented bound with headroom.
-FLOAT_WEALTH_TOLERANCE = Decimal("1e-4")
 
 
 def _dataset(n_months: int, seed: int = 7, flat: bool = False) -> Dataset:
@@ -170,7 +162,7 @@ class TestDecimalPathBitExact:
             rates=(0.04, 0.1),
         )
         reference = _execute(plan)
-        decimal = _execute(plan, FastPathSimulationExecutor(precision="decimal"))
+        decimal = _execute(plan, FastPathSimulationExecutor())
 
         for unit, ref, got in zip(plan.units, reference, decimal, strict=True):
             _assert_exact(ref, got, unit, "success")
@@ -191,7 +183,7 @@ class TestDecimalPathBitExact:
             dataset = _dataset(max(horizons) * 12 + 1, flat=True)
             plan = build_grid_plan(dataset, horizons, rates=rates)
             reference = _execute(plan)
-            decimal = _execute(plan, FastPathSimulationExecutor(precision="decimal"))
+            decimal = _execute(plan, FastPathSimulationExecutor())
             for unit, ref, got in zip(plan.units, reference, decimal, strict=True):
                 _assert_exact(ref, got, unit, "success")
                 _assert_exact(ref, got, unit, "failure_month")
@@ -199,114 +191,8 @@ class TestDecimalPathBitExact:
                 _assert_exact(ref, got, unit, "final_wealth")
 
 
-class TestFloatPath:
-    def test_outcomes_exact_and_wealth_bounded(self) -> None:
-        """Float matches outcomes exactly; final wealth within a small bound."""
-        dataset = _dataset(241)
-        plan = build_grid_plan(
-            dataset,
-            horizons=(2, 3),
-            weights=(0.0, 0.25, 0.75, 1.0),
-            rates=(0.04, 0.1),
-        )
-        reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
-
-        for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
-            _assert_exact(ref, got, unit, "success")
-            _assert_exact(ref, got, unit, "failure_month")
-            _assert_exact(ref, got, unit, "months_simulated")
-            diff = abs(ref.statistics.final_wealth.amount - got.statistics.final_wealth.amount)
-            assert diff <= FLOAT_WEALTH_TOLERANCE, (
-                f"final_wealth diff {diff} > {FLOAT_WEALTH_TOLERANCE} "
-                f"(unit h={unit.horizon_months} config={unit.parameter_config})"
-            )
-
-    def test_wealth_bound_across_parameter_sweep(self) -> None:
-        """Float wealth deviation stays bounded across a wide parameter sweep."""
-        dataset = _dataset(300)
-        plan = build_grid_plan(
-            dataset,
-            horizons=(1, 2, 3, 5),
-            weights=(0.0, 0.25, 0.5, 0.75, 1.0),
-            rates=(0.03, 0.04, 0.05, 0.08),
-        )
-        reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
-        max_diff = Decimal("0")
-
-        for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
-            _assert_exact(ref, got, unit, "success")
-            _assert_exact(ref, got, unit, "failure_month")
-            _assert_exact(ref, got, unit, "months_simulated")
-            diff = abs(ref.statistics.final_wealth.amount - got.statistics.final_wealth.amount)
-            if diff > max_diff:
-                max_diff = diff
-
-        assert max_diff <= FLOAT_WEALTH_TOLERANCE, (
-            f"max final_wealth diff {max_diff} > {FLOAT_WEALTH_TOLERANCE}"
-        )
-
-    def test_non_boundary_flat_control_matches_outcomes(self) -> None:
-        """On flat data without an exact-equality boundary, float matches exactly."""
-        plan = build_grid_plan(_dataset(25, flat=True), (2,), rates=(0.3,))
-        reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
-        for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
-            _assert_exact(ref, got, unit, "success")
-            _assert_exact(ref, got, unit, "failure_month")
-            _assert_exact(ref, got, unit, "months_simulated")
-
-    def test_single_month_context(self) -> None:
-        """Float handles single-month horizon correctly."""
-        dataset = _dataset(25)
-        plan = build_grid_plan(dataset, (1,), rates=(0.04,))
-        reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
-        for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
-            _assert_exact(ref, got, unit, "success")
-            _assert_exact(ref, got, unit, "failure_month")
-            _assert_exact(ref, got, unit, "months_simulated")
-
-    def test_long_horizon_context(self) -> None:
-        """Float handles long horizon (600 months) correctly."""
-        dataset = _dataset(610)
-        plan = build_grid_plan(dataset, (5,), rates=(0.04,))
-        reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
-        for unit, ref, got in zip(plan.units, reference, float_path, strict=True):
-            _assert_exact(ref, got, unit, "success")
-            _assert_exact(ref, got, unit, "failure_month")
-            _assert_exact(ref, got, unit, "months_simulated")
-            diff = abs(ref.statistics.final_wealth.amount - got.statistics.final_wealth.amount)
-            assert diff <= FLOAT_WEALTH_TOLERANCE
-
-    def test_exact_equality_boundary_flip_is_pinned(self) -> None:
-        """Float may flip outcomes at crafted V_m == C boundaries.
-
-        ``V_m == C`` at a simulated month is measure-zero on real data (it
-        requires an exact integer-coincidence of withdrawal rate and horizon),
-        but it is a real float-vs-reference divergence.  Decimal stays exact
-        there (see ``TestDecimalPathBitExact``); the float flip is pinned below
-        as a regression guard so any change to the recurrence arithmetic is
-        caught.
-        """
-        plan = build_grid_plan(_dataset(25, flat=True), (2,), rates=(0.5,))
-        reference = _execute(plan)
-        float_path = _execute(plan, FastPathSimulationExecutor(precision="float"))
-        assert all(ref.statistics.success for ref in reference)  # reference: all success
-        assert all(not got.statistics.success for got in float_path)  # float: all fail at 23
-        for got in float_path:
-            assert got.statistics.failure_month == 23
-            # F3: on depletion the float path reports exactly zero residual wealth
-            # (the reference leaves a sub-1e-22 EUR rounding residual); the
-            # decimal path reproduces the exact residual (bit-exact tests above).
-            assert got.statistics.final_wealth.amount == Decimal("0")
-
-
 class TestDerivationBitExact:
-    @pytest.mark.parametrize("precision", ["float", "decimal"])
-    def test_derived_equals_direct_closed_form(self, precision: str) -> None:
+    def test_derived_equals_direct_closed_form(self) -> None:
         """Derived derivation is bit-identical to per-context closed-form evaluation."""
         dataset = _dataset(241)
         plan = build_grid_plan(
@@ -315,9 +201,8 @@ class TestDerivationBitExact:
             weights=(0.0, 0.5, 1.0),
             rates=(0.04, 0.08),
         )
-        prec = cast(Precision, precision)
-        direct = _execute(plan, FastPathSimulationExecutor(precision=prec))
-        derived = _execute(plan, FastPathSimulationExecutor(precision=prec))
+        direct = _execute(plan, FastPathSimulationExecutor())
+        derived = _execute(plan, FastPathSimulationExecutor())
         for unit, d, ch in zip(plan.units, direct, derived, strict=True):
             _assert_exact(d, ch, unit, "success")
             _assert_exact(d, ch, unit, "failure_month")

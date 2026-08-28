@@ -17,7 +17,7 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from fbf.core.execution import ExecutionOptions, execute_study_plan
+from fbf.core.execution import ExecutionBackend, ExecutionOptions, execute_study_plan
 from fbf.core.execution.executor import ResearchExecutor
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.execution.strategies.parallel_executor import (
@@ -172,7 +172,7 @@ class TestNumbaE2ESmall:
         )
 
     def test_execute_study_plan_numba_mode(self) -> None:
-        """Test the execute_study_plan API with use_numba=True."""
+        """Test the execute_study_plan API with backend=FAST."""
         _, plan = _build_plan(cohorts=1, weights=[0.6], rates=[0.04], horizons=[120])
 
         built = BuiltStudy(
@@ -184,7 +184,7 @@ class TestNumbaE2ESmall:
 
         ref_result = execute_study_plan(built)
         numba_result = execute_study_plan(
-            built, options=ExecutionOptions(use_numba=True)
+            built, options=ExecutionOptions(backend=ExecutionBackend.FAST)
         )
 
         _compare_results(

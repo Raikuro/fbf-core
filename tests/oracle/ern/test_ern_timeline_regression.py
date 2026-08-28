@@ -140,9 +140,9 @@ def _engine_contexts(plan, by_horizon, weight, rate, horizon_years, cohorts):
 
 
 def _engine_success(
-    plan, by_horizon, weight, rate, horizon_years, precision, *, cohorts: set[int] | None = None
+    plan, by_horizon, weight, rate, horizon_years, *, cohorts: set[int] | None = None
 ) -> list[bool]:
-    """Per-cohort engine success for a full cell (fast path, chosen precision)."""
+    """Per-cohort engine success for a full cell (fast path)."""
     units = by_horizon[HORIZON_MONTHS[horizon_years]]
     cap = plan.experiment_definition.initial_wealth
     alloc = ConstantAllocationPolicy(equity_allocation=Decimal(str(weight)))
@@ -163,7 +163,7 @@ def _engine_success(
         if cohorts is None or i in cohorts
     )
     results = tuple(
-        evaluate_closed_form(ctx, precision) for ctx in contexts
+        evaluate_closed_form(ctx) for ctx in contexts
     )
     return [r.statistics.success for r in results]
 
@@ -206,7 +206,7 @@ def test_boundary_cell_306_engine_percentage_matches_oracle(grid_plan) -> None:
     oracle_ok = _oracle_success(0.0, 0.0325, 30)
     oracle_pct = round(100 * sum(oracle_ok) / COHORTS_PER_CELL)
     engine_ok = _engine_success(
-        grid_plan.plan, _units_by_horizon(grid_plan.plan), 0.0, 0.0325, 30, "decimal"
+        grid_plan.plan, _units_by_horizon(grid_plan.plan), 0.0, 0.0325, 30
     )
     engine_pct = round(100 * sum(engine_ok) / COHORTS_PER_CELL)
 
@@ -225,7 +225,7 @@ def test_formerly_divergent_cells_match_oracle_per_cohort(grid_plan) -> None:
     mismatches = []
     for weight, rate, horizon_years in DIVERGENT_CELLS:
         engine_ok = _engine_success(
-            grid_plan.plan, by_horizon, weight, rate, horizon_years, "decimal"
+            grid_plan.plan, by_horizon, weight, rate, horizon_years
         )
         oracle_ok = _oracle_success(weight, rate, horizon_years)
         assert len(engine_ok) == COHORTS_PER_CELL
