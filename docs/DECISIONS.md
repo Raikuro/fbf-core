@@ -175,7 +175,7 @@ trajectory "succeeded" by checking final wealth against a threshold. It does
 not affect any month-by-month simulation state.
 
 When `final_value_target` is included in the Cartesian product (as in the
-ERN Part 2 900-cell grid), the planning layer expands logical units by the
+ERN 900-cell grid), the planning layer expands logical units by the
 number of targets (5×). However, the Reference executor correctly
 deduplicates trajectory evaluation: contexts with different
 `final_value_target` values but identical trajectory parameters share a

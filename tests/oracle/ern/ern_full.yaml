@@ -1,16 +1,13 @@
-# Full ERN Part 2 grid: 5 equity allocations x 9 rates x 4 horizons x 5 FV targets.
+# Full ERN grid: 5 equity allocations x 9 rates x 4 horizons x 5 FV targets.
 #
 # 5 x 9 x 4 x 5 = 900 cells
 # x ~2099 cohorts per cell (30y) = ~1,889,100 total units
 #
-# FV=0% is the original ERN Part 1 depletion oracle (1871-2016).
-# FV=25/50/75/100 are Part 2 final-value targets.
-#
 # Classification: canonical benchmark / manual validation artifact.
 # This file is NOT referenced by pytest. It is the single canonical
-# definition of the full ERN Part 2 study, intended for:
+# definition of the full ERN study, intended for:
 #   - Manual validation runs via:
-#       sim-retire --data-dir data/ern run tests/oracle/ern/ern_part2_full.yaml
+#       sim-retire --data-dir data/ern run tests/oracle/ern/ern_full.yaml
 #   - Performance benchmarking
 #   - Future automated slow-E2E integration (when a consumer is added)
 #
@@ -18,7 +15,7 @@
 # treats final_value_target as an evaluation dimension of one study.
 
 metadata:
-  name: "ERN Part 2 Full Grid"
+  name: "ERN Full Grid"
   version: "1.0"
   description: "5x9x4 grid with 5 final-value targets = 900 cells"
 

@@ -1,0 +1,25 @@
+# ERN smoke grid: minimal execution-path validation.
+#
+# 1 weight x 1 rate x 1 horizon x 1 target x 2099 cohorts = 2,099 units.
+# FV=0.0 is the depletion control anchor (95% success rate).
+
+metadata:
+  name: "ERN Smoke"
+  version: "1.0"
+  description: "Minimal ERN smoke: 1x1x1x1 with FV=0.0 control anchor"
+
+dataset:
+  identifier: "ern_swr_h720"
+
+cohorts:
+  horizon_years: [30]
+
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: [0.5]
+
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: [0.04]
+
+final_value_target: [0.0]

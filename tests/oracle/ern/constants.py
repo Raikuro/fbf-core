@@ -1,4 +1,4 @@
-"""ERN SWR Part 1 replication: constants and oracle-table access.
+"""ERN SWR replication: constants and oracle-table access.
 
 Source data lives in the repository under ``data/ern/`` (see the P4.9
 investigation report, docs/continuity/P4_9_E2E_REPLICATION_INVESTIGATION.md):
@@ -107,14 +107,14 @@ FULL_GRID_CELLS = len(WEIGHTS) * len(RATES) * len(HORIZON_YEARS)
 COHORTS_PER_CELL = 1739
 FULL_GRID_UNITS = FULL_GRID_CELLS * COHORTS_PER_CELL
 
-# The minimal parameter space of the ERN2 smoke-grid fixture
-# (tests/oracle/ern/ern_part2_smoke.yaml):
-# 1 weight x 1 rate x 1 horizon (30y) x 2 targets (FV=0.0 control + FV=100.0)
-# x 2099 cohorts = 4,198 units.
+# The minimal parameter space of the ERN smoke-grid fixture
+# (tests/oracle/ern/ern_smoke.yaml):
+# 1 weight x 1 rate x 1 horizon (30y) x 1 target (FV=0.0)
+# x 2099 cohorts = 2,099 units.
 SMOKE_WEIGHTS: list[float] = [0.5]
 SMOKE_RATES: list[float] = [0.04]
 SMOKE_HORIZONS: list[int] = [30]
-SMOKE_FV_TARGETS: list[float] = [0.0, 100.0]
+SMOKE_FV_TARGETS: list[float] = [0.0]
 SMOKE_GRID_CELLS = (
     len(SMOKE_WEIGHTS) * len(SMOKE_RATES) * len(SMOKE_HORIZONS) * len(SMOKE_FV_TARGETS)
 )

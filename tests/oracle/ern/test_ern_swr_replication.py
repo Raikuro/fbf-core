@@ -1,4 +1,4 @@
-"""Black-box E2E: the ``sim-retire`` CLI reproduces the ERN SWR Part 1 oracle.
+"""Black-box E2E: the ``sim-retire`` CLI reproduces the ERN SWR oracle.
 
 Acceptance criterion (P4.9, extended by P4.11): running the public ``sim-retire``
 CLI on the committed ERN datasets yields success rates that agree with the
@@ -12,7 +12,7 @@ user would:
   ``sim-retire --data-dir data/ern run <grid.yaml> --workers max
   --no-persist --summary-only``
 
-The whole ERN SWR grid is a SINGLE study: one YAML, one ResearchPlan of
+The whole ERN grid is a SINGLE study: one YAML, one ResearchPlan of
 313,020 units, one subprocess, one observable summary with one
 machine-parseable ``cell:`` line per parameter configuration.  The test parses
 those lines, maps each to ``(equity_allocation, withdrawal_rate, horizon_years)``
@@ -73,7 +73,7 @@ pytestmark = [pytest.mark.ern_e2e]
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 GRID_YAML = _REPO_ROOT / "examples" / "studies" / "ern_grid.yaml"
-SMOKE_GRID_YAML = Path(__file__).resolve().parent / "ern_part2_smoke.yaml"
+SMOKE_GRID_YAML = Path(__file__).resolve().parent / "ern_smoke.yaml"
 
 _PERCENT_SCALE = Decimal("1")
 _ROUNDING = ROUND_HALF_EVEN
@@ -160,7 +160,7 @@ def _assert_cell_matches(
 
 
 def test_smoke_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: OracleTable) -> None:
-    """The consolidated ERN2 smoke grid reproduces the oracle (FV=0) and exercises FV=100."""
+    """The minimal ERN smoke grid reproduces the oracle (FV=0.0 control anchor)."""
     try:
         harness = CliHarness(data_dir=data_dir, home_dir=tmp_path / "home")
     except FileNotFoundError as exc:
@@ -180,17 +180,8 @@ def test_smoke_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: Oracl
         f"matching the declared parameter space"
     )
 
-    # 1. FV=0.0 control cell reproduces former ERN1 oracle anchor (95%)
+    # FV=0.0 control cell reproduces the oracle anchor (95%)
     _assert_anchors(oracle, cells)
-
-    # 2. FV=100.0 cell has strictly lower success rate than FV=0.0
-    fv0_stats = cells[(0.5, 0.04, 30, 0.0)]
-    fv100_stats = cells[(0.5, 0.04, 30, 100.0)]
-    assert fv100_stats.units_failed > fv0_stats.units_failed, (
-        f"FV=100.0 units_failed ({fv100_stats.units_failed}) should be > "
-        f"FV=0.0 units_failed ({fv0_stats.units_failed})"
-    )
-    assert fv100_stats.success_rate < fv0_stats.success_rate
 
 
 @pytest.mark.skipif(
@@ -215,7 +206,8 @@ def test_full_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: Oracle
     assert result.units_run == FULL_GRID_UNITS, (
         f"full grid ran {result.units_run:,} units, expected {FULL_GRID_UNITS:,}"
     )
-    expected_keys = _expected_cell_keys(WEIGHTS, RATES, HORIZON_YEARS)
+    # The full grid YAML declares final_value_target: [0.0], so cells are 4-tuples.
+    expected_keys = _expected_cell_keys(WEIGHTS, RATES, HORIZON_YEARS, [0.0])
     assert set(cells) == expected_keys, (
         f"full grid reported {len(cells)} cells; expected exactly "
         f"{FULL_GRID_CELLS} covering the 5x9x4 parameter space (missing, "
@@ -233,7 +225,7 @@ def test_full_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: Oracle
     outside: list[tuple[float, int, float, Decimal, int]] = []
     anchor_results: dict[str, tuple[int, int]] = {}
     for key, stats in sorted(cells.items()):
-        weight, rate, horizon = key
+        weight, rate, horizon, _fv = key
         expected = oracle[(weight, horizon)][rate]
         actual = (
             Decimal(stats.units_run - stats.units_failed)

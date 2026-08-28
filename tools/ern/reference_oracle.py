@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone ERN SWR Part 1 reference oracle (SSRN 2920322).
+"""Standalone ERN SWR reference oracle (SSRN 2920322).
 
 This is the independent reference tool for the P4.9 black-box E2E replication.
 It is a pure data-processing utility: it imports NO framework modules and is
@@ -14,7 +14,7 @@ spreadsheet id 1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8):
         spx_tr_real = S&P 500 total-return monthly REAL return
         y10_bm_real  = 10Y Treasury total-return monthly REAL return
 
-Methodology (ERN "Safe Withdrawal Rates", Part 1 + Part 8):
+Methodology (ERN "Safe Withdrawal Rates"):
     - Working entirely in REAL terms, initial portfolio normalized to 1.
     - Cohorts: 1,739 monthly start dates Feb 1871 .. Dec 2015 inclusive.
     - Horizon T months; monthly rebalanced portfolio real return
