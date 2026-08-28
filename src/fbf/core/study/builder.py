@@ -18,9 +18,11 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies import (
+    AllocationPolicyType,
     ConstantAllocationPolicy,
     ConstantWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
+    WithdrawalPolicyType,
 )
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
@@ -110,10 +112,6 @@ def build_initial_portfolio(initial_wealth: Money) -> Portfolio:
 # ---------------------------------------------------------------------------
 
 
-_ALLOCATION_POLICY_TYPES = frozenset({"ConstantAllocationPolicy"})
-_WITHDRAWAL_POLICY_TYPES = frozenset({"FixedRealWithdrawalPolicy", "ConstantWithdrawalPolicy"})
-
-
 def _parse_decimal_values(policy: dict[str, Any], key: str) -> tuple[Decimal, ...]:
     """Parse a required non-empty decimal value array from a policy mapping."""
     raw_values = policy.get(key)
@@ -152,16 +150,18 @@ def _parse_optional_decimal_array(
 
 def build_allocation_policy(policy_type: str, scalar: Decimal) -> AllocationPolicy:
     """Build the concrete allocation policy for the declared YAML ``type``."""
-    if policy_type != "ConstantAllocationPolicy":
-        raise ValueError(f"Unsupported allocation policy type: {policy_type!r}")
-    return ConstantAllocationPolicy(equity_allocation=scalar)
+    policy_enum = AllocationPolicyType.from_yaml_name(policy_type)
+    if policy_enum is AllocationPolicyType.CONSTANT:
+        return ConstantAllocationPolicy(equity_allocation=scalar)
+    raise ValueError(f"Unsupported allocation policy type: {policy_type!r}")
 
 
 def build_withdrawal_policy(policy_type: str, scalar: Decimal) -> WithdrawalPolicy:
     """Build the concrete withdrawal policy for the declared YAML ``type``."""
-    if policy_type == "FixedRealWithdrawalPolicy":
+    policy_enum = WithdrawalPolicyType.from_yaml_name(policy_type)
+    if policy_enum is WithdrawalPolicyType.FIXED_REAL:
         return FixedRealWithdrawalPolicy(withdrawal_rate=scalar)
-    if policy_type == "ConstantWithdrawalPolicy":
+    if policy_enum is WithdrawalPolicyType.CONSTANT:
         return ConstantWithdrawalPolicy(withdrawal_rate=scalar)
     raise ValueError(f"Unsupported withdrawal policy type: {policy_type!r}")
 
@@ -249,10 +249,9 @@ class StudyConfiguration:
         if not isinstance(allocation_policy, dict):
             raise ValueError("allocation_policy must be a mapping")
         allocation_policy_type = allocation_policy.get("type")
-        if allocation_policy_type not in _ALLOCATION_POLICY_TYPES:
-            raise ValueError(
-                f"Unsupported allocation policy type: {allocation_policy_type!r}"
-            )
+        if not isinstance(allocation_policy_type, str):
+            raise ValueError("allocation_policy.type must be a string")
+        AllocationPolicyType.from_yaml_name(allocation_policy_type)
         allocation_policy_values = _parse_decimal_values(
             allocation_policy, "equity_allocation"
         )
@@ -261,10 +260,9 @@ class StudyConfiguration:
         if not isinstance(withdrawal_policy, dict):
             raise ValueError("withdrawal_policy must be a mapping")
         withdrawal_policy_type = withdrawal_policy.get("type")
-        if withdrawal_policy_type not in _WITHDRAWAL_POLICY_TYPES:
-            raise ValueError(
-                f"Unsupported withdrawal policy type: {withdrawal_policy_type!r}"
-            )
+        if not isinstance(withdrawal_policy_type, str):
+            raise ValueError("withdrawal_policy.type must be a string")
+        WithdrawalPolicyType.from_yaml_name(withdrawal_policy_type)
         withdrawal_policy_values = _parse_decimal_values(
             withdrawal_policy, "withdrawal_rate"
         )

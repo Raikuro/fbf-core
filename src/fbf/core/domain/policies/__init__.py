@@ -1,4 +1,4 @@
-"""Domain policies (base protocols and concrete policies)."""
+"""Domain policies (base protocols, concrete policies, and type enums)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from fbf.core.domain.policies.concrete import (
 )
 from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from fbf.core.domain.policies.policy import Policy
+from fbf.core.domain.policies.types import AllocationPolicyType, WithdrawalPolicyType
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 
 __all__ = [
@@ -21,4 +22,6 @@ __all__ = [
     "ConstantAllocationPolicy",
     "ConstantWithdrawalPolicy",
     "FixedRealWithdrawalPolicy",
+    "AllocationPolicyType",
+    "WithdrawalPolicyType",
 ]

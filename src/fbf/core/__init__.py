@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fbf.core.domain.policies import AllocationPolicyType, WithdrawalPolicyType
 from fbf.core.errors import CoreError
 from fbf.core.execution import (
     ExecutionBackend,
@@ -34,6 +35,8 @@ from fbf.core.study import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "AllocationPolicyType",
+    "WithdrawalPolicyType",
     "StudyConfiguration",
     "StudyPlanResult",
     "build_study_plan",

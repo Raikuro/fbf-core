@@ -182,6 +182,8 @@ def test_execution_optimization_isolation() -> None:
 def test_public_facade_symbols() -> None:
     """Validates public facade symbols exposed by fbf.core."""
     expected_symbols = {
+        "AllocationPolicyType",
+        "WithdrawalPolicyType",
         "StudyConfiguration",
         "StudyPlanResult",
         "build_study_plan",
