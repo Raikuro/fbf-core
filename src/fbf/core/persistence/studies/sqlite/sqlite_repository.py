@@ -1022,6 +1022,123 @@ class SQLiteRepository:
 
             return experiments
 
+    def list_experiments_with_plans(self) -> list[Mapping[str, Any]]:
+        """List all experiments joined with their latest plan metadata.
+
+        Returns experiment metadata plus the status and unit_count from each
+        experiment's most recent non-deleted plan (any status).  Experiments
+        without plans have ``status=None`` and ``unit_count=None``.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    e.experiment_id,
+                    e.name,
+                    e.revision,
+                    e.dataset_identifier,
+                    e.horizon_months,
+                    e.initial_wealth,
+                    e.initial_wealth_currency,
+                    e.created_at,
+                    e.updated_at,
+                    rp.status,
+                    rp.unit_count
+                FROM experiments e
+                LEFT JOIN (
+                    SELECT experiment_id, status, unit_count, created_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY experiment_id ORDER BY created_at DESC
+                           ) AS rn
+                    FROM research_plans
+                    WHERE deleted_at IS NULL
+                ) rp ON e.experiment_id = rp.experiment_id AND rp.rn = 1
+                WHERE e.deleted_at IS NULL
+                ORDER BY e.name, e.revision
+                """
+            ).fetchall()
+
+            experiments: list[Mapping[str, Any]] = []
+            for row in rows:
+                experiments.append(
+                    {
+                        "experiment_id": row[0],
+                        "name": row[1],
+                        "revision": row[2],
+                        "dataset_identifier": row[3],
+                        "horizon_months": row[4],
+                        "initial_wealth": row[5],
+                        "initial_wealth_currency": row[6],
+                        "created_at": row[7],
+                        "updated_at": row[8],
+                        "status": row[9],
+                        "unit_count": row[10],
+                    }
+                )
+
+            return experiments
+
+    def list_plans_for_experiment(self, experiment_id: str) -> list[Mapping[str, Any]]:
+        """List all non-deleted plans for an experiment.
+
+        Returns lightweight plan metadata without reconstructing
+        ``ResearchPlan``.  Ordered by ``created_at DESC``.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT plan_id, created_at, unit_count, status
+                FROM research_plans
+                WHERE experiment_id = ? AND deleted_at IS NULL
+                ORDER BY created_at DESC
+                """,
+                (experiment_id,),
+            ).fetchall()
+
+            return [
+                {
+                    "plan_id": row[0],
+                    "created_at": row[1],
+                    "unit_count": row[2],
+                    "status": row[3],
+                }
+                for row in rows
+            ]
+
+    def get_experiment_metadata(self, experiment_id: str) -> Mapping[str, Any] | None:
+        """Return lightweight experiment metadata without full reconstruction.
+
+        Does not require a ``PersistenceReconstructionContext``.  Returns
+        ``None`` when the experiment is missing or soft-deleted.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT experiment_id, name, revision, description,
+                       dataset_identifier, horizon_months, initial_wealth,
+                       initial_wealth_currency, created_at, updated_at
+                FROM experiments
+                WHERE experiment_id = ? AND deleted_at IS NULL
+                """,
+                (experiment_id,),
+            ).fetchone()
+
+            if not row:
+                return None
+
+            return {
+                "experiment_id": row[0],
+                "name": row[1],
+                "revision": row[2],
+                "description": row[3],
+                "dataset_identifier": row[4],
+                "horizon_months": row[5],
+                "initial_wealth": row[6],
+                "initial_wealth_currency": row[7],
+                "created_at": row[8],
+                "updated_at": row[9],
+            }
+
     def find_result_by_plan(self, plan_id: str) -> str | None:
         """Find result ID for a completed plan.
 
@@ -1032,6 +1149,42 @@ class SQLiteRepository:
                 "SELECT result_id FROM execution_results WHERE plan_id = ?", (plan_id,)
             ).fetchone()
             return row[0] if row else None
+
+    def get_execution_result_metadata(
+        self, plan_id: str
+    ) -> Mapping[str, Any] | None:
+        """Return lightweight execution result summary for a plan.
+
+        Queries only the ``execution_results`` table without loading
+        simulation timelines or requiring a ``PersistenceReconstructionContext``.
+        Returns ``None`` when no result exists for the plan.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT result_id, plan_id, executed_at, duration_seconds,
+                       success_count, failure_count, total_units
+                FROM execution_results
+                WHERE plan_id = ?
+                """,
+                (plan_id,),
+            ).fetchone()
+
+            if not row:
+                return None
+
+            total = row[6]
+            success_rate = round(row[4] / total, 4) if total > 0 else 0.0
+            return {
+                "result_id": row[0],
+                "plan_id": row[1],
+                "executed_at": row[2],
+                "duration_seconds": row[3],
+                "success_count": row[4],
+                "failure_count": row[5],
+                "total_units": total,
+                "success_rate": success_rate,
+            }
 
     def find_plan_by_experiment(self, experiment_id: str) -> str | None:
         """Find the latest completed plan for an experiment."""

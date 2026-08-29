@@ -1225,3 +1225,372 @@ def test_foreign_key_plan_requires_experiment(repo: SQLiteRepository) -> None:
     plan = make_plan(num_units=1)
     with pytest.raises((RepositoryError, Exception)):
         repo.save_plan(plan, "nonexistent-experiment-id", ctx)
+
+
+# ---------------------------------------------------------------------------
+# list_experiments_with_plans tests
+# ---------------------------------------------------------------------------
+
+
+def test_list_experiments_with_plans_empty_db(repo: SQLiteRepository) -> None:
+    assert repo.list_experiments_with_plans() == []
+
+
+def test_list_experiments_with_plans_no_plans(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="no-plans")
+    repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    result = repo.list_experiments_with_plans()
+    assert len(result) == 1
+    assert result[0]["name"] == "no-plans"
+    assert result[0]["status"] is None
+    assert result[0]["unit_count"] is None
+
+
+def test_list_experiments_with_plans_one_plan(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="one-plan")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    plan = make_plan(num_units=3)
+    repo.save_plan(plan, exp_id, ctx)
+
+    result = repo.list_experiments_with_plans()
+    assert len(result) == 1
+    assert result[0]["name"] == "one-plan"
+    assert result[0]["status"] == "planned"
+    assert result[0]["unit_count"] == 3
+
+
+def test_list_experiments_with_plans_multiple_plans_selects_latest(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="multi-plan")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    plan_old = make_plan(num_units=2)
+    repo.save_plan(plan_old, exp_id, ctx)
+
+    plan_new = make_plan(num_units=5)
+    repo.save_plan(plan_new, exp_id, ctx)
+
+    result = repo.list_experiments_with_plans()
+    assert len(result) == 1
+    assert result[0]["unit_count"] == 5
+
+
+def test_list_experiments_with_plans_completed_plan_not_preferred(
+    repo: SQLiteRepository,
+) -> None:
+    """The latest plan by created_at is selected regardless of status."""
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="status-test")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    plan = make_plan(num_units=2)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+
+    # Simulate execution: update status to completed
+    import sqlite3 as _sqlite3
+
+    with _sqlite3.connect(repo.db_path) as conn:
+        conn.execute(
+            "UPDATE research_plans SET status = 'completed' WHERE plan_id = ?",
+            (plan_id,),
+        )
+
+    # Add a newer plan that is still 'planned'
+    plan_newer = make_plan(num_units=4)
+    repo.save_plan(plan_newer, exp_id, ctx)
+
+    result = repo.list_experiments_with_plans()
+    assert len(result) == 1
+    # The newer plan (status=planned, unit_count=4) should be selected
+    assert result[0]["status"] == "planned"
+    assert result[0]["unit_count"] == 4
+
+
+def test_list_experiments_with_plans_soft_deleted_plan_excluded(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="soft-del-plan")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    plan = make_plan(num_units=3)
+    repo.save_plan(plan, exp_id, ctx)
+
+    # Soft-delete the plan via direct SQL
+    import sqlite3 as _sqlite3
+
+    with _sqlite3.connect(repo.db_path) as conn:
+        conn.execute(
+            "UPDATE research_plans SET deleted_at = '2026-01-01T00:00:00Z' "
+            "WHERE experiment_id = ?",
+            (exp_id,),
+        )
+
+    result = repo.list_experiments_with_plans()
+    assert len(result) == 1
+    assert result[0]["status"] is None
+    assert result[0]["unit_count"] is None
+
+
+def test_list_experiments_with_plans_soft_deleted_experiment_excluded(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="soft-del-exp")
+    repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    # Soft-delete the experiment via direct SQL
+    import sqlite3 as _sqlite3
+
+    with _sqlite3.connect(repo.db_path) as conn:
+        conn.execute(
+            "UPDATE experiments SET deleted_at = '2026-01-01T00:00:00Z' "
+            "WHERE name = ?",
+            ("soft-del-exp",),
+        )
+
+    result = repo.list_experiments_with_plans()
+    assert len(result) == 0
+
+
+def test_list_experiments_with_plans_correct_fields(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="field-check")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    plan = make_plan(num_units=2)
+    repo.save_plan(plan, exp_id, ctx)
+
+    result = repo.list_experiments_with_plans()
+    assert len(result) == 1
+    row = result[0]
+    assert "experiment_id" in row
+    assert "name" in row
+    assert "revision" in row
+    assert "dataset_identifier" in row
+    assert "horizon_months" in row
+    assert "initial_wealth" in row
+    assert "initial_wealth_currency" in row
+    assert "created_at" in row
+    assert "updated_at" in row
+    assert "status" in row
+    assert "unit_count" in row
+
+
+# ---------------------------------------------------------------------------
+# list_plans_for_experiment tests
+# ---------------------------------------------------------------------------
+
+
+def test_list_plans_for_experiment_no_plans(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="no-plans-exp")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    result = repo.list_plans_for_experiment(exp_id)
+    assert result == []
+
+
+def test_list_plans_for_experiment_one_plan(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="one-plan-exp")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    plan = make_plan(num_units=3)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+
+    result = repo.list_plans_for_experiment(exp_id)
+    assert len(result) == 1
+    assert result[0]["plan_id"] == plan_id
+    assert result[0]["unit_count"] == 3
+    assert result[0]["status"] == "planned"
+    assert "created_at" in result[0]
+
+
+def test_list_plans_for_experiment_multiple_plans_ordered_desc(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="multi-plan-exp")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    plan1 = make_plan(num_units=2)
+    plan1_id = repo.save_plan(plan1, exp_id, ctx)
+    plan2 = make_plan(num_units=4)
+    plan2_id = repo.save_plan(plan2, exp_id, ctx)
+
+    result = repo.list_plans_for_experiment(exp_id)
+    assert len(result) == 2
+    # Ordered by created_at DESC — newest first
+    assert result[0]["plan_id"] == plan2_id
+    assert result[1]["plan_id"] == plan1_id
+
+
+def test_list_plans_for_experiment_soft_deleted_excluded(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="soft-del-plan-exp")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    plan = make_plan(num_units=2)
+    repo.save_plan(plan, exp_id, ctx)
+
+    # Soft-delete
+    import sqlite3 as _sqlite3
+
+    with _sqlite3.connect(repo.db_path) as conn:
+        conn.execute(
+            "UPDATE research_plans SET deleted_at = '2026-01-01T00:00:00Z' "
+            "WHERE experiment_id = ?",
+            (exp_id,),
+        )
+
+    result = repo.list_plans_for_experiment(exp_id)
+    assert result == []
+
+
+def test_list_plans_for_experiment_unrelated_excluded(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    exp1 = make_experiment(name="exp-a")
+    exp1_id = repo.save_experiment(
+        ExperimentIdentity(name=exp1.name, revision="v1"), exp1, ctx
+    )
+    exp2 = make_experiment(name="exp-b")
+    exp2_id = repo.save_experiment(
+        ExperimentIdentity(name=exp2.name, revision="v1"), exp2, ctx
+    )
+
+    plan_a = make_plan(num_units=2)
+    repo.save_plan(plan_a, exp1_id, ctx)
+    plan_b = make_plan(num_units=4)
+    repo.save_plan(plan_b, exp2_id, ctx)
+
+    result = repo.list_plans_for_experiment(exp1_id)
+    assert len(result) == 1
+    assert result[0]["unit_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# get_experiment_metadata tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_experiment_metadata_existing(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="metadata-test")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    result = repo.get_experiment_metadata(exp_id)
+    assert result is not None
+    assert result["experiment_id"] == exp_id
+    assert result["name"] == "metadata-test"
+    assert result["revision"] == "v1"
+    assert result["description"] == "Round-trip test experiment"
+    assert result["dataset_identifier"] == "TEST_DATASET_v1"
+    assert result["horizon_months"] == 120
+    assert result["initial_wealth"] == "500000.00"
+    assert result["initial_wealth_currency"] == "EUR"
+    assert "created_at" in result
+    assert "updated_at" in result
+
+
+def test_get_experiment_metadata_missing(repo: SQLiteRepository) -> None:
+    assert repo.get_experiment_metadata("nonexistent-id") is None
+
+
+def test_get_experiment_metadata_soft_deleted(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="soft-del-meta")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    # Soft-delete
+    import sqlite3 as _sqlite3
+
+    with _sqlite3.connect(repo.db_path) as conn:
+        conn.execute(
+            "UPDATE experiments SET deleted_at = '2026-01-01T00:00:00Z' "
+            "WHERE experiment_id = ?",
+            (exp_id,),
+        )
+
+    assert repo.get_experiment_metadata(exp_id) is None
+
+
+def test_get_experiment_metadata_no_context_needed(repo: SQLiteRepository) -> None:
+    """get_experiment_metadata works without PersistenceReconstructionContext."""
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="no-ctx")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+
+    # Call without context — should work fine
+    result = repo.get_experiment_metadata(exp_id)
+    assert result is not None
+    assert result["name"] == "no-ctx"
+
+
+# ---------------------------------------------------------------------------
+# get_execution_result_metadata tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_execution_result_metadata_with_result(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment(name="result-meta")
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    plan = make_plan(num_units=4)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+
+    experiment_run = make_experiment_run(plan)
+    research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
+    repo.save_execution_result(plan_id, research_result, ctx, duration_seconds=2.5)
+
+    meta = repo.get_execution_result_metadata(plan_id)
+    assert meta is not None
+    assert meta["plan_id"] == plan_id
+    assert meta["duration_seconds"] == 2.5
+    assert meta["total_units"] == 4
+    assert "result_id" in meta
+    assert "executed_at" in meta
+    assert "success_count" in meta
+    assert "failure_count" in meta
+    assert "success_rate" in meta
+
+
+def test_get_execution_result_metadata_no_result(repo: SQLiteRepository) -> None:
+    assert repo.get_execution_result_metadata("nonexistent-plan") is None
