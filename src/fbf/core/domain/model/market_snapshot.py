@@ -23,9 +23,15 @@ class MarketSnapshot:
     is_ath: bool
     is_underwater: bool
     running_ath: Decimal
+    cape: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.date is None:
             raise ValueError("MarketSnapshot date must be set")
         if any(value is None for value in self.index_levels.values()):
             raise ValueError("MarketSnapshot index_levels must not contain None")
+        if self.cape is not None:
+            try:
+                Decimal(str(self.cape))
+            except (InvalidOperation, ValueError):
+                raise ValueError("MarketSnapshot cape must be a valid Decimal")

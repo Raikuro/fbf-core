@@ -1,0 +1,30 @@
+metadata:
+  name: "ERN Part 3 \u2014 Replication"
+  version: '1.0'
+  description: 'Early Retirement Now Part 3 replication: Equity valuation using CAPE
+    regimes. Four experiments: 4% SWR depletion, 4% SWR 50% TV, 3.5% SWR 50% TV, 3.25%
+    SWR 50% TV. 30-year and 6-year horizons. Equity allocations 10-100% in 10%/25%/50%/75%/100%
+    grid. CAPE regimes <15, 15-20, 20-30, 30+. Based on Shiller data from ie_data.xls.'
+dataset:
+  identifier: ern_cape_1871_2016
+cohorts:
+  horizon_years:
+  - 30
+  - 60
+allocation_policy:
+  type: ConstantAllocationPolicy
+  equity_allocation:
+  - 0.1
+  - 0.25
+  - 0.5
+  - 0.75
+  - 1.0
+withdrawal_policy:
+  type: FixedRealWithdrawalPolicy
+  withdrawal_rate:
+  - 0.04
+  - 0.035
+  - 0.0325
+final_value_target_values:
+- 0.0
+- 0.5

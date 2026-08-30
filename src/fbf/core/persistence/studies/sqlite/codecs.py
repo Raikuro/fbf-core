@@ -248,6 +248,7 @@ class SimulationResultCodec:
             "is_ath": mr.market_snapshot.is_ath,
             "is_underwater": mr.market_snapshot.is_underwater,
             "running_ath": str(mr.market_snapshot.running_ath),
+            "cape": str(mr.market_snapshot.cape) if mr.market_snapshot.cape is not None else None,
         }
         payload["market_snapshot"] = market_snapshot
 
@@ -320,6 +321,7 @@ class SimulationResultCodec:
             is_ath=ms_data.get("is_ath", False),
             is_underwater=ms_data.get("is_underwater", False),
             running_ath=Decimal(ms_data.get("running_ath", "0")),
+            cape=Decimal(ms_data.get("cape", "0")) if ms_data.get("cape") is not None else None,
         )
 
         holdings = []

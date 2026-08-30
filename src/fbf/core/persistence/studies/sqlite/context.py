@@ -40,6 +40,7 @@ def _snapshot_to_dict(snapshot: MarketSnapshot) -> dict[str, Any]:
         "is_ath": snapshot.is_ath,
         "is_underwater": snapshot.is_underwater,
         "running_ath": str(snapshot.running_ath),
+        "cape": str(snapshot.cape) if snapshot.cape is not None else None,
         "index_levels": {
             asset_class.id: str(value)
             for asset_class, value in snapshot.index_levels.items()
@@ -48,6 +49,7 @@ def _snapshot_to_dict(snapshot: MarketSnapshot) -> dict[str, Any]:
 
 
 def _snapshot_from_dict(raw: dict[str, Any]) -> MarketSnapshot:
+    cape_value = Decimal(raw["cape"]) if raw.get("cape") is not None else None
     return MarketSnapshot(
         date=date.fromisoformat(raw["date"]),
         inflation=Decimal(raw["inflation"]),
@@ -55,6 +57,7 @@ def _snapshot_from_dict(raw: dict[str, Any]) -> MarketSnapshot:
         is_ath=raw["is_ath"],
         is_underwater=raw["is_underwater"],
         running_ath=Decimal(raw["running_ath"]),
+        cape=cape_value,
         index_levels={
             AssetClass(id=k, name="", description=""): Decimal(v)
             for k, v in raw["index_levels"].items()

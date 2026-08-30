@@ -1,0 +1,33 @@
+# Early Retirement Now Part 3: Equity Valuation — 4% SWR, 50% final-value target
+#
+# Experiment B: 4.0% withdrawal rate, 50% terminal value target
+# Horizons: 30 years, 60 years
+# Equity allocation grid reproduces ERN's success-rate curves
+# CAPE regimes: <15, 15-20, 20-30, >=30
+#
+# Run example:
+#   fbf-core --data-dir data/ern run examples/studies/ern_part3_expB.yaml \
+#     --no-persist --summary-only
+
+metadata:
+  name: "ERN Part 3 — 4% SWR 50% Terminal"
+  version: "1.0"
+  description: >
+    Early Retirement Now Part 3 replication:
+    4% SWR, 50% final-value target, CAPE regime analysis.
+
+dataset:
+  identifier: "ern_cape_1871_2016"
+
+cohorts:
+  horizon_years: [30, 60]
+
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: [0.1, 0.25, 0.5, 0.75, 1.0]
+
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: [0.04]
+
+final_value_target: [0.5]
