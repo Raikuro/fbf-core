@@ -364,6 +364,27 @@ def _compute_withdrawal_amount(monthly_payload: Mapping[str, Any]) -> str:
     return str(monthly_payload.get("withdrawal_decision", "0"))
 
 
+def _compute_linear_percentile(sorted_values: list[float], p: float) -> float:
+    """Compute percentile using linear interpolation (numpy 'linear' default).
+
+    Given a sorted list of values and a percentile p in [0, 100],
+    computes the interpolated value at rank = (p / 100) * (n - 1).
+
+    For p=0 returns the minimum; for p=100 returns the maximum.
+    """
+    n = len(sorted_values)
+    if n == 0:
+        return 0.0
+    if n == 1:
+        return sorted_values[0]
+    rank = (p / 100.0) * (n - 1)
+    lower = int(rank)
+    if lower >= n - 1:
+        return sorted_values[-1]
+    fraction = rank - lower
+    return sorted_values[lower] + fraction * (sorted_values[lower + 1] - sorted_values[lower])
+
+
 class SQLiteRepository:
     """SQLite persistence adapter implementing v0.4 specifications.
 
@@ -1150,6 +1171,18 @@ class SQLiteRepository:
             ).fetchone()
             return row[0] if row else None
 
+    def find_plan_by_result(self, result_id: str) -> str | None:
+        """Find plan ID for an execution result.
+
+        Inverse of ``find_result_by_plan``. Query API for infrastructure layer.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT plan_id FROM execution_results WHERE result_id = ?",
+                (result_id,),
+            ).fetchone()
+            return row[0] if row else None
+
     def get_execution_result_metadata(
         self, plan_id: str
     ) -> Mapping[str, Any] | None:
@@ -1339,6 +1372,178 @@ class SQLiteRepository:
                 "failure_count": failure_count,
                 "parameter_keys": sorted(param_keys_set),
                 "rows": rows,
+            }
+
+    # --- P10 Visualization Query Methods ---
+
+    def get_result_statistics(self, result_id: str) -> dict[str, Any] | None:
+        """Aggregate per-unit statistics from final_month simulation rows.
+
+        Reads only the ``final_month`` rows (one per unit) from
+        ``simulation_results`` and computes summary statistics. Does NOT
+        require a ``PersistenceReconstructionContext``.
+
+        Returns ``None`` when the result_id does not exist.
+
+        Returned dict keys:
+            - result_id, total_units, success_count, failure_count
+            - terminal_wealth: {min, max, mean, median, p10, p25, p75, p90}
+              (all as str for Decimal-compatible precision)
+            - failure_months: {histogram: [{month, count}], ...}
+            - max_drawdown: {min, max, mean}
+        """
+        with self._connect() as conn:
+            erow = conn.execute(
+                "SELECT result_id, total_units, success_count, failure_count "
+                "FROM execution_results WHERE result_id = ?",
+                (result_id,),
+            ).fetchone()
+            if not erow:
+                return None
+
+            exec_result_id, total_units, success_count, failure_count = erow
+
+            stats_rows = conn.execute(
+                "SELECT statistics_payload_json FROM simulation_results "
+                "WHERE execution_result_id = ? AND final_month = 1 "
+                "ORDER BY unit_index",
+                (exec_result_id,),
+            ).fetchall()
+
+            wealth_values: list[float] = []
+            drawdown_values: list[float] = []
+            failure_month_counts: dict[int, int] = {}
+
+            for (stats_json,) in stats_rows:
+                if not stats_json:
+                    continue
+                stats = json.loads(stats_json)
+                wealth = float(stats.get("final_wealth_amount", "0"))
+                wealth_values.append(wealth)
+                dd = stats.get("max_drawdown", 0.0)
+                if dd is not None:
+                    drawdown_values.append(float(dd))
+                fm = stats.get("failure_month")
+                if fm is not None:
+                    fm_int = int(fm)
+                    failure_month_counts[fm_int] = failure_month_counts.get(fm_int, 0) + 1
+
+            wealth_sorted = sorted(wealth_values)
+            dd_sorted = sorted(drawdown_values)
+
+            def _aggregate(values: list[float]) -> dict[str, float]:
+                if not values:
+                    return {"min": 0.0, "max": 0.0, "mean": 0.0, "median": 0.0}
+                n = len(values)
+                return {
+                    "min": values[0],
+                    "max": values[-1],
+                    "mean": sum(values) / n,
+                    "median": _compute_linear_percentile(values, 50.0),
+                }
+
+            wealth_agg = _aggregate(wealth_sorted)
+            dd_agg = _aggregate(dd_sorted)
+
+            return {
+                "result_id": exec_result_id,
+                "total_units": total_units,
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "terminal_wealth": {
+                    **wealth_agg,
+                    "p10": _compute_linear_percentile(wealth_sorted, 10.0),
+                    "p25": _compute_linear_percentile(wealth_sorted, 25.0),
+                    "p75": _compute_linear_percentile(wealth_sorted, 75.0),
+                    "p90": _compute_linear_percentile(wealth_sorted, 90.0),
+                },
+                "failure_months": {
+                    "histogram": [
+                        {"month": m, "count": c}
+                        for m, c in sorted(failure_month_counts.items())
+                    ],
+                },
+                "max_drawdown": dd_agg,
+            }
+
+    def get_result_trajectory_percentiles(
+        self,
+        result_id: str,
+        percentiles: Sequence[float] = (10.0, 25.0, 50.0, 75.0, 90.0),
+    ) -> dict[str, Any] | None:
+        """Compute percentile bands of portfolio value across all units per month.
+
+        Reads all ``simulation_results`` rows for the given result, extracts
+        the portfolio value (sum of ``portfolio_holdings[].units``) from each
+        monthly payload, and computes percentile bands at each month_index.
+
+        Does NOT require a ``PersistenceReconstructionContext``.
+
+        Returns ``None`` when the result_id does not exist.
+
+        Returned dict keys:
+            - result_id, total_units, month_count
+            - months: list[int] — sorted month indices
+            - percentiles: list[float] — the requested percentile values
+            - series: dict[str, list[float]] — key = "p{percentile}",
+              value = portfolio value at each month (NaN where insufficient data)
+        """
+        with self._connect() as conn:
+            erow = conn.execute(
+                "SELECT result_id FROM execution_results WHERE result_id = ?",
+                (result_id,),
+            ).fetchone()
+            if not erow:
+                return None
+
+            exec_result_id = erow[0]
+
+            sim_rows = conn.execute(
+                "SELECT unit_index, month_index, monthly_payload_json "
+                "FROM simulation_results "
+                "WHERE execution_result_id = ? "
+                "ORDER BY month_index, unit_index",
+                (exec_result_id,),
+            ).fetchall()
+
+            if not sim_rows:
+                return {"result_id": exec_result_id, "total_units": 0,
+                        "month_count": 0, "months": [], "percentiles": list(percentiles),
+                        "series": {}}
+
+            # Group by month_index -> list of portfolio values
+            from collections import defaultdict
+            month_values: dict[int, list[float]] = defaultdict(list)
+            seen_units: set[int] = set()
+
+            for unit_index, month_index, monthly_json in sim_rows:
+                seen_units.add(unit_index)
+                if not monthly_json:
+                    continue
+                payload = json.loads(monthly_json)
+                # Skip dummy rows inserted for empty timelines
+                if not payload.get("date"):
+                    continue
+                pv = _compute_portfolio_value(payload)
+                month_values[month_index].append(float(pv))
+
+            months = sorted(month_values.keys())
+            series: dict[str, list[float]] = {}
+            for p in percentiles:
+                key = f"p{p:g}"
+                band: list[float] = []
+                for m in months:
+                    values = sorted(month_values[m])
+                    band.append(_compute_linear_percentile(values, p))
+                series[key] = band
+
+            return {
+                "result_id": exec_result_id,
+                "total_units": len(seen_units),
+                "month_count": len(months),
+                "months": months,
+                "percentiles": list(percentiles),
+                "series": series,
             }
 
     # --- Private Implementation Methods ---
