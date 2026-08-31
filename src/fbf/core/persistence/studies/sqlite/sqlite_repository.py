@@ -2146,6 +2146,180 @@ class SQLiteRepository:
 
         return simulation_results
 
+    def get_available_parameters(self, result_id: str) -> list[dict[str, Any]] | None:
+        """Return unique parameter selectors for an execution result.
+
+        Returns ``None`` when the result_id does not exist.
+        Returns a list of dicts, each with:
+            - equity_allocation: float
+            - withdrawal_rate: float
+        Ordered by equity_allocation, withdrawal_rate.
+
+        The selector is ``(equity_allocation, withdrawal_rate)``.
+        ``horizon_years`` is NOT included — it is derived from matching
+        configurations when the grid is requested.
+        """
+        with self._connect() as conn:
+            erow = conn.execute(
+                "SELECT result_id FROM execution_results WHERE result_id = ?",
+                (result_id,),
+            ).fetchone()
+            if not erow:
+                return None
+
+            rows = conn.execute(
+                """
+                SELECT DISTINCT
+                    json_extract(pc.params_json, '$.equity_allocation') AS equity_allocation,
+                    json_extract(pc.params_json, '$.withdrawal_rate')  AS withdrawal_rate
+                FROM planned_units pu
+                JOIN parameter_configurations pc ON pu.param_config_id = pc.param_config_id
+                JOIN execution_results er ON er.plan_id = pu.plan_id
+                WHERE er.result_id = ?
+                ORDER BY equity_allocation, withdrawal_rate
+                """,
+                (result_id,),
+            ).fetchall()
+
+            return [
+                {"equity_allocation": float(r[0]), "withdrawal_rate": float(r[1])}
+                for r in rows
+            ]
+
+    def get_cohort_horizon_grid(
+        self,
+        result_id: str,
+        equity_allocation: float,
+        withdrawal_rate: float,
+    ) -> dict[str, Any] | None:
+        """Return the cohort × horizon success/failure grid for a parameter set.
+
+        Returns ``None`` when:
+          - result_id does not exist
+          - No units match the parameter filter
+
+        The query resolves matching param_config_ids via SQL ``json_extract``
+        filtering on the parameter_configurations table, then reads only the
+        matching simulation results. No full-scan of simulation_results occurs.
+
+        Returned dict keys:
+            - result_id: str
+            - cohorts: list[str] — sorted unique cohort start dates
+            - horizons: list[int] — sorted unique horizon years
+            - parameters: dict — {"equity_allocation": float, "withdrawal_rate": float}
+            - grid: dict with success, failure_month, terminal_wealth (list[list[...]])
+            - total_units: int — units matching the filter
+            - success_count: int
+            - failure_count: int
+        """
+        with self._connect() as conn:
+            erow = conn.execute(
+                "SELECT result_id FROM execution_results WHERE result_id = ?",
+                (result_id,),
+            ).fetchone()
+            if not erow:
+                return None
+
+            stats_rows = conn.execute(
+                """
+                SELECT
+                    c.start_date AS cohort_start_date,
+                    json_extract(pc.params_json, '$.horizon_years') AS horizon_years,
+                    sr.statistics_payload_json
+                FROM simulation_results sr
+                JOIN execution_results er ON sr.execution_result_id = er.result_id
+                JOIN planned_units pu ON pu.plan_id = er.plan_id
+                    AND pu.unit_index = sr.unit_index
+                JOIN cohorts c ON pu.cohort_id = c.cohort_id
+                JOIN parameter_configurations pc ON pu.param_config_id = pc.param_config_id
+                WHERE sr.execution_result_id = ?
+                  AND sr.final_month = 1
+                  AND json_extract(pc.params_json, '$.equity_allocation') = ?
+                  AND json_extract(pc.params_json, '$.withdrawal_rate') = ?
+                ORDER BY c.start_date, horizon_years
+                """,
+                (result_id, equity_allocation, withdrawal_rate),
+            ).fetchall()
+
+            if not stats_rows:
+                return None
+
+            cohorts_set: set[str] = set()
+            horizons_set: set[int] = set()
+            grid_data: list[dict[str, Any]] = []
+            success_count = 0
+            failure_count = 0
+
+            for cohort_start_date, horizon_years, stats_json in stats_rows:
+                cohorts_set.add(cohort_start_date)
+                horizon_int = int(horizon_years)
+                horizons_set.add(horizon_int)
+
+                stats: dict[str, Any] = {}
+                if stats_json:
+                    stats = json.loads(stats_json)
+
+                success = bool(stats.get("success", False))
+                if success:
+                    success_count += 1
+                else:
+                    failure_count += 1
+
+                fw_raw = stats.get("final_wealth_amount", "0")
+                terminal_wealth = float(fw_raw) if isinstance(fw_raw, (int, float, str)) else 0.0
+
+                grid_data.append({
+                    "cohort": cohort_start_date,
+                    "horizon": horizon_int,
+                    "success": success,
+                    "failure_month": stats.get("failure_month"),
+                    "terminal_wealth": terminal_wealth,
+                })
+
+            cohorts = sorted(cohorts_set)
+            horizons = sorted(horizons_set)
+
+            cohort_idx = {c: i for i, c in enumerate(cohorts)}
+            horizon_idx = {h: i for i, h in enumerate(horizons)}
+
+            n_cohorts = len(cohorts)
+            n_horizons = len(horizons)
+
+            success_grid: list[list[bool]] = [
+                [False] * n_horizons for _ in range(n_cohorts)
+            ]
+            failure_month_grid: list[list[int | None]] = [
+                [None] * n_horizons for _ in range(n_cohorts)
+            ]
+            terminal_wealth_grid: list[list[float]] = [
+                [0.0] * n_horizons for _ in range(n_cohorts)
+            ]
+
+            for d in grid_data:
+                ci = cohort_idx[d["cohort"]]
+                hi = horizon_idx[d["horizon"]]
+                success_grid[ci][hi] = d["success"]
+                failure_month_grid[ci][hi] = d["failure_month"]
+                terminal_wealth_grid[ci][hi] = d["terminal_wealth"]
+
+            return {
+                "result_id": result_id,
+                "cohorts": cohorts,
+                "horizons": horizons,
+                "parameters": {
+                    "equity_allocation": equity_allocation,
+                    "withdrawal_rate": withdrawal_rate,
+                },
+                "grid": {
+                    "success": success_grid,
+                    "failure_month": failure_month_grid,
+                    "terminal_wealth": terminal_wealth_grid,
+                },
+                "total_units": len(grid_data),
+                "success_count": success_count,
+                "failure_count": failure_count,
+            }
+
     def _retry_on_lock(self, operation: Any, *args: Any, **kwargs: Any) -> Any:
         """Retry the operation with exponential backoff on SQLite lock errors."""
         max_retries = 5
