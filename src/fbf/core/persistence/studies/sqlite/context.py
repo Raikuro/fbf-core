@@ -89,13 +89,26 @@ def _dict_to_dataset(
 # ---------------------------------------------------------------------------
 
 
-def _load_dataset_from_file(path: Path) -> Dataset:
+def _load_dataset_from_file(path: Path) -> Dataset | None:
+    """Load a Dataset from a JSON file, or ``None`` for non-Dataset artifacts.
+
+    A file is treated as a Dataset candidate when it contains a ``frequency``
+    top-level key — the defining field that distinguishes Dataset JSON from
+    research/provenance artifacts.  Non-Dataset files (cohort manifests,
+    provenance metadata, etc.) are silently skipped during discovery.
+
+    Malformed Dataset files (``frequency`` present but ``snapshots`` missing
+    or invalid) raise during construction, preserving error visibility for
+    genuine data corruption.
+    """
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         raise StudyNotFoundError(
             f"Failed to load dataset from '{path}': {exc}"
         ) from exc
+    if not isinstance(raw, dict) or "frequency" not in raw:
+        return None
     return _dict_to_dataset(raw, identifier=path.stem)
 
 
@@ -109,7 +122,8 @@ def _load_datasets_from_dir(data_dir: str) -> Mapping[str, Dataset]:
     for file_path in sorted(directory.iterdir()):
         if file_path.suffix.lower() == ".json":
             dataset = _load_dataset_from_file(file_path)
-            datasets[file_path.stem] = dataset
+            if dataset is not None:
+                datasets[file_path.stem] = dataset
     return datasets
 
 

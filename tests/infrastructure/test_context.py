@@ -159,9 +159,15 @@ class TestLoadDatasetFromFile:
 
     def test_missing_required_field_raises_key_error(self, tmp_path: Path) -> None:
         file_path = tmp_path / "incomplete.json"
-        file_path.write_text(json.dumps({"version": "x"}), encoding="utf-8")
+        file_path.write_text(json.dumps({"version": "x", "frequency": "monthly"}), encoding="utf-8")
         with pytest.raises(KeyError):
             _load_dataset_from_file(file_path)
+
+    def test_non_dataset_json_returns_none(self, tmp_path: Path) -> None:
+        file_path = tmp_path / "not_a_dataset.json"
+        file_path.write_text(json.dumps({"version": "x"}), encoding="utf-8")
+        result = _load_dataset_from_file(file_path)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

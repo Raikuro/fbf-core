@@ -6,7 +6,7 @@ metadata:
     SWR 50% TV. 30-year and 6-year horizons. Equity allocations 10-100% in 10%/25%/50%/75%/100%
     grid. CAPE regimes <15, 15-20, 20-30, 30+. Based on Shiller data from ie_data.xls.'
 dataset:
-  identifier: ern_cape_1871_2016
+  identifier: ern_swr_h720
 cohorts:
   horizon_years:
   - 30
@@ -25,6 +25,4 @@ withdrawal_policy:
   - 0.04
   - 0.035
   - 0.0325
-final_value_target_values:
-- 0.0
-- 0.5
+final_value_target: [0.0, 0.5]

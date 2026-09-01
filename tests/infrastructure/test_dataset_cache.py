@@ -298,3 +298,143 @@ class TestPersistenceContextReuse:
 
         assert resolved is via_context
         assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# C6.2 — Dataset / non-Dataset artifact boundary
+# ---------------------------------------------------------------------------
+
+
+class TestArtifactBoundary:
+    """Verify that _load_datasets_from_dir skips non-Dataset JSON artifacts."""
+
+    def test_non_dataset_json_is_ignored(self, tmp_path: Path) -> None:
+        """A JSON file without frequency/snapshots must not be loaded as a Dataset."""
+        (tmp_path / "cohort_manifest.json").write_text(
+            json.dumps({"version": "1.0", "cohorts": []}), encoding="utf-8"
+        )
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+
+        cache = DatasetCache()
+        datasets = cache.load_dir(str(tmp_path))
+
+        assert "ds_a" in datasets
+        assert "cohort_manifest" not in datasets
+
+    def test_provenance_json_is_ignored(self, tmp_path: Path) -> None:
+        """A provenance metadata JSON must not be loaded as a Dataset."""
+        (tmp_path / "ern_real_returns.provenance.json").write_text(
+            json.dumps({"source": "test", "sha256": "abc"}), encoding="utf-8"
+        )
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+
+        cache = DatasetCache()
+        datasets = cache.load_dir(str(tmp_path))
+
+        assert "ds_a" in datasets
+        assert "ern_real_returns.provenance" not in datasets
+
+    def test_cohort_manifest_json_is_ignored(self, tmp_path: Path) -> None:
+        """The cohort_manifest_part3.json structure must not be loaded as a Dataset."""
+        manifest = {
+            "version": "1.0",
+            "description": "Part 3 cohort manifest",
+            "cohort_range": {"first": "1871-02-01", "last": "2015-12-01", "total": 1739},
+        }
+        (tmp_path / "cohort_manifest_part3.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+
+        cache = DatasetCache()
+        datasets = cache.load_dir(str(tmp_path))
+
+        assert "ds_a" in datasets
+        assert "cohort_manifest_part3" not in datasets
+
+    def test_valid_dataset_json_still_loads(self, tmp_path: Path) -> None:
+        """A valid Dataset JSON must continue to load correctly."""
+        _write_dataset_file(tmp_path, "ds_valid", [_snapshot(1), _snapshot(2)], version="V")
+
+        cache = DatasetCache()
+        datasets = cache.load_dir(str(tmp_path))
+
+        assert "ds_valid" in datasets
+        assert datasets["ds_valid"].version == "V"
+        assert len(datasets["ds_valid"]) == 2
+
+    def test_multiple_valid_datasets_resolve(self, tmp_path: Path) -> None:
+        """Multiple valid Dataset files must all be loaded and resolvable."""
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+        _write_dataset_file(tmp_path, "ds_b", [_snapshot(2)], version="B")
+        (tmp_path / "skipped.json").write_text(
+            json.dumps({"not": "a dataset"}), encoding="utf-8"
+        )
+
+        cache = DatasetCache()
+        datasets = cache.load_dir(str(tmp_path))
+
+        assert set(datasets) == {"ds_a", "ds_b"}
+        assert datasets["ds_a"].version == "A"
+        assert datasets["ds_b"].version == "B"
+
+    def test_malformed_dataset_file_raises(self, tmp_path: Path) -> None:
+        """A JSON file that has frequency but missing snapshots must raise."""
+        (tmp_path / "broken.json").write_text(
+            json.dumps({"version": "1.0", "frequency": "monthly"}),
+            encoding="utf-8",
+        )
+        cache = DatasetCache()
+        with pytest.raises((StudyNotFoundError, KeyError, TypeError)):
+            cache.load_dir(str(tmp_path))
+
+    def test_empty_directory_returns_empty_mapping(self, tmp_path: Path) -> None:
+        """An empty directory must return an empty dataset mapping."""
+        cache = DatasetCache()
+        datasets = cache.load_dir(str(tmp_path))
+        assert dict(datasets) == {}
+
+    def test_non_json_files_are_ignored(self, tmp_path: Path) -> None:
+        """CSV and other non-JSON files must be silently skipped."""
+        (tmp_path / "data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+        (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+        _write_dataset_file(tmp_path, "ds_a", [_snapshot(1)], version="A")
+
+        cache = DatasetCache()
+        datasets = cache.load_dir(str(tmp_path))
+
+        assert set(datasets) == {"ds_a"}
+
+
+@pytest.mark.skipif(not ERN_DATA_DIR.is_dir(), reason="ERN data directory not present")
+class TestErnArtifactBoundary:
+    """Verify the fix against the real data/ern/ directory."""
+
+    def test_ern_dir_loads_only_datasets(self) -> None:
+        """data/ern/ must load only valid Datasets, skipping manifest/provenance."""
+        cache = DatasetCache()
+        datasets = cache.load_dir(str(ERN_DATA_DIR))
+
+        known_datasets = {
+            "ern_swr_h360", "ern_swr_h480", "ern_swr_h600",
+            "ern_swr_h720", "ern_cape_1871_2016",
+        }
+        assert set(datasets.keys()) >= known_datasets
+        assert "cohort_manifest_part3" not in datasets
+        assert "ern_real_returns_1871_2016.provenance" not in datasets
+
+    def test_ern_h720_resolves_after_boundary_fix(self) -> None:
+        """ern_swr_h720 must resolve correctly after the artifact boundary fix."""
+        from fbf.core.study.builder import resolve_dataset
+
+        h720 = resolve_dataset("ern_swr_h720", str(ERN_DATA_DIR))
+        assert h720 is not None
+        assert len(h720) > 0
+
+    def test_ern_h360_resolves_after_boundary_fix(self) -> None:
+        """ern_swr_h360 must resolve correctly after the artifact boundary fix."""
+        from fbf.core.study.builder import resolve_dataset
+
+        h360 = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
+        assert h360 is not None
+        assert len(h360) > 0
