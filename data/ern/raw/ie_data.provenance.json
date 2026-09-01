@@ -1,0 +1,59 @@
+{
+  "source": {
+    "name": "Shiller Irrational Exuberance Dataset",
+    "author": "Robert J. Shiller",
+    "institution": "Yale School of Management",
+    "url": "http://www.econ.yale.edu/~shiller/data/ie_data.xls",
+    "format": "CSV (converted from XLS; European decimal commas: comma as decimal separator, period as thousands)",
+    "description": "Monthly stock price, dividends, earnings, CPI, CAPE (P/E10), TR CAPE, real returns since 1871"
+  },
+  "acquisition": {
+    "acquired_at": "2026-09-01",
+    "acquired_by": "FBF research workflow",
+    "method": "Local file copy from /home/raikuro/Escritorio/ie_data.csv",
+    "original_location": "/home/raikuro/Escritorio/ie_data.csv",
+    "vintage": "unknown — this is a 2026 snapshot, not confirmed as the 2016-era version ERN used"
+  },
+  "content": {
+    "original_date_range": "1871-01 to 2023-09",
+    "used_date_range": "1871-01 to 2016-09 (for Part 3 replication)",
+    "row_count": 1833,
+    "columns": [
+      {"index": 0, "name": "Date", "description": "Month,Year format"},
+      {"index": 1, "name": "P", "description": "S&P Composite nominal price"},
+      {"index": 2, "name": "D", "description": "S&P Composite nominal dividend"},
+      {"index": 3, "name": "E", "description": "S&P Composite nominal earnings"},
+      {"index": 4, "name": "CPI", "description": "Consumer Price Index"},
+      {"index": 5, "name": "Fraction", "description": "Date fraction"},
+      {"index": 6, "name": "Rate GS10", "description": "10-year Treasury interest rate"},
+      {"index": 7, "name": "Price", "description": "Real price index"},
+      {"index": 8, "name": "Dividend", "description": "Real dividend"},
+      {"index": 9, "name": "Price", "description": "Real total return price"},
+      {"index": 10, "name": "Earnings", "description": "Real earnings"},
+      {"index": 11, "name": "Earnings", "description": "Scaled real earnings"},
+      {"index": 12, "name": "CAPE", "description": "Cyclically Adjusted Price-to-Earnings (P/E10)"},
+      {"index": 13, "name": "", "description": "Empty column"},
+      {"index": 14, "name": "TR CAPE", "description": "Total Return CAPE"},
+      {"index": 15, "name": "", "description": "Empty column"},
+      {"index": 16, "name": "Yield", "description": "Excess CAPE yield"},
+      {"index": 17, "name": "Returns", "description": "Monthly excess returns"},
+      {"index": 18, "name": "Returns", "description": "Real total return"},
+      {"index": 19, "name": "Real Return", "description": "10-year annualized stock real return"},
+      {"index": 20, "name": "Real Return", "description": "10-year annualized bond real return"},
+      {"index": 21, "name": "Returns", "description": "Excess annualized returns"}
+    ],
+    "october_observations": 0,
+    "notes": "No October observations exist across the entire date range. This is a source-level property of the Shiller dataset, not an FBF ingestion error."
+  },
+  "integrity": {
+    "sha256": "ac5d25734dcd0cc68d05489a019abd5f834bdb4b04f61028a6adbbb6f0004be2",
+    "md5": "e879452781d03804c2b0009d5380f196",
+    "file_size_bytes": 328805
+  },
+  "relationships": {
+    "to_ern_real_returns_1871_2016.csv": "Derived: columns 9 (real total return price) and 6 (10-year Treasury) were extracted and converted to monthly real returns",
+    "to_ern_cape_1871_2016.json": "Should be derived from column 12 (CAPE/P/E10) — but existing FBF CAPE file has 142 unexplained January mismatches",
+    "to_ern_swr_h720.json": "Indirect: real returns from this source were used to build the SWR simulation dataset with forward projections"
+  },
+  "historical_vintage_note": "This file was acquired in September 2026. The Shiller dataset is periodically updated and revised. The exact version ERN used in December 2016 cannot be confirmed from available evidence. The 2016 Wayback Machine copy of the Shiller XLS has identical January CAPE values to this 2026 snapshot, confirming that Shiller has not revised historical January CAPE between 2016 and 2026. However, the existing FBF CAPE file (ern_cape_1871_2016.json) has 142 January values that differ from BOTH the 2016 and 2026 Shiller snapshots, indicating the FBF CAPE file was not derived from either version."
+}

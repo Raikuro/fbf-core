@@ -411,3 +411,110 @@ class TestPart3ErnIntegration:
         assert regimes["MODERATE"] == 470
         assert regimes["HIGH"] == 330
         assert regimes["EXTREME"] == 53
+
+
+# ---------------------------------------------------------------------------
+# Manifest index convention regression tests (C6.7.1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not MANIFEST_PATH.is_file(), reason="Manifest not present")
+@pytest.mark.skipif(not H720_PATH.is_file(), reason="h720 not present")
+class TestManifestIndexConvention:
+    """Regression tests proving the manifest's start_month_index convention
+    and corrected max_horizon computation.
+
+    The manifest uses start_month_index = trajectory_index - 1.
+    max_horizon = n_snapshots - trajectory_index = n_snapshots - (start_month_index + 1).
+    """
+
+    def test_start_month_index_offset(self) -> None:
+        """start_month_index is trajectory_index - 1 for all cohorts."""
+        from fbf.core.study.builder import resolve_dataset
+
+        manifest = load_manifest(MANIFEST_PATH)
+        dataset = resolve_dataset("ern_swr_h720", "data/ern")
+        traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
+
+        for entry in manifest.cohorts:
+            traj_idx = traj_date_to_idx[entry.cohort_date]
+            assert entry.start_month_index == traj_idx - 1, (
+                f"{entry.cohort_date}: start_month_index={entry.start_month_index} "
+                f"but trajectory_index={traj_idx}"
+            )
+
+    def test_max_horizon_formula(self) -> None:
+        """max_horizon = n_snapshots - trajectory_index for all cohorts."""
+        from fbf.core.study.builder import resolve_dataset
+
+        manifest = load_manifest(MANIFEST_PATH)
+        dataset = resolve_dataset("ern_swr_h720", "data/ern")
+        n = len(dataset)
+        traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
+
+        for entry in manifest.cohorts:
+            traj_idx = traj_date_to_idx[entry.cohort_date]
+            expected = n - traj_idx
+            assert entry.max_horizon_months == expected, (
+                f"{entry.cohort_date}: max_horizon={entry.max_horizon_months} "
+                f"but expected {expected} (n={n}, traj_idx={traj_idx})"
+            )
+
+    def test_first_cohort_max_horizon(self) -> None:
+        """1871-02-01: trajectory index 1, max_horizon = 2459 - 1 = 2458."""
+        manifest = load_manifest(MANIFEST_PATH)
+        first = manifest.cohorts[0]
+        assert first.cohort_date == "1871-02-01"
+        assert first.max_horizon_months == 2458
+
+    def test_2015_10_01_max_horizon(self) -> None:
+        """2015-10-01: trajectory index 1737, max_horizon = 2459 - 1737 = 722."""
+        manifest = load_manifest(MANIFEST_PATH)
+        entry = [c for c in manifest.cohorts if c.cohort_date == "2015-10-01"][0]
+        assert entry.max_horizon_months == 722
+
+    def test_2015_11_01_max_horizon(self) -> None:
+        """2015-11-01: trajectory index 1738, max_horizon = 2459 - 1738 = 721."""
+        manifest = load_manifest(MANIFEST_PATH)
+        entry = [c for c in manifest.cohorts if c.cohort_date == "2015-11-01"][0]
+        assert entry.max_horizon_months == 721
+
+    def test_2015_12_01_max_horizon(self) -> None:
+        """2015-12-01: trajectory index 1739, max_horizon = 2459 - 1739 = 720."""
+        manifest = load_manifest(MANIFEST_PATH)
+        entry = [c for c in manifest.cohorts if c.cohort_date == "2015-12-01"][0]
+        assert entry.max_horizon_months == 720
+
+    def test_60y_eligibility_count(self) -> None:
+        """1,738 cohorts have max_horizon >= 721 (full 60-year eligibility)."""
+        manifest = load_manifest(MANIFEST_PATH)
+        eligible = sum(1 for c in manifest.cohorts if c.max_horizon_months >= 721)
+        assert eligible == 1738
+
+    def test_2015_12_01_truncated_for_60y(self) -> None:
+        """2015-12-01 has max_horizon=720, one month short of 721 (60-year)."""
+        manifest = load_manifest(MANIFEST_PATH)
+        entry = [c for c in manifest.cohorts if c.cohort_date == "2015-12-01"][0]
+        assert entry.max_horizon_months == 720
+        assert entry.max_horizon_months < 721
+
+    def test_no_systematic_offset(self) -> None:
+        """max_horizon - (n_snapshots - trajectory_index) == 0 for all cohorts."""
+        from fbf.core.study.builder import resolve_dataset
+
+        manifest = load_manifest(MANIFEST_PATH)
+        dataset = resolve_dataset("ern_swr_h720", "data/ern")
+        n = len(dataset)
+        traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
+
+        for entry in manifest.cohorts:
+            traj_idx = traj_date_to_idx[entry.cohort_date]
+            correct = n - traj_idx
+            assert entry.max_horizon_months == correct, (
+                f"{entry.cohort_date}: off by {entry.max_horizon_months - correct}"
+            )
+
+    def test_horizon_eligibility_h720(self) -> None:
+        """h720 eligibility = 1739 (all cohorts have max_horizon >= 720)."""
+        manifest = load_manifest(MANIFEST_PATH)
+        assert manifest.statistics["horizon_eligibility"]["h720"] == 1739
