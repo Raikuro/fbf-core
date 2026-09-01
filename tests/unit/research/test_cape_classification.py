@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from decimal import Decimal
+
+import pytest
+
 from fbf.core.domain.policies.cape_regime import (
+    BOUNDARY_TEST_CASES,
     CapeRegime,
+    CapeRegimeClassification,
     classify_cape_regime,
     classify_cape_regime_from_decimal_string,
-    BOUNDARY_TEST_CASES,
-    CapeRegimeClassification,
 )
 
 
@@ -89,11 +92,8 @@ class TestCapeRegimeClassification:
 
     def test_negative_raises(self) -> None:
         """Negative CAPE should raise ValueError"""
-        try:
+        with pytest.raises(ValueError):
             classify_cape_regime(Decimal("-1.00"))
-            assert False, "Should have raised ValueError"
-        except ValueError:
-            pass
 
     def test_zero_is_below_15(self) -> None:
         """0.00 -> <15 (edge case)"""
@@ -117,7 +117,9 @@ class TestCapeRegimeCapeRegimeClassification:
 
     def test_creation(self) -> None:
         """Can create CapeRegimeClassification instances."""
-        classification = CapeRegimeClassification(regime=CapeRegime.BELOW_15, cape_value=Decimal("12.5"))
+        classification = CapeRegimeClassification(
+            regime=CapeRegime.BELOW_15, cape_value=Decimal("12.5")
+        )
         assert classification.regime == CapeRegime.BELOW_15
         assert classification.cape_value == Decimal("12.5")
 

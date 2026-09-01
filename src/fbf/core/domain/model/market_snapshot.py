@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from .asset import AssetClass
 
@@ -34,4 +34,6 @@ class MarketSnapshot:
             try:
                 Decimal(str(self.cape))
             except (InvalidOperation, ValueError):
-                raise ValueError("MarketSnapshot cape must be a valid Decimal")
+                raise ValueError(
+                    "MarketSnapshot cape must be a valid Decimal"
+                ) from None

@@ -21,10 +21,9 @@ never future CAPE values, to avoid look-ahead bias.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum, auto
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from enum import Enum, auto
 
 
 class CapeRegime(Enum):
@@ -53,7 +52,7 @@ class CapeRegimeClassification:
     """
 
     regime: CapeRegime
-    cape_value: Optional[Decimal] = None
+    cape_value: Decimal | None = None
 
 
 def classify_cape_regime(cape: Decimal) -> CapeRegime:
@@ -144,4 +143,6 @@ BOUNDARY_TEST_CASES = [
 # Assert all boundary test cases pass at import time
 for cape_str, expected in BOUNDARY_TEST_CASES:
     actual, _ = classify_cape_regime_from_decimal_string(cape_str)
-    assert actual == expected, f"Boundary test failed: {cape_str} -> {actual}, expected {expected}"
+    assert actual == expected, (
+        f"Boundary test failed: {cape_str} -> {actual}, expected {expected}"
+    )

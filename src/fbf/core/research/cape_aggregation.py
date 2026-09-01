@@ -11,13 +11,13 @@ CapeRegimeClassification module.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
 from fbf.core.domain.policies.cape_regime import (
     CapeRegime,
     classify_cape_regime,
-    CapeRegimeClassification,
 )
 
 
@@ -25,7 +25,7 @@ def aggregate_success_rates(
     simulation_results: tuple[Any, ...],
     param_configs: tuple[Any, ...],
     cohorts: tuple[Any, ...],
-    get_cape_for_cohort: callable,
+    get_cape_for_cohort: Callable[[Any], Decimal | None],
 ) -> list[dict[str, Any]]:
     """Aggregate simulation results by CAPE regime, equity allocation,
     horizon, withdrawal rate, and terminal value target.
@@ -73,7 +73,7 @@ def aggregate_success_rates(
         )
 
     # Aggregation container: key -> (successful_count, total_count)
-    # Key format: (horizon_years, equity_allocation, withdrawal_rate, 
+    # Key format: (horizon_years, equity_allocation, withdrawal_rate,
     #              terminal_target, cape_regime)
     agg: dict[
         tuple[int, Decimal, Decimal, Decimal | None, CapeRegime],
@@ -82,7 +82,7 @@ def aggregate_success_rates(
 
     # Process each unit
     for result, param_config, cohort in zip(
-        simulation_results, param_configs, cohorts
+        simulation_results, param_configs, cohorts, strict=True
     ):
         # Get horizon from parameter config
         horizon_years = int(param_config.get("horizon_years", 0))
@@ -90,19 +90,18 @@ def aggregate_success_rates(
         # Get parameter values
         equity_allocation = Decimal(str(param_config.get("equity_allocation", "0")))
         withdrawal_rate = Decimal(str(param_config.get("withdrawal_rate", "0")))
-        terminal_target = Decimal(str(param_config.get("final_value_target", "0"))) if param_config.get(
-            "final_value_target"
-        ) is not None else None
+        raw_target = param_config.get("final_value_target")
+        terminal_target = (
+            Decimal(str(raw_target)) if raw_target is not None else None
+        )
 
         # Classify CAPE regime
         cape_value = get_cape_for_cohort(cohort)
-        if cape_value is not None:
-            regime = classify_cape_regime(cape_value)
-        else:
-            # If CAPE is unavailable, use a special "unknown" regime
-            # or skip. For now, we'll use BELOW_15 as default for
-            # missing CAPE, but this should be configured by the caller.
-            regime = CapeRegime.BELOW_15
+        regime = (
+            classify_cape_regime(cape_value)
+            if cape_value is not None
+            else CapeRegime.BELOW_15
+        )
 
         # Determine success from the simulation result
         # The Statistics.success field indicates success/failure
@@ -173,9 +172,6 @@ def _is_simulation_successful(result: Any) -> bool:
         True if the simulation was successful, False otherwise.
     """
     # Check the statistics for success flag
-    # The SimulationStatistics has a 'success' field
-    from fbf.core.execution.pipeline.simulation import SimulationStatistics
-
     if hasattr(result, "statistics") and result.statistics is not None:
         stats = result.statistics
         if hasattr(stats, "success"):
@@ -221,9 +217,6 @@ def _determine_experiment_name(
     horizon_str = f"{horizon_years}y"
 
     # Format rate as "4pct" or "3pct5"
-    if rate_pct == int(rate_pct):
-        rate_str = f"{int(rate_pct)}pct"
-    else:
-        rate_str = f"{rate_pct}pct"
+    rate_str = f"{int(rate_pct)}pct" if rate_pct == int(rate_pct) else f"{rate_pct}pct"
 
     return f"{rate_str}_{target_str}_{horizon_str}"
