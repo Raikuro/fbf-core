@@ -76,14 +76,9 @@ def _minimal_plan_result(
     validation (which requires PlannedSimulationUnit objects).  The
     adapter only reads ``plan.experiment_definition``.
 
-    ``cohorts`` and ``param_configs`` must be the same length (one
-    entry per simulation unit).
+    ``cohorts`` and ``param_configs`` may have different lengths (the
+    planner produces a cross-product).
     """
-    if len(cohorts) != len(param_configs):
-        raise ValueError(
-            f"cohorts ({len(cohorts)}) and param_configs ({len(param_configs)}) "
-            f"must have the same length"
-        )
 
     mock_exp = _mock_experiment_def()
     mock_plan = MagicMock(spec=ResearchPlan)
@@ -312,7 +307,7 @@ class TestExecutePart3Pipeline:
     def test_multiple_regimes(self, mock_exec: Any) -> None:
         """Pipeline aggregates multiple regimes correctly."""
         cohorts = [_cohort("1980-01-01"), _cohort("1990-01-01")]
-        params = [_params(30, "1.0", "0.04"), _params(30, "1.0", "0.04")]
+        params = [_params(30, "1.0", "0.04")]  # single param config
         cape = {
             _D("1980-01-01"): (Decimal("25"), "HIGH"),
             _D("1990-01-01"): (Decimal("12"), "BELOW_15"),

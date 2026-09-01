@@ -102,7 +102,8 @@ def aggregate_part3_results(
     cohorts:
         Ordered tuple of cohort specifications, one per simulation run.
     param_configs:
-        Ordered tuple of parameter configurations, one per simulation run.
+        Ordered tuple of parameter configurations.  Either one per cohort
+        (1:1 mapping) or a single configuration broadcast to all cohorts.
     simulation_results:
         Ordered tuple of ``SimulationResult`` objects from engine
         execution.  Must be index-aligned with *cohorts*.
@@ -121,6 +122,10 @@ def aggregate_part3_results(
     ValueError
         If input sequences have mismatched lengths.
     """
+    # Broadcast a single param_config to all cohorts
+    if len(param_configs) == 1 and len(cohorts) > 1:
+        param_configs = param_configs * len(cohorts)
+
     if not (len(cohorts) == len(param_configs) == len(simulation_results)):
         raise ValueError(
             f"Input sequences must have matching lengths: "
@@ -150,10 +155,12 @@ def aggregate_part3_results(
         # Look up CAPE metadata from the manifest
         _cape_value, cape_regime_str = get_cape_metadata(cohort)
         if cape_regime_str is None:
-            regime = CapeRegime.BELOW_15
+            # CAPE-unavailable cohorts are excluded from regime statistics.
+            # They are counted separately in excluded_no_cape but never
+            # assigned an artificial regime.
             excluded_no_cape += 1
-        else:
-            regime = CapeRegime[cape_regime_str]
+            continue
+        regime = CapeRegime[cape_regime_str]
 
         # Determine success from simulation statistics
         successful = (

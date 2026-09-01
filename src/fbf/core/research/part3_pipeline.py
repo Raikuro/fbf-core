@@ -115,9 +115,35 @@ def execute_part3_pipeline(
     execution_result = execute_study_plan(builtin, options)
 
     # Step 3: Aggregate by CAPE regime
+    # The planner produces units in cohort-major order:
+    # for each cohort, all param_configs are applied.
+    # Replicate cohorts and params to match per-unit execution results.
+    n_cohorts = len(plan_result.cohorts)
+    n_params = len(plan_result.param_configs)
+    expected_units = n_cohorts * n_params
+    actual_units = len(execution_result.results)
+
+    if expected_units == actual_units:
+        # Cross-product structure: replicate to per-unit alignment
+        per_unit_cohorts = tuple(
+            c for c in plan_result.cohorts for _ in range(n_params)
+        )
+        per_unit_params = tuple(
+            p for _ in range(n_cohorts) for p in plan_result.param_configs
+        )
+    elif n_cohorts == actual_units:
+        # 1:1 structure (e.g. single param config already broadcast)
+        per_unit_cohorts = plan_result.cohorts
+        per_unit_params = plan_result.param_configs * n_cohorts
+    else:
+        raise ValueError(
+            f"Cannot reconcile plan structure: {n_cohorts} cohorts, "
+            f"{n_params} param_configs, {actual_units} results"
+        )
+
     aggregation = aggregate_part3_results(
-        cohorts=plan_result.cohorts,
-        param_configs=plan_result.param_configs,
+        cohorts=per_unit_cohorts,
+        param_configs=per_unit_params,
         simulation_results=execution_result.results,
         get_cape_metadata=plan_result.get_cape_metadata,
     )

@@ -494,3 +494,228 @@ class TestPart3AggregationResult:
             excluded_no_cape=0,
         )
         assert agg.regimes == ()
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: CAPE-unavailable cohort exclusion
+# ---------------------------------------------------------------------------
+
+
+class TestCapeUnavailableExclusion:
+    """Regression tests ensuring CAPE-unavailable cohorts are never
+    assigned an artificial regime and do not bias regime statistics."""
+
+    def test_no_cape_cohort_excluded_from_regimes(self) -> None:
+        """A cohort without CAPE metadata must not appear in any regime."""
+        cohorts = [_cohort("1870-01-01")]
+        params = [_params(30, "1.0", "0.04")]
+        cape: dict[date, tuple[Decimal | None, str | None]] = {
+            _D("1870-01-01"): (None, None),
+        }
+        results = [_result(True)]
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        assert agg.excluded_no_cape == 1
+        assert agg.total_units == 1
+        total_in_regimes = sum(a.total_cohorts for a in agg.regime_aggregations)
+        assert total_in_regimes == 0
+
+    def test_mixed_cape_and_no_cape(self) -> None:
+        """Only CAPE-available cohorts contribute to regime statistics."""
+        cohorts = [
+            _cohort("1980-01-01"),  # CAPE available
+            _cohort("1870-01-01"),  # CAPE unavailable
+            _cohort("1990-01-01"),  # CAPE available
+        ]
+        params = [_params(30, "1.0", "0.04")] * 3
+        cape = {
+            _D("1980-01-01"): (Decimal("25"), "HIGH"),
+            _D("1870-01-01"): (None, None),
+            _D("1990-01-01"): (Decimal("12"), "BELOW_15"),
+        }
+        results = [_result(True), _result(True), _result(False)]
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        assert agg.total_units == 3
+        assert agg.excluded_no_cape == 1
+        total_in_regimes = sum(a.total_cohorts for a in agg.regime_aggregations)
+        assert total_in_regimes == 2
+
+        regimes = {a.cape_regime: a for a in agg.regime_aggregations}
+        assert regimes[CapeRegime.HIGH].total_cohorts == 1
+        assert regimes[CapeRegime.BELOW_15].total_cohorts == 1
+
+    def test_regime_populations_sum_to_cape_eligible(self) -> None:
+        """Regime totals must equal CAPE-eligible count, not total count."""
+        cohorts = [
+            _cohort("1980-01-01"),  # HIGH
+            _cohort("1985-01-01"),  # MODERATE
+            _cohort("1870-01-01"),  # no CAPE
+            _cohort("1975-01-01"),  # BELOW_15
+        ]
+        params = [_params(30, "1.0", "0.04")] * 4
+        cape = {
+            _D("1980-01-01"): (Decimal("25"), "HIGH"),
+            _D("1985-01-01"): (Decimal("18"), "MODERATE"),
+            _D("1870-01-01"): (None, None),
+            _D("1975-01-01"): (Decimal("12"), "BELOW_15"),
+        }
+        results = [_result(True)] * 4
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        regime_total = sum(a.total_cohorts for a in agg.regime_aggregations)
+        cape_eligible = len(cohorts) - agg.excluded_no_cape
+        assert regime_total == cape_eligible
+        assert regime_total == 3  # not 4
+
+    def test_no_cape_cannot_become_below_15(self) -> None:
+        """Verify that a no-CAPE cohort never creates a BELOW_15 entry."""
+        cohorts = [_cohort("1870-01-01")]
+        params = [_params(30, "1.0", "0.04")]
+        cape: dict[date, tuple[Decimal | None, str | None]] = {
+            _D("1870-01-01"): (None, None),
+        }
+        results = [_result(True)]
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        for a in agg.regime_aggregations:
+            assert a.cape_regime != CapeRegime.BELOW_15 or a.total_cohorts == 0
+
+    def test_all_no_cape_empty_regimes(self) -> None:
+        """When all cohorts lack CAPE, no regime entries are produced."""
+        cohorts = [_cohort("1870-01-01"), _cohort("1871-01-01")]
+        params = [_params(30, "1.0", "0.04"), _params(30, "1.0", "0.04")]
+        cape: dict[date, tuple[Decimal | None, str | None]] = {
+            _D("1870-01-01"): (None, None),
+            _D("1871-01-01"): (None, None),
+        }
+        results = [_result(True), _result(True)]
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        assert agg.excluded_no_cape == 2
+        assert len(agg.regime_aggregations) == 0
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: multi-parameter cross-product
+# ---------------------------------------------------------------------------
+
+
+class TestMultiParameterCrossProduct:
+    """Regression tests for multi-parameter aggregation correctness."""
+
+    def test_cross_product_preserves_all_cells(self) -> None:
+        """Two cohorts × two params produce the correct cross-product."""
+        cohorts = [_cohort("1980-01-01"), _cohort("1990-01-01")]
+        params = [_params(30, "1.0", "0.04"), _params(40, "0.6", "0.03")]
+        cape = {
+            _D("1980-01-01"): (Decimal("25"), "HIGH"),
+            _D("1990-01-01"): (Decimal("12"), "BELOW_15"),
+        }
+        # Replicate for cross-product: 2 cohorts × 2 params = 4 units
+        replicated_cohorts = tuple(c for c in cohorts for _ in range(2))
+        replicated_params = tuple(p for _ in range(2) for p in params)
+        results = [_result(True), _result(True), _result(False), _result(False)]
+
+        agg = aggregate_part3_results(
+            replicated_cohorts, replicated_params, results, _make_get_cape(cape)
+        )
+
+        # Should produce 4 cells: 2 regimes × 2 horizons
+        assert len(agg.regime_aggregations) == 4
+        # Each cell has exactly 1 cohort
+        for a in agg.regime_aggregations:
+            assert a.total_cohorts == 1
+
+    def test_cross_product_correct_regime_assignment(self) -> None:
+        """Each cell gets the correct regime from its cohort's CAPE metadata."""
+        cohorts = [_cohort("1980-01-01"), _cohort("1990-01-01")]
+        params = [_params(30, "1.0", "0.04"), _params(30, "1.0", "0.04")]
+        cape = {
+            _D("1980-01-01"): (Decimal("25"), "HIGH"),
+            _D("1990-01-01"): (Decimal("12"), "BELOW_15"),
+        }
+        # Replicate: 2 cohorts × 2 params = 4 units
+        replicated_cohorts = tuple(c for c in cohorts for _ in range(2))
+        replicated_params = tuple(p for _ in range(2) for p in params)
+        results = [_result(True)] * 4
+
+        agg = aggregate_part3_results(
+            replicated_cohorts, replicated_params, results, _make_get_cape(cape)
+        )
+
+        by_regime = {a.cape_regime: a for a in agg.regime_aggregations}
+        assert by_regime[CapeRegime.HIGH].total_cohorts == 2
+        assert by_regime[CapeRegime.BELOW_15].total_cohorts == 2
+
+    def test_broadcast_single_param(self) -> None:
+        """Single param config broadcasts to all cohorts."""
+        cohorts = [_cohort("1980-01-01"), _cohort("1990-01-01")]
+        params = [_params(30, "1.0", "0.04")]  # single config
+        cape = {
+            _D("1980-01-01"): (Decimal("25"), "HIGH"),
+            _D("1990-01-01"): (Decimal("12"), "BELOW_15"),
+        }
+        results = [_result(True), _result(True)]
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        # Single param means same (horizon, equity, withdrawal) for both
+        # but different regimes
+        assert len(agg.regime_aggregations) == 2
+        assert agg.total_units == 2
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: horizon-specific eligibility
+# ---------------------------------------------------------------------------
+
+
+class TestHorizonEligibility:
+    """Regression tests for horizon-specific cohort eligibility."""
+
+    def test_different_horizons_create_separate_groups(self) -> None:
+        """Different horizons produce distinct aggregation cells."""
+        cohorts = [_cohort("1980-01-01"), _cohort("1980-01-01")]
+        params = [_params(30, "1.0", "0.04"), _params(40, "1.0", "0.04")]
+        cape = {_D("1980-01-01"): (Decimal("25"), "HIGH")}
+        results = [_result(True), _result(True)]
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        horizons = {a.horizon_years for a in agg.regime_aggregations}
+        assert horizons == {30, 40}
+
+    def test_horizon_cells_independent(self) -> None:
+        """Success in one horizon doesn't affect another."""
+        cohorts = [_cohort("1980-01-01"), _cohort("1980-01-01")]
+        params = [_params(30, "1.0", "0.04"), _params(40, "1.0", "0.04")]
+        cape = {_D("1980-01-01"): (Decimal("25"), "HIGH")}
+        results = [_result(True), _result(False)]  # 30y succeeds, 40y fails
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        by_horizon = {a.horizon_years: a for a in agg.regime_aggregations}
+        assert by_horizon[30].successful_cohorts == 1
+        assert by_horizon[40].successful_cohorts == 0
