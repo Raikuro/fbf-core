@@ -233,3 +233,249 @@ class TestLoadYamlError:
         finally:
             if yaml_module is not None:
                 sys.modules["yaml"] = yaml_module
+
+
+class TestExplicitConfigurations:
+    """Tests for the ``configurations`` (explicit) mode in StudyConfiguration."""
+
+    BASE_YAML = {
+        "metadata": {"name": "test-explicit", "description": "explicit config test"},
+        "dataset": {"identifier": "ern_swr_h720"},
+        "cohorts": {"horizon_years": [10, 20]},
+        "allocation_policy": {
+            "type": "ConstantAllocationPolicy",
+        },
+        "withdrawal_policy": {
+            "type": "FixedRealWithdrawalPolicy",
+            "withdrawal_rate": [0.04],
+        },
+    }
+
+    def test_from_yaml_explicit_configurations_populated(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [
+                    {"equity_allocation": "0.6"},
+                    {"equity_allocation": "0.8"},
+                ],
+            },
+        }
+        config = StudyConfiguration.from_yaml(data)
+        assert config.explicit_configurations is not None
+        assert len(config.explicit_configurations) == 2
+
+    def test_mutual_exclusivity_rejects_configurations_with_axis(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [{"equity_allocation": "0.6"}],
+                "equity_allocation": ["0.5", "0.7"],
+            },
+        }
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            StudyConfiguration.from_yaml(data)
+
+    def test_mutual_exclusivity_rejects_configurations_with_gp_axis(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "GlidepathAllocationPolicy",
+                "configurations": [
+                    {"start_equity": 0.8, "end_equity": 0.5, "slope": 0.01, "mode": "active"},
+                ],
+                "start_equity": ["0.8", "0.9"],
+            },
+        }
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            StudyConfiguration.from_yaml(data)
+
+    def test_build_configs_explicit_produces_correct_count(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [
+                    {"equity_allocation": "0.6"},
+                    {"equity_allocation": "0.8"},
+                ],
+            },
+        }
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        # 2 configs × 2 horizons × 1 withdrawal = 4
+        assert len(configs) == 4
+
+    def test_build_configs_explicit_cross_horizons(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = {
+            **self.BASE_YAML,
+            "cohorts": {"horizon_years": [5, 10, 20]},
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [{"equity_allocation": "0.7"}],
+            },
+        }
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        horizons = {pc.values["horizon_years"] for pc in configs}
+        assert horizons == {5, 10, 20}
+
+    def test_build_configs_explicit_cross_withdrawal(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = {
+            **self.BASE_YAML,
+            "withdrawal_policy": {
+                "type": "FixedRealWithdrawalPolicy",
+                "withdrawal_rate": [0.03, 0.04],
+            },
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [{"equity_allocation": "0.7"}],
+            },
+        }
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        wrates = {pc.values["withdrawal_rate"] for pc in configs}
+        assert wrates == {0.03, 0.04}
+
+    def test_build_configs_explicit_cross_final_value_target(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [{"equity_allocation": "0.7"}],
+            },
+            "final_value_target": [0.0, 0.5],
+        }
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        targets = {pc.values.get("final_value_target") for pc in configs}
+        assert targets == {0.0, 0.5}
+
+    def test_build_configs_explicit_preserves_all_policy_keys(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "GlidepathAllocationPolicy",
+                "configurations": [
+                    {
+                        "start_equity": 0.8,
+                        "end_equity": 0.5,
+                        "slope": 0.01,
+                        "mode": "active",
+                    },
+                ],
+            },
+            "cohorts": {"horizon_years": [10]},
+        }
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        pc = configs[0]
+        assert pc.values["start_equity"] == 0.8
+        assert pc.values["end_equity"] == 0.5
+        assert pc.values["slope"] == 0.01
+        assert pc.values["mode"] == "active"
+        assert pc.values["horizon_years"] == 10
+
+    def test_from_yaml_empty_configurations_raises(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [],
+            },
+        }
+        with pytest.raises(ValueError, match="must be a non-empty list"):
+            StudyConfiguration.from_yaml(data)
+
+    def test_from_yaml_empty_dict_configuration_raises(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [{}],
+            },
+        }
+        config = StudyConfiguration.from_yaml(data)
+        with pytest.raises(ValueError, match="at least one parameter"):
+            _build_unified_parameter_configs(config)
+
+    def test_build_configs_cartesian_unchanged_when_no_explicit(self) -> None:
+        """Regression: Cartesian product mode still works as before."""
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "equity_allocation": [0.6, 0.8],
+            },
+        }
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        # 2 allocations × 2 horizons × 1 withdrawal = 4
+        assert len(configs) == 4
+
+    def test_representative_policies_use_first_explicit_config(self) -> None:
+        from fbf.core.study.builder import (
+            StudyConfiguration,
+            _representative_policies,
+        )
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "ConstantAllocationPolicy",
+                "configurations": [
+                    {"equity_allocation": "0.3"},
+                    {"equity_allocation": "0.9"},
+                ],
+            },
+        }
+        config = StudyConfiguration.from_yaml(data)
+        alloc, _withdrawal = _representative_policies(config)
+        # Representative policy should use first config (0.3)
+        assert alloc.equity_allocation == Decimal("0.3")
+
+    def test_representative_policies_use_first_explicit_gp_config(self) -> None:
+        from fbf.core.study.builder import (
+            StudyConfiguration,
+            _representative_policies,
+        )
+
+        data = {
+            **self.BASE_YAML,
+            "allocation_policy": {
+                "type": "GlidepathAllocationPolicy",
+                "configurations": [
+                    {"start_equity": 0.9, "end_equity": 0.4, "slope": 0.02, "mode": "active"},
+                    {"start_equity": 0.7, "end_equity": 0.3, "slope": 0.01, "mode": "active"},
+                ],
+            },
+            "cohorts": {"horizon_years": [10]},
+        }
+        config = StudyConfiguration.from_yaml(data)
+        alloc, _withdrawal = _representative_policies(config)
+        assert alloc.start_equity == Decimal("0.9")
+        assert alloc.end_equity == Decimal("0.4")

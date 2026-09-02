@@ -209,3 +209,53 @@ more targets, a `TrajectoryPlan` / `EvaluationPlan` separation can be
 revisited with empirical evidence.
 
 ---
+
+## Explicit Configuration Mode for Constrained Parameter Tuples
+
+**Decision:** The study builder supports an `allocation_policy.configurations`
+list in YAML for declaring constrained parameter tuples, as an alternative to
+the Cartesian product of independent axis arrays.
+
+**Why:** Part 19/20 glidepath studies require specific `(start, end, slope,
+mode)` combinations where slopes are associated with specific start/end pairs.
+A Cartesian product of glidepath parameters would produce invalid combinations
+(e.g., slope 0.5 for a 20pp spread that should use slope 0.2). The explicit
+configurations mode eliminates this by allowing the study author to declare
+exactly which combinations are valid.
+
+**Alternatives rejected:** Filtering invalid Cartesian products post-hoc —
+rejected because it obscures the study author's intent and creates silent
+configuration errors. Splitting glidepath parameters into separate study
+files — rejected because it fragments the study definition and complicates
+aggregation.
+
+**Consequence:** `configurations` and axis-based policy parameters are
+mutually exclusive. Each explicit configuration is crossed with the remaining
+study axes (withdrawal_rate, horizon_years, final_value_target). The
+implementation is confined to the builder layer; the engine and domain layers
+are unchanged.
+
+---
+
+## Binary CAPE Classification for Part 20
+
+**Decision:** Part 20 uses a binary CAPE classification (HIGH/LOW) that is
+deliberately different from the existing four-level model at the CAPE=20
+boundary.
+
+**Why:** Part 20 splits cohorts into exactly two populations for analysis:
+- HIGH: CAPE > 20 (expensive market)
+- LOW: CAPE <= 20 (cheap/moderate market)
+
+The four-level model classifies CAPE=20 as HIGH (min_inclusive), while the
+binary model classifies CAPE=20 as LOW (max_inclusive). This boundary
+difference is intentional and reflects the article's methodology.
+
+**Alternatives rejected:** Reusing the four-level model with post-hoc
+grouping — rejected because it would not correctly implement the Part 20
+binary split at CAPE=20.
+
+**Consequence:** The `CapeBinary` enum and `classify_cape_binary()` function
+coexist with the existing `CapeRegime` model. Both are independent
+classification functions; neither modifies the other. Missing CAPE values
+raise `ValueError` (fail-fast) rather than silently defaulting to a regime.

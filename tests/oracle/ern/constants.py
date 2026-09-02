@@ -128,6 +128,81 @@ ANCHOR_CELLS = [
     (0.75, 60, 0.035, 97),
 ]
 
+# ---------------------------------------------------------------------------
+# Part 20 — More Thoughts on Equity Glidepaths
+# ---------------------------------------------------------------------------
+# Extends Part 19 with 8 additional glidepaths (passive only) and
+# 30-year horizons.  The full grid is:
+#   32 glidepaths x 5 SWR x 2 horizons = 320 cells
+
+# Part 19 glidepaths: (start_equity, end_equity, slope, mode)
+PART19_GLIDEPATHS: list[tuple[float, float, float, str]] = [
+    # 60% -> 80%
+    (0.6, 0.8, 0.002, "passive"),
+    (0.6, 0.8, 0.003, "passive"),
+    (0.6, 0.8, 0.002, "active"),
+    (0.6, 0.8, 0.003, "active"),
+    # 40% -> 80%
+    (0.4, 0.8, 0.003, "passive"),
+    (0.4, 0.8, 0.004, "passive"),
+    (0.4, 0.8, 0.003, "active"),
+    (0.4, 0.8, 0.004, "active"),
+    # 20% -> 80%
+    (0.2, 0.8, 0.004, "passive"),
+    (0.2, 0.8, 0.005, "passive"),
+    (0.2, 0.8, 0.004, "active"),
+    (0.2, 0.8, 0.005, "active"),
+    # 80% -> 100%
+    (0.8, 1.0, 0.002, "passive"),
+    (0.8, 1.0, 0.003, "passive"),
+    (0.8, 1.0, 0.002, "active"),
+    (0.8, 1.0, 0.003, "active"),
+    # 60% -> 100%
+    (0.6, 1.0, 0.003, "passive"),
+    (0.6, 1.0, 0.004, "passive"),
+    (0.6, 1.0, 0.003, "active"),
+    (0.6, 1.0, 0.004, "active"),
+    # 40% -> 100%
+    (0.4, 1.0, 0.004, "passive"),
+    (0.4, 1.0, 0.005, "passive"),
+    (0.4, 1.0, 0.004, "active"),
+    (0.4, 1.0, 0.005, "active"),
+]
+
+# Part 20 additions: 8 glidepaths (passive only)
+PART20_GLIDEPATHS: list[tuple[float, float, float, str]] = [
+    # 30% -> 70% (Kitces/Pfau-inspired)
+    (0.3, 0.7, 0.00111, "passive"),
+    (0.3, 0.7, 0.002, "passive"),
+    (0.3, 0.7, 0.003, "passive"),
+    (0.3, 0.7, 0.004, "passive"),
+    # 20% -> 60% (Low-equity variant)
+    (0.2, 0.6, 0.00111, "passive"),
+    (0.2, 0.6, 0.002, "passive"),
+    (0.2, 0.6, 0.003, "passive"),
+    (0.2, 0.6, 0.004, "passive"),
+]
+
+# Combined: Part 19 + Part 20 = 32 glidepaths
+PART20_ALL_GLIDEPATHS = PART19_GLIDEPATHS + PART20_GLIDEPATHS
+
+# Part 20 SWR values: 3.0% to 4.0% in 0.25% steps
+PART20_SWR: list[float] = [0.03, 0.0325, 0.035, 0.0375, 0.04]
+
+# Part 20 horizons
+PART20_HORIZONS: list[int] = [30, 60]
+
+# Part 20 final value target
+PART20_FV_TARGET: float = 0.0
+
+# Full Part 20 grid dimensions
+PART20_GLIDEPATH_COUNT = len(PART20_ALL_GLIDEPATHS)  # 32
+PART20_SWR_COUNT = len(PART20_SWR)  # 5
+PART20_HORIZON_COUNT = len(PART20_HORIZONS)  # 2
+PART20_GRID_CELLS = (
+    PART20_GLIDEPATH_COUNT * PART20_SWR_COUNT * PART20_HORIZON_COUNT
+)  # 320
+
 
 def load_oracle_table(path: Path = ORACLE_CSV) -> OracleTable:
     """Load the pinned oracle matrix as ``{(weight, horizon_years): {rate: percent}}``."""

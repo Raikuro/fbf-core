@@ -208,9 +208,20 @@ class StudyConfiguration:
     All four CLI consumers (``run``, ``validate``, ``compare``, ``optimize``)
     build their plans from this object; no command parses study YAML directly.
 
-    The study YAML is the sole source of study-definition parameters.  Every
-    value-bearing field is an array; the Cartesian product of the three arrays
-    is the study configuration space.  There is no base/fallback/override layer.
+    The study YAML is the sole source of study-definition parameters.  Two
+    parameterization modes are supported:
+
+    **Mode A — Independent axis arrays (Cartesian product):**
+    Each value-bearing field is an array; the Cartesian product of the arrays
+    is the study configuration space.
+
+    **Mode B — Explicit parameter combinations:**
+    ``allocation_policy.configurations`` lists individual parameter dicts.
+    Each dict specifies one complete policy configuration.  The
+    ``withdrawal_rate`` and ``horizon_years`` axes are still Cartesian-producted
+    with the explicit configurations.
+
+    ``configurations`` and axis-based policy parameters are mutually exclusive.
 
     Fields
     ------
@@ -219,11 +230,16 @@ class StudyConfiguration:
     dataset_identifier:
         The single canonical runtime dataset (``dataset.identifier``).
     allocation_policy_type / allocation_policy_values:
-        The declared allocation policy and its ``equity_allocation`` array.
+        The declared allocation policy and its ``equity_allocation`` array
+        (Mode A only; empty tuple in Mode B).
     withdrawal_policy_type / withdrawal_policy_values:
         The declared withdrawal policy and its ``withdrawal_rate`` array.
     horizon_years:
         The declared ``cohorts.horizon_years`` array.
+    explicit_configurations:
+        Explicit policy parameter dicts (Mode B only; ``None`` in Mode A).
+        Each dict maps parameter names to scalar values appropriate for the
+        declared ``allocation_policy_type``.
     """
 
     name: str
@@ -240,6 +256,7 @@ class StudyConfiguration:
     glidepath_end_values: tuple[Decimal, ...] | None = None
     glidepath_slope_values: tuple[Decimal, ...] | None = None
     glidepath_mode_values: tuple[str, ...] | None = None
+    explicit_configurations: tuple[dict[str, Any], ...] | None = None
 
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
@@ -250,7 +267,8 @@ class StudyConfiguration:
         ValueError
             For any structurally invalid or unsupported study declaration,
             including any leftover v0.5 ``parameters`` / ``window_years`` /
-            ``cohorts.type`` keys.
+            ``cohorts.type`` keys, or ambiguous simultaneous use of
+            ``configurations`` and axis-based policy parameters.
         """
         metadata = data.get("metadata", {})
         if not isinstance(metadata, dict):
@@ -297,6 +315,10 @@ class StudyConfiguration:
         glidepath_end_values: tuple[Decimal, ...] | None = None
         glidepath_slope_values: tuple[Decimal, ...] | None = None
         glidepath_mode_values: tuple[str, ...] | None = None
+        explicit_configurations: tuple[dict[str, Any], ...] | None = None
+
+        raw_configurations = allocation_policy.get("configurations")
+        has_axis_arrays = False
 
         if allocation_policy_enum is AllocationPolicyType.GLIDEPATH:
             glidepath_start_values = _parse_optional_decimal_array(
@@ -311,26 +333,62 @@ class StudyConfiguration:
             glidepath_mode_values = _parse_optional_string_array(
                 allocation_policy, "mode"
             )
+            has_axis_arrays = any(
+                v is not None
+                for v in (
+                    glidepath_start_values,
+                    glidepath_end_values,
+                    glidepath_slope_values,
+                    glidepath_mode_values,
+                )
+            )
+        else:
+            allocation_policy_values = _parse_optional_decimal_array(
+                allocation_policy, "equity_allocation"
+            ) or ()
+            has_axis_arrays = bool(allocation_policy.get("equity_allocation"))
+
+        if raw_configurations is not None:
+            if has_axis_arrays:
+                raise ValueError(
+                    "allocation_policy.configurations and axis-based policy "
+                    "parameters are mutually exclusive; use one or the other, "
+                    "not both"
+                )
+            if not isinstance(raw_configurations, list) or not raw_configurations:
+                raise ValueError(
+                    "allocation_policy.configurations must be a non-empty list "
+                    "of parameter dictionaries"
+                )
+            parsed_configs: list[dict[str, Any]] = []
+            for i, entry in enumerate(raw_configurations):
+                if not isinstance(entry, dict):
+                    raise ValueError(
+                        f"allocation_policy.configurations[{i}] must be a mapping"
+                    )
+                parsed_configs.append(entry)
+            explicit_configurations = tuple(parsed_configs)
+        elif allocation_policy_enum is AllocationPolicyType.GLIDEPATH:
             if glidepath_start_values is None:
                 raise ValueError(
-                    "allocation_policy.start_equity is required for GlidepathAllocationPolicy"
+                    "allocation_policy.start_equity is required for "
+                    "GlidepathAllocationPolicy"
                 )
             if glidepath_end_values is None:
                 raise ValueError(
-                    "allocation_policy.end_equity is required for GlidepathAllocationPolicy"
+                    "allocation_policy.end_equity is required for "
+                    "GlidepathAllocationPolicy"
                 )
             if glidepath_slope_values is None:
                 raise ValueError(
-                    "allocation_policy.slope is required for GlidepathAllocationPolicy"
+                    "allocation_policy.slope is required for "
+                    "GlidepathAllocationPolicy"
                 )
             if glidepath_mode_values is None:
                 raise ValueError(
-                    "allocation_policy.mode is required for GlidepathAllocationPolicy"
+                    "allocation_policy.mode is required for "
+                    "GlidepathAllocationPolicy"
                 )
-        else:
-            allocation_policy_values = _parse_decimal_values(
-                allocation_policy, "equity_allocation"
-            )
 
         withdrawal_policy = data.get("withdrawal_policy")
         if not isinstance(withdrawal_policy, dict):
@@ -362,6 +420,7 @@ class StudyConfiguration:
             glidepath_end_values=glidepath_end_values,
             glidepath_slope_values=glidepath_slope_values,
             glidepath_mode_values=glidepath_mode_values,
+            explicit_configurations=explicit_configurations,
         )
 
 
@@ -385,13 +444,24 @@ def _build_unified_parameter_configs(
 ) -> tuple[ParameterConfiguration, ...]:
     """Build the study's parameter configurations.
 
+    Two modes are supported:
+
+    **Mode A — Cartesian product (default):**
     For CONSTANT allocation: Cartesian product of
     ``equity_allocation`` x ``withdrawal_rate`` x ``horizon_years``.
-
     For GLIDEPATH allocation: Cartesian product of
     ``glidepath_start`` x ``glidepath_end`` x ``glidepath_slope`` x
     ``glidepath_mode`` x ``withdrawal_rate`` x ``horizon_years``.
+
+    **Mode B — Explicit configurations:**
+    When ``config.explicit_configurations`` is set, each dict is converted
+    to a base ``ParameterConfiguration`` and crossed with the
+    ``withdrawal_rate`` and ``horizon_years`` axes.  The ``final_value_target``
+    axis is also crossed when present.
     """
+    if config.explicit_configurations is not None:
+        return _build_configs_from_explicit(config)
+
     if config.allocation_policy_type == "GlidepathAllocationPolicy":
         axes = [
             ParameterAxis(
@@ -438,6 +508,64 @@ def _build_unified_parameter_configs(
     return ParameterSweepEngine.cartesian_product(axes)
 
 
+def _build_configs_from_explicit(
+    config: StudyConfiguration,
+) -> tuple[ParameterConfiguration, ...]:
+    """Build parameter configurations from explicit policy configuration dicts.
+
+    Each dict in ``config.explicit_configurations`` becomes the policy-specific
+    portion of a base ``ParameterConfiguration``.  The base is then crossed
+    with the ``withdrawal_rate``, ``horizon_years``, and optional
+    ``final_value_target`` axes.
+    """
+    assert config.explicit_configurations is not None
+
+    withdrawal_axis = ParameterAxis(
+        name="withdrawal_rate",
+        values=tuple(float(v) for v in config.withdrawal_policy_values),
+    )
+    horizon_axis = ParameterAxis(
+        name="horizon_years",
+        values=tuple(int(v) for v in config.horizon_years),
+    )
+    shared_axes = [withdrawal_axis, horizon_axis]
+    if config.final_value_target_values is not None:
+        shared_axes.append(
+            ParameterAxis(
+                name="final_value_target",
+                values=tuple(float(v) for v in config.final_value_target_values),
+            )
+        )
+
+    base_configs = []
+    _SCALAR_TYPES = (bool, int, float, str)
+    for i, entry in enumerate(config.explicit_configurations):
+        values: dict[str, Any] = {}
+        for key, raw_value in entry.items():
+            if isinstance(raw_value, _SCALAR_TYPES):
+                values[key] = raw_value
+            elif isinstance(raw_value, Decimal):
+                values[key] = float(raw_value)
+            else:
+                raise ValueError(
+                    f"explicit_configurations[{i}].{key}: unsupported type "
+                    f"{type(raw_value).__name__}"
+                )
+        if not values:
+            raise ValueError(
+                f"explicit_configurations[{i}] must contain at least one parameter"
+            )
+        base_configs.append(ParameterConfiguration(values))
+
+    result: list[ParameterConfiguration] = []
+    for base in base_configs:
+        for combination in ParameterSweepEngine.cartesian_product(shared_axes):
+            merged = dict(base.values)
+            merged.update(combination.values)
+            result.append(ParameterConfiguration(merged))
+    return tuple(result)
+
+
 def _longest_horizon_years(config: StudyConfiguration) -> int:
     """The longest declared horizon — makes every cohort feasible for every unit."""
     return max(config.horizon_years)
@@ -477,10 +605,16 @@ def _make_policy_resolver(
         param_config: ParameterConfiguration,
     ) -> tuple[AllocationPolicy, WithdrawalPolicy]:
         if config.allocation_policy_type == "GlidepathAllocationPolicy":
-            start = Decimal(str(param_config.get("glidepath_start")))
-            end = Decimal(str(param_config.get("glidepath_end")))
-            slope = Decimal(str(param_config.get("glidepath_slope")))
-            mode = str(param_config.get("glidepath_mode"))
+            if config.explicit_configurations is not None:
+                start = Decimal(str(param_config.get("start_equity")))
+                end = Decimal(str(param_config.get("end_equity")))
+                slope = Decimal(str(param_config.get("slope")))
+                mode = str(param_config.get("mode"))
+            else:
+                start = Decimal(str(param_config.get("glidepath_start")))
+                end = Decimal(str(param_config.get("glidepath_end")))
+                slope = Decimal(str(param_config.get("glidepath_slope")))
+                mode = str(param_config.get("glidepath_mode"))
             key = (start, end, slope, mode)
             resolved_alloc = _alloc_glidepath.get(key)
             if resolved_alloc is None:
@@ -533,16 +667,32 @@ def _representative_policies(
     """
     representative_alloc: AllocationPolicy
     if config.allocation_policy_type == "GlidepathAllocationPolicy":
-        representative_alloc = build_glidepath_allocation_policy(
-            start_equity=config.glidepath_start_values[0],  # type: ignore[index]
-            end_equity=config.glidepath_end_values[0],  # type: ignore[index]
-            slope=config.glidepath_slope_values[0],  # type: ignore[index]
-            mode=config.glidepath_mode_values[0],  # type: ignore[index]
-        )
+        if config.explicit_configurations is not None:
+            first = config.explicit_configurations[0]
+            representative_alloc = build_glidepath_allocation_policy(
+                start_equity=Decimal(str(first["start_equity"])),
+                end_equity=Decimal(str(first["end_equity"])),
+                slope=Decimal(str(first["slope"])),
+                mode=str(first["mode"]),
+            )
+        else:
+            representative_alloc = build_glidepath_allocation_policy(
+                start_equity=config.glidepath_start_values[0],  # type: ignore[index]
+                end_equity=config.glidepath_end_values[0],  # type: ignore[index]
+                slope=config.glidepath_slope_values[0],  # type: ignore[index]
+                mode=config.glidepath_mode_values[0],  # type: ignore[index]
+            )
     else:
-        representative_alloc = build_allocation_policy(
-            config.allocation_policy_type, config.allocation_policy_values[0]
-        )
+        if config.explicit_configurations is not None:
+            first = config.explicit_configurations[0]
+            representative_alloc = build_allocation_policy(
+                config.allocation_policy_type,
+                Decimal(str(first["equity_allocation"])),
+            )
+        else:
+            representative_alloc = build_allocation_policy(
+                config.allocation_policy_type, config.allocation_policy_values[0]
+            )
     return (
         representative_alloc,
         build_withdrawal_policy(

@@ -1,19 +1,20 @@
 """CAPE regime classification for retirement cohort analysis.
 
-Classifies historical retirement start dates into four CAPE regimes
-as used in the Early Retirement Now (ERN) Part 3 equity valuation study.
+Classifies historical retirement start dates into CAPE regimes.
 
-Regime boundaries (inclusive/exclusive):
+**Four-level classification** (ERN Part 3):
     CAPE < 15           -> BELOW_15
     15 <= CAPE < 20     -> MODERATE
     20 <= CAPE < 30     -> HIGH
     CAPE >= 30          -> EXTREME
 
+**Binary classification** (ERN Part 20):
+    CAPE > 20           -> HIGH
+    CAPE <= 20          -> LOW
+
 Boundary behaviour is explicit:
-    - CAPE exactly 15.00 falls in MODERATE (min_inclusive=15)
-    - CAPE exactly 20.00 falls in HIGH   (min_inclusive=20)
-    - CAPE exactly 30.00 falls in EXTREME (min_inclusive=30)
-    - CAPE below 15.00    falls in BELOW_15 (max_exclusive=15)
+    - Four-level: CAPE exactly 20.00 falls in HIGH (min_inclusive=20)
+    - Binary: CAPE exactly 20.00 falls in LOW (max_inclusive=20)
 
 The classification uses the CAPE value known at the retirement start date,
 never future CAPE values, to avoid look-ahead bias.
@@ -146,3 +147,47 @@ for cape_str, expected in BOUNDARY_TEST_CASES:
     assert actual == expected, (
         f"Boundary test failed: {cape_str} -> {actual}, expected {expected}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Binary CAPE classification (Part 20)
+# ---------------------------------------------------------------------------
+
+
+class CapeBinary(Enum):
+    """Binary CAPE classification for ERN Part 20.
+
+    Part 20 splits cohorts into exactly two populations:
+    - HIGH: CAPE > 20 (expensive market)
+    - LOW: CAPE <= 20 (cheap/moderate market)
+    """
+
+    HIGH = "HIGH"
+    """CAPE > 20: expensive market regime."""
+
+    LOW = "LOW"
+    """CAPE <= 20: cheap/moderate market regime."""
+
+
+def classify_cape_binary(cape: Decimal) -> CapeBinary:
+    """Classify a CAPE value into the Part 20 binary regime.
+
+    Boundary behaviour (deliberately different from four-level model):
+        - CAPE <= 20  -> LOW  (20.00 is LOW, not HIGH)
+        - CAPE > 20   -> HIGH
+
+    Args:
+        cape: The CAPE value at the retirement start date.
+
+    Returns:
+        The binary regime: HIGH or LOW.
+
+    Raises:
+        ValueError: If cape is negative or otherwise invalid.
+    """
+    if cape < 0:
+        raise ValueError(f"CAPE cannot be negative: {cape}")
+
+    if cape > Decimal("20"):
+        return CapeBinary.HIGH
+    return CapeBinary.LOW

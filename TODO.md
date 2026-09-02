@@ -6,6 +6,42 @@ file.
 
 ---
 
+## S2 Part 20: 0.111 pp/month Glidepath Endpoint Timing
+
+**Classification:** intentional semantic consequence (not a defect)
+
+The Part 20 glidepaths with 0.111 pp/month slope (30→70% and 20→60%)
+reach their target equity at month 361, not month 360.
+
+### Explanation
+
+The slope is interpreted as 0.111 percentage points per month, applied as a
+fraction: `slope_fraction = 0.111 / 100 = 0.00111`. The equity weight at
+month `t` is:
+
+```
+equity(t) = min(start + slope_fraction * t, end_equity)
+```
+
+For 30→70% (40pp spread):
+- Month 360: `30 + 0.111 * 360 = 69.960%` (not yet 70%)
+- Month 361: `30 + 0.111 * 361 = 70.071%` → capped to 70%
+
+For 20→60% (40pp spread):
+- Month 360: `20 + 0.111 * 360 = 59.960%` (not yet 60%)
+- Month 361: `20 + 0.111 * 361 = 60.071%` → capped to 60%
+
+### Why this is correct
+
+The 0.111 pp/month value is a rounded representation of the Kitces/Pfau
+glidepath slope. The ceiling of 40/0.111 = 360.36 is 361 months. This is an
+intentional consequence of the slope granularity, not an implementation defect.
+
+The 361-month endpoint should be preserved as-is. Do not round the slope or
+adjust the implementation to force the endpoint at month 360.
+
+---
+
 ## S1 Follow-Up: ERN Validation Discrepancies
 
 **Classification:** known discrepancy / unresolved investigation
@@ -48,21 +84,17 @@ implementation merely to reproduce published anchors. Potential areas:
 
 ## S1 Follow-Up: Part 19 Configuration Representation
 
-**Classification:** architectural/documentation follow-up
+**Classification:** architectural/documentation follow-up — RESOLVED in L.1
 
 The generic builder (`_build_unified_parameter_configs`) creates Cartesian
 products of independent parameter axes. Part 19 requires constrained
 `(start, end, slope)` combinations where slopes are associated with specific
 start/end pairs.
 
-* Current S1 approach: express valid combinations explicitly in the study
-  specification/YAML.
-* The `GlidepathAllocationPolicy` itself correctly accepts any
-  `(start, end, slope, mode)` tuple.
-* The builder's Cartesian product design is a general-purpose approach that
-  works when the YAML is structured appropriately.
-* Verify this constraint when the Part 19 study configuration YAML is
-  finalized.
+**Resolution:** L.1 introduced the `allocation_policy.configurations` list in
+the YAML schema, enabling explicit parameter tuples that are crossed only
+with the remaining study axes (withdrawal_rate, horizon_years). This
+eliminates the need for Cartesian products of glidepath parameters.
 
 ---
 

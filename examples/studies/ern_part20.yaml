@@ -1,0 +1,75 @@
+# Early Retirement Now Part 20: More Thoughts on Equity Glidepaths
+#
+# Extends Part 19 with 8 additional glidepaths and 30-year horizons.
+# Uses explicit configurations to define constrained glidepath parameter tuples.
+#
+# Grid: 32 glidepaths x 5 SWR x 2 horizons = 320 cells
+#
+# Run example:
+#   sim-retire --data-dir data/ern run examples/studies/ern_part20.yaml \
+#     --no-persist --summary-only
+
+metadata:
+  name: "ERN Part 20 — More Thoughts on Equity Glidepaths"
+  version: "1.0"
+  description: >
+    Early Retirement Now Part 20 replication:
+    additional glidepath variants (Kitces/Pfau-inspired) with 30-year and 60-year horizons.
+
+dataset:
+  identifier: "ern_swr_h720"
+
+cohorts:
+  horizon_years: [30, 60]
+
+allocation_policy:
+  type: "GlidepathAllocationPolicy"
+  configurations:
+    # --- Part 19: 24 glidepaths (6 combos x 2 slopes x 2 modes) ---
+    # 60% → 80%
+    - { start_equity: 0.6, end_equity: 0.8, slope: 0.002, mode: "passive" }
+    - { start_equity: 0.6, end_equity: 0.8, slope: 0.003, mode: "passive" }
+    - { start_equity: 0.6, end_equity: 0.8, slope: 0.002, mode: "active" }
+    - { start_equity: 0.6, end_equity: 0.8, slope: 0.003, mode: "active" }
+    # 40% → 80%
+    - { start_equity: 0.4, end_equity: 0.8, slope: 0.003, mode: "passive" }
+    - { start_equity: 0.4, end_equity: 0.8, slope: 0.004, mode: "passive" }
+    - { start_equity: 0.4, end_equity: 0.8, slope: 0.003, mode: "active" }
+    - { start_equity: 0.4, end_equity: 0.8, slope: 0.004, mode: "active" }
+    # 20% → 80%
+    - { start_equity: 0.2, end_equity: 0.8, slope: 0.004, mode: "passive" }
+    - { start_equity: 0.2, end_equity: 0.8, slope: 0.005, mode: "passive" }
+    - { start_equity: 0.2, end_equity: 0.8, slope: 0.004, mode: "active" }
+    - { start_equity: 0.2, end_equity: 0.8, slope: 0.005, mode: "active" }
+    # 80% → 100%
+    - { start_equity: 0.8, end_equity: 1.0, slope: 0.002, mode: "passive" }
+    - { start_equity: 0.8, end_equity: 1.0, slope: 0.003, mode: "passive" }
+    - { start_equity: 0.8, end_equity: 1.0, slope: 0.002, mode: "active" }
+    - { start_equity: 0.8, end_equity: 1.0, slope: 0.003, mode: "active" }
+    # 60% → 100%
+    - { start_equity: 0.6, end_equity: 1.0, slope: 0.003, mode: "passive" }
+    - { start_equity: 0.6, end_equity: 1.0, slope: 0.004, mode: "passive" }
+    - { start_equity: 0.6, end_equity: 1.0, slope: 0.003, mode: "active" }
+    - { start_equity: 0.6, end_equity: 1.0, slope: 0.004, mode: "active" }
+    # 40% → 100%
+    - { start_equity: 0.4, end_equity: 1.0, slope: 0.004, mode: "passive" }
+    - { start_equity: 0.4, end_equity: 1.0, slope: 0.005, mode: "passive" }
+    - { start_equity: 0.4, end_equity: 1.0, slope: 0.004, mode: "active" }
+    - { start_equity: 0.4, end_equity: 1.0, slope: 0.005, mode: "active" }
+    # --- Part 20: 8 additional glidepaths (passive only) ---
+    # 30% → 70% (Kitces/Pfau-inspired)
+    - { start_equity: 0.3, end_equity: 0.7, slope: 0.00111, mode: "passive" }
+    - { start_equity: 0.3, end_equity: 0.7, slope: 0.002, mode: "passive" }
+    - { start_equity: 0.3, end_equity: 0.7, slope: 0.003, mode: "passive" }
+    - { start_equity: 0.3, end_equity: 0.7, slope: 0.004, mode: "passive" }
+    # 20% → 60% (Low-equity variant)
+    - { start_equity: 0.2, end_equity: 0.6, slope: 0.00111, mode: "passive" }
+    - { start_equity: 0.2, end_equity: 0.6, slope: 0.002, mode: "passive" }
+    - { start_equity: 0.2, end_equity: 0.6, slope: 0.003, mode: "passive" }
+    - { start_equity: 0.2, end_equity: 0.6, slope: 0.004, mode: "passive" }
+
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: [0.03, 0.0325, 0.035, 0.0375, 0.04]
+
+final_value_target: [0.0]
