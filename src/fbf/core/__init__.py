@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fbf.core.domain.policies import AllocationPolicyType, WithdrawalPolicyType
+from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
 from fbf.core.errors import CoreError
 from fbf.core.execution import (
     ExecutionBackend,
@@ -37,6 +38,7 @@ __version__ = "0.1.0"
 __all__ = [
     "AllocationPolicyType",
     "WithdrawalPolicyType",
+    "GlidepathAllocationPolicy",
     "StudyConfiguration",
     "StudyPlanResult",
     "build_study_plan",

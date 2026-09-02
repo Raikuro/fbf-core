@@ -21,6 +21,7 @@ class AllocationPolicyType(Enum):
     """Enumeration of valid allocation policy types."""
 
     CONSTANT = ("ConstantAllocationPolicy", "Constant Allocation", "equity_allocation")
+    GLIDEPATH = ("GlidepathAllocationPolicy", "Glidepath", "start_equity")
 
     def __init__(
         self, yaml_name: str, display_name: str, parameter_key: str

@@ -9,6 +9,7 @@ from fbf.core.domain.policies.concrete import (
     FixedRealWithdrawalPolicy,
 )
 from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
+from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
 from fbf.core.domain.policies.policy import Policy
 from fbf.core.domain.policies.types import AllocationPolicyType, WithdrawalPolicyType
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
@@ -22,6 +23,7 @@ __all__ = [
     "ConstantAllocationPolicy",
     "ConstantWithdrawalPolicy",
     "FixedRealWithdrawalPolicy",
+    "GlidepathAllocationPolicy",
     "AllocationPolicyType",
     "WithdrawalPolicyType",
 ]

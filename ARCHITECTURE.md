@@ -289,6 +289,26 @@ Performance analysis distinguishes three independent optimization categories:
 Optimization decisions must be based on measurement rather than assuming that
 an improvement in one category addresses another.
 
+### Profiling-Driven Optimization
+
+Future performance work must be driven by profiling, not theoretical
+complexity analysis. Before any optimization, establish a reproducible
+baseline and measure:
+
+* total simulation time;
+* policy evaluation time (including any historical scans);
+* withdrawal-decision time;
+* allocation/rebalancing time;
+* market-evolution time;
+* statistics/aggregation time;
+* serialization/IPC overhead;
+* worker/process overhead.
+
+Optimization candidates must be identified by profiling, not assumed from
+Big-O analysis. A measured bottleneck in one component may be insignificant
+in the full pipeline; conversely, a theoretically cheap operation may
+dominate if called millions of times.
+
 ---
 
 ## 13. Persistence

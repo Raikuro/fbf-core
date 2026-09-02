@@ -184,6 +184,7 @@ def test_public_facade_symbols() -> None:
     expected_symbols = {
         "AllocationPolicyType",
         "WithdrawalPolicyType",
+        "GlidepathAllocationPolicy",
         "StudyConfiguration",
         "StudyPlanResult",
         "build_study_plan",

@@ -22,6 +22,7 @@ from fbf.core.domain.policies import (
     ConstantAllocationPolicy,
     ConstantWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
+    GlidepathAllocationPolicy,
     WithdrawalPolicyType,
 )
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
@@ -148,12 +149,46 @@ def _parse_optional_decimal_array(
     return tuple(values)
 
 
+def _parse_optional_string_array(
+    data: dict[str, Any], key: str
+) -> tuple[str, ...] | None:
+    """Parse an optional string value array from a mapping.
+
+    Returns ``None`` when the key is absent or explicitly set to ``null``.
+    Raises ``ValueError`` when the key is present but structurally invalid.
+    """
+    raw = data.get(key)
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"{key} must be a non-empty list of strings when provided")
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError(f"{key} must contain only strings") from None
+    return tuple(raw)
+
+
 def build_allocation_policy(policy_type: str, scalar: Decimal) -> AllocationPolicy:
     """Build the concrete allocation policy for the declared YAML ``type``."""
     policy_enum = AllocationPolicyType.from_yaml_name(policy_type)
     if policy_enum is AllocationPolicyType.CONSTANT:
         return ConstantAllocationPolicy(equity_allocation=scalar)
     raise ValueError(f"Unsupported allocation policy type: {policy_type!r}")
+
+
+def build_glidepath_allocation_policy(
+    start_equity: Decimal,
+    end_equity: Decimal,
+    slope: Decimal,
+    mode: str,
+) -> GlidepathAllocationPolicy:
+    """Build a GlidepathAllocationPolicy from its four parameters."""
+    return GlidepathAllocationPolicy(
+        start_equity=start_equity,
+        end_equity=end_equity,
+        slope=slope,
+        mode=mode,
+    )
 
 
 def build_withdrawal_policy(policy_type: str, scalar: Decimal) -> WithdrawalPolicy:
@@ -201,6 +236,10 @@ class StudyConfiguration:
     withdrawal_policy_values: tuple[Decimal, ...]
     horizon_years: tuple[int, ...]
     final_value_target_values: tuple[Decimal, ...] | None = None
+    glidepath_start_values: tuple[Decimal, ...] | None = None
+    glidepath_end_values: tuple[Decimal, ...] | None = None
+    glidepath_slope_values: tuple[Decimal, ...] | None = None
+    glidepath_mode_values: tuple[str, ...] | None = None
 
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
@@ -251,10 +290,47 @@ class StudyConfiguration:
         allocation_policy_type = allocation_policy.get("type")
         if not isinstance(allocation_policy_type, str):
             raise ValueError("allocation_policy.type must be a string")
-        AllocationPolicyType.from_yaml_name(allocation_policy_type)
-        allocation_policy_values = _parse_decimal_values(
-            allocation_policy, "equity_allocation"
-        )
+        allocation_policy_enum = AllocationPolicyType.from_yaml_name(allocation_policy_type)
+
+        allocation_policy_values: tuple[Decimal, ...] = ()
+        glidepath_start_values: tuple[Decimal, ...] | None = None
+        glidepath_end_values: tuple[Decimal, ...] | None = None
+        glidepath_slope_values: tuple[Decimal, ...] | None = None
+        glidepath_mode_values: tuple[str, ...] | None = None
+
+        if allocation_policy_enum is AllocationPolicyType.GLIDEPATH:
+            glidepath_start_values = _parse_optional_decimal_array(
+                allocation_policy, "start_equity"
+            )
+            glidepath_end_values = _parse_optional_decimal_array(
+                allocation_policy, "end_equity"
+            )
+            glidepath_slope_values = _parse_optional_decimal_array(
+                allocation_policy, "slope"
+            )
+            glidepath_mode_values = _parse_optional_string_array(
+                allocation_policy, "mode"
+            )
+            if glidepath_start_values is None:
+                raise ValueError(
+                    "allocation_policy.start_equity is required for GlidepathAllocationPolicy"
+                )
+            if glidepath_end_values is None:
+                raise ValueError(
+                    "allocation_policy.end_equity is required for GlidepathAllocationPolicy"
+                )
+            if glidepath_slope_values is None:
+                raise ValueError(
+                    "allocation_policy.slope is required for GlidepathAllocationPolicy"
+                )
+            if glidepath_mode_values is None:
+                raise ValueError(
+                    "allocation_policy.mode is required for GlidepathAllocationPolicy"
+                )
+        else:
+            allocation_policy_values = _parse_decimal_values(
+                allocation_policy, "equity_allocation"
+            )
 
         withdrawal_policy = data.get("withdrawal_policy")
         if not isinstance(withdrawal_policy, dict):
@@ -282,6 +358,10 @@ class StudyConfiguration:
             withdrawal_policy_values=withdrawal_policy_values,
             horizon_years=horizon_years,
             final_value_target_values=final_value_target_values,
+            glidepath_start_values=glidepath_start_values,
+            glidepath_end_values=glidepath_end_values,
+            glidepath_slope_values=glidepath_slope_values,
+            glidepath_mode_values=glidepath_mode_values,
         )
 
 
@@ -305,15 +385,40 @@ def _build_unified_parameter_configs(
 ) -> tuple[ParameterConfiguration, ...]:
     """Build the study's parameter configurations.
 
-    The Cartesian product of the three declared value arrays
-    (``equity_allocation`` x ``withdrawal_rate`` x ``horizon_years``), with
-    ``horizon_years`` varying fastest.
+    For CONSTANT allocation: Cartesian product of
+    ``equity_allocation`` x ``withdrawal_rate`` x ``horizon_years``.
+
+    For GLIDEPATH allocation: Cartesian product of
+    ``glidepath_start`` x ``glidepath_end`` x ``glidepath_slope`` x
+    ``glidepath_mode`` x ``withdrawal_rate`` x ``horizon_years``.
     """
-    axes = [
-        ParameterAxis(
-            name="equity_allocation",
-            values=tuple(float(value) for value in config.allocation_policy_values),
-        ),
+    if config.allocation_policy_type == "GlidepathAllocationPolicy":
+        axes = [
+            ParameterAxis(
+                name="glidepath_start",
+                values=tuple(float(v) for v in (config.glidepath_start_values or ())),
+            ),
+            ParameterAxis(
+                name="glidepath_end",
+                values=tuple(float(v) for v in (config.glidepath_end_values or ())),
+            ),
+            ParameterAxis(
+                name="glidepath_slope",
+                values=tuple(float(v) for v in (config.glidepath_slope_values or ())),
+            ),
+            ParameterAxis(
+                name="glidepath_mode",
+                values=tuple(config.glidepath_mode_values or ()),
+            ),
+        ]
+    else:
+        axes = [
+            ParameterAxis(
+                name="equity_allocation",
+                values=tuple(float(value) for value in config.allocation_policy_values),
+            ),
+        ]
+    axes.extend([
         ParameterAxis(
             name="withdrawal_rate",
             values=tuple(float(value) for value in config.withdrawal_policy_values),
@@ -322,7 +427,7 @@ def _build_unified_parameter_configs(
             name="horizon_years",
             values=tuple(int(value) for value in config.horizon_years),
         ),
-    ]
+    ])
     if config.final_value_target_values is not None:
         axes.append(
             ParameterAxis(
@@ -360,21 +465,35 @@ def _make_policy_resolver(
 ) -> Callable[[ParameterConfiguration], tuple[AllocationPolicy, WithdrawalPolicy]]:
     """Per-configuration policies from the study's declared value arrays.
 
-    Policies are pure functions of their single scalar, so one instance is
-    shared per distinct scalar value (nothing mutates a policy after
+    Policies are pure functions of their parameters, so one instance is
+    shared per distinct parameter set (nothing mutates a policy after
     construction), keeping plan building memory-bounded.
     """
     _alloc_by_weight: dict[Decimal, AllocationPolicy] = {}
+    _alloc_glidepath: dict[tuple[Decimal, Decimal, Decimal, str], AllocationPolicy] = {}
     _withdraw_by_rate: dict[Decimal, WithdrawalPolicy] = {}
 
     def resolve(
         param_config: ParameterConfiguration,
     ) -> tuple[AllocationPolicy, WithdrawalPolicy]:
-        weight = Decimal(str(param_config.get("equity_allocation")))
-        resolved_alloc = _alloc_by_weight.get(weight)
-        if resolved_alloc is None:
-            resolved_alloc = build_allocation_policy(config.allocation_policy_type, weight)
-            _alloc_by_weight[weight] = resolved_alloc
+        if config.allocation_policy_type == "GlidepathAllocationPolicy":
+            start = Decimal(str(param_config.get("glidepath_start")))
+            end = Decimal(str(param_config.get("glidepath_end")))
+            slope = Decimal(str(param_config.get("glidepath_slope")))
+            mode = str(param_config.get("glidepath_mode"))
+            key = (start, end, slope, mode)
+            resolved_alloc = _alloc_glidepath.get(key)
+            if resolved_alloc is None:
+                resolved_alloc = build_glidepath_allocation_policy(start, end, slope, mode)
+                _alloc_glidepath[key] = resolved_alloc
+        else:
+            weight = Decimal(str(param_config.get("equity_allocation")))
+            resolved_alloc = _alloc_by_weight.get(weight)
+            if resolved_alloc is None:
+                resolved_alloc = build_allocation_policy(
+                    config.allocation_policy_type, weight
+                )
+                _alloc_by_weight[weight] = resolved_alloc
         rate = Decimal(str(param_config.get("withdrawal_rate")))
         resolved_withd = _withdraw_by_rate.get(rate)
         if resolved_withd is None:
@@ -412,10 +531,20 @@ def _representative_policies(
     These are the experiment-definition policy snapshot used for persistence;
     per-unit policies always come from each unit's parameter configuration.
     """
-    return (
-        build_allocation_policy(
+    representative_alloc: AllocationPolicy
+    if config.allocation_policy_type == "GlidepathAllocationPolicy":
+        representative_alloc = build_glidepath_allocation_policy(
+            start_equity=config.glidepath_start_values[0],  # type: ignore[index]
+            end_equity=config.glidepath_end_values[0],  # type: ignore[index]
+            slope=config.glidepath_slope_values[0],  # type: ignore[index]
+            mode=config.glidepath_mode_values[0],  # type: ignore[index]
+        )
+    else:
+        representative_alloc = build_allocation_policy(
             config.allocation_policy_type, config.allocation_policy_values[0]
-        ),
+        )
+    return (
+        representative_alloc,
         build_withdrawal_policy(
             config.withdrawal_policy_type, config.withdrawal_policy_values[0]
         ),

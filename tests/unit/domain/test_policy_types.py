@@ -26,8 +26,9 @@ class TestAllocationPolicyType:
 
     def test_all_members_exhaustive(self) -> None:
         members = list(AllocationPolicyType)
-        assert len(members) == 1
-        assert members[0] is AllocationPolicyType.CONSTANT
+        assert len(members) == 2
+        yaml_names = {m.yaml_name for m in members}
+        assert yaml_names == {"ConstantAllocationPolicy", "GlidepathAllocationPolicy"}
 
 
 class TestWithdrawalPolicyType:
