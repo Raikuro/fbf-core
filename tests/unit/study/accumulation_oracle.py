@@ -18,7 +18,6 @@ The oracle is permitted to use:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -99,9 +98,6 @@ def oracle_accumulate(
         raise ValueError(
             f"Accumulation requires 13 snapshots, got {len(dataset.snapshots)}"
         )
-
-    eq_price_0 = _price_at(dataset.snapshots[0], equity_asset)
-    bd_price_0 = _price_at(dataset.snapshots[0], bond_asset)
 
     eq_units = _find_holding(initial_portfolio, equity_asset)
     bd_units = _find_holding(initial_portfolio, bond_asset)
