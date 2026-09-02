@@ -1,0 +1,41 @@
+# Early Retirement Now Part 42: One More Year Syndrome
+#
+# Studies the impact of working one additional year with $5,000/month
+# contributions on SWR success rates.
+#
+# Grid: 5 equity_weights x 9 SWR x 1 horizon (30y) = 45 cells
+# Each cell runs over rolling cohorts from the ERN dataset.
+#
+# Run example:
+#   sim-retire --data-dir data/ern run examples/studies/ern_part42.yaml \
+#     --no-persist --summary-only
+
+metadata:
+  name: "ERN Part 42 — One More Year Syndrome"
+  version: "1.0"
+  description: >
+    Early Retirement Now Part 42 replication:
+    impact of working one additional year with $5,000/month contributions.
+
+dataset:
+  identifier: "ern_swr_h720"
+
+cohorts:
+  horizon_years: [30]
+
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: [0.25, 0.5, 0.75, 0.9, 1.0]
+
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: [0.03, 0.0325, 0.035, 0.0375, 0.04, 0.0425, 0.045, 0.0475, 0.05]
+
+final_value_target: [0.25]
+
+# Part 42 OMY configuration
+omy:
+  contribution_amount: 5000
+  equity_weight: 0.75
+  bond_weight: 0.25
+  original_initial_wealth: 2000000

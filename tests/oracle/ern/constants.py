@@ -214,3 +214,47 @@ def load_oracle_table(path: Path = ORACLE_CSV) -> OracleTable:
         horizon = int(row["horizon_years"])
         table[(weight, horizon)] = {rate: int(row[f"{rate:g}"]) for rate in RATES}
     return table
+
+
+# ---------------------------------------------------------------------------
+# Part 42 — One More Year Syndrome
+# ---------------------------------------------------------------------------
+# Studies the impact of working one additional year with $5,000/month
+# contributions on SWR success rates.
+#
+# Grid: 5 equity_weights x 9 SWR x 1 horizon (30y) = 45 cells
+# Each cell runs over rolling cohorts from the ERN dataset.
+
+# Part 42 equity allocation weights
+PART42_WEIGHTS: list[float] = [0.25, 0.5, 0.75, 0.9, 1.0]
+
+# Part 42 SWR values: 3.0% to 5.0% in 0.25% steps
+PART42_SWR: list[float] = [
+    0.03, 0.0325, 0.035, 0.0375, 0.04,
+    0.0425, 0.045, 0.0475, 0.05,
+]
+
+# Part 42 horizon (fixed at 30 years)
+PART42_HORIZONS: list[int] = [30]
+
+# Part 42 OMY parameters
+PART42_CONTRIBUTION_MONTHLY: float = 5000.0
+PART42_EQUITY_WEIGHT: float = 0.75
+PART42_BOND_WEIGHT: float = 0.25
+PART42_ORIGINAL_INITIAL_WEALTH: float = 2000000.0
+PART42_FV_TARGET_FRACTION: float = 0.25
+
+# Full Part 42 grid dimensions
+PART42_WEIGHT_COUNT = len(PART42_WEIGHTS)  # 5
+PART42_SWR_COUNT = len(PART42_SWR)  # 9
+PART42_HORIZON_COUNT = len(PART42_HORIZONS)  # 1
+PART42_GRID_CELLS = (
+    PART42_WEIGHT_COUNT * PART42_SWR_COUNT * PART42_HORIZON_COUNT
+)  # 45
+
+# Validation anchors from the ERN Part 42 article (§A.3):
+# - 30-year baseline failsafe (no OMY): ~3.6%
+# - OMY improvement: +7.8%
+# These are research references, not hard gates.
+PART42_ANCHOR_BASELINE_FAILSAFE: float = 0.036
+PART42_ANCHOR_OMY_IMPROVEMENT: float = 0.078

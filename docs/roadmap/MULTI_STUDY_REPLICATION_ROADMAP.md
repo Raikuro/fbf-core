@@ -1838,21 +1838,41 @@ The roadmap distinguishes between:
 
 ### S3 — Part 42 Accumulation
 
-**Prerequisite:** S0 P42 items CLOSED (semantic specification, contribution timing, period_index mapping).
+**Status:** COMPLETE
 
-**Objective:** First implement the research-level semantic model. Establish the exact relationship between accumulation and retirement. Only introduce an engine-level contribution mechanism if the research-layer representation cannot express the required mathematics cleanly.
+**Prerequisite:** S0 P42 items CLOSED (S0-F2, S0-F3, S0-F4 DECIDED).
 
-**VERIFIED methodology:** See §A.3.
+**Objective:** Implement the research-layer accumulation model. Compute 12-month accumulation once per cohort, produce retirement starting portfolio, execute standard retirement simulation. No engine modification.
 
-**Engine changes:** REQUIRES ARCHITECTURAL PROOF. Only if research-layer approach is insufficient.
+**Architecture:** Research-layer pre-processing. Accumulation uses domain primitives (Portfolio, AssetHolding, Decimal arithmetic). Engine remains canonical oracle for retirement.
 
-**If both representations exist:** Require numerical equivalence tests against the canonical Decimal oracle.
+**Semantic contract:** See `docs/DECISIONS.md` — "Part 42 Accumulation Temporal Semantics".
 
-**Validation anchors (from §A.3):** 30y baseline failsafe: ~3.6%. OMY with contributions: +7.8%.
+**Key invariants:**
+- 12 accumulation transitions + 348 retirement transitions = 360 total
+- Accumulation computed once per cohort (not per SWR rate)
+- N accumulation + N×M retirement executions for N cohorts × M SWR rates
+- Contribution: constant real $5,000/month (no inflation deflation)
+- FV target: 25% of original_initial_wealth (not retirement_initial_wealth)
+- Dataset.slice() returns N snapshots; SimulationContext.horizon_months = N-1 transitions
 
-**Performance gate:** Benchmark accumulation phase against baseline. Expected: 12-month accumulation adds negligible overhead relative to the retirement simulation.
+**Engine changes:** NONE.
+
+**Validation anchors (from §A.3):** 30y baseline failsafe: ~3.6%. OMY with contributions: +7.8%. Research references, not hard gates.
+
+**Performance gate:** Total Part 42 ≤ 2× retirement-only baseline (same machine/mode/config).
 
 **Risk Level:** MEDIUM
+
+**Completed stages:**
+- S3.1: Semantic contract documented in `docs/DECISIONS.md`
+- S3.2: Independent oracle + controlled fixtures (9 tests)
+- S3.3: Production accumulation implementation (9 tests)
+- S3.4: Generic study-plan integration (4 tests)
+- S3.5: Part 42 YAML configuration + grid constants (11 tests)
+- S3.6: End-to-end execution (4 tests)
+- S3.7: Full independent validation (14 tests)
+- S3.8: Research/grid validation structure (E2E-gated)
 
 ### S4 — Part 49 Debt Foundation
 

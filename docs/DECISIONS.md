@@ -259,3 +259,124 @@ binary split at CAPE=20.
 coexist with the existing `CapeRegime` model. Both are independent
 classification functions; neither modifies the other. Missing CAPE values
 raise `ValueError` (fail-fast) rather than silently defaulting to a regime.
+
+---
+
+## Part 42 Accumulation Temporal Semantics
+
+**Decision:** The Part 42 OMY study uses a research-layer pre-processing
+model. The 12-month accumulation phase is computed before the retirement
+simulation and produces the retirement starting portfolio. No engine
+modification is required.
+
+### Temporal Structure
+
+The 30-year horizon is modeled as 360 total calendar months:
+
+```
+Phase 1 — Accumulation:
+  period_index 0–11: 12 months
+  Dataset: 13 snapshots (indices 0..12)
+  Return transitions: 12 (0→1 .. 11→12)
+
+Phase 2 — Retirement:
+  period_index 12–359: 348 months
+  Dataset: 349 snapshots (indices 12..360)
+  Return transitions: 348 (12→13 .. 359→360)
+
+Total:
+  Dataset: 361 snapshots (indices 0..360)
+  Return transitions: 360
+  MonthlyResults: 360 (12 accumulation + 348 retirement)
+```
+
+**horizon_months contract:**
+- `Dataset.slice(start_date, N)` returns N snapshots (indices 0..N-1 within
+  the slice).
+- `SimulationContext.horizon_months` specifies the number of return
+  transitions to execute, producing that many `MonthlyResult` objects.
+- For accumulation: `Dataset.slice(start, 13)` + `horizon_months=12`.
+- For retirement: `Dataset.slice(retirement_start, 349)` +
+  `horizon_months=348`.
+
+**period_index mapping:** The retirement context uses local period indices
+starting at 0. The study-level month 12 corresponds to local period 0; study
+month 359 corresponds to local period 347. This is intentional — the engine
+is not modified to preserve global study-level indices.
+
+### Unit System
+
+The simulation operates in a currency-neutral unit system. The ERN study is
+specified in US dollars; the FBF codebase canonicalizes monetary values as
+`Money(amount, Currency.EUR)`. All monetary values are proportional — the
+mathematical result is identical regardless of currency label. No
+dollar-to-euro conversion is performed.
+
+### Contribution Semantics
+
+The $5,000/month contribution is **constant in real terms**. No inflation
+deflation is applied. The contribution is `Money(Decimal("5000"),
+Currency.EUR)` each accumulation month, consistent with the dataset's
+real-return convention. This matches the ERN methodology where all values
+are in real (inflation-adjusted) units.
+
+### Contribution Ordering (S0-F3)
+
+For each accumulation month:
+
+```
+1. Value portfolio at current snapshot prices
+2. Add contribution (split by target allocation weights)
+3. Rebalance to target allocation weights
+4. Apply market return (current snapshot → next snapshot evolution)
+```
+
+### Accumulation-to-Retirement Handoff
+
+The accumulation phase produces a final portfolio at dataset[12] prices. This
+portfolio becomes the `initial_portfolio` for the retirement simulation.
+
+**Wealth naming convention:**
+- `original_initial_wealth`: study-level initial wealth ($2M for Part 42)
+- `retirement_initial_wealth`: accumulation-phase output (post-OMY value)
+- The `initial_wealth` field in `SimulationContext` refers to
+  `retirement_initial_wealth` for the retirement phase.
+
+### Final-Value Target
+
+The Part 42 FV target is 25% of `original_initial_wealth`, not 25% of
+`retirement_initial_wealth`. The success criterion is:
+`final_wealth >= 0.25 × original_initial_wealth`.
+
+### Accumulation Uniqueness
+
+The accumulation result depends only on `(cohort_start_date,
+contribution_amount, allocation_policy, initial_portfolio, dataset)`. It does
+not depend on retirement SWR, FV target, or retirement horizon. Therefore
+accumulation is computed once per unique cohort, not per retirement parameter
+configuration.
+
+**Why:** Avoids redundant computation. For N cohorts × M SWR rates: N
+accumulation executions, N×M retirement executions.
+
+**Alternatives rejected:** Computing accumulation per retirement configuration
+— rejected because the result is identical and the redundant computation
+wastes time without changing the answer.
+
+**Consequence:** The study-plan builder must cache accumulation results by
+cohort identity and reuse them across retirement parameter configurations.
+
+### Performance Architecture
+
+The architectural performance model for Part 42:
+
+```
+N cohorts × M retirement configurations
+          ↓
+N accumulation executions + N×M retirement executions
+```
+
+No absolute runtime gates are imposed on individual accumulation computations.
+The full-study gate is: total Part 42 execution time ≤ 2× the measured
+retirement-only baseline on the same machine, output mode, and execution
+configuration.

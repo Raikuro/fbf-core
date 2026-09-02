@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -149,6 +150,23 @@ def _parse_optional_decimal_array(
     return tuple(values)
 
 
+def _parse_optional_decimal_scalar(
+    data: dict[str, Any], key: str
+) -> Decimal | None:
+    """Parse an optional decimal scalar from a mapping.
+
+    Returns ``None`` when the key is absent or explicitly set to ``null``.
+    Raises ``ValueError`` when the key is present but not a valid number.
+    """
+    raw = data.get(key)
+    if raw is None:
+        return None
+    try:
+        return Decimal(str(raw))
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValueError(f"{key} must be a valid decimal number") from None
+
+
 def _parse_optional_string_array(
     data: dict[str, Any], key: str
 ) -> tuple[str, ...] | None:
@@ -257,6 +275,11 @@ class StudyConfiguration:
     glidepath_slope_values: tuple[Decimal, ...] | None = None
     glidepath_mode_values: tuple[str, ...] | None = None
     explicit_configurations: tuple[dict[str, Any], ...] | None = None
+    # Part 42 OMY parameters (None when OMY is not configured)
+    omy_contribution_amount: Decimal | None = None
+    omy_equity_weight: Decimal | None = None
+    omy_bond_weight: Decimal | None = None
+    omy_original_initial_wealth: Decimal | None = None
 
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
@@ -405,6 +428,28 @@ class StudyConfiguration:
             data, "final_value_target"
         )
 
+        # Parse optional OMY configuration
+        omy_data = data.get("omy")
+        omy_contribution_amount: Decimal | None = None
+        omy_equity_weight: Decimal | None = None
+        omy_bond_weight: Decimal | None = None
+        omy_original_initial_wealth: Decimal | None = None
+        if omy_data is not None:
+            if not isinstance(omy_data, dict):
+                raise ValueError("omy must be a mapping")
+            omy_contribution_amount = _parse_optional_decimal_scalar(
+                omy_data, "contribution_amount"
+            )
+            omy_equity_weight = _parse_optional_decimal_scalar(
+                omy_data, "equity_weight"
+            )
+            omy_bond_weight = _parse_optional_decimal_scalar(
+                omy_data, "bond_weight"
+            )
+            omy_original_initial_wealth = _parse_optional_decimal_scalar(
+                omy_data, "original_initial_wealth"
+            )
+
         return cls(
             name=str(metadata.get("name", "Unnamed Study")),
             description=str(metadata.get("description", "")),
@@ -421,6 +466,10 @@ class StudyConfiguration:
             glidepath_slope_values=glidepath_slope_values,
             glidepath_mode_values=glidepath_mode_values,
             explicit_configurations=explicit_configurations,
+            omy_contribution_amount=omy_contribution_amount,
+            omy_equity_weight=omy_equity_weight,
+            omy_bond_weight=omy_bond_weight,
+            omy_original_initial_wealth=omy_original_initial_wealth,
         )
 
 
@@ -766,3 +815,193 @@ def build_study_plan(
     )
 
 StudyPlanResult = BuiltStudy
+
+
+# ---------------------------------------------------------------------------
+# Part 42 OMY study-plan builder
+#
+# Builds a research plan with accumulation pre-processing. For N cohorts
+# × M SWR rates: N accumulation executions (once per cohort), N×M retirement
+# executions.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OmyStudyConfiguration:
+    """Configuration for a Part 42 OMY study.
+
+    Parameters
+    ----------
+    base_config :
+        The base study configuration (dataset, withdrawal, horizon, etc.).
+    contribution_amount :
+        Monthly contribution amount (constant real).
+    equity_weight :
+        Target equity allocation weight for accumulation.
+    bond_weight :
+        Target bond allocation weight for accumulation.
+    original_initial_wealth :
+        The pre-accumulation initial wealth ($2M for Part 42).
+    fv_target_fraction :
+        Final-value target as a fraction of original_initial_wealth.
+    """
+
+    base_config: StudyConfiguration
+    contribution_amount: Money
+    equity_weight: Decimal
+    bond_weight: Decimal
+    original_initial_wealth: Money
+    fv_target_fraction: Decimal
+
+
+def _make_omy_horizon_resolver(
+    retirement_horizon_years: int,
+) -> Callable[[ParameterConfiguration], int]:
+    """Horizon resolver for OMY retirement: fixed horizon, no accumulation."""
+
+    def resolve(param_config: ParameterConfiguration) -> int:
+        return retirement_horizon_years * 12 + 1
+
+    return resolve
+
+
+def build_omy_study_plan(
+    config: OmyStudyConfiguration,
+    data_dir: str | None,
+) -> BuiltStudy:
+    """Build a research plan with accumulation pre-processing.
+
+    For each cohort:
+      1. Run 12-month accumulation (once, cached per cohort).
+      2. Generate retirement units with the accumulated portfolio.
+
+    The accumulation result is cached by cohort start date. All other
+    accumulation inputs (contribution, weights, initial portfolio) are
+    assumed invariant for Part 42.
+    """
+    from fbf.core.domain.model.asset import AssetClass
+    from fbf.core.study.internal.accumulation import run_accumulation_phase
+
+    equity_asset = AssetClass(id="equity", name="", description="")
+    bond_asset = AssetClass(id="bond", name="", description="")
+
+    dataset = resolve_dataset(config.base_config.dataset_identifier, data_dir)
+
+    # For OMY: the full horizon is accumulation (12) + retirement (30y).
+    # The dataset must contain enough snapshots for the full horizon.
+    retirement_horizon_years = max(config.base_config.horizon_years)
+    total_horizon_months = 12 + retirement_horizon_years * 12 + 1
+
+    cohorts = build_cohort_specs(dataset, total_horizon_months)
+    if not cohorts:
+        raise ValueError(
+            f"Dataset {config.base_config.dataset_identifier!r} is too small "
+            f"for {retirement_horizon_years + 1}-year OMY horizon"
+        )
+
+    param_configs = _build_unified_parameter_configs(config.base_config)
+
+    # Accumulation: once per cohort, cached by start_date.
+    accumulation_cache: dict[date, Portfolio] = {}
+    accumulation_month_by_month: dict[date, tuple[Portfolio, ...]] = {}
+
+    target_weights = {equity_asset: config.equity_weight, bond_asset: config.bond_weight}
+    initial_portfolio = build_initial_portfolio(config.original_initial_wealth)
+
+    for cohort in cohorts:
+        start = cohort.start_date
+        if start not in accumulation_cache:
+            acc_dataset = dataset.slice(start, 13)
+            result = run_accumulation_phase(
+                initial_portfolio=initial_portfolio,
+                contribution=config.contribution_amount,
+                target_weights=target_weights,
+                dataset=acc_dataset,
+                equity_asset=equity_asset,
+                bond_asset=bond_asset,
+            )
+            accumulation_cache[start] = result.final_portfolio
+            accumulation_month_by_month[start] = result.month_by_month
+
+    # Verify accumulation uniqueness: exactly N executions for N cohorts
+    assert len(accumulation_cache) == len(cohorts)
+
+    # Build retirement plan using accumulated portfolios.
+    # For each cohort, the retirement dataset starts at cohort.start_date
+    # and the initial_portfolio is the accumulated result.
+    retirement_plan = _build_omy_retirement_plan(
+        config=config,
+        dataset=dataset,
+        cohorts=cohorts,
+        param_configs=param_configs,
+        accumulation_cache=accumulation_cache,
+    )
+
+    return retirement_plan
+
+
+def _build_omy_retirement_plan(
+    *,
+    config: OmyStudyConfiguration,
+    dataset: Dataset,
+    cohorts: tuple[CohortSpecification, ...],
+    param_configs: tuple[ParameterConfiguration, ...],
+    accumulation_cache: dict[date, Portfolio],
+) -> BuiltStudy:
+    """Build the retirement phase plan using accumulated portfolios."""
+    from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
+    retirement_horizon_years = max(config.base_config.horizon_years)
+    retirement_horizon_months = retirement_horizon_years * 12 + 1
+
+    representative_allocation, representative_withdrawal = _representative_policies(
+        config.base_config
+    )
+
+    experiment_def = ExperimentDefinition(
+        name=config.base_config.name,
+        description=config.base_config.description or config.base_config.name,
+        dataset=dataset,
+        horizon_months=retirement_horizon_months,
+        initial_wealth=config.contribution_amount,  # placeholder; per-unit is set below
+        cohorts=cohorts,
+        allocation_policies=(representative_allocation,),
+        withdrawal_policies=(representative_withdrawal,),
+    )
+
+    # Build units: for each (cohort, param_config), the initial_portfolio
+    # is the accumulated result for that cohort.
+    dataset_cache: dict[tuple[date, int], Dataset] = {}
+    units: list[PlannedSimulationUnit] = []
+    for cohort in cohorts:
+        acc_portfolio = accumulation_cache[cohort.start_date]
+        for param_config in param_configs:
+            horizon_months = retirement_horizon_months
+            alloc_policy, withdrawal_policy = _make_policy_resolver(config.base_config)(
+                param_config
+            )
+            final_value_target = _make_target_resolver(config.base_config)(param_config)
+            cache_key = (cohort.start_date, horizon_months)
+            if cache_key not in dataset_cache:
+                dataset_cache[cache_key] = dataset.slice(
+                    cohort.start_date, horizon_months
+                )
+            units.append(
+                PlannedSimulationUnit(
+                    cohort=cohort,
+                    parameter_config=param_config,
+                    allocation_policy=alloc_policy,
+                    withdrawal_policy=withdrawal_policy,
+                    initial_portfolio=acc_portfolio,
+                    dataset=dataset_cache[cache_key],
+                    horizon_months=horizon_months,
+                    final_value_target=final_value_target,
+                )
+            )
+
+    plan = ResearchPlan(experiment_definition=experiment_def, units=tuple(units))
+    return BuiltStudy(
+        plan=plan,
+        experiment_definition=experiment_def,
+        cohorts=cohorts,
+        param_configs=param_configs,
+    )
