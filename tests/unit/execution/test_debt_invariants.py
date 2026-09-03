@@ -202,6 +202,7 @@ class TestInvariantLiquidationReducesBothEqually:
         )
 
         # Calculate initial portfolio value
+        assert state.market_snapshot is not None
         initial_portfolio_value = Decimal("0")
         for holding in state.portfolio.holdings:
             price = state.market_snapshot.index_levels.get(holding.asset_class)
@@ -211,6 +212,7 @@ class TestInvariantLiquidationReducesBothEqually:
         result = step.execute(state)
 
         # Calculate final portfolio value
+        assert result.market_snapshot is not None
         final_portfolio_value = Decimal("0")
         for holding in result.portfolio.holdings:
             price = result.market_snapshot.index_levels.get(holding.asset_class)
@@ -270,6 +272,7 @@ class TestInvariantLiquidationNeverCreatesWealth:
         )
 
         # Calculate initial portfolio value
+        assert state.market_snapshot is not None
         initial_portfolio_value = Decimal("0")
         for holding in state.portfolio.holdings:
             price = state.market_snapshot.index_levels.get(holding.asset_class)
@@ -279,6 +282,7 @@ class TestInvariantLiquidationNeverCreatesWealth:
         result = step.execute(state)
 
         # Calculate final portfolio value
+        assert result.market_snapshot is not None
         final_portfolio_value = Decimal("0")
         for holding in result.portfolio.holdings:
             price = result.market_snapshot.index_levels.get(holding.asset_class)
@@ -336,6 +340,7 @@ class TestInvariantNetWorthIdentity:
         result = step.execute(state)
 
         # Calculate expected net worth (derived)
+        assert result.market_snapshot is not None
         portfolio_value = Decimal("0")
         for holding in result.portfolio.holdings:
             price = result.market_snapshot.index_levels.get(holding.asset_class)

@@ -141,6 +141,7 @@ class TestOracleEquivalence:
         state = failure_step.execute(state)
 
         # Calculate final portfolio value
+        assert state.market_snapshot is not None
         portfolio_value = Decimal("0")
         for holding in state.portfolio.holdings:
             price = state.market_snapshot.index_levels.get(holding.asset_class)

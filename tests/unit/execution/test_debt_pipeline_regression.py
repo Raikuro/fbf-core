@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
@@ -98,7 +99,7 @@ def _create_legacy_pipeline() -> SimulationPipeline:
     )
 
 
-def _run(pipeline: SimulationPipeline, context: SimulationContext) -> list[dict]:
+def _run(pipeline: SimulationPipeline, context: SimulationContext) -> list[dict[str, Any]]:
     """Run a simulation and return the monthly timeline as serializable dicts."""
     runner = SimulationRunner(pipeline=pipeline)
     executor = SimulationExecutor(runner)
@@ -156,8 +157,11 @@ class TestDebtPipelineRegression:
             assert legacy["withdrawal"] == modern["withdrawal"], (
                 f"Mismatch at month {i}: withdrawal"
             )
-            for asset_id in legacy["allocation"]:
-                assert legacy["allocation"][asset_id] == modern["allocation"][asset_id], (
+            legacy_alloc = legacy["allocation"]
+            modern_alloc = modern["allocation"]
+            assert isinstance(legacy_alloc, dict) and isinstance(modern_alloc, dict)
+            for asset_id in legacy_alloc:
+                assert legacy_alloc[asset_id] == modern_alloc[asset_id], (
                     f"Mismatch at month {i}: allocation[{asset_id}]"
                 )
 

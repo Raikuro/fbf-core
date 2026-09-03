@@ -9,6 +9,8 @@ from fbf.core.execution.pipeline.simulation import SimulationState
 class PipelineStep(ABC):
     """Abstract pipeline step for monthly simulation execution."""
 
+    sequence_order: int
+
     @abstractmethod
     def execute(self, state: SimulationState) -> SimulationState:
         raise NotImplementedError

@@ -91,8 +91,8 @@ class SimulationRunner:
 
         # Initialize debt state from context if available
         loan_balance = Decimal("0")
-        interest_rate = Decimal("0")
-        ltv_limit = Decimal("0")
+        interest_rate = context.interest_rate if context.interest_rate is not None else Decimal("0")
+        ltv_limit = context.ltv_limit if context.ltv_limit is not None else Decimal("0")
 
         return SimulationState(
             context=context,

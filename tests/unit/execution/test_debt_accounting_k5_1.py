@@ -100,6 +100,7 @@ def _state(
 
 
 def _portfolio_value(state: SimulationState) -> Decimal:
+    assert state.market_snapshot is not None
     total = Decimal("0")
     for h in state.portfolio.holdings:
         price = state.market_snapshot.index_levels.get(h.asset_class)

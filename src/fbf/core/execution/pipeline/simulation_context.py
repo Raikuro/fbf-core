@@ -28,3 +28,5 @@ class SimulationContext:
     withdrawal_policy: WithdrawalPolicy
     final_value_target: Decimal | None = None
     loan_draw_rate: Decimal | None = None
+    interest_rate: Decimal | None = None
+    ltv_limit: Decimal | None = None

@@ -24,7 +24,7 @@ jobs:
         run: ruff check src tests
 
       - name: Mypy type check
-        run: mypy --strict src
+        run: mypy --strict .
 
       - name: Pytest
         run: pytest -p no:cacheprovider
