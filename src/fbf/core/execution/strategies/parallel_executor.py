@@ -39,17 +39,31 @@ from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
 
 def _create_default_simulation_executor() -> SimulationExecutor:
-    """Create a default engine SimulationExecutor with the standard 9-step pipeline."""
+    """Create a default engine SimulationExecutor with the debt-aware pipeline.
+
+    The pipeline includes debt steps (loan draw, interest accrual, LTV evaluation)
+    which are no-ops when interest_rate = 0. This ensures the production pipeline
+    is debt-capable without requiring separate pipeline configurations.
+    """
+    from fbf.core.execution.pipeline.steps.failure_detection_step import FailureDetectionStep
+    from fbf.core.execution.pipeline.steps.interest_accrual_step import InterestAccrualStep
+    from fbf.core.execution.pipeline.steps.loan_draw_step import LoanDrawStep
+    from fbf.core.execution.pipeline.steps.ltv_evaluation_step import LTVEvaluationStep
+
     pipeline = SimulationPipeline(
         [
             InitializeAllocationStep(),
             BuildDecisionContextStep(),
             WithdrawalDecisionStep(),
             WithdrawalExecutionStep(),
+            LoanDrawStep(),  # No-op when interest_rate = 0
             AllocationDecisionStep(),
             PortfolioRebalanceStep(),
             MarketEvolutionStep(),
+            InterestAccrualStep(),  # No-op when interest_rate = 0
+            LTVEvaluationStep(),  # No-op when interest_rate = 0
             MonthlyResultBuilderStep(),
+            FailureDetectionStep(),
             SimulationStateUpdateStep(),
         ]
     )

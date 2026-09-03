@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from enum import Enum
 
 from fbf.core.domain.model.allocation import Allocation, AllocationTarget
@@ -46,6 +47,12 @@ class SimulationState:
     decision_context: DecisionContext | None = None
     monthly_results: list[MonthlyResult] = field(default_factory=list)
 
+    # Debt state (Part 49)
+    loan_balance: Decimal = Decimal("0")
+    cash_balance: Decimal = Decimal("0")
+    interest_rate: Decimal = Decimal("0")
+    ltv_limit: Decimal = Decimal("0")
+
 
 class ExecutionStatus(Enum):
     """Enumeration of simulation execution states."""
@@ -72,6 +79,21 @@ class MonthlyResult:
     cumulative_return: float
     cumulative_inflation: float
     events: Sequence[object]
+    debt_snapshot: DebtSnapshot | None = None
+
+
+@dataclass(frozen=True)
+class DebtSnapshot:
+    """Immutable snapshot of debt state for observability.
+
+    This is a derived snapshot computed at the end of each period.
+    It provides a read-only view of the debt state for diagnostics.
+    """
+
+    loan_balance: Decimal
+    cash_balance: Decimal
+    ltv: Decimal
+    net_worth: Decimal
 
 
 @dataclass(frozen=True)
@@ -89,6 +111,7 @@ class SimulationStatistics:
     max_drawdown: float
     success: bool
     failure_month: int | None
+    failure_state: str | None
     months_simulated: int
     execution_time_seconds: float
 

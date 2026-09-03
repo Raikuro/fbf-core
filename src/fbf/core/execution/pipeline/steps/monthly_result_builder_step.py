@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from fbf.core.execution.pipeline.pipeline import PipelineStep
-from fbf.core.execution.pipeline.simulation import MonthlyResult, SimulationState
+from fbf.core.execution.pipeline.simulation import DebtSnapshot, MonthlyResult, SimulationState
 
 
 class MonthlyResultBuilderStep(PipelineStep):
@@ -12,6 +14,29 @@ class MonthlyResultBuilderStep(PipelineStep):
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
         assert state.market_snapshot is not None
+
+        # Build debt snapshot if debt is configured
+        debt_snapshot = None
+        if state.interest_rate > 0:
+            # Compute LTV
+            portfolio_value = Decimal("0")
+            for holding in state.portfolio.holdings:
+                price = state.market_snapshot.index_levels.get(holding.asset_class)
+                if price is not None:
+                    portfolio_value += holding.units * price
+
+            ltv = Decimal("0")
+            if portfolio_value > 0 and state.loan_balance > 0:
+                ltv = state.loan_balance / portfolio_value
+
+            net_worth = portfolio_value - state.loan_balance
+
+            debt_snapshot = DebtSnapshot(
+                loan_balance=state.loan_balance,
+                cash_balance=state.cash_balance,
+                ltv=ltv,
+                net_worth=net_worth,
+            )
 
         monthly_result = MonthlyResult(
             date=state.current_date,
@@ -27,6 +52,7 @@ class MonthlyResultBuilderStep(PipelineStep):
             cumulative_return=0.0,
             cumulative_inflation=0.0,
             events=(),
+            debt_snapshot=debt_snapshot,
         )
 
         state.monthly_results.append(monthly_result)

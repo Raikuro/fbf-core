@@ -27,3 +27,4 @@ class SimulationContext:
     allocation_policy: AllocationPolicy
     withdrawal_policy: WithdrawalPolicy
     final_value_target: Decimal | None = None
+    loan_draw_rate: Decimal | None = None

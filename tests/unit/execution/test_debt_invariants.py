@@ -632,8 +632,8 @@ class TestLoanDrawStepAccounting:
 
         assert result.loan_balance == Decimal("83.33")
 
-    def test_loan_draw_adds_funds_to_portfolio(self) -> None:
-        """LoanDrawStep should add borrowed funds to portfolio."""
+    def test_loan_draw_adds_funds_to_cash_balance(self) -> None:
+        """LoanDrawStep should add borrowed funds to cash_balance."""
         from decimal import Decimal
 
         from fbf.core.domain.model.money import Currency, Money
@@ -685,8 +685,8 @@ class TestLoanDrawStepAccounting:
 
         result = step.execute(state)
 
-        # Portfolio should have original 100 units + 83.33 borrowed = 183.33
-        assert result.portfolio.holdings[0].units == Decimal("183.33")
+        # Cash balance should have 83.33 borrowed funds
+        assert result.cash_balance == Decimal("83.33")
 
     def test_loan_draw_formula_ern_part49(self) -> None:
         """Loan draw amount should equal initial_wealth × loan_draw_rate / 12."""
