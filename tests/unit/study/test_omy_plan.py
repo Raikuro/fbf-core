@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Any
 
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
@@ -66,8 +67,8 @@ def _make_omy_config(
     )
 
 
-def _patch_resolve(small_dataset: Dataset):
-    """Context manager that patches resolve_dataset to return small_dataset."""
+def _patch_resolve(small_dataset: Dataset) -> Any:
+    """Patch resolve_dataset to return small_dataset. Returns the original for restoration."""
     import fbf.core.study.builder as builder_mod
 
     original_resolve = builder_mod.resolve_dataset
@@ -75,7 +76,7 @@ def _patch_resolve(small_dataset: Dataset):
     def mock_resolve(identifier: str, data_dir: str | None) -> Dataset:
         return small_dataset
 
-    builder_mod.resolve_dataset = mock_resolve  # type: ignore[assignment]
+    builder_mod.resolve_dataset = mock_resolve
     return original_resolve
 
 

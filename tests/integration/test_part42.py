@@ -70,7 +70,7 @@ class TestOmySmallGridExecution:
         def mock_resolve(identifier: str, data_dir: str | None) -> Dataset:
             return small
 
-        builder_mod.resolve_dataset = mock_resolve  # type: ignore[assignment]
+        builder_mod.resolve_dataset = mock_resolve
         try:
             result = build_omy_study_plan(config, data_dir=None)
             plan = result.plan

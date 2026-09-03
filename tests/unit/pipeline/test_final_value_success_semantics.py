@@ -151,7 +151,7 @@ BUILDER = DefaultSimulationStatisticsBuilder()
 class TestFinalValueSuccessSemantics:
     """The six deterministic success-semantic test cases."""
 
-    def test_case1_no_target_survival_only(self):
+    def test_case1_no_target_survival_only(self) -> None:
         """No target configured -> success if survived, regardless of final wealth."""
         ctx = _make_context(INITIAL_WEALTH, final_value_target=None)
         state = _make_state(
@@ -161,7 +161,7 @@ class TestFinalValueSuccessSemantics:
         stats = BUILDER.build(state)
         assert stats.success is True
 
-    def test_case2_positive_target_below(self):
+    def test_case2_positive_target_below(self) -> None:
         """Final wealth below target -> failure."""
         ctx = _make_context(INITIAL_WEALTH, final_value_target=Decimal("0.90"))
         state = _make_state(
@@ -171,7 +171,7 @@ class TestFinalValueSuccessSemantics:
         stats = BUILDER.build(state)
         assert stats.success is False
 
-    def test_case3_temporary_dip_but_recovers(self):
+    def test_case3_temporary_dip_but_recovers(self) -> None:
         """Portfolio temporarily falls below target but finishes above it -> success.
 
         The final-value criterion is evaluated only at the final period.
@@ -193,7 +193,7 @@ class TestFinalValueSuccessSemantics:
         stats = BUILDER.build(state)
         assert stats.success is True
 
-    def test_case4_exact_equality(self):
+    def test_case4_exact_equality(self) -> None:
         """Final wealth exactly equal to target -> success."""
         ctx = _make_context(INITIAL_WEALTH, final_value_target=Decimal("0.8345"))
         state = _make_state(
@@ -203,7 +203,7 @@ class TestFinalValueSuccessSemantics:
         stats = BUILDER.build(state)
         assert stats.success is True
 
-    def test_case5_one_cent_below(self):
+    def test_case5_one_cent_below(self) -> None:
         """Final wealth one cent below target -> failure."""
         ctx = _make_context(INITIAL_WEALTH, final_value_target=Decimal("0.8346"))
         state = _make_state(
@@ -213,7 +213,7 @@ class TestFinalValueSuccessSemantics:
         stats = BUILDER.build(state)
         assert stats.success is False
 
-    def test_case6_depletion_before_final_period(self):
+    def test_case6_depletion_before_final_period(self) -> None:
         """Depletion before the final period -> failure regardless of target.
 
         Even with a trivially satisfiable target (0%), a depleted portfolio
@@ -231,7 +231,7 @@ class TestFinalValueSuccessSemantics:
         assert stats.success is False
         assert stats.failure_month == 1
 
-    def test_target_zero_reproduces_depletion_semantics(self):
+    def test_target_zero_reproduces_depletion_semantics(self) -> None:
         """target=0.00 with a surviving portfolio -> success (trivially satisfied)."""
         ctx = _make_context(INITIAL_WEALTH, final_value_target=Decimal("0.00"))
         state = _make_state(
@@ -241,7 +241,7 @@ class TestFinalValueSuccessSemantics:
         stats = BUILDER.build(state)
         assert stats.success is True
 
-    def test_survived_but_zero_wealth_with_positive_target(self):
+    def test_survived_but_zero_wealth_with_positive_target(self) -> None:
         """Survived with zero final wealth + positive target -> failure."""
         ctx = _make_context(INITIAL_WEALTH, final_value_target=Decimal("0.01"))
         state = _make_state(

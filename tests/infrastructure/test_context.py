@@ -140,6 +140,7 @@ class TestLoadDatasetFromFile:
         data = _dataset_to_dict(_DATASET)
         file_path.write_text(json.dumps(data), encoding="utf-8")
         loaded = _load_dataset_from_file(file_path)
+        assert loaded is not None
         assert loaded.version == _DATASET.version
         assert loaded.frequency == _DATASET.frequency
         assert loaded[0].date == _DATASET[0].date

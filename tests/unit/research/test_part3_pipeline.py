@@ -6,6 +6,7 @@ the ``execute_part3_pipeline`` orchestrator.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -68,7 +69,7 @@ def _mock_experiment_def() -> Any:
 def _minimal_plan_result(
     cohorts: list[CohortSpecification],
     param_configs: list[ParameterConfiguration],
-    cape_metadata: dict[date, CapeMetadata],
+    cape_metadata: Mapping[date, CapeMetadata],
 ) -> Part3PlanResult:
     """Build a minimal Part3PlanResult for testing the adapter.
 
@@ -103,7 +104,7 @@ def _mock_execution_result(
     """Build a mock ResearchExecutionResult with n_units results."""
     results = tuple(
         SimulationResult(
-            timeline=None,
+            timeline=None,  # type: ignore[arg-type]
             statistics=SimulationStatistics(
                 final_wealth=Money(Decimal("100000"), Currency.EUR),
                 max_drawdown=0.0,
@@ -196,7 +197,7 @@ class TestAdaptPart3ToBuiltin:
 
     def test_experiment_definition_none_raises(self) -> None:
         pr = _minimal_plan_result([], [], {})
-        pr.plan.experiment_definition = None  # type: ignore[assignment]
+        pr.plan.experiment_definition = None  # type: ignore[misc, assignment]
 
         with pytest.raises(ValueError, match="experiment_definition"):
             adapt_part3_to_builtin(pr)
@@ -317,7 +318,7 @@ class TestExecutePart3Pipeline:
         # First succeeds, second fails
         results = (
             SimulationResult(
-                timeline=None,
+                timeline=None,  # type: ignore[arg-type]
                 statistics=SimulationStatistics(
                     final_wealth=Money(Decimal("100000"), Currency.EUR),
                     max_drawdown=0.0,
@@ -328,7 +329,7 @@ class TestExecutePart3Pipeline:
                 ),
             ),
             SimulationResult(
-                timeline=None,
+                timeline=None,  # type: ignore[arg-type]
                 statistics=SimulationStatistics(
                     final_wealth=Money(Decimal("0"), Currency.EUR),
                     max_drawdown=1.0,

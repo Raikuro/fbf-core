@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
 
@@ -21,7 +22,7 @@ def _load_part20_config() -> StudyConfiguration:
     return StudyConfiguration.from_yaml(data)
 
 
-def _load_part20_raw() -> dict:
+def _load_part20_raw() -> dict[str, Any]:
     from fbf.core.study.builder import load_yaml
 
     return load_yaml(_PART20_YAML)
@@ -60,10 +61,10 @@ class TestPart20GridStructure:
         seen_glidepaths: set[tuple[float, float, float, str]] = set()
         for pc in configs:
             key = (
-                pc.values["start_equity"],
-                pc.values["end_equity"],
-                pc.values["slope"],
-                pc.values["mode"],
+                float(pc.values["start_equity"]),
+                float(pc.values["end_equity"]),
+                float(pc.values["slope"]),
+                str(pc.values["mode"]),
             )
             seen_glidepaths.add(key)
         # Exactly 32 unique glidepath tuples
@@ -127,10 +128,10 @@ class TestPart20GridStructure:
         gp_counts: Counter[tuple[float, float, float, str]] = Counter()
         for pc in configs:
             key = (
-                pc.values["start_equity"],
-                pc.values["end_equity"],
-                pc.values["slope"],
-                pc.values["mode"],
+                float(pc.values["start_equity"]),
+                float(pc.values["end_equity"]),
+                float(pc.values["slope"]),
+                str(pc.values["mode"]),
             )
             gp_counts[key] += 1
         for gp, count in gp_counts.items():

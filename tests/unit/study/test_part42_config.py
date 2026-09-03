@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from fbf.core.study.builder import StudyConfiguration
 
@@ -18,7 +19,7 @@ from fbf.core.study.builder import StudyConfiguration
 class TestPart42YamlParsing:
     """Part 42 YAML must parse as a valid StudyConfiguration."""
 
-    def _load_part42(self) -> dict:
+    def _load_part42(self) -> dict[str, Any]:
         from fbf.core.study.builder import load_yaml
 
         return load_yaml(Path("examples/studies/ern_part42.yaml"))

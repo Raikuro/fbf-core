@@ -18,7 +18,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
@@ -27,6 +29,7 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from fbf.core.execution.pipeline.pipeline import SimulationPipeline
 from fbf.core.execution.pipeline.runner import SimulationRunner
+from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.pipeline.steps.allocation_decision_step import (
     AllocationDecisionStep,
@@ -165,7 +168,7 @@ def _run_differential(
     initial_wealth: Money,
     dataset: Dataset,
     horizon: int,
-) -> tuple:
+) -> tuple[SimulationResult, bool, int | None, float]:
     """Run both reference and Numba, return comparable results."""
     portfolio = build_initial_portfolio(initial_wealth)
     context = SimulationContext(
@@ -186,15 +189,15 @@ def _run_differential(
     # Compute portfolio value at snapshot[0]
     portfolio_value = Money(
         sum(
-            h.units * dataset[0].index_levels[h.asset_class]
-            for h in portfolio.holdings
+            (h.units * dataset[0].index_levels[h.asset_class] for h in portfolio.holdings),
+            Decimal(0),
         ),
         Currency.EUR,
     )
 
     # Growth factors from target weights and price series
-    target_weights = {EQ: equity_weight, BD: Decimal("1") - equity_weight}
-    price_series = {
+    target_weights: dict[object, Decimal] = {EQ: equity_weight, BD: Decimal("1") - equity_weight}
+    price_series: dict[object, tuple[Decimal, ...]] = {
         EQ: tuple(dataset[i].index_levels[EQ] for i in range(horizon + 1)),
         BD: tuple(dataset[i].index_levels[BD] for i in range(horizon + 1)),
     }
@@ -209,15 +212,17 @@ def _run_differential(
     return ref, numba_ok, numba_fm, numba_value
 
 
-def _numba_single(gf, portfolio_value, withdrawal_rate, horizon):
+def _numba_single(
+    gf: NDArray[np.float64], portfolio_value: Money, withdrawal_rate: Decimal, horizon: int
+) -> tuple[float, bool, int | None]:
     from fbf.core.execution.strategies.numba_kernel import simulate_single
 
-    ok, fm, fv, months = simulate_single(gf, portfolio_value, withdrawal_rate, horizon)
+    ok, fm, fv, _months = simulate_single(gf, portfolio_value, withdrawal_rate, horizon)
     return float(fv.amount), ok, fm
 
 
 def _assert_matches(
-    ref_result,
+    ref_result: SimulationResult,
     numba_ok: bool,
     numba_fm: int | None,
     numba_fv: float,
@@ -247,14 +252,14 @@ def _assert_matches(
 
 
 class TestFlatMarket:
-    def test_flat_100(self):
+    def test_flat_100(self) -> None:
         ds = _make_flat_dataset(720, Decimal("100"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 720
         )
         _assert_matches(ref, ok, fm, fv, "flat_100")
 
-    def test_flat_1(self):
+    def test_flat_1(self) -> None:
         ds = _make_flat_dataset(120, Decimal("1"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.5"), Decimal("0.04"), Money(Decimal("100000"), Currency.EUR), ds, 120
@@ -263,21 +268,21 @@ class TestFlatMarket:
 
 
 class TestConstantReturns:
-    def test_positive_returns(self):
+    def test_positive_returns(self) -> None:
         ds = _make_constant_return_dataset(360, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 360
         )
         _assert_matches(ref, ok, fm, fv, "positive_returns")
 
-    def test_negative_returns(self):
+    def test_negative_returns(self) -> None:
         ds = _make_constant_return_dataset(240, Decimal("-0.005"), Decimal("-0.001"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.5"), Decimal("0.06"), Money(Decimal("500000"), Currency.EUR), ds, 240
         )
         _assert_matches(ref, ok, fm, fv, "negative_returns")
 
-    def test_mixed_returns(self):
+    def test_mixed_returns(self) -> None:
         ds = _make_constant_return_dataset(180, Decimal("0.008"), Decimal("-0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.7"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 180
@@ -286,14 +291,14 @@ class TestConstantReturns:
 
 
 class TestSingleAsset:
-    def test_equity_only(self):
+    def test_equity_only(self) -> None:
         ds = _make_constant_return_dataset(120, Decimal("0.006"), Decimal("0.006"))
         ref, ok, fm, fv = _run_differential(
             Decimal("1.0"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 120
         )
         _assert_matches(ref, ok, fm, fv, "equity_only")
 
-    def test_bond_only(self):
+    def test_bond_only(self) -> None:
         ds = _make_constant_return_dataset(120, Decimal("0.002"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.0"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 120
@@ -302,14 +307,14 @@ class TestSingleAsset:
 
 
 class TestMixedAllocation:
-    def test_30_70(self):
+    def test_30_70(self) -> None:
         ds = _make_constant_return_dataset(240, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.3"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 240
         )
         _assert_matches(ref, ok, fm, fv, "30_70")
 
-    def test_70_30(self):
+    def test_70_30(self) -> None:
         ds = _make_constant_return_dataset(240, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.7"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 240
@@ -323,7 +328,7 @@ class TestMixedAllocation:
 
 
 class TestZeroWithdrawal:
-    def test_zero_withdrawal(self):
+    def test_zero_withdrawal(self) -> None:
         ds = _make_constant_return_dataset(120, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.0"), Money(Decimal("1000000"), Currency.EUR), ds, 120
@@ -332,7 +337,7 @@ class TestZeroWithdrawal:
 
 
 class TestHighWithdrawal:
-    def test_high_withdrawal_no_depletion(self):
+    def test_high_withdrawal_no_depletion(self) -> None:
         ds = _make_constant_return_dataset(120, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.08"), Money(Decimal("2000000"), Currency.EUR), ds, 120
@@ -341,7 +346,7 @@ class TestHighWithdrawal:
 
 
 class TestExtremeWithdrawal:
-    def test_extreme_withdrawal_depletes(self):
+    def test_extreme_withdrawal_depletes(self) -> None:
         ds = _make_constant_return_dataset(60, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.50"), Money(Decimal("100000"), Currency.EUR), ds, 60
@@ -350,14 +355,14 @@ class TestExtremeWithdrawal:
 
 
 class TestImmediateDepletion:
-    def test_immediate_depletion(self):
+    def test_immediate_depletion(self) -> None:
         ds = _make_flat_dataset(12)
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("2.00"), Money(Decimal("100000"), Currency.EUR), ds, 12
         )
         _assert_matches(ref, ok, fm, fv, "immediate_depletion")
 
-    def test_depletion_month_1(self):
+    def test_depletion_month_1(self) -> None:
         ds = _make_flat_dataset(12)
         ref, ok, fm, fv = _run_differential(
             Decimal("0.5"), Decimal("0.15"), Money(Decimal("10000"), Currency.EUR), ds, 12
@@ -366,7 +371,7 @@ class TestImmediateDepletion:
 
 
 class TestDepletionAfterSeveralMonths:
-    def test_depletion_mid_horizon(self):
+    def test_depletion_mid_horizon(self) -> None:
         ds = _make_constant_return_dataset(120, Decimal("0.003"), Decimal("0.001"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.10"), Money(Decimal("100000"), Currency.EUR), ds, 120
@@ -380,14 +385,14 @@ class TestDepletionAfterSeveralMonths:
 
 
 class TestOneMonthHorizon:
-    def test_one_month_success(self):
+    def test_one_month_success(self) -> None:
         ds = _make_flat_dataset(1)
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 1
         )
         _assert_matches(ref, ok, fm, fv, "one_month_success")
 
-    def test_one_month_depletion(self):
+    def test_one_month_depletion(self) -> None:
         ds = _make_flat_dataset(1)
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("2.00"), Money(Decimal("100000"), Currency.EUR), ds, 1
@@ -396,14 +401,14 @@ class TestOneMonthHorizon:
 
 
 class TestExactBoundary:
-    def test_portfolio_just_above_withdrawal(self):
+    def test_portfolio_just_above_withdrawal(self) -> None:
         ds = _make_flat_dataset(12)
         ref, ok, fm, fv = _run_differential(
             Decimal("0.5"), Decimal("11.9"), Money(Decimal("10000"), Currency.EUR), ds, 12
         )
         _assert_matches(ref, ok, fm, fv, "portfolio_just_above_withdrawal")
 
-    def test_portfolio_just_below_withdrawal(self):
+    def test_portfolio_just_below_withdrawal(self) -> None:
         ds = _make_flat_dataset(12)
         ref, ok, fm, fv = _run_differential(
             Decimal("0.5"), Decimal("12.1"), Money(Decimal("10000"), Currency.EUR), ds, 12
@@ -412,14 +417,14 @@ class TestExactBoundary:
 
 
 class TestMultiMonth:
-    def test_3_month(self):
+    def test_3_month(self) -> None:
         ds = _make_constant_return_dataset(3, Decimal("0.01"), Decimal("0.005"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 3
         )
         _assert_matches(ref, ok, fm, fv, "3_month")
 
-    def test_12_month(self):
+    def test_12_month(self) -> None:
         ds = _make_constant_return_dataset(12, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 12
@@ -428,7 +433,7 @@ class TestMultiMonth:
 
 
 class TestLongHorizon:
-    def test_720_month(self):
+    def test_720_month(self) -> None:
         ds = _make_random_dataset(720, seed=42)
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 720
@@ -442,14 +447,14 @@ class TestLongHorizon:
 
 
 class TestDifferentInitialWealth:
-    def test_low_wealth(self):
+    def test_low_wealth(self) -> None:
         ds = _make_constant_return_dataset(120, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.04"), Money(Decimal("10000"), Currency.EUR), ds, 120
         )
         _assert_matches(ref, ok, fm, fv, "low_wealth")
 
-    def test_high_wealth(self):
+    def test_high_wealth(self) -> None:
         ds = _make_constant_return_dataset(120, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.04"), Money(Decimal("10000000"), Currency.EUR), ds, 120
@@ -458,14 +463,14 @@ class TestDifferentInitialWealth:
 
 
 class TestDifferentWithdrawalRates:
-    def test_3_percent(self):
+    def test_3_percent(self) -> None:
         ds = _make_constant_return_dataset(240, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.03"), Money(Decimal("1000000"), Currency.EUR), ds, 240
         )
         _assert_matches(ref, ok, fm, fv, "3_percent")
 
-    def test_7_percent(self):
+    def test_7_percent(self) -> None:
         ds = _make_constant_return_dataset(240, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.6"), Decimal("0.07"), Money(Decimal("1000000"), Currency.EUR), ds, 240
@@ -474,14 +479,14 @@ class TestDifferentWithdrawalRates:
 
 
 class TestDifferentAllocations:
-    def test_conservative(self):
+    def test_conservative(self) -> None:
         ds = _make_constant_return_dataset(360, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.2"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 360
         )
         _assert_matches(ref, ok, fm, fv, "conservative")
 
-    def test_aggressive(self):
+    def test_aggressive(self) -> None:
         ds = _make_constant_return_dataset(360, Decimal("0.006"), Decimal("0.002"))
         ref, ok, fm, fv = _run_differential(
             Decimal("0.9"), Decimal("0.04"), Money(Decimal("1000000"), Currency.EUR), ds, 360

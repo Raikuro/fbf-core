@@ -27,6 +27,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from typing import TypedDict
+
 import yaml
 
 from fbf.core.domain.model.money import Currency, Money
@@ -40,18 +42,41 @@ from fbf.core.execution.strategies.parallel_executor import (
     parallel_execute,
     sequential_execute,
 )
+from fbf.core.study import BuiltStudy
 from fbf.core.study.builder import StudyConfiguration, build_study_plan
-from fbf.core.study.plan import ResearchPlan
+from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
 DATA_DIR = Path("data/ern")
 STUDY = Path("examples/studies/ern_grid.yaml")
+
+
+class _ProfileResult(TypedDict):
+    scale: str
+    n_units: int
+    n_groups: int
+    n_unique_horizons: int
+    gf_entries: int
+    gf_hits: int
+    gf_misses: int
+    kernel_evals: int
+    month_work: int
+    wall_clock: float
+    peak_rss_mib: float
+    units_per_sec: float
+
+
+class _ParallelResult(TypedDict):
+    mode: str
+    workers: int
+    wall_clock: float
+    peak_rss_delta_mib: float
 
 
 def _peak_rss_mib() -> float:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
 
-def _build_full_plan():
+def _build_full_plan() -> tuple[BuiltStudy, float]:
     data = yaml.safe_load(STUDY.read_text())
     config = StudyConfiguration.from_yaml(data)
     t0 = time.perf_counter()
@@ -81,7 +106,7 @@ def profile_numba_at_scale(
     executor: NumbaSimulationExecutor,
     definition: EngineExperimentDefinition,
     scale_name: str,
-) -> dict:
+) -> _ProfileResult:
     """Run Numba executor and collect all metrics."""
     gc.collect()
     rss_before = _peak_rss_mib()
@@ -131,7 +156,7 @@ def main() -> None:
     print("\n[Phase 1] Profiling Numba executor at multiple scales...")
 
     # Group units by cohort index for subsetting
-    cohorts_seen: dict[int, list] = {}
+    cohorts_seen: dict[int, list[PlannedSimulationUnit]] = {}
     for i, unit in enumerate(plan.units):
         cohort_idx = i // len(full_built.param_configs)
         cohorts_seen.setdefault(cohort_idx, []).append(unit)
@@ -145,7 +170,7 @@ def main() -> None:
         ("full (all cohorts)", n_cohorts),
     ]
 
-    profile_results: list[dict] = []
+    profile_results: list[_ProfileResult] = []
 
     for scale_name, n_sel in scales:
         selected_units = []
@@ -185,7 +210,7 @@ def main() -> None:
     print(f"  CPU count: {cpu_count}")
 
     worker_counts = sorted({1, 2, 4, min(8, cpu_count), cpu_count})
-    parallel_results = []
+    parallel_results: list[_ParallelResult] = []
 
     # Sequential
     gc.collect()
@@ -227,7 +252,7 @@ def main() -> None:
     print(f"\n  {'Mode':<12} {'Workers':>8} {'Wall (s)':>10} {'RSS Δ (MiB)':>12} {'Speedup':>10}")
     print("  " + "-" * 55)
     for pr in parallel_results:
-        speedup = t_seq / pr["wall_clock"] if pr["wall_clock"] > 0 else 0
+        speedup: float = t_seq / pr["wall_clock"] if pr["wall_clock"] > 0 else 0
         print(
             f"  {pr['mode']:<12} {pr['workers']:>8} {pr['wall_clock']:>10.3f} "
             f"{pr['peak_rss_delta_mib']:>12.1f} {speedup:>10.2f}x"
@@ -254,9 +279,9 @@ def main() -> None:
     # Parallelism
     print("\n  Parallelism scaling:")
     for pr in parallel_results:
-        speedup = t_seq / pr["wall_clock"] if pr["wall_clock"] > 0 else 0
+        speedup2: float = t_seq / pr["wall_clock"] if pr["wall_clock"] > 0 else 0
         print(f"    {pr['mode']:<12} w={pr['workers']:<3} → "
-              f"{pr['wall_clock']:.3f}s ({speedup:.2f}x)")
+              f"{pr['wall_clock']:.3f}s ({speedup2:.2f}x)")
 
     print("\n" + "=" * 72)
     print("PROFILING COMPLETE")

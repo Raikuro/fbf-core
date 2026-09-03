@@ -81,17 +81,17 @@ def _make_context(
 class TestFvTargetEvaluationDimension:
     """final_value_target is an evaluation dimension, not a trajectory dimension."""
 
-    def test_group_key_excludes_fv_target(self):
+    def test_group_key_excludes_fv_target(self) -> None:
         ctx1 = _make_context(final_value_target=Decimal("0"))
         ctx2 = _make_context(final_value_target=Decimal("100"))
         assert _reference_group_key(ctx1) == _reference_group_key(ctx2)
 
-    def test_group_key_includes_trajectory_params(self):
+    def test_group_key_includes_trajectory_params(self) -> None:
         ctx1 = _make_context(equity_allocation=Decimal("0.6"))
         ctx2 = _make_context(equity_allocation=Decimal("0.8"))
         assert _reference_group_key(ctx1) != _reference_group_key(ctx2)
 
-    def test_different_targets_same_trajectory_share_group(self):
+    def test_different_targets_same_trajectory_share_group(self) -> None:
         ctx_no_target = _make_context(final_value_target=None)
         ctx_fv0 = _make_context(final_value_target=Decimal("0"))
         ctx_fv100 = _make_context(final_value_target=Decimal("100"))
@@ -106,31 +106,31 @@ class TestEvaluateFvTarget:
 
     W1M = Money(Decimal("1000000"), Currency.EUR)
 
-    def test_no_target_survival_only(self):
+    def test_no_target_survival_only(self) -> None:
         fw = Money(Decimal("500000"), Currency.EUR)
         assert _evaluate_fv_target(True, fw, self.W1M, None) is True
 
-    def test_no_target_failure(self):
+    def test_no_target_failure(self) -> None:
         fw = Money(Decimal("0"), Currency.EUR)
         assert _evaluate_fv_target(False, fw, self.W1M, None) is False
 
-    def test_positive_target_above(self):
+    def test_positive_target_above(self) -> None:
         fw = Money(Decimal("1500000"), Currency.EUR)
         assert _evaluate_fv_target(True, fw, self.W1M, Decimal("1.0")) is True
 
-    def test_positive_target_below(self):
+    def test_positive_target_below(self) -> None:
         fw = Money(Decimal("800000"), Currency.EUR)
         assert _evaluate_fv_target(True, fw, self.W1M, Decimal("1.0")) is False
 
-    def test_target_zero_survived_positive_wealth(self):
+    def test_target_zero_survived_positive_wealth(self) -> None:
         fw = Money(Decimal("100000"), Currency.EUR)
         assert _evaluate_fv_target(True, fw, self.W1M, Decimal("0")) is True
 
-    def test_target_zero_survived_zero_wealth(self):
+    def test_target_zero_survived_zero_wealth(self) -> None:
         fw = Money(Decimal("0"), Currency.EUR)
         assert _evaluate_fv_target(True, fw, self.W1M, Decimal("0")) is True
 
-    def test_failure_overrides_positive_target(self):
+    def test_failure_overrides_positive_target(self) -> None:
         fw = Money(Decimal("999999"), Currency.EUR)
         assert _evaluate_fv_target(False, fw, self.W1M, Decimal("0")) is False
 
@@ -138,7 +138,7 @@ class TestEvaluateFvTarget:
 class TestReferenceExecutorDeduplication:
     """ReferenceSimulationExecutor evaluates trajectory once per unique group."""
 
-    def test_single_trajectory_with_multiple_targets(self):
+    def test_single_trajectory_with_multiple_targets(self) -> None:
         ds = _make_dataset()
         ctx_fv0 = _make_context(final_value_target=Decimal("0"), dataset=ds)
         ctx_fv100 = _make_context(final_value_target=Decimal("100"), dataset=ds)
@@ -154,7 +154,7 @@ class TestReferenceExecutorDeduplication:
         timeline = SimulationTimeline(monthly_results=())
         stats_ok = SimulationStatistics(
             final_wealth=Money(Decimal("1500000"), Currency.EUR),
-            max_drawdown=Decimal("0.2"),
+            max_drawdown=0.2,
             success=True,
             failure_month=None,
             months_simulated=240,
@@ -175,7 +175,7 @@ class TestReferenceExecutorDeduplication:
             assert mock_eval.call_count == 1
             assert len(run.simulation_results) == 2
 
-    def test_targets_produce_different_success_rates(self):
+    def test_targets_produce_different_success_rates(self) -> None:
         ds = _make_dataset()
         ctx_fv0 = _make_context(final_value_target=Decimal("0"), dataset=ds)
         ctx_fv100 = _make_context(final_value_target=Decimal("100"), dataset=ds)
@@ -191,7 +191,7 @@ class TestReferenceExecutorDeduplication:
         # 500K final wealth — survives FV=0 but fails FV=100
         stats = SimulationStatistics(
             final_wealth=Money(Decimal("500000"), Currency.EUR),
-            max_drawdown=Decimal("0.2"),
+            max_drawdown=0.2,
             success=True,
             failure_month=None,
             months_simulated=240,
@@ -212,7 +212,7 @@ class TestReferenceExecutorDeduplication:
             assert run.simulation_results[0].statistics.success is True
             assert run.simulation_results[1].statistics.success is False
 
-    def test_five_targets_correct_monotone_classification(self):
+    def test_five_targets_correct_monotone_classification(self) -> None:
         """Verify correct per-target pass/fail with 5 targets.
 
         Target semantics: final_wealth >= target * initial_wealth.
@@ -238,7 +238,7 @@ class TestReferenceExecutorDeduplication:
         # 63M final wealth → ratio = 63x initial_wealth
         stats = SimulationStatistics(
             final_wealth=Money(Decimal("63000000"), Currency.EUR),
-            max_drawdown=Decimal("0.15"),
+            max_drawdown=0.15,
             success=True,
             failure_month=None,
             months_simulated=240,

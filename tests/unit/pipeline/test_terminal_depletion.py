@@ -108,7 +108,7 @@ def _make_context(
         horizon_months=horizon_months,
         initial_wealth=initial_wealth,
         initial_portfolio=initial_portfolio,
-        dataset=dataset,
+        dataset=Dataset(snapshots=tuple(dataset), frequency="M", version="1.0", identifier="test"),
         allocation_policy=ConstantAllocationPolicy(equity_allocation=Decimal("1.0")),
         withdrawal_policy=FixedRealWithdrawalPolicy(withdrawal_rate=withdrawal_rate),
     )

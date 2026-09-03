@@ -97,7 +97,7 @@ def _seed_p11_database(
             (cid, experiment_id, d.isoformat(), d.isoformat(), _now_iso()),
         )
 
-    param_config_map: dict[str, str] = {}
+    param_config_map: dict[tuple[float, float, int], str] = {}
     for eq in equity_allocations:
         for wr in withdrawal_rates:
             for hy in horizon_years:

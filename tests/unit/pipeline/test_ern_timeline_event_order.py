@@ -136,6 +136,7 @@ def test_initial_withdrawal_happens_at_pre_retirement_snapshot() -> None:
     # V_{d_{-1}} = 100*100 + 100*100 = 20,000 -> w = 200.
     first = monthly[0]
     assert _value_at(first.portfolio, first.market_snapshot) == Decimal("19800")
+    assert first.withdrawal_decision is not None
     assert first.withdrawal_decision.nominal_amount.amount == Decimal("200")
 
 

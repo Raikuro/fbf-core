@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -55,7 +56,7 @@ def _snapshot(
 
 
 def _make_minimal_manifest(
-    cohorts: list[dict] | None = None,
+    cohorts: list[dict[str, Any]] | None = None,
 ) -> CohortManifest:
     """Build a minimal manifest for testing."""
     if cohorts is None:

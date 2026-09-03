@@ -22,6 +22,7 @@ from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdraw
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
+    ExperimentRun,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.fast_path import _index_series, _weights_by_class
@@ -97,9 +98,9 @@ def _run_both(
     ref_run = _REFERENCE_EXECUTOR.execute(definition)
     numba_run = _NUMBA_EXECUTOR.execute(definition)
 
-    def _extract(run: object) -> list[tuple[bool, int | None, Decimal, int]]:
+    def _extract(run: ExperimentRun) -> list[tuple[bool, int | None, Decimal, int]]:
         results = []
-        for r in run.simulation_results:  # type: ignore[union-attr]
+        for r in run.simulation_results:
             s = r.statistics
             results.append((
                 s.success,

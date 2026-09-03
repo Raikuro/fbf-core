@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -124,7 +125,7 @@ class TestPart3DatasetIdentifier:
         "ern_part3_replication.yaml",
     ]
 
-    def _load_config(self, filename: str) -> dict:
+    def _load_config(self, filename: str) -> dict[str, Any]:
         from fbf.core.study.builder import load_yaml
 
         return load_yaml(Path("examples/studies") / filename)
@@ -438,6 +439,7 @@ class TestExplicitConfigurations:
         assert len(configs) == 4
 
     def test_representative_policies_use_first_explicit_config(self) -> None:
+        from fbf.core.domain.policies import ConstantAllocationPolicy
         from fbf.core.study.builder import (
             StudyConfiguration,
             _representative_policies,
@@ -456,9 +458,11 @@ class TestExplicitConfigurations:
         config = StudyConfiguration.from_yaml(data)
         alloc, _withdrawal = _representative_policies(config)
         # Representative policy should use first config (0.3)
+        assert isinstance(alloc, ConstantAllocationPolicy)
         assert alloc.equity_allocation == Decimal("0.3")
 
     def test_representative_policies_use_first_explicit_gp_config(self) -> None:
+        from fbf.core.domain.policies import GlidepathAllocationPolicy
         from fbf.core.study.builder import (
             StudyConfiguration,
             _representative_policies,
@@ -477,5 +481,6 @@ class TestExplicitConfigurations:
         }
         config = StudyConfiguration.from_yaml(data)
         alloc, _withdrawal = _representative_policies(config)
+        assert isinstance(alloc, GlidepathAllocationPolicy)
         assert alloc.start_equity == Decimal("0.9")
         assert alloc.end_equity == Decimal("0.4")

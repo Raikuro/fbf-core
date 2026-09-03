@@ -40,7 +40,8 @@ from fbf.core.execution.pipeline.steps.simulation_state_update_step import Simul
 from fbf.core.execution.pipeline.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from fbf.core.execution.pipeline.steps.withdrawal_execution_step import WithdrawalExecutionStep
 from fbf.core.execution.strategies.fast_path import evaluate_closed_form
-from fbf.core.study import StudyConfiguration, build_study_plan
+from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
+from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 from tools.ern.reference_oracle import (
     build_extended,
     cohort_annual_swr,
@@ -88,7 +89,7 @@ def _reference_pipeline() -> SimulationRunner:
 
 
 @pytest.fixture(scope="module")
-def grid_plan():
+def grid_plan() -> BuiltStudy:
     """The grid-shaped plan (all four horizons): 1739 cohorts, 6956 units.
 
     The cohort set is fixed by the longest horizon (721 observations -> 1739
@@ -99,10 +100,11 @@ def grid_plan():
     return build_study_plan(config, str(DATA_DIR), Money(Decimal("1000000"), Currency.EUR))
 
 
-def _units_by_horizon(plan):
-    by_horizon: dict[int, list] = defaultdict(list)
+def _units_by_horizon(plan: ResearchPlan) -> dict[int, list[PlannedSimulationUnit]]:
+    by_horizon: dict[int, list[PlannedSimulationUnit]] = defaultdict(list)
     for unit in plan.units:
-        by_horizon[unit.horizon_months].append(unit)
+        if unit.horizon_months is not None:
+            by_horizon[unit.horizon_months].append(unit)
     return by_horizon
 
 
@@ -116,59 +118,81 @@ def _oracle_success(weight: float, rate: float, horizon_years: int) -> list[bool
     ]
 
 
-def _engine_contexts(plan, by_horizon, weight, rate, horizon_years, cohorts):
+def _engine_contexts(
+    plan: ResearchPlan,
+    by_horizon: dict[int, list[PlannedSimulationUnit]],
+    weight: float,
+    rate: float,
+    horizon_years: int,
+    cohorts: set[int],
+) -> tuple[SimulationContext, ...]:
     """Engine contexts for one cell over the requested cohort indices (0-based)."""
     units = by_horizon[HORIZON_MONTHS[horizon_years]]
     cap = plan.experiment_definition.initial_wealth
     alloc = ConstantAllocationPolicy(equity_allocation=Decimal(str(weight)))
     withdraw = FixedRealWithdrawalPolicy(withdrawal_rate=Decimal(str(rate)))
-    return tuple(
-        SimulationContext(
-            experiment_name=plan.experiment_definition.name,
-            cohort=unit.cohort.id,
-            start_date=unit.cohort.start_date,
-            horizon_months=unit.horizon_months,
-            initial_wealth=cap,
-            initial_portfolio=unit.initial_portfolio,
-            dataset=unit.dataset,
-            allocation_policy=alloc,
-            withdrawal_policy=withdraw,
+    result: list[SimulationContext] = []
+    for i, unit in enumerate(units):
+        if i not in cohorts:
+            continue
+        assert unit.cohort.id is not None
+        assert unit.horizon_months is not None
+        result.append(
+            SimulationContext(
+                experiment_name=plan.experiment_definition.name,
+                cohort=unit.cohort.id,
+                start_date=unit.cohort.start_date,
+                horizon_months=unit.horizon_months,
+                initial_wealth=cap,
+                initial_portfolio=unit.initial_portfolio,
+                dataset=unit.dataset,
+                allocation_policy=alloc,
+                withdrawal_policy=withdraw,
+            )
         )
-        for i, unit in enumerate(units)
-        if i in cohorts
-    )
+    return tuple(result)
 
 
 def _engine_success(
-    plan, by_horizon, weight, rate, horizon_years, *, cohorts: set[int] | None = None
+    plan: ResearchPlan,
+    by_horizon: dict[int, list[PlannedSimulationUnit]],
+    weight: float,
+    rate: float,
+    horizon_years: int,
+    *,
+    cohorts: set[int] | None = None,
 ) -> list[bool]:
     """Per-cohort engine success for a full cell (fast path)."""
     units = by_horizon[HORIZON_MONTHS[horizon_years]]
     cap = plan.experiment_definition.initial_wealth
     alloc = ConstantAllocationPolicy(equity_allocation=Decimal(str(weight)))
     withdraw = FixedRealWithdrawalPolicy(withdrawal_rate=Decimal(str(rate)))
-    contexts = tuple(
-        SimulationContext(
-            experiment_name=plan.experiment_definition.name,
-            cohort=unit.cohort.id,
-            start_date=unit.cohort.start_date,
-            horizon_months=unit.horizon_months,
-            initial_wealth=cap,
-            initial_portfolio=unit.initial_portfolio,
-            dataset=unit.dataset,
-            allocation_policy=alloc,
-            withdrawal_policy=withdraw,
+    contexts: list[SimulationContext] = []
+    for i, unit in enumerate(units):
+        if cohorts is not None and i not in cohorts:
+            continue
+        assert unit.cohort.id is not None
+        assert unit.horizon_months is not None
+        contexts.append(
+            SimulationContext(
+                experiment_name=plan.experiment_definition.name,
+                cohort=unit.cohort.id,
+                start_date=unit.cohort.start_date,
+                horizon_months=unit.horizon_months,
+                initial_wealth=cap,
+                initial_portfolio=unit.initial_portfolio,
+                dataset=unit.dataset,
+                allocation_policy=alloc,
+                withdrawal_policy=withdraw,
+            )
         )
-        for i, unit in enumerate(units)
-        if cohorts is None or i in cohorts
-    )
     results = tuple(
         evaluate_closed_form(ctx) for ctx in contexts
     )
     return [r.statistics.success for r in results]
 
 
-def test_plan_exposes_pre_retirement_snapshot(grid_plan) -> None:
+def test_plan_exposes_pre_retirement_snapshot(grid_plan: BuiltStudy) -> None:
     """The corrected plan anchors every cohort at its pre-retirement snapshot."""
     by_horizon = _units_by_horizon(grid_plan.plan)
     first = by_horizon[HORIZON_MONTHS[30]][0]
@@ -179,7 +203,7 @@ def test_plan_exposes_pre_retirement_snapshot(grid_plan) -> None:
     assert len(by_horizon[HORIZON_MONTHS[30]]) == COHORTS_PER_CELL
 
 
-def test_boundary_cohort_306_reference_pipeline_matches_oracle(grid_plan) -> None:
+def test_boundary_cohort_306_reference_pipeline_matches_oracle(grid_plan: BuiltStudy) -> None:
     """Cohort 306 (0% / 3.25% / 30y) fails through the full reference engine.
 
     The engine's cohort 306 retires in July-1896 (base snapshot 1896-07-01);
@@ -201,7 +225,7 @@ def test_boundary_cohort_306_reference_pipeline_matches_oracle(grid_plan) -> Non
     assert result.statistics.failure_month is not None
 
 
-def test_boundary_cell_306_engine_percentage_matches_oracle(grid_plan) -> None:
+def test_boundary_cell_306_engine_percentage_matches_oracle(grid_plan: BuiltStudy) -> None:
     """The 0% / 3.25% / 30y cell is 79% for BOTH oracle and corrected engine."""
     oracle_ok = _oracle_success(0.0, 0.0325, 30)
     oracle_pct = round(100 * sum(oracle_ok) / COHORTS_PER_CELL)
@@ -215,7 +239,7 @@ def test_boundary_cell_306_engine_percentage_matches_oracle(grid_plan) -> None:
     assert sum(engine_ok) == sum(oracle_ok)
 
 
-def test_formerly_divergent_cells_match_oracle_per_cohort(grid_plan) -> None:
+def test_formerly_divergent_cells_match_oracle_per_cohort(grid_plan: BuiltStudy) -> None:
     """All nine formerly divergent cells now match the oracle cohort-by-cohort.
 
     Exact per-cohort Decimal equality: every one of the 9 x 1739 simulated

@@ -108,10 +108,10 @@ def _make_ctx() -> PersistenceReconstructionContext:
     return PersistenceReconstructionContext(
         dataset_resolver=_DummyDatasetResolver(),
         policy_codecs={
-            ("allocation", "AllocationPolicy"): _DummyAllocCodec(),
-            ("withdrawal", "WithdrawalPolicy"): _DummyWithdrawCodec(),
+            ("allocation", "AllocationPolicy"): _DummyAllocCodec(),  # type: ignore[dict-item]
+            ("withdrawal", "WithdrawalPolicy"): _DummyWithdrawCodec(),  # type: ignore[dict-item]
         },
-        simulation_result_codec=_DummySimCodec(),
+        simulation_result_codec=_DummySimCodec(),  # type: ignore[arg-type]
     )
 
 

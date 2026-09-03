@@ -725,11 +725,15 @@ def _representative_policies(
                 mode=str(first["mode"]),
             )
         else:
+            assert config.glidepath_start_values is not None
+            assert config.glidepath_end_values is not None
+            assert config.glidepath_slope_values is not None
+            assert config.glidepath_mode_values is not None
             representative_alloc = build_glidepath_allocation_policy(
-                start_equity=config.glidepath_start_values[0],  # type: ignore[index]
-                end_equity=config.glidepath_end_values[0],  # type: ignore[index]
-                slope=config.glidepath_slope_values[0],  # type: ignore[index]
-                mode=config.glidepath_mode_values[0],  # type: ignore[index]
+                start_equity=config.glidepath_start_values[0],
+                end_equity=config.glidepath_end_values[0],
+                slope=config.glidepath_slope_values[0],
+                mode=config.glidepath_mode_values[0],
             )
     else:
         if config.explicit_configurations is not None:

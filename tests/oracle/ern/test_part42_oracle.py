@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.study.internal.accumulation import run_accumulation_phase
 from tests.fixtures.accumulation import (
     BOND,
@@ -195,7 +196,7 @@ class TestIndependence:
 class TestProductionOracleEquivalence:
     """Production must match independent oracle on all fixtures."""
 
-    def _assert_equal(self, prod, orc, label: str) -> None:
+    def _assert_equal(self, prod: Portfolio, orc: Portfolio, label: str) -> None:
         prod_holdings = {h.asset_class: h.units for h in prod.holdings}
         oracle_holdings = {h.asset_class: h.units for h in orc.holdings}
         for asset in prod_holdings:

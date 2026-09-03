@@ -8,6 +8,7 @@ cohort-start snapshot selection.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
@@ -82,12 +83,12 @@ class TestCapeBinaryVsFourLevel:
 class TestCapeBinaryFromManifest:
     """Tests using the Part 3 cohort manifest to verify cohort-start CAPE."""
 
-    def _load_manifest(self) -> dict:
+    def _load_manifest(self) -> dict[str, Any]:
         import json
         from pathlib import Path
 
         with open(Path("data/ern/cohort_manifest_part3.json")) as f:
-            return json.load(f)
+            return json.load(f)  # type: ignore[no-any-return]
 
     def test_cape_available_cohorts_classifiable(self) -> None:
         """All CAPE-available cohorts must be classifiable into binary regime."""

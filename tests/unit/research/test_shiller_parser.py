@@ -11,6 +11,7 @@ import hashlib
 import json
 from collections import OrderedDict
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,7 +20,7 @@ _EXISTING_CAPE_JSON = Path("data/ern/ern_cape_1871_2016.json")
 _EXISTING_RETURNS_CSV = Path("data/ern/ern_real_returns_1871_2016.csv")
 
 
-def _parse_shiller_raw(path: Path) -> OrderedDict:
+def _parse_shiller_raw(path: Path) -> OrderedDict[str, dict[str, Any]]:
     """Parse Shiller CSV. Skip non-padded YYYY,M rows (annual summaries).
 
     The Shiller CSV contains two row types per January:
@@ -30,7 +31,7 @@ def _parse_shiller_raw(path: Path) -> OrderedDict:
     zero-padded monthly rows to avoid annual summaries overwriting
     the monthly January data.
     """
-    observations: OrderedDict[str, dict] = OrderedDict()
+    observations: OrderedDict[str, dict[str, Any]] = OrderedDict()
     with open(path, encoding="utf-8") as f:
         reader = csv.reader(f)
         rows = list(reader)
@@ -97,49 +98,49 @@ class TestRawParsing:
     """Validate raw CSV parsing correctness."""
 
     @pytest.fixture(scope="class")
-    def raw_data(self) -> OrderedDict:
+    def raw_data(self) -> OrderedDict[str, dict[str, Any]]:
         return _parse_shiller_raw(_RAW_CSV)
 
-    def test_row_count(self, raw_data: OrderedDict) -> None:
+    def test_row_count(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         """1681 monthly data rows (152 annual summary rows excluded)."""
         assert len(raw_data) == 1681
 
-    def test_first_date(self, raw_data: OrderedDict) -> None:
+    def test_first_date(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         assert list(raw_data.keys())[0] == "1871-01-01"
 
-    def test_last_date(self, raw_data: OrderedDict) -> None:
+    def test_last_date(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         assert list(raw_data.keys())[-1] == "2023-09-01"
 
-    def test_no_october_observations(self, raw_data: OrderedDict) -> None:
+    def test_no_october_observations(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         """Shiller source has zero October observations."""
         oct_dates = [d for d in raw_data if d.endswith("-10-01")]
         assert len(oct_dates) == 0
 
-    def test_european_decimal_parsing(self, raw_data: OrderedDict) -> None:
+    def test_european_decimal_parsing(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         """First equity price (column 9) = 109.05 (parsed from ' 109,05 ')."""
         first = raw_data["1871-01-01"]
         assert first["equity_real_total_return"] == pytest.approx(109.05, abs=0.01)
 
-    def test_cape_column_present(self, raw_data: OrderedDict) -> None:
+    def test_cape_column_present(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         """Column 12 exists and is accessible for all rows."""
         for _d, v in raw_data.items():
             assert "cape" in v
 
-    def test_known_cape_value(self, raw_data: OrderedDict) -> None:
+    def test_known_cape_value(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         """1881-01 CAPE = 18.47 (first non-NA CAPE from padded monthly row)."""
         assert raw_data["1881-01-01"]["cape"] == pytest.approx(18.47, abs=0.01)
 
-    def test_known_equity_price(self, raw_data: OrderedDict) -> None:
+    def test_known_equity_price(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         """1871-02 equity total return price = 107.77."""
         assert raw_data["1871-02-01"]["equity_real_total_return"] == pytest.approx(
             107.77, abs=0.01
         )
 
-    def test_known_gs10_rate(self, raw_data: OrderedDict) -> None:
+    def test_known_gs10_rate(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         """1871-01 GS10 rate = 5.32%."""
         assert raw_data["1871-01-01"]["rate_gs10"] == pytest.approx(5.32, abs=0.01)
 
-    def test_annual_summary_rows_excluded(self, raw_data: OrderedDict) -> None:
+    def test_annual_summary_rows_excluded(self, raw_data: OrderedDict[str, dict[str, Any]]) -> None:
         """Non-padded YYYY,M rows are excluded (152 annual summaries)."""
         assert len(raw_data) == 1681
 
@@ -151,37 +152,37 @@ class TestCapeExtraction:
     """Validate CAPE extraction from raw source."""
 
     @pytest.fixture(scope="class")
-    def cape_data(self) -> OrderedDict:
+    def cape_data(self) -> OrderedDict[str, float]:
         raw = _parse_shiller_raw(_RAW_CSV)
         return OrderedDict(
             (d, v["cape"]) for d, v in raw.items() if v["cape"] is not None
         )
 
-    def test_cape_count(self, cape_data: OrderedDict) -> None:
+    def test_cape_count(self, cape_data: OrderedDict[str, float]) -> None:
         """1571 CAPE observations (1881-01 to 2023-09, excluding October)."""
         assert len(cape_data) == 1571
 
-    def test_first_cape_date(self, cape_data: OrderedDict) -> None:
+    def test_first_cape_date(self, cape_data: OrderedDict[str, float]) -> None:
         assert list(cape_data.keys())[0] == "1881-01-01"
 
-    def test_last_cape_date(self, cape_data: OrderedDict) -> None:
+    def test_last_cape_date(self, cape_data: OrderedDict[str, float]) -> None:
         assert list(cape_data.keys())[-1] == "2023-09-01"
 
-    def test_no_october_cape(self, cape_data: OrderedDict) -> None:
+    def test_no_october_cape(self, cape_data: OrderedDict[str, float]) -> None:
         """No October CAPE observations in Shiller source."""
         oct_cape = [d for d in cape_data if d.endswith("-10-01")]
         assert len(oct_cape) == 0
 
-    def test_negative_cape_not_present(self, cape_data: OrderedDict) -> None:
+    def test_negative_cape_not_present(self, cape_data: OrderedDict[str, float]) -> None:
         """All CAPE values should be positive."""
         for d, c in cape_data.items():
             assert c >= 0, f"Negative CAPE at {d}: {c}"
 
-    def test_cape_decimal_precision(self, cape_data: OrderedDict) -> None:
+    def test_cape_decimal_precision(self, cape_data: OrderedDict[str, float]) -> None:
         """CAPE values are exact floats parsed from European decimal format."""
         assert cape_data["1881-01-01"] == 18.47
 
-    def test_cape_range(self, cape_data: OrderedDict) -> None:
+    def test_cape_range(self, cape_data: OrderedDict[str, float]) -> None:
         """CAPE values should be in a reasonable range."""
         values = list(cape_data.values())
         assert min(values) > 4.0
@@ -227,26 +228,26 @@ class TestCapeReconciliation:
     """
 
     @pytest.fixture(scope="class")
-    def extracted_cape(self) -> OrderedDict:
+    def extracted_cape(self) -> OrderedDict[str, float]:
         raw = _parse_shiller_raw(_RAW_CSV)
         return OrderedDict(
             (d, v["cape"]) for d, v in raw.items() if v["cape"] is not None
         )
 
     @pytest.fixture(scope="class")
-    def existing_cape(self) -> OrderedDict:
+    def existing_cape(self) -> OrderedDict[str, float]:
         with open(_EXISTING_CAPE_JSON) as f:
             data = json.load(f)
         return OrderedDict((s["date"], float(s["cape"])) for s in data["snapshots"])
 
     def test_same_observation_count(
-        self, extracted_cape: OrderedDict, existing_cape: OrderedDict
+        self, extracted_cape: OrderedDict[str, float], existing_cape: OrderedDict[str, float]
     ) -> None:
         """Both sources have 1571 CAPE observations."""
         assert len(extracted_cape) == len(existing_cape)
 
     def test_all_months_exact_match(
-        self, extracted_cape: OrderedDict, existing_cape: OrderedDict
+        self, extracted_cape: OrderedDict[str, float], existing_cape: OrderedDict[str, float]
     ) -> None:
         """All CAPE values match within 0.001 (annual mystery resolved)."""
         mismatches = 0

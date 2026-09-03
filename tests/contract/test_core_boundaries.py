@@ -237,6 +237,7 @@ def test_simulation_runner_and_executor_have_no_financial_domain_imports() -> No
     )
 
     for mod in (runner_mod, executor_mod):
+        assert mod.__file__ is not None
         source = Path(mod.__file__).read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(mod.__file__))
         for node in ast.walk(tree):

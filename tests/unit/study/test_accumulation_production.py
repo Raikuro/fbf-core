@@ -7,10 +7,13 @@ the oracle on all controlled fixtures.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from decimal import Decimal
+from typing import Protocol, runtime_checkable
 
 import pytest
 
+from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.study.internal.accumulation import run_accumulation_phase
 from tests.fixtures.accumulation import (
     BOND,
@@ -25,9 +28,17 @@ from tests.fixtures.accumulation import (
 from tests.unit.study.accumulation_oracle import oracle_accumulate
 
 
+@runtime_checkable
+class _AccumulationResultLike(Protocol):
+    @property
+    def final_portfolio(self) -> Portfolio: ...
+    @property
+    def month_by_month(self) -> Sequence[Portfolio]: ...
+
+
 def _assert_portfolios_equal(
-    production: object,
-    oracle: object,
+    production: Portfolio,
+    oracle: Portfolio,
     label: str,
 ) -> None:
     """Assert two portfolios have identical holdings."""
@@ -43,11 +54,14 @@ def _assert_portfolios_equal(
         )
 
 
+_ResultPair = tuple[_AccumulationResultLike, _AccumulationResultLike]
+
+
 class TestProductionVsOracle:
     """Production must match independent oracle on all fixtures."""
 
     @pytest.fixture()
-    def _flat_result(self):
+    def _flat_result(self) -> _ResultPair:
         prod = run_accumulation_phase(
             initial_portfolio=KNOWN_PORTFOLIO,
             contribution=CONTRIBUTION,
@@ -67,7 +81,7 @@ class TestProductionVsOracle:
         return prod, orc
 
     @pytest.fixture()
-    def _growth_result(self):
+    def _growth_result(self) -> _ResultPair:
         prod = run_accumulation_phase(
             initial_portfolio=KNOWN_PORTFOLIO,
             contribution=CONTRIBUTION,
@@ -87,7 +101,7 @@ class TestProductionVsOracle:
         return prod, orc
 
     @pytest.fixture()
-    def _ern_result(self):
+    def _ern_result(self) -> _ResultPair:
         prod = run_accumulation_phase(
             initial_portfolio=KNOWN_PORTFOLIO,
             contribution=CONTRIBUTION,
@@ -106,11 +120,11 @@ class TestProductionVsOracle:
         )
         return prod, orc
 
-    def test_flat_final_portfolio(self, _flat_result) -> None:
+    def test_flat_final_portfolio(self, _flat_result: _ResultPair) -> None:
         prod, orc = _flat_result
         _assert_portfolios_equal(prod.final_portfolio, orc.final_portfolio, "flat-final")
 
-    def test_flat_month_by_month(self, _flat_result) -> None:
+    def test_flat_month_by_month(self, _flat_result: _ResultPair) -> None:
         prod, orc = _flat_result
         assert len(prod.month_by_month) == len(orc.month_by_month)
         for i, (p, o) in enumerate(
@@ -118,22 +132,22 @@ class TestProductionVsOracle:
         ):
             _assert_portfolios_equal(p, o, f"flat-month-{i}")
 
-    def test_growth_final_portfolio(self, _growth_result) -> None:
+    def test_growth_final_portfolio(self, _growth_result: _ResultPair) -> None:
         prod, orc = _growth_result
         _assert_portfolios_equal(prod.final_portfolio, orc.final_portfolio, "growth-final")
 
-    def test_growth_month_by_month(self, _growth_result) -> None:
+    def test_growth_month_by_month(self, _growth_result: _ResultPair) -> None:
         prod, orc = _growth_result
         for i, (p, o) in enumerate(
             zip(prod.month_by_month, orc.month_by_month, strict=True)
         ):
             _assert_portfolios_equal(p, o, f"growth-month-{i}")
 
-    def test_ern_final_portfolio(self, _ern_result) -> None:
+    def test_ern_final_portfolio(self, _ern_result: _ResultPair) -> None:
         prod, orc = _ern_result
         _assert_portfolios_equal(prod.final_portfolio, orc.final_portfolio, "ern-final")
 
-    def test_ern_month_by_month(self, _ern_result) -> None:
+    def test_ern_month_by_month(self, _ern_result: _ResultPair) -> None:
         prod, orc = _ern_result
         for i, (p, o) in enumerate(
             zip(prod.month_by_month, orc.month_by_month, strict=True)

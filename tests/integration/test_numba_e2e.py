@@ -19,6 +19,7 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from fbf.core.execution import ExecutionBackend, ExecutionOptions, execute_study_plan
 from fbf.core.execution.executor import ResearchExecutor
+from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
@@ -124,8 +125,8 @@ def _build_plan(
 
 
 def _compare_results(
-    ref_results: tuple[object, ...],
-    numba_results: tuple[object, ...],
+    ref_results: tuple[SimulationResult, ...],
+    numba_results: tuple[SimulationResult, ...],
     label: str,
 ) -> None:
     assert len(ref_results) == len(numba_results), (

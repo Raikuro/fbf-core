@@ -50,10 +50,13 @@ class RecordingRebalanceService(PortfolioRebalanceService):
         portfolio: Portfolio,
         allocation_decision: AllocationDecision,
         market_snapshot: MarketSnapshot,
-        **kwargs: object,
+        *,
+        portfolio_value: Money | None = None,
     ) -> PortfolioRebalanceResult:
         self.calls += 1
-        return super().execute_rebalance(portfolio, allocation_decision, market_snapshot, **kwargs)
+        return super().execute_rebalance(
+            portfolio, allocation_decision, market_snapshot, portfolio_value=portfolio_value
+        )
 
 
 def make_context(portfolio: Portfolio, dataset: Dataset) -> SimulationContext:

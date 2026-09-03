@@ -6,6 +6,7 @@ Validates the ``aggregate_part3_results`` function and the
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -59,9 +60,9 @@ def _params(
 def _result(success: bool) -> SimulationResult:
     """Build a minimal SimulationResult for testing."""
     return SimulationResult(
-        timeline=None,
+        timeline=None,  # type: ignore[arg-type]
         statistics=SimulationStatistics(
-            final_wealth=None,
+            final_wealth=None,  # type: ignore[arg-type]
             max_drawdown=0.0,
             success=success,
             failure_month=None,
@@ -72,14 +73,14 @@ def _result(success: bool) -> SimulationResult:
 
 
 def _cape_registry(
-    metadata: dict[date, tuple[Decimal | None, str | None]],
+    metadata: Mapping[date, tuple[Decimal | None, str | None]],
 ) -> dict[str, tuple[Decimal | None, str | None]]:
     """Convert date-keyed metadata to isoformat string keys for lookup."""
     return {d.isoformat(): v for d, v in metadata.items()}
 
 
 def _make_get_cape(
-    metadata: dict[date, tuple[Decimal | None, str | None]],
+    metadata: Mapping[date, tuple[Decimal | None, str | None]],
 ) -> Any:
     """Build a get_cape_metadata callable from a date-keyed dict."""
     registry = _cape_registry(metadata)
@@ -633,7 +634,7 @@ class TestMultiParameterCrossProduct:
         results = [_result(True), _result(True), _result(False), _result(False)]
 
         agg = aggregate_part3_results(
-            replicated_cohorts, replicated_params, results, _make_get_cape(cape)
+            replicated_cohorts, replicated_params, tuple(results), _make_get_cape(cape)
         )
 
         # Should produce 4 cells: 2 regimes × 2 horizons
@@ -656,7 +657,7 @@ class TestMultiParameterCrossProduct:
         results = [_result(True)] * 4
 
         agg = aggregate_part3_results(
-            replicated_cohorts, replicated_params, results, _make_get_cape(cape)
+            replicated_cohorts, replicated_params, tuple(results), _make_get_cape(cape)
         )
 
         by_regime = {a.cape_regime: a for a in agg.regime_aggregations}

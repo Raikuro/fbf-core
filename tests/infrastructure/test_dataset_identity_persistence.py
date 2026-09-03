@@ -121,7 +121,7 @@ def test_loader_establishes_dataset_identifier(tmp_path: Path) -> None:
     dataset_file.write_text(json.dumps(raw_data), encoding="utf-8")
 
     dataset = _load_dataset_from_file(dataset_file)
-
+    assert dataset is not None
     assert dataset.identifier == "sp500"
     assert dataset.version == "1.0"
 
@@ -283,6 +283,7 @@ def test_full_divergent_identity_round_trip(tmp_path: Path) -> None:
     dataset_file.write_text(json.dumps(raw_data), encoding="utf-8")
 
     loaded_ds = _load_dataset_from_file(dataset_file)
+    assert loaded_ds is not None
     assert loaded_ds.identifier == "sp500_historical"
     assert loaded_ds.version == "1.0"
 

@@ -94,7 +94,9 @@ def _count_file_loads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     def spy(path: Path) -> Dataset:
         calls.append(str(path))
-        return real(path)
+        result = real(path)
+        assert result is not None
+        return result
 
     monkeypatch.setattr(context_module, "_load_dataset_from_file", spy)
     return calls
