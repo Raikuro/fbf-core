@@ -29,7 +29,9 @@ class MonthlyResultBuilderStep(PipelineStep):
             if portfolio_value > 0 and state.loan_balance > 0:
                 ltv = state.loan_balance / portfolio_value
 
-            net_worth = portfolio_value - state.loan_balance
+            # Authoritative net-worth identity:
+            # net_worth = portfolio_value + cash_balance - loan_balance
+            net_worth = portfolio_value + state.cash_balance - state.loan_balance
 
             debt_snapshot = DebtSnapshot(
                 loan_balance=state.loan_balance,

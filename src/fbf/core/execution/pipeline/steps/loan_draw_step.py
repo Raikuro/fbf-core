@@ -38,7 +38,7 @@ class LoanDrawStep(PipelineStep):
     the WithdrawalDecisionStep.
     """
 
-    sequence_order = 35
+    sequence_order = 28
 
     def execute(self, state: SimulationState) -> SimulationState:
         """Execute the loan draw.

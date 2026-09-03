@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fbf.core.domain.model.decision_context import DecisionContext
+from decimal import Decimal
+
+from fbf.core.domain.model.decision_context import DebtInfo, DecisionContext
 from fbf.core.execution.pipeline.pipeline import PipelineStep
 from fbf.core.execution.pipeline.simulation import SimulationState
 
@@ -18,6 +20,22 @@ class BuildDecisionContextStep(PipelineStep):
         assert state.allocation_target is not None
         assert state.market_snapshot is not None
 
+        # Build DebtInfo if debt is active
+        debt_info = None
+        if state.interest_rate > 0:
+            # Compute portfolio value for net_worth derivation
+            portfolio_value = Decimal("0")
+            for holding in state.portfolio.holdings:
+                price = state.market_snapshot.index_levels.get(holding.asset_class, Decimal("0"))
+                portfolio_value += holding.units * price
+
+            debt_info = DebtInfo(
+                loan_balance=state.loan_balance,
+                interest_rate=state.interest_rate,
+                ltv_limit=state.ltv_limit,
+                portfolio_value=portfolio_value,
+            )
+
         decision_context = DecisionContext(
             date=state.current_date,
             period_index=state.period_index,
@@ -27,6 +45,7 @@ class BuildDecisionContextStep(PipelineStep):
             target_allocation=state.allocation_target,
             market_snapshot=state.market_snapshot,
             dataset=state.context.dataset,
+            debt_info=debt_info,
         )
 
         state.decision_context = decision_context

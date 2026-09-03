@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from ..model.allocation import AllocationTarget
 from ..model.money import Money
@@ -24,7 +25,13 @@ class AllocationDecision(PolicyDecision):
 
 @dataclass(frozen=True)
 class WithdrawalDecision(PolicyDecision):
-    """Withdrawal decision returned by a WithdrawalPolicy."""
+    """Withdrawal decision returned by a WithdrawalPolicy.
+
+    Contains both portfolio withdrawal and optional loan draw amounts.
+    The policy computes both amounts at the beginning of the period,
+    observing current prices only.
+    """
 
     nominal_amount: Money
     real_amount: Money
+    loan_draw_amount: Decimal = Decimal("0")

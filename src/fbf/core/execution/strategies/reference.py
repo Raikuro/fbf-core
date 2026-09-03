@@ -250,6 +250,7 @@ def _build_derived_result(
             max_drawdown=longest_result.statistics.max_drawdown,
             success=survived,
             failure_month=None if survived else context.horizon_months,
+            failure_state=None if survived else "depleted",
             months_simulated=context.horizon_months,
             execution_time_seconds=0.0,
         )
@@ -268,6 +269,7 @@ def _build_derived_result(
         max_drawdown=longest_result.statistics.max_drawdown,
         success=False,
         failure_month=failure_month,
+        failure_state="depleted",
         months_simulated=failure_month,
         execution_time_seconds=0.0,
     )
@@ -297,6 +299,7 @@ def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> Sim
         max_drawdown=result.statistics.max_drawdown,
         success=survived,
         failure_month=None if survived else context.horizon_months,
+        failure_state=None if survived else result.statistics.failure_state,
         months_simulated=result.statistics.months_simulated,
         execution_time_seconds=result.statistics.execution_time_seconds,
     )

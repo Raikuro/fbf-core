@@ -438,6 +438,7 @@ def _build_result(
         max_drawdown=0.0,
         success=success,
         failure_month=failure_month,
+        failure_state=None if success else "depleted",
         months_simulated=months_simulated,
         execution_time_seconds=0.0,
     )
@@ -463,6 +464,7 @@ def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> Sim
         max_drawdown=result.statistics.max_drawdown,
         success=survived,
         failure_month=None if survived else context.horizon_months,
+        failure_state=None if survived else result.statistics.failure_state,
         months_simulated=result.statistics.months_simulated,
         execution_time_seconds=result.statistics.execution_time_seconds,
     )

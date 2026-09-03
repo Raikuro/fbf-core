@@ -46,12 +46,12 @@ from fbf.core.execution.pipeline.steps.withdrawal_execution_step import (
 def create_default_pipeline() -> SimulationPipeline:
     """Create the default pipeline with debt support.
 
-    Pipeline order (matching K.1 semantic contract and S4 Design Review):
+    Pipeline order (K.5.1 corrected):
     10: InitializeAllocation
     20: BuildDecisionContext
     25: WithdrawalDecision
-    30: WithdrawalExecution (sell assets to raise cash)
-    35: LoanDraw (borrow from margin - AFTER withdrawal per S4 Design Review)
+    28: LoanDraw (borrow from margin - BEFORE withdrawal)
+    30: WithdrawalExecution (consume cash first, then sell assets)
     40: AllocationDecision
     50: PortfolioRebalance
     60: MarketEvolution
@@ -60,14 +60,20 @@ def create_default_pipeline() -> SimulationPipeline:
     70: MonthlyResultBuilder
     75: FailureDetection
     80: SimulationStateUpdate
+
+    Cash lifecycle:
+    - LoanDrawStep: cash_balance += loan_draw_amount
+    - WithdrawalExecutionStep: cash_balance -= min(cash_balance, total_spending)
+                                portfolio -= (total_spending - cash_consumed)
+    - End-of-period: cash_balance = 0 (all consumed for spending)
     """
     return SimulationPipeline(
         steps=[
             InitializeAllocationStep(),
             BuildDecisionContextStep(),
             WithdrawalDecisionStep(),
-            WithdrawalExecutionStep(),  # After withdrawal - sell assets first
-            LoanDrawStep(),  # After withdrawal - borrowed funds NOT for current withdrawal
+            LoanDrawStep(),  # BEFORE withdrawal - cash available for spending
+            WithdrawalExecutionStep(),  # Consume cash first, then sell assets
             AllocationDecisionStep(),
             PortfolioRebalanceStep(),
             MarketEvolutionStep(),

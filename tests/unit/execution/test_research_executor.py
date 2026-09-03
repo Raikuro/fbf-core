@@ -160,6 +160,7 @@ def make_simulation_result(success: bool = True) -> SimulationResult:
             max_drawdown=0.0,
             success=success,
             failure_month=None if success else 6,
+            failure_state=None if success else "depleted",
             months_simulated=12,
             execution_time_seconds=0.01,
         ),

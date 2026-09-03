@@ -66,6 +66,7 @@ def _result(success: bool) -> SimulationResult:
             max_drawdown=0.0,
             success=success,
             failure_month=None,
+            failure_state=None,
             months_simulated=120,
             execution_time_seconds=0.0,
         ),

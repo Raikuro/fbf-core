@@ -69,6 +69,7 @@ class DefaultSimulationStatisticsBuilder(SimulationStatisticsBuilder):
             max_drawdown=0.0,  # Placeholder: requires dedicated calculator
             success=success,
             failure_month=failure_month,
+            failure_state=state.failure_state,
             months_simulated=len(state.monthly_results),
             execution_time_seconds=0.0,  # Placeholder: requires timing instrumentation
         )

@@ -34,6 +34,7 @@ def make_simulation_result(
             max_drawdown=0.05,
             success=success,
             failure_month=failure_month,
+            failure_state=None,
             months_simulated=months_simulated,
             execution_time_seconds=0.01,
         ),

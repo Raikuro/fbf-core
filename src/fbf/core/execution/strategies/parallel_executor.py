@@ -44,6 +44,13 @@ def _create_default_simulation_executor() -> SimulationExecutor:
     The pipeline includes debt steps (loan draw, interest accrual, LTV evaluation)
     which are no-ops when interest_rate = 0. This ensures the production pipeline
     is debt-capable without requiring separate pipeline configurations.
+
+    Pipeline order (K.5.1 corrected):
+    - LoanDrawStep (step 28): Borrow before withdrawal, cash available for spending
+    - WithdrawalExecutionStep (step 30): Consume cash first, then sell assets
+    - InterestAccrualStep (step 65): Compound interest at end of period
+    - LTVEvaluationStep (step 66): Enforce LTV constraint
+    - FailureDetectionStep (step 75): Detect depletion and margin call impossible
     """
     from fbf.core.execution.pipeline.steps.failure_detection_step import FailureDetectionStep
     from fbf.core.execution.pipeline.steps.interest_accrual_step import InterestAccrualStep
@@ -55,8 +62,8 @@ def _create_default_simulation_executor() -> SimulationExecutor:
             InitializeAllocationStep(),
             BuildDecisionContextStep(),
             WithdrawalDecisionStep(),
-            WithdrawalExecutionStep(),
-            LoanDrawStep(),  # No-op when interest_rate = 0
+            LoanDrawStep(),  # BEFORE withdrawal - cash available for spending
+            WithdrawalExecutionStep(),  # Consume cash first, then sell assets
             AllocationDecisionStep(),
             PortfolioRebalanceStep(),
             MarketEvolutionStep(),

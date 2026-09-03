@@ -157,6 +157,7 @@ class TestReferenceExecutorDeduplication:
             max_drawdown=0.2,
             success=True,
             failure_month=None,
+            failure_state=None,
             months_simulated=240,
             execution_time_seconds=0.0,
         )
@@ -194,6 +195,7 @@ class TestReferenceExecutorDeduplication:
             max_drawdown=0.2,
             success=True,
             failure_month=None,
+            failure_state=None,
             months_simulated=240,
             execution_time_seconds=0.0,
         )
@@ -241,6 +243,7 @@ class TestReferenceExecutorDeduplication:
             max_drawdown=0.15,
             success=True,
             failure_month=None,
+            failure_state=None,
             months_simulated=240,
             execution_time_seconds=0.0,
         )

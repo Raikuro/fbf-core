@@ -380,3 +380,323 @@ No absolute runtime gates are imposed on individual accumulation computations.
 The full-study gate is: total Part 42 execution time ≤ 2× the measured
 retirement-only baseline on the same machine, output mode, and execution
 configuration.
+
+---
+
+## Part 49 Debt Temporal Semantics
+
+**Decision:** The Part 49 leverage study uses an engine-level debt state
+model. The margin loan balance, interest accrual, LTV evaluation, and
+forced liquidation are managed by dedicated pipeline steps operating on
+`SimulationState`. Policies observe debt information through an immutable
+`DebtInfo` snapshot in `DecisionContext` but never mutate debt state.
+
+**Why:** Debt evolves continuously during retirement, making it execution
+state rather than pre-processing or policy configuration. Engine-level
+management ensures mechanical operations (interest accrual, LTV enforcement)
+are deterministic and enforceable. Policy statelessness is preserved by
+exposing debt as an immutable snapshot.
+
+**Alternatives rejected:**
+- Research-layer debt model — rejected because debt evolves during
+  retirement, not before.
+- Policy-owned debt state — rejected because it violates the stateless-policy
+  architecture.
+- Domain configuration debt — rejected because debt is runtime state, not
+  study configuration.
+- Negative portfolio holdings — rejected because it violates the Portfolio
+  invariant that asset holdings cannot be negative.
+
+**Consequence:** `SimulationState` gains debt fields. `DecisionContext` gains
+an immutable `DebtInfo` snapshot. Three new pipeline steps are introduced:
+`LoanDrawStep`, `InterestAccrualStep`, `LTVEvaluationStep`.
+
+### Temporal Structure
+
+The monthly state-transition ordering is deterministic and authoritative:
+
+```
+BEGINNING-OF-PERIOD STATE (month M):
+  portfolio_value = sum(holding.units × price[holding.asset_class] for all holdings)
+  loan_balance = loan_balance from previous period (or 0 at month 0)
+  ltv = loan_balance / portfolio_value (if loan_balance > 0, else 0)
+  net_worth = portfolio_value - loan_balance
+
+STEP 1: WITHDRAWAL DECISION
+  Observe beginning-of-period state
+  Compute portfolio withdrawal = initial_wealth × withdrawal_rate / 12
+  Compute margin loan draw = initial_wealth × loan_draw_rate / 12
+  Both decisions observe beginning-of-period prices only
+
+  ERN Part 49 grounding: Total spending = 4% of initial portfolio per year.
+  Portfolio withdrawal = 3% (sell assets to raise cash).
+  Margin loan draw = 1% (borrow from margin account).
+  Both computed from initial_wealth at beginning of period.
+  Loan is independent of portfolio withdrawal — it supplements, not funds.
+
+STEP 2: WITHDRAWAL EXECUTION
+  Withdraw portfolio_amount from portfolio at dataset[M] prices
+  Reduce portfolio holdings proportionally (sell assets to meet target allocation)
+  If portfolio cannot satisfy full withdrawal:
+    Withdraw available amount, set shortfall
+    Do NOT set failure_state yet (borrowing may have covered the gap)
+
+STEP 3: LOAN DRAW
+  Increase loan_balance by loan_draw_amount
+  Add borrowed funds to portfolio (as liquid cash)
+  Debt becomes active immediately upon borrowing (S0-F5)
+  Newly borrowed funds participate in market returns this period
+  Newly borrowed funds are NOT used for current-period withdrawal
+
+STEP 4: ALLOCATION DECISION
+  Observe beginning-of-period state (including debt information)
+  Policy makes allocation decision from immutable DecisionContext
+
+STEP 5: PORTFOLIO REBALANCE
+  Rebalance portfolio to target weights at dataset[M] prices
+  Loan balance is NOT affected by rebalancing
+
+STEP 6: MARKET EVOLUTION
+  Apply dataset[M] → dataset[M+1] returns to portfolio holdings
+  Portfolio value changes based on historical returns
+
+STEP 7: INTEREST ACCRUAL
+  monthly_rate = annual_interest_rate / 12
+  interest = loan_balance × monthly_rate
+  loan_balance += interest
+  Interest is capitalized at end of period (S0-F5)
+
+STEP 8: LTV EVALUATION
+  Compute portfolio_value at dataset[M+1] prices
+  Compute ltv = loan_balance / portfolio_value (if loan_balance > 0, else 0)
+  If ltv > ltv_limit:
+    MARGIN CALL TRIGGERED
+    liquidation_amount = (loan_balance - ltv_limit × portfolio_value) / (1 - ltv_limit)
+    If liquidation_amount > portfolio_value:
+      FAILURE: margin_call_impossible
+      liquidation_amount = portfolio_value
+      Sell entire portfolio at dataset[M+1] prices
+      Repay loan by liquidation_amount
+      portfolio_value = 0
+      loan_balance -= liquidation_amount
+      Set failure_state = "margin_call_impossible"
+      Set status = ExecutionStatus.FAILED
+    Else:
+      Sell assets worth liquidation_amount at dataset[M+1] prices
+      Repay loan by liquidation_amount
+      portfolio_value -= liquidation_amount
+      loan_balance -= liquidation_amount
+      # LTV is now exactly ltv_limit
+  If ltv ≤ ltv_limit:
+    No action required
+
+STEP 9: NET WORTH CALCULATION (derived)
+  net_worth = portfolio_value - loan_balance
+  (This is a derived field, computed when needed, not stored as mutable state)
+
+STEP 10: FAILURE DETECTION
+  If portfolio_value ≤ 0 AND loan_balance > 0:
+    FAILURE: debt insolvency (portfolio exhausted, debt remains)
+    Set failure_state = "insolvent"
+    Set status = ExecutionStatus.FAILED
+  Else if portfolio_value ≤ 0 AND loan_balance ≤ 0:
+    FAILURE: portfolio depleted (no debt, no assets)
+    Set failure_state = "depleted"
+    Set status = ExecutionStatus.FAILED
+  Else if loan_balance > portfolio_value AND loan_balance > 0:
+    FAILURE: margin call unsatisfiable
+    Set failure_state = "margin_call_impossible"
+    Set status = ExecutionStatus.FAILED
+  Else:
+    Continue to next period
+
+END-OF-PERIOD STATE (month M+1):
+  period_index = M + 1
+  current_date = dataset[M+1].date
+  market_snapshot = dataset[M+1]
+  portfolio = updated portfolio (after loan draw, withdrawal, rebalance, evolution, liquidation)
+  loan_balance = updated loan balance (after draw, interest accrual)
+  net_worth = portfolio_value - loan_balance (derived, not stored)
+```
+
+### Liquidation Equation
+
+The liquidation amount during a margin call is:
+
+```
+liquidation_amount = (loan_balance - ltv_limit × portfolio_value) / (1 - ltv_limit)
+```
+
+**Derivation:** After selling assets worth `x` and using the proceeds to
+repay the loan:
+- New portfolio value = P - x
+- New loan balance = L - x
+- LTV constraint: (L - x) / (P - x) ≤ λ
+- Solving for x: x ≥ (L - λP) / (1 - λ)
+- Therefore: liquidation_amount = (L - λP) / (1 - λ)
+
+**Verification example:**
+```
+P = 100, L = 80, λ = 0.75
+liquidation_amount = (80 - 0.75 × 100) / (1 - 0.75) = 20 / 0.25 = 20
+After: P = 80, L = 60, LTV = 60/80 = 75% ✓
+```
+
+**Note:** The numerator alone (`loan_balance - ltv_limit × portfolio_value`)
+is insufficient. Selling that amount and repaying the loan would still leave
+LTV above the limit because the denominator shrinks proportionally.
+
+### Liquidation Accounting
+
+The liquidation operation explicitly reduces both portfolio value and debt:
+
+```
+sell assets worth liquidation_amount
+        ↓
+liquidation proceeds
+        ↓
+repay outstanding loan by the same amount
+```
+
+Therefore:
+- Portfolio value decreases by `liquidation_amount`
+- Loan balance decreases by `liquidation_amount`
+
+### Unsatisfiable Margin Call
+
+The unsatisfiable margin call condition is derived from the liquidation
+equation:
+
+```
+liquidation_amount > portfolio_value
+```
+
+This occurs when:
+
+```
+(loan_balance - ltv_limit × portfolio_value) / (1 - ltv_limit) > portfolio_value
+```
+
+Simplifying:
+
+```
+loan_balance - ltv_limit × portfolio_value > (1 - ltv_limit) × portfolio_value
+loan_balance > portfolio_value
+```
+
+**Therefore, a margin call is unsatisfiable if and only if
+`loan_balance > portfolio_value`.**
+
+When unsatisfiable:
+```
+liquidation_amount = portfolio_value  (sell entire portfolio)
+portfolio_value = 0
+loan_balance -= liquidation_amount   (partial repayment)
+remaining_loan = loan_balance - portfolio_value (before sale)
+Net worth = 0 - remaining_loan = -remaining_loan (negative)
+FAILURE: margin_call_impossible
+```
+
+### Edge Cases
+
+**Edge case: `loan_balance = portfolio_value`**
+
+```
+liquidation_amount = (P - λP) / (1 - λ) = P(1 - λ) / (1 - λ) = P
+```
+
+This sells the entire portfolio and repays the entire loan, leaving:
+```
+portfolio_value = 0
+loan_balance = 0
+net_worth = 0
+```
+
+This is a valid terminal state (not a failure) if the simulation has reached
+the horizon. If mid-horizon, it is a failure because the simulation cannot
+continue with zero portfolio.
+
+**Edge case: `loan_balance = 0` and `portfolio_value = 0`**
+
+This represents a depleted portfolio with no debt. It is a valid terminal
+state (not a margin call failure).
+
+**Edge case: `loan_balance > 0` and `portfolio_value = 0`**
+
+This is an unsatisfiable margin call because you cannot sell assets when
+the portfolio is already zero. The simulation terminates with
+`failure_state = "margin_call_impossible"`.
+
+### Debt Information for Policies
+
+`DecisionContext` exposes an immutable `DebtInfo` snapshot:
+
+```python
+@dataclass(frozen=True)
+class DebtInfo:
+    """Immutable debt information for policy decisions.
+
+    This is a snapshot of the debt state at the beginning of the period.
+    Policies observe this to make allocation decisions.
+    Policies never mutate debt state.
+    """
+    loan_balance: Decimal
+    interest_rate: Decimal
+    ltv_limit: Decimal
+    net_worth: Decimal
+```
+
+Policies can observe debt information but cannot modify it. Debt mutations
+(draw, interest accrual, liquidation) remain engine responsibilities.
+
+### Failure Semantics
+
+Simulation failure occurs when **any** of the following conditions is met:
+
+1. **Portfolio depletion:** `portfolio_value ≤ 0` at any point during the
+   simulation. This includes both clean depletion (no debt) and insolvency
+   (debt remains). The `failure_state` is set to `"depleted"`.
+
+2. **Unsatisfiable margin call:** `loan_balance > portfolio_value` when a
+   margin call is triggered (portfolio cannot cover the required liquidation).
+   The portfolio is sold entirely, partial repayment is made, and the
+   remaining debt constitutes insolvency. The `failure_state` is set to
+   `"margin_call_impossible"`.
+
+All conditions constitute failure. The simulation stops at the first
+failure condition. The `failure_state` string distinguishes these cases:
+
+- `"depleted"`: Portfolio exhausted (regardless of debt state)
+- `"margin_call_impossible"`: LTV breach cannot be resolved by liquidation
+
+Downstream research can distinguish these failure modes by examining the
+`failure_state` string in the simulation results.
+
+### Invariants
+
+The following invariants must be preserved by the engine implementation:
+
+1. **Debt is never negative:** `loan_balance ≥ 0` at all times
+2. **Portfolio holdings remain valid:** All `holding.units ≥ 0` after every
+   operation
+3. **Borrowing increases both available portfolio resources and debt
+   consistently:** When a loan draw occurs, portfolio value increases by
+   draw amount (as liquid cash), loan balance increases by draw amount.
+   This invariant is only applicable when borrowing is configured and
+   executed. When borrowing is not configured (interest_rate = 0), this
+   invariant is vacuously true.
+4. **Interest increases debt according to the defined rule:**
+   `loan_balance += loan_balance × monthly_rate`
+5. **Liquidation reduces portfolio value and debt by the same amount:**
+   Portfolio value decreases by `liquidation_amount`, loan balance decreases
+   by `liquidation_amount`
+6. **Liquidation never creates wealth:** `portfolio_value_after ≤
+   portfolio_value_before`
+7. **Net worth follows the defined accounting identity:**
+   `net_worth = portfolio_value - loan_balance`
+8. **Margin-call mechanics are deterministic:** Same state → same liquidation
+   amount
+9. **Pipeline ordering is deterministic:** Same state → same sequence of
+   operations
+10. **Liquidation restores LTV to exactly the limit:** After liquidation,
+    `ltv = ltv_limit` (within the same period)

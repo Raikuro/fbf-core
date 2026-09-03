@@ -139,6 +139,7 @@ def make_simulation_result(unit_idx: int) -> SimulationResult:
             max_drawdown=0.0,
             success=True,
             failure_month=None,
+            failure_state=None,
             months_simulated=12,
             execution_time_seconds=0.01,
         ),

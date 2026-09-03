@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
 from fbf.core.execution.pipeline.pipeline import SimulationPipeline
 from fbf.core.execution.pipeline.simulation import (
@@ -88,6 +89,11 @@ class SimulationRunner:
                     "SimulationContext.start_date must match the first dataset snapshot date"
                 )
 
+        # Initialize debt state from context if available
+        loan_balance = Decimal("0")
+        interest_rate = Decimal("0")
+        ltv_limit = Decimal("0")
+
         return SimulationState(
             context=context,
             current_date=context.start_date,
@@ -97,6 +103,9 @@ class SimulationRunner:
             current_wealth=context.initial_wealth,
             peak_wealth=context.initial_wealth,
             status=status,
+            loan_balance=loan_balance,
+            interest_rate=interest_rate,
+            ltv_limit=ltv_limit,
         )
 
     def _build_result(self, state: SimulationState) -> SimulationResult:

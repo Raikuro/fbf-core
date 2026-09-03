@@ -184,6 +184,7 @@ class SimulationResultCodec:
             max_drawdown=stats_data["max_drawdown"],
             success=stats_data["success"],
             failure_month=stats_data.get("failure_month"),
+            failure_state=stats_data.get("failure_state"),
             months_simulated=stats_data["months_simulated"],
             execution_time_seconds=stats_data["execution_time_seconds"],
         )
