@@ -281,6 +281,11 @@ class StudyConfiguration:
     withdrawal_policy_type: str
     withdrawal_policy_values: tuple[Decimal, ...]
     horizon_years: tuple[int, ...]
+    # Optional: specify a different horizon for cohort generation.
+    # ERN uses a fixed cohort set determined by the longest horizon (60y)
+    # across ALL studies for comparability. When set, cohorts are generated
+    # for this horizon even if the actual simulation horizons are shorter.
+    cohort_horizon_years: int | None = None
     final_value_target_values: tuple[Decimal, ...] | None = None
     glidepath_start_values: tuple[Decimal, ...] | None = None
     glidepath_end_values: tuple[Decimal, ...] | None = None
@@ -882,14 +887,21 @@ def build_study_plan(
     is the only plan construction path for every CLI consumer.
     """
     dataset = resolve_dataset(config.dataset_identifier, data_dir)
-    longest_horizon_years = _longest_horizon_years(config)
-    longest_horizon_months = longest_horizon_years * 12 + 1
-    cohorts = build_cohort_specs(dataset, longest_horizon_months)
+    # Cohort horizon: use cohort_horizon_years if set, otherwise longest horizon.
+    # ERN uses a fixed cohort set determined by the longest horizon (60y) across
+    # ALL studies for comparability. When cohort_horizon_years is set, cohorts
+    # are generated for this horizon even if the actual simulation horizons are shorter.
+    if config.cohort_horizon_years is not None:
+        cohort_horizon_months = config.cohort_horizon_years * 12 + 1
+    else:
+        longest_horizon_years = _longest_horizon_years(config)
+        cohort_horizon_months = longest_horizon_years * 12 + 1
+    cohorts = build_cohort_specs(dataset, cohort_horizon_months)
     if not cohorts:
         raise ValueError(
             f"Dataset {config.dataset_identifier!r} is too small for a "
-            f"{longest_horizon_years}-year "
-            f"({longest_horizon_months}-observation) horizon"
+            f"{config.cohort_horizon_years or _longest_horizon_years(config)}-year "
+            f"({cohort_horizon_months}-observation) horizon"
         )
     param_configs = _build_unified_parameter_configs(config)
 
@@ -899,7 +911,7 @@ def build_study_plan(
         name=config.name,
         description=config.description or config.name,
         dataset=dataset,
-        horizon_months=longest_horizon_months,
+        horizon_months=cohort_horizon_months,
         initial_wealth=initial_wealth,
         cohorts=cohorts,
         allocation_policies=(representative_allocation,),
