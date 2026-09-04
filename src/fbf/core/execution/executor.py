@@ -222,4 +222,7 @@ class ResearchExecutor:
             allocation_policy=unit.allocation_policy,
             withdrawal_policy=unit.withdrawal_policy,
             final_value_target=unit.final_value_target,
+            loan_draw_rate=unit.loan_draw_rate,
+            interest_rate=unit.interest_rate,
+            ltv_limit=unit.ltv_limit,
         )

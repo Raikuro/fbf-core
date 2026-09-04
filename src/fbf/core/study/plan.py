@@ -64,6 +64,10 @@ class PlannedSimulationUnit:
     dataset: Dataset
     horizon_months: int | None = None
     final_value_target: Decimal | None = None
+    # Part 49 debt parameters (None when leverage is not configured)
+    interest_rate: Decimal | None = None
+    ltv_limit: Decimal | None = None
+    loan_draw_rate: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.cohort is None:
@@ -167,6 +171,9 @@ def materialize_research_plan(
         [ParameterConfiguration], tuple[AllocationPolicy, WithdrawalPolicy]
     ],
     target_resolver: Callable[[ParameterConfiguration], Decimal | None] | None = None,
+    interest_rate: Decimal | None = None,
+    ltv_limit: Decimal | None = None,
+    loan_draw_rate: Decimal | None = None,
 ) -> ResearchPlan:
     """Build a ResearchPlan whose units take horizon and policies per parameter config.
 
@@ -201,6 +208,15 @@ def materialize_research_plan(
         (a ``Decimal`` fraction of initial wealth, or ``None`` when no
         final-value criterion is configured).  When ``None`` is passed,
         all units default to ``final_value_target=None``.
+    interest_rate:
+        Monthly interest rate for margin loan (Part 49). ``None`` when
+        leverage is not configured; debt steps become no-ops.
+    ltv_limit:
+        Loan-to-value limit for margin calls (Part 49). ``None`` when
+        leverage is not configured.
+    loan_draw_rate:
+        Annual rate of initial wealth drawn as a loan each period (Part 49).
+        ``None`` when leverage is not configured.
 
     Returns
     -------
@@ -232,6 +248,9 @@ def materialize_research_plan(
                     dataset=dataset_cache[cache_key],
                     horizon_months=horizon_months,
                     final_value_target=final_value_target,
+                    interest_rate=interest_rate,
+                    ltv_limit=ltv_limit,
+                    loan_draw_rate=loan_draw_rate,
                 )
             )
     return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))

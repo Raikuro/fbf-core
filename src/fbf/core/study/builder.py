@@ -216,6 +216,9 @@ def build_withdrawal_policy(policy_type: str, scalar: Decimal) -> WithdrawalPoli
         return FixedRealWithdrawalPolicy(withdrawal_rate=scalar)
     if policy_enum is WithdrawalPolicyType.CONSTANT:
         return ConstantWithdrawalPolicy(withdrawal_rate=scalar)
+    if policy_enum is WithdrawalPolicyType.PART49:
+        from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
+        return Part49WithdrawalPolicy(withdrawal_rate=scalar)
     raise ValueError(f"Unsupported withdrawal policy type: {policy_type!r}")
 
 
@@ -280,6 +283,10 @@ class StudyConfiguration:
     omy_equity_weight: Decimal | None = None
     omy_bond_weight: Decimal | None = None
     omy_original_initial_wealth: Decimal | None = None
+    # Part 49 debt parameters (None when leverage is not configured)
+    debt_interest_rate: Decimal | None = None
+    debt_ltv_limit: Decimal | None = None
+    debt_loan_draw_rate: Decimal | None = None
 
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
@@ -450,6 +457,31 @@ class StudyConfiguration:
                 omy_data, "original_initial_wealth"
             )
 
+        # Parse optional debt (Part 49) configuration
+        debt_data = data.get("debt")
+        debt_interest_rate: Decimal | None = None
+        debt_ltv_limit: Decimal | None = None
+        debt_loan_draw_rate: Decimal | None = None
+        if debt_data is not None:
+            if not isinstance(debt_data, dict):
+                raise ValueError("debt must be a mapping")
+            debt_interest_rate = _parse_optional_decimal_scalar(
+                debt_data, "interest_rate"
+            )
+            debt_ltv_limit = _parse_optional_decimal_scalar(
+                debt_data, "ltv_limit"
+            )
+            debt_loan_draw_rate = _parse_optional_decimal_scalar(
+                debt_data, "loan_draw_rate"
+            )
+            # Validate coherence: loan_draw_rate requires interest_rate
+            if debt_loan_draw_rate is not None and debt_interest_rate is None:
+                raise ValueError(
+                    "debt.interest_rate is required when debt.loan_draw_rate "
+                    "is set; the loan draw step requires a non-zero interest "
+                    "rate to activate"
+                )
+
         return cls(
             name=str(metadata.get("name", "Unnamed Study")),
             description=str(metadata.get("description", "")),
@@ -470,6 +502,9 @@ class StudyConfiguration:
             omy_equity_weight=omy_equity_weight,
             omy_bond_weight=omy_bond_weight,
             omy_original_initial_wealth=omy_original_initial_wealth,
+            debt_interest_rate=debt_interest_rate,
+            debt_ltv_limit=debt_ltv_limit,
+            debt_loan_draw_rate=debt_loan_draw_rate,
         )
 
 
@@ -810,6 +845,9 @@ def build_study_plan(
         horizon_resolver=_make_horizon_resolver(config),
         policy_resolver=_make_policy_resolver(config),
         target_resolver=_make_target_resolver(config),
+        interest_rate=config.debt_interest_rate,
+        ltv_limit=config.debt_ltv_limit,
+        loan_draw_rate=config.debt_loan_draw_rate,
     )
     return BuiltStudy(
         plan=plan,
