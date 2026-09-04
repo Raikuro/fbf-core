@@ -30,3 +30,4 @@ class SimulationContext:
     loan_draw_rate: Decimal | None = None
     interest_rate: Decimal | None = None
     ltv_limit: Decimal | None = None
+    ltv_enforcement: bool = True

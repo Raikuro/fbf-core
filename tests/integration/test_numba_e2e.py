@@ -101,7 +101,7 @@ def _build_plan(
             for r in rates:
                 for h in horizons:
                     portfolio = build_initial_portfolio(
-                        Money(Decimal("1000000"), Currency.EUR)
+                        Money(Decimal("1000000"), Currency.EUR), dataset
                     )
                     param_config = ParameterConfiguration({
                         "equity_allocation": w,

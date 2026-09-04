@@ -976,6 +976,10 @@ class SQLiteRepository:
                     dataset=exp_def.dataset,
                     allocation_policy=unit.allocation_policy,
                     withdrawal_policy=unit.withdrawal_policy,
+                    loan_draw_rate=unit.loan_draw_rate,
+                    interest_rate=unit.interest_rate,
+                    ltv_limit=unit.ltv_limit,
+                    ltv_enforcement=unit.ltv_enforcement,
                 )
                 for unit in plan.units
             )

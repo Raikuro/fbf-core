@@ -122,7 +122,7 @@ def build_grid_plan(
         canonical_trajectory=dataset,
         cohorts=cohorts,
         param_configs=configs,
-        initial_portfolio=build_initial_portfolio(_WEALTH),
+        initial_portfolio=build_initial_portfolio(_WEALTH, dataset),
         horizon_resolver=lambda c: int(c.get("horizon_years")) * 12,
         policy_resolver=_resolve_policies,
     )

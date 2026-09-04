@@ -93,7 +93,7 @@ def _build_plan(horizon_months: int = 12, param_sweep: int = 1) -> tuple[Dataset
         canonical_trajectory=dataset,
         cohorts=experiment.cohorts,
         param_configs=tuple(param_configs),
-        initial_portfolio=build_initial_portfolio(experiment.initial_wealth),
+        initial_portfolio=build_initial_portfolio(experiment.initial_wealth, dataset),
         horizon_resolver=lambda c: horizon_months,
         policy_resolver=lambda c: (alloc, withdraw),
     )

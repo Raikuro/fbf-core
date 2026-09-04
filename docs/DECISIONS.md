@@ -699,4 +699,78 @@ The following invariants must be preserved by the engine implementation:
 9. **Pipeline ordering is deterministic:** Same state → same sequence of
    operations
 10. **Liquidation restores LTV to exactly the limit:** After liquidation,
-    `ltv = ltv_limit` (within the same period)
+     `ltv = ltv_limit` (within the same period)
+
+---
+
+## Part 49 LTV Enforcement Separation
+
+**Decision:** For the ERN Part 49 replication, FBF must observe LTV
+without enforcing the 75% margin-call constraint. LTV observation and
+LTV enforcement are separate architectural concerns.
+
+**Why:** ERN Part 49 observes LTV as a diagnostic metric but does not
+enforce a margin-call threshold. The article reports LTV values of 84–93%
+for the 1965 cohort, which would be impossible under a 75% enforced limit.
+Introducing forced liquidation at 75% changes the financial model and
+makes the published anchors unreproducible.
+
+ERN's behavior:
+```
+LTV evolves over time
+    ↓
+possibly exceeds 75%
+    ↓
+continue simulation
+    ↓
+observe LTV / eventual portfolio failure
+```
+
+FBF's current behavior (wrong for Part 49):
+```
+LTV > 75%
+    ↓
+forced liquidation
+    ↓
+portfolio/debt trajectory changes
+```
+
+**Architectural separation:**
+```
+Debt mechanics
+    ├── loan balance
+    ├── interest
+    ├── cash
+    └── LTV observation
+             │
+             ▼
+Risk / constraint policy
+    └── optional LTV enforcement
+```
+
+For ERN Part 49 replication:
+- LTV observation = ON
+- LTV enforcement = OFF
+
+A future FBF study could legitimately use:
+- LTV observation = ON
+- LTV enforcement = ON
+- threshold = 75%
+
+But that would be a different study/model, not the ERN Part 49 replication.
+
+**Terminology:** The ERN behavior is "unconstrained with respect to the
+75% LTV margin-call rule." Other failure boundaries (portfolio depletion)
+still apply.
+
+**Alternatives rejected:**
+- Deleting ltv_limit from the debt architecture — rejected because the
+  framework should support both constrained and unconstrained LTV studies.
+- Keeping 75% enforcement for Part 49 — rejected because it changes the
+  mathematical model and prevents reproducing published anchors.
+
+**Consequence:** The LTVEvaluationStep must support an enforcement mode
+flag. When enforcement is OFF, the step computes and records LTV but does
+not trigger forced liquidation. The DebtInfo snapshot must include the
+observed LTV regardless of enforcement mode. Failure detection for
+"margin_call_impossible" is only relevant when enforcement is ON.

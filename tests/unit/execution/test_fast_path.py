@@ -104,7 +104,7 @@ def build_plan(dataset: Dataset, horizon: int, weight: float, rate: float) -> Re
         canonical_trajectory=dataset,
         cohorts=cohorts,
         param_configs=param_configs,
-        initial_portfolio=build_initial_portfolio(experiment_def.initial_wealth),
+        initial_portfolio=build_initial_portfolio(experiment_def.initial_wealth, dataset),
         horizon_resolver=lambda c: horizon,
         policy_resolver=lambda c: (alloc, withdraw),
     )
@@ -153,7 +153,9 @@ def test_executor_matches_reference() -> None:
             start_date=start,
             horizon_months=h,
             initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-            initial_portfolio=build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR)),
+            initial_portfolio=build_initial_portfolio(
+                Money(Decimal("1000000"), Currency.EUR), dataset
+            ),
             dataset=dataset.slice(start, h),
             allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
             withdrawal_policy=FixedRealWithdrawalPolicy(Decimal("0.04")),
@@ -188,7 +190,9 @@ def test_executor_shares_longest_path() -> None:
             start_date=start,
             horizon_months=h,
             initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-            initial_portfolio=build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR)),
+            initial_portfolio=build_initial_portfolio(
+                Money(Decimal("1000000"), Currency.EUR), dataset
+            ),
             dataset=dataset.slice(start, h),
             allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
             withdrawal_policy=FixedRealWithdrawalPolicy(Decimal("0.04")),
@@ -245,7 +249,7 @@ def test_eligibility_requires_dataset_covering_horizon() -> None:
         start_date=start,
         horizon_months=480,
         initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-        initial_portfolio=build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR)),
+        initial_portfolio=build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset),
         dataset=dataset.slice(start, 120),
         allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
         withdrawal_policy=FixedRealWithdrawalPolicy(Decimal("0.04")),
@@ -257,7 +261,7 @@ def test_eligibility_requires_dataset_covering_horizon() -> None:
         start_date=start,
         horizon_months=120,
         initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-        initial_portfolio=build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR)),
+        initial_portfolio=build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset),
         dataset=dataset.slice(start, 120),
         allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
         withdrawal_policy=FixedRealWithdrawalPolicy(Decimal("0.04")),
@@ -273,7 +277,9 @@ def _make_multi_horizon_context(
         start_date=start,
         horizon_months=horizon,
         initial_wealth=Money(Decimal(str(wealth)), Currency.EUR),
-        initial_portfolio=build_initial_portfolio(Money(Decimal(str(wealth)), Currency.EUR)),
+        initial_portfolio=build_initial_portfolio(
+            Money(Decimal(str(wealth)), Currency.EUR), dataset
+        ),
         dataset=dataset,
         allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
         withdrawal_policy=FixedRealWithdrawalPolicy(Decimal("0.04")),

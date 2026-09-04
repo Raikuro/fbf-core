@@ -270,10 +270,15 @@ class TestConfiguredAllocationIsAuthoritative:
         wealth = Money(Decimal("1000000"), Money.ZERO.currency)
         market = self._snapshot()
 
-        bootstrap = build_initial_portfolio(wealth)
+        ds = Dataset(
+            snapshots=(market,), frequency="monthly", version="v1"
+        )
+        bootstrap = build_initial_portfolio(wealth, ds)
         assert [h.asset_class for h in bootstrap.holdings] == [EQUITY, BOND]
-        assert bootstrap.holdings[0].units == wealth.amount * Decimal("0.5")
-        assert bootstrap.holdings[1].units == wealth.amount * Decimal("0.5")
+        eq_price = TestConfiguredAllocationIsAuthoritative.PRICES[EQUITY]
+        bd_price = TestConfiguredAllocationIsAuthoritative.PRICES[BOND]
+        assert bootstrap.holdings[0].units == wealth.amount * Decimal("0.5") / eq_price
+        assert bootstrap.holdings[1].units == wealth.amount * Decimal("0.5") / bd_price
 
         policy = ConstantAllocationPolicy(equity_allocation=ratio)
         target = policy.decide(self._context(bootstrap, market)).allocation_target

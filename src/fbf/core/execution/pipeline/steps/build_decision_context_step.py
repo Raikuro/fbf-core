@@ -29,11 +29,18 @@ class BuildDecisionContextStep(PipelineStep):
                 price = state.market_snapshot.index_levels.get(holding.asset_class, Decimal("0"))
                 portfolio_value += holding.units * price
 
+            # Compute observed LTV (always computed for diagnostics)
+            ltv_observed = Decimal("0")
+            if portfolio_value > 0 and state.loan_balance > 0:
+                ltv_observed = state.loan_balance / portfolio_value
+
             debt_info = DebtInfo(
                 loan_balance=state.loan_balance,
                 interest_rate=state.interest_rate,
                 ltv_limit=state.ltv_limit,
                 portfolio_value=portfolio_value,
+                ltv_observed=ltv_observed,
+                ltv_enforcement=state.ltv_enforcement,
             )
 
         decision_context = DecisionContext(

@@ -57,7 +57,7 @@ def make_context(
 ) -> SimulationContext:
     """Create a SimulationContext for testing."""
     start = date(start_year, start_month, 1)
-    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset)
     return SimulationContext(
         experiment_name="test",
         cohort=str(start),
@@ -129,7 +129,7 @@ def make_plan(
                         allocation_policy=ConstantAllocationPolicy(Decimal(str(w))),
                         withdrawal_policy=FixedRealWithdrawalPolicy(Decimal(str(r))),
                         initial_portfolio=build_initial_portfolio(
-                            Money(Decimal("1000000"), Currency.EUR)
+                            Money(Decimal("1000000"), Currency.EUR), dataset
                         ),
                         dataset=dataset.slice(cohort.start_date, h),
                     )

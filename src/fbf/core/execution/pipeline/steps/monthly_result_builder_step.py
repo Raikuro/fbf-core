@@ -38,6 +38,7 @@ class MonthlyResultBuilderStep(PipelineStep):
                 cash_balance=state.cash_balance,
                 ltv=ltv,
                 net_worth=net_worth,
+                ltv_enforcement=state.ltv_enforcement,
             )
 
         monthly_result = MonthlyResult(

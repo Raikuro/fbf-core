@@ -75,7 +75,7 @@ def _make_context(
     weight: float = 0.5,
     rate: float = 0.04,
 ) -> SimulationContext:
-    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset)
     return SimulationContext(
         experiment_name="bench",
         cohort=str(start),
@@ -234,7 +234,7 @@ class TestExecutionOverheadCost:
         """Time the creation of SimulationContext objects."""
         dataset = _make_dataset(721)
         start = date(1900, 1, 1)
-        portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+        portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset)
 
         t0 = time.perf_counter()
         for _ in range(1000):
@@ -332,7 +332,9 @@ class TestExecutionOverheadCost:
                 parameter_config=ParameterConfiguration(values={"rate": 0.04}),
                 allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
                 withdrawal_policy=FixedRealWithdrawalPolicy(Decimal("0.04")),
-                initial_portfolio=build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR)),
+                initial_portfolio=build_initial_portfolio(
+                    Money(Decimal("1000000"), Currency.EUR), dataset
+                ),
                 dataset=dataset.slice(c.start_date, 720),
             )
             for c in cohorts

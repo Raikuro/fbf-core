@@ -219,7 +219,7 @@ def materialize_part3_plan(
     param_configs = ParameterSweepEngine.cartesian_product(axes)
 
     # Step 5: Build the initial portfolio (shared across all units)
-    initial_portfolio = build_initial_portfolio(initial_wealth)
+    initial_portfolio = build_initial_portfolio(initial_wealth, canonical_trajectory)
 
     # Step 6: Build resolvers
     def horizon_resolver(param_config: ParameterConfiguration) -> int:

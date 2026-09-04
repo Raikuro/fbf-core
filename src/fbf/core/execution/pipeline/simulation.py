@@ -52,6 +52,7 @@ class SimulationState:
     cash_balance: Decimal = Decimal("0")
     interest_rate: Decimal = Decimal("0")
     ltv_limit: Decimal = Decimal("0")
+    ltv_enforcement: bool = True
 
 
 class ExecutionStatus(Enum):
@@ -94,6 +95,7 @@ class DebtSnapshot:
     cash_balance: Decimal
     ltv: Decimal
     net_worth: Decimal
+    ltv_enforcement: bool = True
 
 
 @dataclass(frozen=True)

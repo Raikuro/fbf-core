@@ -35,6 +35,8 @@ class DebtInfo:
     ltv_limit: Decimal
     portfolio_value: Decimal
     cash_balance: Decimal = Decimal("0")
+    ltv_observed: Decimal = Decimal("0")
+    ltv_enforcement: bool = True
 
     @property
     def net_worth(self) -> Decimal:

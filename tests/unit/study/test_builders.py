@@ -23,6 +23,7 @@ from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.domain.policies import ConstantAllocationPolicy
+from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.study.builder import build_initial_portfolio
 
 
@@ -33,6 +34,22 @@ def _loader_asset(asset_id: str) -> AssetClass:
     ``description`` so they round-trip from JSON ``index_levels`` keys.
     """
     return AssetClass(id=asset_id, name="", description="")
+
+
+def _make_dataset() -> Dataset:
+    snapshot = MarketSnapshot(
+        date=date(2020, 1, 1),
+        index_levels={
+            _loader_asset("equity"): Decimal("1"),
+            _loader_asset("bond"): Decimal("1"),
+        },
+        inflation=Decimal("0"),
+        inflation_cumulative=Decimal("0"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100"),
+    )
+    return Dataset(snapshots=(snapshot,), frequency="monthly", version="1.0")
 
 
 def _make_context(portfolio: Portfolio) -> DecisionContext:
@@ -66,7 +83,7 @@ def _make_context(portfolio: Portfolio) -> DecisionContext:
 
 def test_build_initial_portfolio_uses_equity_and_bond_holdings() -> None:
     initial_wealth = Money(Decimal("1000000"), Money.ZERO.currency)
-    portfolio = build_initial_portfolio(initial_wealth)
+    portfolio = build_initial_portfolio(initial_wealth, _make_dataset())
 
     holdings = {h.asset_class.id: h for h in portfolio.holdings}
     assert set(holdings) == {"equity", "bond"}
@@ -79,7 +96,7 @@ def test_build_initial_portfolio_uses_equity_and_bond_holdings() -> None:
 def test_build_initial_portfolio_assets_equal_snapshot_keys() -> None:
     """Holding assets must be dict-key equal to the loader's snapshot keys."""
     initial_wealth = Money(Decimal("500000"), Money.ZERO.currency)
-    portfolio = build_initial_portfolio(initial_wealth)
+    portfolio = build_initial_portfolio(initial_wealth, _make_dataset())
 
     snapshot_keys = {_loader_asset("equity"), _loader_asset("bond")}
     assert {h.asset_class for h in portfolio.holdings} == snapshot_keys
@@ -88,14 +105,16 @@ def test_build_initial_portfolio_assets_equal_snapshot_keys() -> None:
 
 def test_build_initial_portfolio_does_not_use_synthetic_initial_asset() -> None:
     initial_wealth = Money(Decimal("1000000"), Money.ZERO.currency)
-    portfolio = build_initial_portfolio(initial_wealth)
+    portfolio = build_initial_portfolio(initial_wealth, _make_dataset())
 
     assert "initial" not in {h.asset_class.id for h in portfolio.holdings}
 
 
 def test_constant_allocation_policy_targets_loader_aligned_assets() -> None:
     policy = ConstantAllocationPolicy(equity_allocation=Decimal("0.75"))
-    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Money.ZERO.currency))
+    portfolio = build_initial_portfolio(
+        Money(Decimal("1000000"), Money.ZERO.currency), _make_dataset()
+    )
     decision = policy.decide(_make_context(portfolio))
 
     assert decision.allocation_target.weights == {
@@ -107,7 +126,9 @@ def test_constant_allocation_policy_targets_loader_aligned_assets() -> None:
 def test_constant_allocation_policy_assets_present_in_snapshot() -> None:
     """The target assets must exist in the dataset snapshot keys (priceable)."""
     policy = ConstantAllocationPolicy(equity_allocation=Decimal("0.6"))
-    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Money.ZERO.currency))
+    portfolio = build_initial_portfolio(
+        Money(Decimal("1000000"), Money.ZERO.currency), _make_dataset()
+    )
     decision = policy.decide(_make_context(portfolio))
 
     snapshot_keys = {_loader_asset("equity"), _loader_asset("bond")}
@@ -484,3 +505,133 @@ class TestExplicitConfigurations:
         assert isinstance(alloc, GlidepathAllocationPolicy)
         assert alloc.start_equity == Decimal("0.9")
         assert alloc.end_equity == Decimal("0.4")
+
+
+# ---------------------------------------------------------------------------
+# Initial-wealth reconciliation regression
+# ---------------------------------------------------------------------------
+
+
+class TestInitialWealthReconciliation:
+    """Portfolio value at the initial market snapshot must equal initial_wealth.
+
+    Regression: build_initial_portfolio previously created units as
+    ``initial_wealth * 0.5`` without dividing by the initial price, which
+    produced a portfolio value of ~100× initial_wealth when index levels
+    were ~100.
+    """
+
+    def test_portfolio_value_equals_initial_wealth(self) -> None:
+        """portfolio_value_at_snapshot[0] == initial_wealth for any price level."""
+        equity = _loader_asset("equity")
+        bond = _loader_asset("bond")
+        price_eq = Decimal("101.17")
+        price_bd = Decimal("100.75")
+
+        snapshot = MarketSnapshot(
+            date=date(2020, 1, 1),
+            index_levels={equity: price_eq, bond: price_bd},
+            inflation=Decimal("0"),
+            inflation_cumulative=Decimal("0"),
+            is_ath=True,
+            is_underwater=False,
+            running_ath=price_eq,
+        )
+        dataset = Dataset(snapshots=(snapshot,), frequency="monthly", version="test")
+
+        initial_wealth = Money(Decimal("1000000"), Money.ZERO.currency)
+        portfolio = build_initial_portfolio(initial_wealth, dataset)
+
+        # Price the portfolio at the initial snapshot
+        total = Decimal("0")
+        for h in portfolio.holdings:
+            price = snapshot.index_levels[h.asset_class]
+            total += h.units * price
+
+        assert total == initial_wealth.amount, (
+            f"Portfolio value at snapshot[0] ({total}) != "
+            f"initial_wealth ({initial_wealth.amount})"
+        )
+
+    def test_withdrawal_amount_computed_from_initial_wealth(self) -> None:
+        """Part49WithdrawalPolicy monthly amounts must match ERN methodology.
+
+        ERN Part 49: monthly_withdrawal = initial_wealth * rate / 12.
+        This requires portfolio_value_at_snapshot[0] == initial_wealth.
+        """
+        from fbf.core.domain.model.decision_context import DecisionContext
+        from fbf.core.domain.policies import ConstantAllocationPolicy
+        from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
+
+        equity = _loader_asset("equity")
+        bond = _loader_asset("bond")
+        price_eq = Decimal("101.17")
+        price_bd = Decimal("100.75")
+
+        snapshot = MarketSnapshot(
+            date=date(2020, 1, 1),
+            index_levels={equity: price_eq, bond: price_bd},
+            inflation=Decimal("0"),
+            inflation_cumulative=Decimal("0"),
+            is_ath=True,
+            is_underwater=False,
+            running_ath=price_eq,
+        )
+        dataset = Dataset(snapshots=(snapshot,), frequency="monthly", version="test")
+
+        initial_wealth = Money(Decimal("1000000"), Money.ZERO.currency)
+        portfolio = build_initial_portfolio(initial_wealth, dataset)
+
+        policy = Part49WithdrawalPolicy(withdrawal_rate=Decimal("0.03"))
+        alloc = ConstantAllocationPolicy(equity_allocation=Decimal("0.75"))
+
+        # Build a minimal SimulationContext-like object for the policy
+        sim_ctx = SimulationContext(
+            experiment_name="test",
+            cohort="test",
+            start_date=date(2020, 1, 1),
+            horizon_months=12,
+            initial_wealth=initial_wealth,
+            initial_portfolio=portfolio,
+            dataset=dataset,
+            allocation_policy=alloc,
+            withdrawal_policy=policy,
+            loan_draw_rate=Decimal("0.01"),
+        )
+
+        alloc_decision = alloc.decide(DecisionContext(
+            date=date(2020, 1, 1),
+            period_index=0,
+            simulation_context=sim_ctx,
+            portfolio=portfolio,
+            current_allocation=Allocation(
+                weights={equity: Decimal("0.75"), bond: Decimal("0.25")}
+            ),
+            target_allocation=AllocationTarget(
+                weights={equity: Decimal("0.75"), bond: Decimal("0.25")}
+            ),
+            market_snapshot=snapshot,
+            dataset=dataset,
+        ))
+
+        decision_ctx = DecisionContext(
+            date=date(2020, 1, 1),
+            period_index=0,
+            simulation_context=sim_ctx,
+            portfolio=portfolio,
+            current_allocation=Allocation(
+                weights={equity: Decimal("0.75"), bond: Decimal("0.25")}
+            ),
+            target_allocation=alloc_decision.allocation_target,
+            market_snapshot=snapshot,
+            dataset=dataset,
+        )
+
+        decision = policy.decide(decision_ctx)
+
+        # ERN Part 49: 3% portfolio withdrawal + 1% loan draw = 4% total
+        expected_monthly = initial_wealth.amount * Decimal("0.03") / Decimal("12")
+        expected_loan = initial_wealth.amount * Decimal("0.01") / Decimal("12")
+
+        assert decision.nominal_amount.amount == expected_monthly
+        assert decision.loan_draw_amount == expected_loan

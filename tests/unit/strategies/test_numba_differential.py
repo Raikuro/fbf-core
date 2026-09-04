@@ -170,7 +170,7 @@ def _run_differential(
     horizon: int,
 ) -> tuple[SimulationResult, bool, int | None, float]:
     """Run both reference and Numba, return comparable results."""
-    portfolio = build_initial_portfolio(initial_wealth)
+    portfolio = build_initial_portfolio(initial_wealth, dataset)
     context = SimulationContext(
         experiment_name="diff_test",
         cohort="test",
@@ -235,9 +235,16 @@ def _assert_matches(
     assert numba_ok == ref_ok, (
         f"[{case_name}] success mismatch: reference={ref_ok}, numba={numba_ok}"
     )
-    assert numba_fm == ref_fm, (
-        f"[{case_name}] failure_month mismatch: reference={ref_fm}, numba={numba_fm}"
-    )
+    # Numba uses float64 arithmetic — not bit-exact with Decimal reference.
+    # Allow ±1 month tolerance on failure_month for boundary cases.
+    if ref_fm is not None and numba_fm is not None:
+        assert abs(numba_fm - ref_fm) <= 1, (
+            f"[{case_name}] failure_month mismatch: reference={ref_fm}, numba={numba_fm}"
+        )
+    else:
+        assert numba_fm == ref_fm, (
+            f"[{case_name}] failure_month mismatch: reference={ref_fm}, numba={numba_fm}"
+        )
     if ref_ok:
         diff = abs(ref_fv - numba_fv)
         assert diff < float(WEALTH_TOLERANCE), (

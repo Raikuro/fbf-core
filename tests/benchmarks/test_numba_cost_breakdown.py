@@ -67,7 +67,7 @@ def _make_context(
     r: float = 0.04,
 ) -> SimulationContext:
     start = dataset[0].date
-    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset)
     return SimulationContext(
         experiment_name="bench",
         cohort=str(start),
@@ -133,7 +133,7 @@ def run_cost_breakdown() -> None:
     for cohort_start_month in range(6):
         d = date(1900, 1 + cohort_start_month, 1)
         for h in horizons_group:
-            portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+            portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), ds)
             ctxs_batch.append(
                 SimulationContext(
                     experiment_name="bench",
@@ -252,7 +252,7 @@ def run_cost_breakdown() -> None:
             month_offset = (i % 12) + 1
             year_offset = i // 12
             d = date(1900 + year_offset, month_offset, 1)
-            portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+            portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), ds)
             ctxs.append(
                 SimulationContext(
                     experiment_name="bench",

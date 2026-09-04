@@ -74,27 +74,36 @@ def build_cohort_specs(
     return CohortGenerator.generate_rolling_monthly(dataset, horizon_months)
 
 
-def build_initial_portfolio(initial_wealth: Money) -> Portfolio:
-    """Build an equity/bond ``Portfolio`` representing the initial wealth.
+def build_initial_portfolio(initial_wealth: Money, dataset: Dataset) -> Portfolio:
+    """Build an ``Portfolio`` representing the initial wealth.
 
-    Uses the same ``AssetClass`` objects the dataset loader produces
-    (``id="equity"`` / ``id="bond"``, ``name=""`` / ``description=""``) so the
-    engine can price and rebalance the initial holdings against the resolved
-    ``equity``/``bond`` market universe.  The initial capital is funded into
-    both holdings; the month-0 allocation policy rebalances to its target split.
+    Derives asset classes from the dataset's initial snapshot and constructs
+    holdings so that the portfolio value at that snapshot equals
+    ``initial_wealth`` exactly:
+
+    ``units_i = (initial_wealth × weight_i) / price_i[0]``
+
+    where ``weight_i = 1 / n_assets`` for each asset class.
+
+    This ensures the invariant:
+
+    ``portfolio_value_at_snapshot[0] == initial_wealth``
+
+    The month-0 allocation policy rebalances to its target split afterward.
     """
-    equity = AssetClass(id="equity", name="", description="")
-    bond = AssetClass(id="bond", name="", description="")
+    initial_snapshot = dataset[0]
+    asset_classes = list(initial_snapshot.index_levels.keys())
 
-    equity_units = initial_wealth.amount * Decimal("0.5")
-    bond_units = initial_wealth.amount * Decimal("0.5")
+    n_assets = len(asset_classes)
+    weight = Decimal("1") / Decimal(str(n_assets))
 
-    return Portfolio(
-        holdings=(
-            AssetHolding(asset_class=equity, units=equity_units),
-            AssetHolding(asset_class=bond, units=bond_units),
-        )
-    )
+    holdings = []
+    for asset_class in asset_classes:
+        price = initial_snapshot.index_levels[asset_class]
+        units = (initial_wealth.amount * weight) / price
+        holdings.append(AssetHolding(asset_class=asset_class, units=units))
+
+    return Portfolio(holdings=tuple(holdings))
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +295,7 @@ class StudyConfiguration:
     # Part 49 debt parameters (None when leverage is not configured)
     debt_interest_rate: Decimal | None = None
     debt_ltv_limit: Decimal | None = None
+    debt_ltv_enforcement: bool = True
     debt_loan_draw_rate: Decimal | None = None
 
     @classmethod
@@ -461,6 +471,7 @@ class StudyConfiguration:
         debt_data = data.get("debt")
         debt_interest_rate: Decimal | None = None
         debt_ltv_limit: Decimal | None = None
+        debt_ltv_enforcement: bool = True
         debt_loan_draw_rate: Decimal | None = None
         if debt_data is not None:
             if not isinstance(debt_data, dict):
@@ -471,6 +482,9 @@ class StudyConfiguration:
             debt_ltv_limit = _parse_optional_decimal_scalar(
                 debt_data, "ltv_limit"
             )
+            debt_ltv_enforcement = debt_data.get("ltv_enforcement", True)
+            if not isinstance(debt_ltv_enforcement, bool):
+                raise ValueError("debt.ltv_enforcement must be a boolean")
             debt_loan_draw_rate = _parse_optional_decimal_scalar(
                 debt_data, "loan_draw_rate"
             )
@@ -504,6 +518,7 @@ class StudyConfiguration:
             omy_original_initial_wealth=omy_original_initial_wealth,
             debt_interest_rate=debt_interest_rate,
             debt_ltv_limit=debt_ltv_limit,
+            debt_ltv_enforcement=debt_ltv_enforcement,
             debt_loan_draw_rate=debt_loan_draw_rate,
         )
 
@@ -835,7 +850,7 @@ def build_study_plan(
         withdrawal_policies=(representative_withdrawal,),
     )
 
-    portfolio = build_initial_portfolio(initial_wealth)
+    portfolio = build_initial_portfolio(initial_wealth, dataset)
     plan = materialize_research_plan(
         experiment_def=experiment_def,
         canonical_trajectory=dataset,
@@ -847,6 +862,7 @@ def build_study_plan(
         target_resolver=_make_target_resolver(config),
         interest_rate=config.debt_interest_rate,
         ltv_limit=config.debt_ltv_limit,
+        ltv_enforcement=config.debt_ltv_enforcement,
         loan_draw_rate=config.debt_loan_draw_rate,
     )
     return BuiltStudy(
@@ -921,7 +937,6 @@ def build_omy_study_plan(
     accumulation inputs (contribution, weights, initial portfolio) are
     assumed invariant for Part 42.
     """
-    from fbf.core.domain.model.asset import AssetClass
     from fbf.core.study.internal.accumulation import run_accumulation_phase
 
     equity_asset = AssetClass(id="equity", name="", description="")
@@ -948,7 +963,7 @@ def build_omy_study_plan(
     accumulation_month_by_month: dict[date, tuple[Portfolio, ...]] = {}
 
     target_weights = {equity_asset: config.equity_weight, bond_asset: config.bond_weight}
-    initial_portfolio = build_initial_portfolio(config.original_initial_wealth)
+    initial_portfolio = build_initial_portfolio(config.original_initial_wealth, dataset)
 
     for cohort in cohorts:
         start = cohort.start_date

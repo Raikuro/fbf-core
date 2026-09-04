@@ -3,7 +3,14 @@
 # Studies the impact of margin-loan leverage on SWR success rates.
 # Uses the Part 49 withdrawal policy (portfolio_withdrawal + loan_draw).
 #
-# Grid: 1 equity_allocation x 3 SWR x 1 horizon (30y) = 3 cells
+# ERN Part 49 methodology:
+#   - 3% portfolio withdrawal + 1% loan draw = 4% total spending
+#   - 75/25 stock/bond allocation
+#   - 30-year horizon
+#   - Real interest rates: 0%, 1.5%, 3% (this config uses 1.5%)
+#   - LTV observed but NOT enforced (no forced liquidation at 75%)
+#
+# Grid: 1 equity_allocation x 1 SWR x 1 horizon (30y) = 1 cell
 # Each cell runs over rolling cohorts from the ERN dataset.
 #
 # Run example:
@@ -12,10 +19,12 @@
 
 metadata:
   name: "ERN Part 49 — Using Leverage in Retirement"
-  version: "1.0"
+  version: "2.0"
   description: >
     Early Retirement Now Part 49 replication:
     impact of margin-loan leverage on SWR success rates.
+    Uses ERN methodology: 3% portfolio + 1% loan = 4% total spending.
+    LTV observation only, no forced liquidation.
 
 dataset:
   identifier: "ern_swr_h720"
@@ -29,10 +38,13 @@ allocation_policy:
 
 withdrawal_policy:
   type: "Part49WithdrawalPolicy"
-  withdrawal_rate: [0.04]
+  withdrawal_rate: [0.03]
 
 # Part 49 leverage configuration
+# ERN uses real interest rates: 0%, 1.5%, 3%
+# This config uses the primary scenario: 1.5% real
 debt:
-  interest_rate: 0.05
+  interest_rate: 0.015
   ltv_limit: 0.75
+  ltv_enforcement: false
   loan_draw_rate: 0.01

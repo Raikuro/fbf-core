@@ -61,7 +61,7 @@ def _make_context(
 ) -> SimulationContext:
     sd = date(start_year, start_month, 1)
     ds = dataset or _make_dataset(start_year, max(horizon_months, 300))
-    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), ds)
     return SimulationContext(
         experiment_name="test",
         cohort=f"{start_year}-{start_month:02d}",

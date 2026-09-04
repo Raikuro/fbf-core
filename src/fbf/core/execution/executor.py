@@ -225,4 +225,5 @@ class ResearchExecutor:
             loan_draw_rate=unit.loan_draw_rate,
             interest_rate=unit.interest_rate,
             ltv_limit=unit.ltv_limit,
+            ltv_enforcement=unit.ltv_enforcement,
         )

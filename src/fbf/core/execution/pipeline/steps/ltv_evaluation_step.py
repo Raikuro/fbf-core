@@ -1,9 +1,10 @@
-"""Pipeline step that evaluates LTV and executes margin calls (Part 49).
+"""Pipeline step that evaluates LTV and optionally executes margin calls (Part 49).
 
 This step implements Step 8 of the K.1 semantic contract:
 - Compute portfolio_value at end-of-period prices
 - Compute ltv = loan_balance / portfolio_value (if loan_balance > 0, else 0)
-- If ltv > ltv_limit:
+- Always record LTV observation for diagnostics
+- If ltv_enforcement is enabled AND ltv > ltv_limit:
   - MARGIN CALL TRIGGERED
   - liquidation_amount = (loan_balance - ltv_limit × portfolio_value) / (1 - ltv_limit)
   - If liquidation_amount > portfolio_value:
@@ -14,6 +15,9 @@ This step implements Step 8 of the K.1 semantic contract:
     - Sell assets worth liquidation_amount
     - Repay loan by liquidation_amount
     - LTV is now exactly ltv_limit
+
+For ERN Part 49 replication: LTV observation = ON, LTV enforcement = OFF.
+LTV is observed but does not trigger forced liquidation.
 """
 
 from __future__ import annotations
@@ -27,10 +31,15 @@ from fbf.core.execution.pipeline.simulation import SimulationState
 
 
 class LTVEvaluationStep(PipelineStep):
-    """PipelineStep that evaluates LTV and executes margin calls.
+    """PipelineStep that evaluates LTV and optionally executes margin calls.
 
-    This step enforces the LTV constraint and handles margin calls.
-    Liquidation restores LTV to the limit when mathematically possible.
+    When ltv_enforcement is True: enforces the LTV constraint and handles
+    margin calls. Liquidation restores LTV to the limit when mathematically
+    possible.
+
+    When ltv_enforcement is False: observes LTV for diagnostics only.
+    No forced liquidation occurs regardless of LTV level.
+
     Failure detection is handled by FailureDetectionStep.
     """
 
@@ -55,7 +64,7 @@ class LTVEvaluationStep(PipelineStep):
         if portfolio_value <= 0:
             return state
 
-        # Calculate LTV
+        # Calculate LTV (always computed for observation)
         ltv = state.loan_balance / portfolio_value
 
         # Check if LTV exceeds limit
@@ -63,7 +72,13 @@ class LTVEvaluationStep(PipelineStep):
             # No margin call needed
             return state
 
-        # Margin call triggered
+        # LTV exceeds limit - check if enforcement is enabled
+        if not state.ltv_enforcement:
+            # Observation only: LTV exceeds limit but no forced liquidation
+            # This is the ERN Part 49 behavior
+            return state
+
+        # Margin call triggered (enforcement is enabled)
         liquidation_amount = self._calculate_liquidation(
             state.loan_balance, portfolio_value, state.ltv_limit
         )

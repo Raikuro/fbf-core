@@ -344,7 +344,7 @@ def _make_real_engine_plan() -> ResearchPlan:
         canonical_trajectory=dataset,
         cohorts=cohorts,
         param_configs=configs,
-        initial_portfolio=build_initial_portfolio(exp_def.initial_wealth),
+        initial_portfolio=build_initial_portfolio(exp_def.initial_wealth, dataset),
         horizon_resolver=lambda c: 36,
         policy_resolver=lambda c: (alloc, withdraw),
     )

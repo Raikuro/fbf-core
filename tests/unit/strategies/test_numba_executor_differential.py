@@ -70,7 +70,7 @@ def _make_context(
     r: float = 0.04,
 ) -> SimulationContext:
     start = dataset[0].date
-    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset)
     return SimulationContext(
         experiment_name="test",
         cohort=str(start),

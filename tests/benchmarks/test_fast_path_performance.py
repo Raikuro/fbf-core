@@ -60,7 +60,7 @@ def _synthetic_dataset(n_months: int, seed: int = 7) -> Dataset:
 
 
 def _contexts(dataset: Dataset, start: date, horizons: list[int]) -> list[SimulationContext]:
-    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR))
+    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset)
     return [
         SimulationContext(
             experiment_name="bench",
@@ -104,7 +104,7 @@ def test_decimal_fast_path_vs_reference_throughput() -> None:
         canonical_trajectory=dataset,
         cohorts=cohorts,
         param_configs=(ParameterConfiguration({"equity_allocation": 0.5}),),
-        initial_portfolio=build_initial_portfolio(experiment_def.initial_wealth),
+        initial_portfolio=build_initial_portfolio(experiment_def.initial_wealth, dataset),
         horizon_resolver=lambda c: 120,
         policy_resolver=lambda c: (alloc, withdraw),
     )
@@ -224,7 +224,7 @@ def test_grid_plan_horizon_derivation_report() -> None:
         canonical_trajectory=dataset,
         cohorts=cohorts,
         param_configs=configs,
-        initial_portfolio=build_initial_portfolio(exp_def.initial_wealth),
+        initial_portfolio=build_initial_portfolio(exp_def.initial_wealth, dataset),
         horizon_resolver=lambda c: int(c.get("horizon_years")) * 12,
         policy_resolver=_resolve_policies,
     )

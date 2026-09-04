@@ -67,6 +67,7 @@ class PlannedSimulationUnit:
     # Part 49 debt parameters (None when leverage is not configured)
     interest_rate: Decimal | None = None
     ltv_limit: Decimal | None = None
+    ltv_enforcement: bool = True
     loan_draw_rate: Decimal | None = None
 
     def __post_init__(self) -> None:
@@ -173,6 +174,7 @@ def materialize_research_plan(
     target_resolver: Callable[[ParameterConfiguration], Decimal | None] | None = None,
     interest_rate: Decimal | None = None,
     ltv_limit: Decimal | None = None,
+    ltv_enforcement: bool = True,
     loan_draw_rate: Decimal | None = None,
 ) -> ResearchPlan:
     """Build a ResearchPlan whose units take horizon and policies per parameter config.
@@ -214,6 +216,10 @@ def materialize_research_plan(
     ltv_limit:
         Loan-to-value limit for margin calls (Part 49). ``None`` when
         leverage is not configured.
+    ltv_enforcement:
+        Whether to enforce the LTV limit with forced liquidation.
+        ``True`` (default) enforces the constraint; ``False`` observes
+        LTV without enforcing (ERN Part 49 behavior).
     loan_draw_rate:
         Annual rate of initial wealth drawn as a loan each period (Part 49).
         ``None`` when leverage is not configured.
@@ -238,18 +244,28 @@ def materialize_research_plan(
                 dataset_cache[cache_key] = canonical_trajectory.slice(
                     cohort.start_date, horizon_months
                 )
+            cohort_dataset = dataset_cache[cache_key]
+            # Build a per-cohort portfolio so that
+            # portfolio_value_at_snapshot[0] == initial_wealth for each cohort.
+            # Late import to avoid circular dependency with builder.
+            from fbf.core.study.builder import build_initial_portfolio
+
+            cohort_portfolio = build_initial_portfolio(
+                experiment_def.initial_wealth, cohort_dataset
+            )
             units.append(
                 PlannedSimulationUnit(
                     cohort=cohort,
                     parameter_config=param_config,
                     allocation_policy=alloc_policy,
                     withdrawal_policy=withdrawal_policy,
-                    initial_portfolio=initial_portfolio,
-                    dataset=dataset_cache[cache_key],
+                    initial_portfolio=cohort_portfolio,
+                    dataset=cohort_dataset,
                     horizon_months=horizon_months,
                     final_value_target=final_value_target,
                     interest_rate=interest_rate,
                     ltv_limit=ltv_limit,
+                    ltv_enforcement=ltv_enforcement,
                     loan_draw_rate=loan_draw_rate,
                 )
             )

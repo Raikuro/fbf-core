@@ -93,6 +93,7 @@ class SimulationRunner:
         loan_balance = Decimal("0")
         interest_rate = context.interest_rate if context.interest_rate is not None else Decimal("0")
         ltv_limit = context.ltv_limit if context.ltv_limit is not None else Decimal("0")
+        ltv_enforcement = context.ltv_enforcement
 
         return SimulationState(
             context=context,
@@ -106,6 +107,7 @@ class SimulationRunner:
             loan_balance=loan_balance,
             interest_rate=interest_rate,
             ltv_limit=ltv_limit,
+            ltv_enforcement=ltv_enforcement,
         )
 
     def _build_result(self, state: SimulationState) -> SimulationResult:
