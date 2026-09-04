@@ -31,6 +31,7 @@ from fbf.core.persistence.studies.sqlite.sqlite_repository import (
     PersistenceReconstructionContext,
     SQLiteRepository,
 )
+from fbf.core.study.builder import StudyConfiguration
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
@@ -233,3 +234,46 @@ def study_yaml_path(tmp_path: Path) -> Path:
     path = tmp_path / "study.yaml"
     path.write_text(_INTEGRATION_STUDY_YAML, encoding="utf-8")
     return path
+
+
+# ---------------------------------------------------------------------------
+# ERN Part 49 fixtures (S5.0 / S5.1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ern_dataset() -> Dataset:
+    """Load the canonical ERN SWR h720 dataset."""
+    from fbf.core.study.builder import resolve_dataset
+
+    return resolve_dataset("ern_swr_h720", "data/ern")
+
+
+@pytest.fixture
+def ern_part49_config() -> StudyConfiguration:
+    """Full 54-cell Part 49 grid configuration (2 equity × 9 SWR × 3 interest)."""
+    return StudyConfiguration(
+        name="ERN Part 49 -- Using Leverage in Retirement",
+        description="Full 54-cell Part 49 grid",
+        version="2.0",
+        dataset_identifier="ern_swr_h720",
+        allocation_policy_type="ConstantAllocationPolicy",
+        allocation_policy_values=(Decimal("0.75"), Decimal("1.0")),
+        withdrawal_policy_type="Part49WithdrawalPolicy",
+        withdrawal_policy_values=(
+            Decimal("0.03"),
+            Decimal("0.0325"),
+            Decimal("0.035"),
+            Decimal("0.0375"),
+            Decimal("0.04"),
+            Decimal("0.0425"),
+            Decimal("0.045"),
+            Decimal("0.0475"),
+            Decimal("0.05"),
+        ),
+        horizon_years=(30,),
+        debt_interest_rate_values=(Decimal("0.0"), Decimal("0.015"), Decimal("0.03")),
+        debt_ltv_limit=Decimal("0.75"),
+        debt_ltv_enforcement=False,
+        debt_loan_draw_rate=Decimal("0.01"),
+    )

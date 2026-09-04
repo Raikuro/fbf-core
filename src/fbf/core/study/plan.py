@@ -173,6 +173,7 @@ def materialize_research_plan(
     ],
     target_resolver: Callable[[ParameterConfiguration], Decimal | None] | None = None,
     interest_rate: Decimal | None = None,
+    interest_rate_resolver: Callable[[ParameterConfiguration], Decimal | None] | None = None,
     ltv_limit: Decimal | None = None,
     ltv_enforcement: bool = True,
     loan_draw_rate: Decimal | None = None,
@@ -213,6 +214,11 @@ def materialize_research_plan(
     interest_rate:
         Monthly interest rate for margin loan (Part 49). ``None`` when
         leverage is not configured; debt steps become no-ops.
+        Used as a fallback when *interest_rate_resolver* is ``None``.
+    interest_rate_resolver:
+        Per-configuration interest rate resolver. When provided, each unit's
+        interest rate is determined by its parameter configuration. When
+        ``None``, falls back to the *interest_rate* scalar.
     ltv_limit:
         Loan-to-value limit for margin calls (Part 49). ``None`` when
         leverage is not configured.
@@ -239,6 +245,11 @@ def materialize_research_plan(
             final_value_target = (
                 target_resolver(param_config) if target_resolver is not None else None
             )
+            # Resolve interest rate: per-config resolver takes precedence
+            if interest_rate_resolver is not None:
+                unit_interest_rate = interest_rate_resolver(param_config)
+            else:
+                unit_interest_rate = interest_rate
             cache_key = (cohort.start_date, horizon_months)
             if cache_key not in dataset_cache:
                 dataset_cache[cache_key] = canonical_trajectory.slice(
@@ -263,7 +274,7 @@ def materialize_research_plan(
                     dataset=cohort_dataset,
                     horizon_months=horizon_months,
                     final_value_target=final_value_target,
-                    interest_rate=interest_rate,
+                    interest_rate=unit_interest_rate,
                     ltv_limit=ltv_limit,
                     ltv_enforcement=ltv_enforcement,
                     loan_draw_rate=loan_draw_rate,

@@ -293,7 +293,10 @@ class StudyConfiguration:
     omy_bond_weight: Decimal | None = None
     omy_original_initial_wealth: Decimal | None = None
     # Part 49 debt parameters (None when leverage is not configured)
+    # debt_interest_rate is the legacy scalar; debt_interest_rate_values is the
+    # new array form for grid-axis support. When values is set, it takes precedence.
     debt_interest_rate: Decimal | None = None
+    debt_interest_rate_values: tuple[Decimal, ...] | None = None
     debt_ltv_limit: Decimal | None = None
     debt_ltv_enforcement: bool = True
     debt_loan_draw_rate: Decimal | None = None
@@ -470,15 +473,23 @@ class StudyConfiguration:
         # Parse optional debt (Part 49) configuration
         debt_data = data.get("debt")
         debt_interest_rate: Decimal | None = None
+        debt_interest_rate_values: tuple[Decimal, ...] | None = None
         debt_ltv_limit: Decimal | None = None
         debt_ltv_enforcement: bool = True
         debt_loan_draw_rate: Decimal | None = None
         if debt_data is not None:
             if not isinstance(debt_data, dict):
                 raise ValueError("debt must be a mapping")
-            debt_interest_rate = _parse_optional_decimal_scalar(
-                debt_data, "interest_rate"
-            )
+            # Support both scalar and array forms for interest_rate
+            raw_ir = debt_data.get("interest_rate")
+            if isinstance(raw_ir, list):
+                debt_interest_rate_values = tuple(
+                    Decimal(str(v)) for v in raw_ir
+                )
+            elif raw_ir is not None:
+                debt_interest_rate = _parse_optional_decimal_scalar(
+                    debt_data, "interest_rate"
+                )
             debt_ltv_limit = _parse_optional_decimal_scalar(
                 debt_data, "ltv_limit"
             )
@@ -489,7 +500,11 @@ class StudyConfiguration:
                 debt_data, "loan_draw_rate"
             )
             # Validate coherence: loan_draw_rate requires interest_rate
-            if debt_loan_draw_rate is not None and debt_interest_rate is None:
+            has_interest = (
+                debt_interest_rate is not None
+                or debt_interest_rate_values is not None
+            )
+            if debt_loan_draw_rate is not None and not has_interest:
                 raise ValueError(
                     "debt.interest_rate is required when debt.loan_draw_rate "
                     "is set; the loan draw step requires a non-zero interest "
@@ -517,6 +532,7 @@ class StudyConfiguration:
             omy_bond_weight=omy_bond_weight,
             omy_original_initial_wealth=omy_original_initial_wealth,
             debt_interest_rate=debt_interest_rate,
+            debt_interest_rate_values=debt_interest_rate_values,
             debt_ltv_limit=debt_ltv_limit,
             debt_ltv_enforcement=debt_ltv_enforcement,
             debt_loan_draw_rate=debt_loan_draw_rate,
@@ -602,6 +618,23 @@ def _build_unified_parameter_configs(
             ParameterAxis(
                 name="final_value_target",
                 values=tuple(float(value) for value in config.final_value_target_values),
+            )
+        )
+    # Generic interest-rate axis: when multiple values are provided, they become
+    # a grid dimension (like equity_allocation or withdrawal_rate).  A single
+    # value is still treated as a one-element axis so the resolver works uniformly.
+    if config.debt_interest_rate_values is not None:
+        axes.append(
+            ParameterAxis(
+                name="interest_rate",
+                values=tuple(float(v) for v in config.debt_interest_rate_values),
+            )
+        )
+    elif config.debt_interest_rate is not None:
+        axes.append(
+            ParameterAxis(
+                name="interest_rate",
+                values=(float(config.debt_interest_rate),),
             )
         )
     return ParameterSweepEngine.cartesian_product(axes)
@@ -756,6 +789,29 @@ def _make_target_resolver(
     return resolve
 
 
+def _make_interest_rate_resolver(
+    config: StudyConfiguration,
+) -> Callable[[ParameterConfiguration], Decimal | None]:
+    """Per-configuration interest rate resolver.
+
+    Returns ``None`` when leverage is not configured, making debt steps no-ops.
+    When the ``interest_rate`` axis exists in the parameter configuration, the
+    value is extracted from it.  Otherwise falls back to the scalar
+    ``debt_interest_rate``.
+    """
+
+    def resolve(param_config: ParameterConfiguration) -> Decimal | None:
+        try:
+            raw = param_config.get("interest_rate")
+        except KeyError:
+            raw = None
+        if raw is not None:
+            return Decimal(str(raw))
+        return config.debt_interest_rate
+
+    return resolve
+
+
 def _representative_policies(
     config: StudyConfiguration,
 ) -> tuple[AllocationPolicy, WithdrawalPolicy]:
@@ -860,7 +916,7 @@ def build_study_plan(
         horizon_resolver=_make_horizon_resolver(config),
         policy_resolver=_make_policy_resolver(config),
         target_resolver=_make_target_resolver(config),
-        interest_rate=config.debt_interest_rate,
+        interest_rate_resolver=_make_interest_rate_resolver(config),
         ltv_limit=config.debt_ltv_limit,
         ltv_enforcement=config.debt_ltv_enforcement,
         loan_draw_rate=config.debt_loan_draw_rate,
