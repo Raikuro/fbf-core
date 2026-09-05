@@ -67,6 +67,123 @@ def resolve_dataset(identifier: str, data_dir: str | None) -> Dataset:
     return resolver.resolve(identifier)
 
 
+def load_ffr_rates(
+    ffr_dataset_identifier: str, data_dir: str | None
+) -> tuple[tuple[date, Decimal], ...]:
+    """Load an FFR (Federal Funds Rate) dataset from a JSON file.
+
+    The FFR dataset is a rate-only time series (not a ``MarketSnapshot``).
+    It is loaded directly from the data directory, bypassing the standard
+    ``Dataset`` loader.
+
+    Parameters
+    ----------
+    ffr_dataset_identifier:
+        Filename stem of the FFR JSON file (e.g. ``"ffr_monthly"``).
+    data_dir:
+        Directory containing the FFR JSON file. Must be provided explicitly.
+
+    Returns
+    -------
+    tuple[tuple[date, Decimal], ...]
+        Ordered (date, annual_rate) pairs from the FFR dataset.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the FFR dataset file does not exist.
+    ValueError
+        If the file format is invalid.
+    """
+    if data_dir is None:
+        raise ValueError(
+            "data_dir is required for FFR dataset resolution"
+        )
+    ffr_path = Path(data_dir) / f"{ffr_dataset_identifier}.json"
+    if not ffr_path.exists():
+        raise FileNotFoundError(
+            f"FFR dataset not found: {ffr_path}"
+        )
+
+    import json
+
+    raw = json.loads(ffr_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or "rates" not in raw:
+        raise ValueError(
+            f"FFR dataset {ffr_path} must contain a 'rates' key"
+        )
+    if not isinstance(raw["rates"], list):
+        raise ValueError(
+            f"FFR dataset {ffr_path} 'rates' must be a list"
+        )
+
+    rates: list[tuple[date, Decimal]] = []
+    for entry in raw["rates"]:
+        d = date.fromisoformat(entry["date"])
+        r = Decimal(str(entry["rate"]))
+        rates.append((d, r))
+
+    if not rates:
+        raise ValueError(f"FFR dataset {ffr_path} contains no rates")
+    return tuple(rates)
+
+
+def build_interest_rate_schedule(
+    ffr_rates: tuple[tuple[date, Decimal], ...],
+    spread: Decimal,
+    start_date: date,
+    horizon_months: int,
+) -> tuple[Decimal, ...]:
+    """Build an interest rate schedule from FFR data + spread.
+
+    Maps FFR rates to simulation periods by date alignment. The FFR rate
+    for month M is the rate observed in month M (no lag/lead).
+
+    Parameters
+    ----------
+    ffr_rates:
+        Ordered (date, annual_rate) pairs from the FFR dataset.
+    spread:
+        Spread to add to each FFR rate (e.g. 0.0050 for FFR + 0.50%).
+    start_date:
+        Start date of the simulation cohort.
+    horizon_months:
+        Number of months in the simulation horizon.
+
+    Returns
+    -------
+    tuple[Decimal, ...]
+        Per-period annual interest rates (FFR + spread) for the simulation.
+
+    Raises
+    ------
+    ValueError
+        If the FFR dataset does not cover the required period.
+    """
+    # Build date -> rate lookup
+    rate_map: dict[date, Decimal] = dict(ffr_rates)
+
+    schedule: list[Decimal] = []
+    import calendar
+
+    for month_idx in range(horizon_months):
+        # Calculate period date by adding months
+        total_months = (start_date.year * 12 + start_date.month - 1) + month_idx
+        year = total_months // 12
+        month = total_months % 12 + 1
+        day = min(start_date.day, calendar.monthrange(year, month)[1])
+        period_date = date(year, month, day)
+        rate = rate_map.get(period_date)
+        if rate is None:
+            raise ValueError(
+                f"FFR dataset does not cover {period_date.isoformat()} "
+                f"(cohort start: {start_date.isoformat()}, month: {month_idx})"
+            )
+        schedule.append(rate + spread)
+
+    return tuple(schedule)
+
+
 def build_cohort_specs(
     dataset: Dataset, horizon_months: int
 ) -> tuple[CohortSpecification, ...]:
@@ -324,6 +441,9 @@ class StudyConfiguration:
     debt_borrow_pct_values: tuple[Decimal, ...] | None = None
     debt_drawdown_threshold: Decimal | None = None
     debt_drawdown_threshold_values: tuple[Decimal, ...] | None = None
+    # S6.2 FFR integration parameters
+    ffr_dataset_identifier: str | None = None
+    ffr_spread: Decimal | None = None
 
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
@@ -506,6 +626,9 @@ class StudyConfiguration:
         debt_borrow_pct_values: tuple[Decimal, ...] | None = None
         debt_drawdown_threshold: Decimal | None = None
         debt_drawdown_threshold_values: tuple[Decimal, ...] | None = None
+        # S6.2 FFR integration parameters
+        ffr_dataset_identifier: str | None = None
+        ffr_spread: Decimal | None = None
         if debt_data is not None:
             if not isinstance(debt_data, dict):
                 raise ValueError("debt must be a mapping")
@@ -560,6 +683,16 @@ class StudyConfiguration:
                     debt_data, "drawdown_threshold"
                 )
 
+            # Parse S6.2 FFR integration parameters
+            raw_ffr = debt_data.get("ffr")
+            if isinstance(raw_ffr, dict):
+                ffr_dataset_identifier = raw_ffr.get("dataset_identifier")
+                if ffr_dataset_identifier is not None:
+                    ffr_dataset_identifier = str(ffr_dataset_identifier)
+                raw_spread = raw_ffr.get("spread")
+                if raw_spread is not None:
+                    ffr_spread = Decimal(str(raw_spread))
+
         return cls(
             name=str(metadata.get("name", "Unnamed Study")),
             description=str(metadata.get("description", "")),
@@ -589,6 +722,8 @@ class StudyConfiguration:
             debt_borrow_pct_values=debt_borrow_pct_values,
             debt_drawdown_threshold=debt_drawdown_threshold,
             debt_drawdown_threshold_values=debt_drawdown_threshold_values,
+            ffr_dataset_identifier=ffr_dataset_identifier,
+            ffr_spread=ffr_spread,
         )
 
 
@@ -967,6 +1102,14 @@ def build_study_plan(
     )
 
     portfolio = build_initial_portfolio(initial_wealth, dataset)
+
+    # Load FFR rates if configured
+    ffr_rates: tuple[tuple[date, Decimal], ...] | None = None
+    ffr_spread: Decimal | None = None
+    if config.ffr_dataset_identifier is not None:
+        ffr_rates = load_ffr_rates(config.ffr_dataset_identifier, data_dir)
+        ffr_spread = config.ffr_spread if config.ffr_spread is not None else Decimal("0")
+
     plan = materialize_research_plan(
         experiment_def=experiment_def,
         canonical_trajectory=dataset,
@@ -977,6 +1120,8 @@ def build_study_plan(
         policy_resolver=_make_policy_resolver(config),
         target_resolver=_make_target_resolver(config),
         interest_rate_resolver=_make_interest_rate_resolver(config),
+        ffr_rates=ffr_rates,
+        ffr_spread=ffr_spread,
         ltv_limit=config.debt_ltv_limit,
         ltv_enforcement=config.debt_ltv_enforcement,
         loan_draw_rate=config.debt_loan_draw_rate,

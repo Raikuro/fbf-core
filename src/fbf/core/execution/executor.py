@@ -224,6 +224,7 @@ class ResearchExecutor:
             final_value_target=unit.final_value_target,
             loan_draw_rate=unit.loan_draw_rate,
             interest_rate=unit.interest_rate,
+            interest_rate_schedule=unit.interest_rate_schedule,
             ltv_limit=unit.ltv_limit,
             ltv_enforcement=unit.ltv_enforcement,
         )

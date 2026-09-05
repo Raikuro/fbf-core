@@ -66,6 +66,7 @@ class PlannedSimulationUnit:
     final_value_target: Decimal | None = None
     # Part 49 debt parameters (None when leverage is not configured)
     interest_rate: Decimal | None = None
+    interest_rate_schedule: tuple[Decimal, ...] | None = None
     ltv_limit: Decimal | None = None
     ltv_enforcement: bool = True
     loan_draw_rate: Decimal | None = None
@@ -174,6 +175,9 @@ def materialize_research_plan(
     target_resolver: Callable[[ParameterConfiguration], Decimal | None] | None = None,
     interest_rate: Decimal | None = None,
     interest_rate_resolver: Callable[[ParameterConfiguration], Decimal | None] | None = None,
+    interest_rate_schedule: tuple[Decimal, ...] | None = None,
+    ffr_rates: tuple[tuple[date, Decimal], ...] | None = None,
+    ffr_spread: Decimal | None = None,
     ltv_limit: Decimal | None = None,
     ltv_enforcement: bool = True,
     loan_draw_rate: Decimal | None = None,
@@ -219,6 +223,17 @@ def materialize_research_plan(
         Per-configuration interest rate resolver. When provided, each unit's
         interest rate is determined by its parameter configuration. When
         ``None``, falls back to the *interest_rate* scalar.
+    interest_rate_schedule:
+        Per-period interest rate schedule for FFR-based floating rates (S6.2).
+        ``None`` when fixed-rate or no leverage. When provided, passed through
+        to every unit (the schedule is shared across all cohorts).
+    ffr_rates:
+        FFR dataset as ordered (date, annual_rate) pairs. When provided
+        together with *ffr_spread*, a per-cohort interest_rate_schedule is
+        built automatically using the cohort's start date and horizon.
+    ffr_spread:
+        Spread to add to each FFR rate (e.g. 0.0050 for FFR + 0.50%).
+        Required when *ffr_rates* is provided.
     ltv_limit:
         Loan-to-value limit for margin calls (Part 49). ``None`` when
         leverage is not configured.
@@ -264,6 +279,17 @@ def materialize_research_plan(
             cohort_portfolio = build_initial_portfolio(
                 experiment_def.initial_wealth, cohort_dataset
             )
+            # Build per-cohort FFR schedule if FFR data is provided
+            unit_schedule = interest_rate_schedule
+            if ffr_rates is not None and ffr_spread is not None:
+                from fbf.core.study.builder import build_interest_rate_schedule
+
+                unit_schedule = build_interest_rate_schedule(
+                    ffr_rates=ffr_rates,
+                    spread=ffr_spread,
+                    start_date=cohort.start_date,
+                    horizon_months=horizon_months,
+                )
             units.append(
                 PlannedSimulationUnit(
                     cohort=cohort,
@@ -275,6 +301,7 @@ def materialize_research_plan(
                     horizon_months=horizon_months,
                     final_value_target=final_value_target,
                     interest_rate=unit_interest_rate,
+                    interest_rate_schedule=unit_schedule,
                     ltv_limit=ltv_limit,
                     ltv_enforcement=ltv_enforcement,
                     loan_draw_rate=loan_draw_rate,
