@@ -48,10 +48,6 @@ class LTVEvaluationStep(PipelineStep):
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
 
-        # If no debt is configured, this is a no-op
-        if state.interest_rate <= 0:
-            return state
-
         # If no loan balance, no LTV evaluation needed
         if state.loan_balance <= 0:
             return state

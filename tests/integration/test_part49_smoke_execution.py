@@ -14,16 +14,16 @@ Part 49 grid executes successfully through the real production path:
 
 This is an execution-path validation, not the full research run.
 
-Zero-interest debt contract (from production code):
-    When interest_rate <= 0, ALL debt pipeline steps are no-ops:
-    - LoanDrawStep: short-circuits (line 54)
-    - InterestAccrualStep: short-circuits (line 31)
-    - LTVEvaluationStep: short-circuits (line 52)
-    - BuildDecisionContextStep: DebtInfo is None (line 25)
-    - MonthlyResultBuilderStep: DebtSnapshot is None (line 20)
+Zero-interest debt semantics (corrected S5.5-R1):
+    interest_rate=0 with loan_draw > 0 is valid zero-interest debt:
+    - LoanDrawStep: draws occur when loan_draw_amount > 0
+    - InterestAccrualStep: zero interest on existing debt (no accrual)
+    - LTVEvaluationStep: LTV evaluated when loan_balance > 0
+    - BuildDecisionContextStep: DebtInfo created when debt exists
+    - MonthlyResultBuilderStep: DebtSnapshot created when debt exists
 
-    Therefore interest_rate=0 is functionally equivalent to "no debt configured".
-    This is confirmed by existing S4 test: test_part49.py:160
+    interest_rate=0 is NOT equivalent to "no debt configured".
+    No-debt is represented by loan_draw_rate=0 or None.
 """
 
 from __future__ import annotations
@@ -204,15 +204,13 @@ class TestSmokeLeveragedResults:
             # All simulations should complete without error
             assert len(sim.timeline.monthly_results) > 0
 
-    def test_zero_interest_no_debt_snapshots(
+    def test_zero_interest_produces_debt_snapshots(
         self, smoke_execution_result: tuple[BuiltStudy, ResearchExecutionResult]
     ) -> None:
-        """interest_rate=0 → DebtSnapshot is None (production contract).
+        """interest_rate=0 with loan_draw produces DebtSnapshot entries.
 
-        When interest_rate <= 0, all debt pipeline steps short-circuit:
-        LoanDrawStep, InterestAccrualStep, LTVEvaluationStep, and
-        MonthlyResultBuilderStep all skip debt processing. This makes
-        interest_rate=0 functionally equivalent to "no debt configured".
+        A zero-interest loan is valid debt: draws occur, loan_balance grows,
+        but no interest accrues. This is distinct from "no debt configured".
         """
         built, result = smoke_execution_result
         for i, sim in enumerate(result.experiment_result.simulation_results):
@@ -223,9 +221,9 @@ class TestSmokeLeveragedResults:
                 if mr.debt_snapshot is not None
             ]
             if unit.interest_rate == Decimal("0.0"):
-                assert len(debt_snapshots) == 0, (
+                assert len(debt_snapshots) > 0, (
                     f"Unit {unit.cohort.start_date} IR={unit.interest_rate}: "
-                    f"interest_rate=0 must produce no DebtSnapshot (production contract)"
+                    f"zero-interest debt must produce DebtSnapshot entries"
                 )
 
     def test_positive_interest_has_debt_snapshots(
@@ -286,22 +284,18 @@ class TestSmokeLeveragedResults:
 # ---------------------------------------------------------------------------
 
 
-class TestSmokeNoDebtResults:
-    """Verify zero-interest path is equivalent to no-debt path.
+class TestSmokeZeroInterestDebt:
+    """Verify zero-interest debt is valid debt, distinct from no-debt.
 
-    Production contract: interest_rate <= 0 makes ALL debt steps no-ops.
-    This means interest_rate=0 produces identical behavior to interest_rate=None.
+    Production contract: interest_rate=0 with loan_draw > 0 produces
+    actual debt. Draws occur, loan_balance grows, but no interest accrues.
+    This is distinct from "no debt configured" (loan_draw_rate=0 or None).
     """
 
-    def test_zero_interest_equivalent_to_no_debt(
+    def test_zero_interest_produces_debt(
         self, smoke_execution_result: tuple[BuiltStudy, ResearchExecutionResult]
     ) -> None:
-        """Zero-interest units must have identical debt state to no-debt units.
-
-        Both should produce: no DebtSnapshot, no loan_balance change,
-        no cash_balance change. This verifies the production contract
-        that interest_rate=0 ≡ no debt configured.
-        """
+        """Zero-interest units must have DebtSnapshot entries (valid debt)."""
         built, result = smoke_execution_result
         for i, sim in enumerate(result.experiment_result.simulation_results):
             unit = built.plan.units[i]
@@ -311,10 +305,10 @@ class TestSmokeNoDebtResults:
                     for mr in sim.timeline.monthly_results
                     if mr.debt_snapshot is not None
                 ]
-                # Zero-interest: no DebtSnapshot (production contract)
-                assert len(debt_snapshots) == 0
-                # Zero-interest: loan_balance stays at 0 (no draws, no accrual)
-                # This is verified by the absence of DebtSnapshot entries
+                # Zero-interest: DebtSnapshot exists (valid zero-interest debt)
+                assert len(debt_snapshots) > 0
+                # Zero-interest: loan_balance grows from draws only
+                assert debt_snapshots[-1].loan_balance > debt_snapshots[0].loan_balance
 
     def test_initial_portfolio_value_matches_wealth(
         self, smoke_execution_result: tuple[BuiltStudy, ResearchExecutionResult]

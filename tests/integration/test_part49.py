@@ -157,11 +157,25 @@ class TestPart49SmallGrid:
         assert len(r1) == 12
         assert len(r2) == 12
 
-    def test_zero_interest_no_debt_snapshot(self) -> None:
-        """interest_rate=0 → debt snapshots are None (no debt configured)."""
+    def test_zero_interest_produces_debt_snapshot(self) -> None:
+        """interest_rate=0 with loan_draw produces DebtSnapshot (zero-interest debt)."""
         results = _run_debt_simulation(interest_rate=Decimal("0.0"))
         for mr in results:
-            assert mr.debt_snapshot is None
+            assert mr.debt_snapshot is not None
+            # Zero interest: loan_balance grows from draws only, no interest accrual
+            assert mr.debt_snapshot.loan_balance >= Decimal("0")
+
+    def test_zero_interest_no_accrual(self) -> None:
+        """Zero-interest debt: loan_balance growth comes from draws, not interest."""
+        results = _run_debt_simulation(interest_rate=Decimal("0.0"), n_months=6)
+        loan_balances = [
+            mr.debt_snapshot.loan_balance
+            for mr in results
+            if mr.debt_snapshot is not None
+        ]
+        # Loan balance grows from monthly draws (1250/month in this test)
+        for i in range(1, len(loan_balances)):
+            assert loan_balances[i] >= loan_balances[i - 1]
 
     def test_debt_snapshot_fields_present(self) -> None:
         """Debt snapshot has all required fields when interest_rate > 0."""

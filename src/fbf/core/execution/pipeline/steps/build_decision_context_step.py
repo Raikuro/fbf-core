@@ -20,9 +20,9 @@ class BuildDecisionContextStep(PipelineStep):
         assert state.allocation_target is not None
         assert state.market_snapshot is not None
 
-        # Build DebtInfo if debt is active
+        # Build DebtInfo if debt state exists (loan balance or interest rate)
         debt_info = None
-        if state.interest_rate > 0:
+        if state.loan_balance > 0 or state.interest_rate > 0:
             # Compute portfolio value for net_worth derivation
             portfolio_value = Decimal("0")
             for holding in state.portfolio.holdings:

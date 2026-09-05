@@ -15,9 +15,9 @@ class MonthlyResultBuilderStep(PipelineStep):
         self._validate_state(state)
         assert state.market_snapshot is not None
 
-        # Build debt snapshot if debt is configured
+        # Build debt snapshot if debt state exists (loan balance or interest rate)
         debt_snapshot = None
-        if state.interest_rate > 0:
+        if state.loan_balance > 0 or state.interest_rate > 0:
             # Compute LTV
             portfolio_value = Decimal("0")
             for holding in state.portfolio.holdings:

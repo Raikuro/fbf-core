@@ -27,15 +27,11 @@ class InterestAccrualStep(PipelineStep):
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
 
-        # If no debt is configured, this is a no-op
-        if state.interest_rate <= 0:
-            return state
-
         # If no loan balance, no interest to accrue
         if state.loan_balance <= 0:
             return state
 
-        # Calculate monthly interest
+        # Calculate monthly interest (zero interest rate produces zero accrual)
         monthly_rate = state.interest_rate / Decimal("12")
         interest = state.loan_balance * monthly_rate
 

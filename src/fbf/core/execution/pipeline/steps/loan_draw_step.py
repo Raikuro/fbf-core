@@ -47,12 +47,12 @@ class LoanDrawStep(PipelineStep):
         - loan_draw_amount < 0: REJECTED (ValueError)
         - loan_draw_amount = 0: NO-OP
         - loan_draw_amount > 0: ACTIVE (loan balance increases, cash balance increases)
+
+        The draw is controlled by the withdrawal decision's loan_draw_amount,
+        not by the interest rate. A zero-interest loan is a valid debt
+        configuration where draws occur but no interest accrues.
         """
         self._validate_state(state)
-
-        # If no debt is configured, this is a no-op
-        if state.interest_rate <= 0:
-            return state
 
         # Read loan draw amount from withdrawal decision
         if state.withdrawal_decision is None:
@@ -67,7 +67,7 @@ class LoanDrawStep(PipelineStep):
             )
 
         # No-op for zero draws
-        if loan_draw_amount == 0:
+        if loan_draw_amount <= 0:
             return state
 
         # Increase loan balance
@@ -81,5 +81,3 @@ class LoanDrawStep(PipelineStep):
     def _validate_state(self, state: SimulationState) -> None:
         if state.portfolio is None:
             raise ValueError("SimulationState.portfolio is required")
-        if state.interest_rate <= 0:
-            return  # No validation needed if debt is not configured
