@@ -223,15 +223,20 @@ The deferred architecture document is formally incorporated into the repository 
 
 **S5 is complete.** The canonical ERN Part 49 replication has been executed, validated, benchmarked, and documented.
 
-**Recommended next phases (in order of priority):**
+**Authoritative next phase (from MULTI_STUDY_REPLICATION_ROADMAP.md):**
 
-1. **S6 — User-defined research grids**: Extend the Part 49 framework to support arbitrary parameter sweeps (SWR range, equity range, interest range) via user configuration, with the canonical 6-cell grid as the default.
+**S6 — Part 52 Timing Leverage**: Add drawdown-triggered borrowing, repayment semantics, and FFR-based floating interest. The Part 49 debt infrastructure (loan_draw_step, interest_accrual_step, ltv_evaluation_step) is directly reusable.
 
-2. **S7 — Scalability architecture (when needed)**: Implement batched execution and normalized persistence when workloads exceed the current ~14,000-unit envelope. The deferred architecture documents provide the design foundation.
+**Engine modification assessment for S6:** No engine modification is currently justified. S6 planning must verify whether the existing engine and pipeline contracts can express Part 52 semantics cleanly. Any engine change must be justified by a concrete architectural limitation and must preserve the Decimal reference engine's mathematical behavior. See `MULTI_STUDY_REPLICATION_ROADMAP.md` §J for the engine change assessment framework.
 
-3. **S8 — Additional ERN replication studies**: Apply the validated Part 49 framework to other ERN articles (e.g., Part 20, Part 42) using the same methodology.
+**Deferred framework enhancements (NOT roadmap phases, tracked in TODO.md):**
 
-**Do not begin any of these phases without explicit authorization.**
+- **User-defined research grids**: The generic parameter-axis system (S5.1) already supports arbitrary parameter sweeps. No additional phase is required.
+- **Scalability architecture** (batched execution, normalized persistence): Documented in `S5_4_R2_ARCHITECTURE.md`. Required only when workloads exceed the ~14,000-unit envelope. Tracked in TODO.md under "Deferred Scalability Architecture."
+- **Result-model cleanup** (dead MonthlyResult fields): Separate model-cleanup decision. Tracked in TODO.md under "Dead MonthlyResult fields."
+- **FFR dataset investigation**: Blocking prerequisite for Part 52 floating-rate scenarios. Tracked in TODO.md under "S6 Prerequisite: FFR Dataset Investigation."
+
+**Do not begin S6 without explicit authorization.**
 
 ---
 
@@ -257,6 +262,6 @@ The deferred architecture document is formally incorporated into the repository 
 
 ## S5.8 Status
 
-**S5.8 COMPLETE — AWAITING REVIEW**
+**S5.8 COMPLETE — RECONCILED 2026-09-05**
 
-The S5 phase (ERN Part 49 replication) is internally consistent, properly documented, and ready to be declared complete. All 8 subphases are complete, the canonical workload is correctly defined and validated, semantic corrections are properly recorded, validation boundaries are preserved, and performance characteristics are documented. Deferred architectural work is formally tracked.
+The S5 phase (ERN Part 49 replication) is internally consistent, properly documented, and complete. All 8 subphases are complete, the canonical workload is correctly defined and validated, semantic corrections are properly recorded, validation boundaries are preserved, and performance characteristics are documented. Deferred architectural work is formally tracked in TODO.md. Next-phase recommendations have been reconciled with the authoritative roadmap (S6 = Part 52 Timing Leverage).
