@@ -39,6 +39,11 @@ class MonthlyResultBuilderStep(PipelineStep):
                 ltv=ltv,
                 net_worth=net_worth,
                 ltv_enforcement=state.ltv_enforcement,
+                is_repayment=(
+                    state.withdrawal_decision.is_repayment
+                    if state.withdrawal_decision is not None
+                    else False
+                ),
             )
 
         monthly_result = MonthlyResult(
@@ -56,6 +61,11 @@ class MonthlyResultBuilderStep(PipelineStep):
             cumulative_inflation=0.0,
             events=(),
             debt_snapshot=debt_snapshot,
+            is_repayment=(
+                state.withdrawal_decision.is_repayment
+                if state.withdrawal_decision is not None
+                else False
+            ),
         )
 
         state.monthly_results.append(monthly_result)

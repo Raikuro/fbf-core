@@ -81,6 +81,7 @@ class MonthlyResult:
     cumulative_inflation: float
     events: Sequence[object]
     debt_snapshot: DebtSnapshot | None = None
+    is_repayment: bool = False
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ class DebtSnapshot:
     ltv: Decimal
     net_worth: Decimal
     ltv_enforcement: bool = True
+    is_repayment: bool = False
 
 
 @dataclass(frozen=True)

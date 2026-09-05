@@ -24,6 +24,7 @@ from fbf.core.execution.pipeline.steps.interest_accrual_step import (
     InterestAccrualStep,
 )
 from fbf.core.execution.pipeline.steps.loan_draw_step import LoanDrawStep
+from fbf.core.execution.pipeline.steps.loan_repayment_step import LoanRepaymentStep
 from fbf.core.execution.pipeline.steps.ltv_evaluation_step import LTVEvaluationStep
 from fbf.core.execution.pipeline.steps.market_evolution_step import MarketEvolutionStep
 from fbf.core.execution.pipeline.steps.monthly_result_builder_step import (
@@ -52,6 +53,7 @@ def create_default_pipeline() -> SimulationPipeline:
     25: WithdrawalDecision
     28: LoanDraw (borrow from margin - BEFORE withdrawal)
     30: WithdrawalExecution (consume cash first, then sell assets)
+    32: LoanRepayment (Part 52: repay at fresh ATH)
     40: AllocationDecision
     50: PortfolioRebalance
     60: MarketEvolution
@@ -65,6 +67,7 @@ def create_default_pipeline() -> SimulationPipeline:
     - LoanDrawStep: cash_balance += loan_draw_amount
     - WithdrawalExecutionStep: cash_balance -= min(cash_balance, total_spending)
                                 portfolio -= (total_spending - cash_consumed)
+    - LoanRepaymentStep: loan_balance -= repayment (no cash change)
     - End-of-period: cash_balance = 0 (all consumed for spending)
     """
     return SimulationPipeline(
@@ -74,6 +77,7 @@ def create_default_pipeline() -> SimulationPipeline:
             WithdrawalDecisionStep(),
             LoanDrawStep(),  # BEFORE withdrawal - cash available for spending
             WithdrawalExecutionStep(),  # Consume cash first, then sell assets
+            LoanRepaymentStep(),  # Part 52: repay at fresh ATH
             AllocationDecisionStep(),
             PortfolioRebalanceStep(),
             MarketEvolutionStep(),

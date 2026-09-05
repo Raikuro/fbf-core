@@ -1279,15 +1279,16 @@ All P19/20 items closed → authorize S1. P42 items closed → authorize S3. P49
 ```text
 S0 semantic decisions: DECIDED (all six findings)
 S0 semantic blockers: CLOSED for P19/20, P42, P49
-P52: semantic decisions CLOSED, FFR investigation DEFERRED (blocking only S6)
+P52: semantic decisions CLOSED, FFR investigation RESOLVED (S6.P complete)
 Oracle validation: implementation-phase validation required (not an S0 semantic blocker)
 S0 roadmap: COMPLETE
 S1 (Part 19 Glidepath): COMPLETE — commit 4f70fa4
 S2 (Part 20 Extension): COMPLETE — commit 634b535
 S3 (Part 42 Accumulation): COMPLETE — commit 7c8e43f
 S4 (Part 49 Debt Foundation): COMPLETE — commit a6894cd through 9961f43
-S5 (Part 49 Leverage Execution): COMPLETE — commit fc54202 through 1c6bdf2
-S6 (Part 52 Timing Leverage): NEXT — pending authorization
+S5 (Part 52 Leverage Execution): COMPLETE — commit fc54202 through 1c6bdf2
+S6.P (Part 52 Semantic Closure): COMPLETE — architecture plan updated
+S6 (Part 52 Timing Leverage): NEXT — pending S6.1 authorization
 ```
 
 **Terminology:**
@@ -1920,15 +1921,17 @@ The roadmap distinguishes between:
 
 ### S6 — Part 52
 
-**Prerequisite:** S0 P52 items CLOSED (including FFR investigation), S4 complete, S5 complete.
+**Prerequisite:** S0 P52 items CLOSED (FFR investigation RESOLVED in S6.P), S4 complete, S5 complete, S6.P complete.
 
 **Objective:** Add drawdown-triggered borrowing. Add repayment semantics. Resolve FFR data transformation and monthly alignment. Validate solver requirements only after the underlying simulation semantics are deterministic.
 
+**Architecture plan:** `S6_PART52_ARCHITECTURE_PLAN.md` — complete architecture, implementation stages, validation anchors. S6.P semantic/data closure is COMPLETE. All 8 open questions resolved (§10.1–§10.8).
+
 **VERIFIED methodology:** See §A.5.
 
-**Engine modification assessment:** No engine modification is currently justified. S6 planning must verify whether the existing engine and pipeline contracts can express Part 52 semantics cleanly. Any engine change must be justified by a concrete architectural limitation and must preserve the Decimal reference engine's mathematical behavior. See §J.
+**Engine modification assessment:** No engine modification is currently justified. The existing engine and pipeline contracts can express Part 52 semantics cleanly. See S6 architecture plan §4.4.
 
-**FFR prerequisite:** The FFR dataset investigation is a blocking prerequisite for floating-rate Part 52 scenarios. Tracked in `TODO.md` under "S6 Prerequisite: FFR Dataset Investigation." Fixed-rate scenarios can be implemented without FFR.
+**FFR prerequisite:** RESOLVED in S6.P. FRED FEDFUNDS (1954+), FRED category 33951 (1928-1954), call money rate proxy (pre-1928). See S6 architecture plan §10.1 for full provenance and transformation rules.
 
 **Deferred architecture:** Scalability work (batched execution, normalized persistence) is deferred and tracked in `TODO.md` under "Deferred Scalability Architecture." Not part of S6.
 

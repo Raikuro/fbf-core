@@ -39,6 +39,7 @@ class BuildDecisionContextStep(PipelineStep):
                 interest_rate=state.interest_rate,
                 ltv_limit=state.ltv_limit,
                 portfolio_value=portfolio_value,
+                cash_balance=state.cash_balance,
                 ltv_observed=ltv_observed,
                 ltv_enforcement=state.ltv_enforcement,
             )

@@ -31,8 +31,15 @@ class InterestAccrualStep(PipelineStep):
         if state.loan_balance <= 0:
             return state
 
+        # Determine rate for this period
+        schedule = state.context.interest_rate_schedule
+        if schedule is not None and state.period_index < len(schedule):
+            annual_rate = schedule[state.period_index]
+        else:
+            annual_rate = state.interest_rate
+
         # Calculate monthly interest (zero interest rate produces zero accrual)
-        monthly_rate = state.interest_rate / Decimal("12")
+        monthly_rate = annual_rate / Decimal("12")
         interest = state.loan_balance * monthly_rate
 
         # Capitalize interest (add to loan balance)

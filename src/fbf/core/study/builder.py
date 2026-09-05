@@ -231,6 +231,20 @@ def build_withdrawal_policy(policy_type: str, scalar: Decimal) -> WithdrawalPoli
     raise ValueError(f"Unsupported withdrawal policy type: {policy_type!r}")
 
 
+def build_part52_withdrawal_policy(
+    withdrawal_rate: Decimal,
+    borrow_pct: Decimal,
+    drawdown_threshold: Decimal,
+) -> WithdrawalPolicy:
+    """Build a Part52WithdrawalPolicy from its three parameters."""
+    from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
+    return Part52WithdrawalPolicy(
+        withdrawal_rate=withdrawal_rate,
+        borrow_pct=borrow_pct,
+        drawdown_threshold=drawdown_threshold,
+    )
+
+
 @dataclass(frozen=True)
 class StudyConfiguration:
     """The normalized study configuration — the single YAML interpretation layer.
@@ -305,6 +319,11 @@ class StudyConfiguration:
     debt_ltv_limit: Decimal | None = None
     debt_ltv_enforcement: bool = True
     debt_loan_draw_rate: Decimal | None = None
+    # Part 52 timing-leverage parameters
+    debt_borrow_pct: Decimal | None = None
+    debt_borrow_pct_values: tuple[Decimal, ...] | None = None
+    debt_drawdown_threshold: Decimal | None = None
+    debt_drawdown_threshold_values: tuple[Decimal, ...] | None = None
 
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
@@ -482,6 +501,11 @@ class StudyConfiguration:
         debt_ltv_limit: Decimal | None = None
         debt_ltv_enforcement: bool = True
         debt_loan_draw_rate: Decimal | None = None
+        # Part 52 timing-leverage parameters
+        debt_borrow_pct: Decimal | None = None
+        debt_borrow_pct_values: tuple[Decimal, ...] | None = None
+        debt_drawdown_threshold: Decimal | None = None
+        debt_drawdown_threshold_values: tuple[Decimal, ...] | None = None
         if debt_data is not None:
             if not isinstance(debt_data, dict):
                 raise ValueError("debt must be a mapping")
@@ -516,6 +540,26 @@ class StudyConfiguration:
                     "rate to activate"
                 )
 
+            # Parse Part 52 timing-leverage parameters
+            raw_borrow_pct = debt_data.get("borrow_pct")
+            if isinstance(raw_borrow_pct, list):
+                debt_borrow_pct_values = tuple(
+                    Decimal(str(v)) for v in raw_borrow_pct
+                )
+            elif raw_borrow_pct is not None:
+                debt_borrow_pct = _parse_optional_decimal_scalar(
+                    debt_data, "borrow_pct"
+                )
+            raw_drawdown_threshold = debt_data.get("drawdown_threshold")
+            if isinstance(raw_drawdown_threshold, list):
+                debt_drawdown_threshold_values = tuple(
+                    Decimal(str(v)) for v in raw_drawdown_threshold
+                )
+            elif raw_drawdown_threshold is not None:
+                debt_drawdown_threshold = _parse_optional_decimal_scalar(
+                    debt_data, "drawdown_threshold"
+                )
+
         return cls(
             name=str(metadata.get("name", "Unnamed Study")),
             description=str(metadata.get("description", "")),
@@ -541,6 +585,10 @@ class StudyConfiguration:
             debt_ltv_limit=debt_ltv_limit,
             debt_ltv_enforcement=debt_ltv_enforcement,
             debt_loan_draw_rate=debt_loan_draw_rate,
+            debt_borrow_pct=debt_borrow_pct,
+            debt_borrow_pct_values=debt_borrow_pct_values,
+            debt_drawdown_threshold=debt_drawdown_threshold,
+            debt_drawdown_threshold_values=debt_drawdown_threshold_values,
         )
 
 

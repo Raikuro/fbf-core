@@ -774,3 +774,97 @@ flag. When enforcement is OFF, the step computes and records LTV but does
 not trigger forced liquidation. The DebtInfo snapshot must include the
 observed LTV regardless of enforcement mode. Failure detection for
 "margin_call_impossible" is only relevant when enforcement is ON.
+
+---
+
+## Part 52: Index-Level Drawdown and Repayment Triggers
+
+**Decision:** Both the drawdown trigger (borrowing) and the repayment
+trigger (fresh ATH) are based on the S&P 500 TR index level, NOT the
+simulated portfolio.
+
+**Why:** ERN Part 52 explicitly states: "20%+ below real S&P 500 TR ATH"
+for the drawdown trigger and "if we reach a fresh all-time high in the
+S&P 500 Total Return Index" for the repayment trigger. The
+`MarketSnapshot.running_ath` and `is_ath` fields are index-level
+(values ~100–200), not portfolio-level (~1,000,000).
+
+**Alternatives rejected:** Portfolio-level tracking — rejected because
+ERN's language explicitly references the S&P 500 TR index, not the
+portfolio. Portfolio-level tracking would require a new
+`peak_portfolio_value` state variable and would not reproduce ERN's
+methodology.
+
+**Consequence:** No new state variables needed for drawdown or repayment
+triggers. The policy computes drawdown from `MarketSnapshot.index_levels`
+and `running_ath`. Repayment uses `MarketSnapshot.is_ath` directly.
+
+---
+
+## Part 52: Loan Repayment as Explicit Pipeline Step
+
+**Decision:** Loan repayment is implemented as a dedicated
+`LoanRepaymentStep` at sequence_order 32, not as a negative
+`loan_draw_amount` in `LoanDrawStep` or embedded in
+`WithdrawalExecutionStep`.
+
+**Why:** Repayment is a distinct financial state transition that reduces
+`loan_balance`. The existing `LoanDrawStep` rejects negative draws
+(ValueError). Embedding repayment in `WithdrawalExecutionStep` would
+couple two unrelated concerns. A dedicated step provides clean separation
+of concerns and explicit state transition documentation.
+
+**Alternatives rejected:**
+1. Negative `loan_draw_amount` — rejected because `LoanDrawStep` raises
+   ValueError for negative values, and mixing draw/repay logic violates
+   single-responsibility principle.
+2. Repayment in `WithdrawalExecutionStep` — rejected because it couples
+   withdrawal execution with debt management, making the step harder to
+   test and reason about.
+
+**Consequence:** New `LoanRepaymentStep` at sequence_order 32 (after
+`WithdrawalExecutionStep` at 30, before `AllocationDecisionStep` at 40).
+The step reads `WithdrawalDecision.is_repayment` and reduces
+`loan_balance` by the excess withdrawal amount.
+
+---
+
+## Part 52: Periodic LTV Evaluation
+
+**Decision:** LTV is evaluated once per period at end-of-month (step 66),
+after interest accrual (step 65). This is periodic evaluation at the
+simulation's temporal resolution, not continuous evaluation.
+
+**Why:** The simulation runs at monthly frequency. "Continuous" in ERN's
+S0-F6 decision context means "at every evaluation point within the
+simulation's temporal resolution" — which is once per month. LTV is
+evaluated after interest accrual to account for the increased loan balance
+from capitalized interest.
+
+**Alternatives rejected:** Continuous (daily/intra-day) evaluation —
+rejected because the simulation dataset is monthly and ERN's methodology
+uses monthly evaluation.
+
+**Consequence:** The `LTVEvaluationStep` at sequence_order 66 enforces
+the 50% LTV constraint. If interest accrual at step 65 pushes LTV above
+50%, liquidation occurs immediately at step 66.
+
+---
+
+## Part 52: Borrow% Budget Base
+
+**Decision:** Borrow% is the share of the total monthly budget funded by
+the loan, where budget = initial_wealth × withdrawal_rate / 12.
+
+**Why:** ERN article states: "4% annualized withdrawal rate" and "a quarter
+of the monthly budget is financed through the margin loan." The withdrawal
+rate is calibrated against the initial portfolio value, not the current
+value.
+
+**Alternatives rejected:** Portfolio-value-based budget — rejected because
+ERN's calibration uses initial_wealth, and the solver maximizes WR subject
+to constraints, which requires a fixed budget base.
+
+**Consequence:** The policy computes budget from `initial_wealth` and
+`withdrawal_rate`, not from current `portfolio_value`. This ensures
+consistent budget across all periods regardless of portfolio performance.

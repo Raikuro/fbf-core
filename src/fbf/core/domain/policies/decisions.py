@@ -35,3 +35,4 @@ class WithdrawalDecision(PolicyDecision):
     nominal_amount: Money
     real_amount: Money
     loan_draw_amount: Decimal = Decimal("0")
+    is_repayment: bool = False

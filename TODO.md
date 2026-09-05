@@ -222,59 +222,64 @@ operational resource limits (~6.2 min, ~11.1 GB RSS).
 
 ## S6 Prerequisite: FFR Dataset Investigation
 
-**Classification:** S6 blocking prerequisite — unresolved investigation
+**Classification:** S6 blocking prerequisite — **RESOLVED in S6.P**
 
 Part 52 (Timing Leverage) requires Federal Funds Rate (FFR) data for
 floating-rate interest scenarios (FFR + spread: 0.50%, 1.25%, 2.75%).
 
-### Open questions
+### Resolved questions
 
-1. **Exact source:** What dataset does ERN use for FFR?
-2. **Historical coverage:** Does the FFR series cover 1871–2015?
-3. **Frequency:** Monthly?
-4. **Definition:** Effective FFR, target rate, or proxy?
-5. **Monthly transformation:** How converted to monthly rate?
-6. **Date alignment:** When does a rate change take effect?
-7. **Treatment of rate changes:** Mid-month handling?
-8. **Correspondence with ERN calculation:** Same transformation?
+1. **Exact source:** FRED FEDFUNDS (1954+), FRED category 33951 (1928-1954),
+   call money rate proxy (pre-1928). See S6 architecture plan §10.1.
+2. **Historical coverage:** FEDFUNDS from 1954-07; daily FFR from 1928-04;
+   call money rate from 1857 (proxy for 1871-1928).
+3. **Frequency:** Monthly (FEDFUNDS is monthly average of daily figures).
+4. **Definition:** Effective federal funds rate (market rate, not target).
+5. **Monthly transformation:** FEDFUNDS already monthly; 1928-1954 daily data
+   averaged to monthly; pre-1928 proxy already monthly.
+6. **Date alignment:** FFR for month M is the rate observed in month M.
+   No lag or lead.
+7. **Treatment of rate changes:** Monthly average captures mid-month changes.
+8. **Correspondence with ERN calculation:** ERN uses FFR + spread for margin
+   loan rate. FFR component is the base rate.
 
 ### Impact
 
-- FFR is required only for the floating-rate Part 52 scenarios.
-- Fixed-rate Part 52 (same rate every month) can be implemented without FFR.
-- If FFR data cannot be sourced, Part 52 may be limited to fixed-rate
-  scenarios, which still demonstrate the drawdown-trigger and repayment
-  mechanics.
+- FFR data is now sourced and documented. See S6 architecture plan §10.1.
+- Fixed-rate Part 52 can be implemented first (S6.1), with FFR integration
+  in S6.2.
+- Call money rate is the recommended proxy for pre-1928 periods.
 
-### Revisit
+### Resolution
 
-Investigate before or during S6 planning. Non-blocking for S6 design
-if fixed-rate scenarios are accepted as the initial implementation scope.
+Investigated during S6.P. All questions resolved. See S6 architecture plan
+§10.1 for full provenance and transformation rules.
 
 ---
 
 ## S6 Prerequisite: Part 52 Semantic and Architectural Readiness
 
-**Classification:** S6 planning prerequisite
+**Classification:** S6 planning prerequisite — **RESOLVED in S6.P**
 
 ### Engine modification assessment
 
-No engine modification is currently justified. S6 planning must verify
-whether the existing engine and pipeline contracts can express Part 52
-semantics cleanly. Any engine change must be justified by a concrete
-architectural limitation and must preserve the Decimal reference engine's
-mathematical behavior.
+No engine modification is currently justified. The existing engine and
+pipeline contracts can express Part 52 semantics cleanly. See S6
+architecture plan §4.4 for full assessment.
 
 ### New capabilities required
 
 1. **Drawdown evaluation:** Compute drawdown magnitude relative to ATH.
-   `MarketSnapshot.is_underwater` exists but no drawdown percentage.
-2. **Conditional loan activation:** Part 49 draws every month; Part 52
-   draws only below a threshold. Requires policy-level conditional logic.
-3. **Loan repayment at fresh ATH:** No repayment mechanism exists.
-4. **Double withdrawal for repayment:** No mechanism to increase
-   withdrawal temporarily.
-5. **FFR-based floating interest:** Requires FFR dataset (see above).
+   Uses existing `MarketSnapshot.running_ath` and `index_levels`.
+   No new state variable needed. See §10.2.
+2. **Conditional loan activation:** Part 52 draws only below threshold.
+   Policy-level conditional logic in `Part52WithdrawalPolicy`.
+3. **Loan repayment at fresh ATH:** Dedicated `LoanRepaymentStep` at
+   sequence_order 32. See §10.3.
+4. **Double withdrawal for repayment:** `WithdrawalDecision.portfolio_withdrawal`
+   doubled during repayment. See §10.3.
+5. **FFR-based floating interest:** FFR dataset sourced. `interest_rate_schedule`
+   on `SimulationContext`. See §10.1.
 
 ### Reusable from Part 49
 
@@ -283,6 +288,8 @@ mathematical behavior.
 - `SimulationState` debt fields (`loan_balance`, `cash_balance`,
   `interest_rate`, `ltv_limit`, `ltv_enforcement`)
 
-### Revisit
+### Resolution
 
-During S6 planning phase, before implementation authorization.
+All semantic questions resolved during S6.P. See S6 architecture plan
+§10.1–§10.8 for full findings. Architecture is frozen. Implementation
+may proceed with explicit authorization.
