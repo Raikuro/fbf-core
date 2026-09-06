@@ -194,6 +194,7 @@ def test_public_facade_symbols() -> None:
         "execute_study_plan",
         "ResearchExecutionResult",
         "optimize_study_swr",
+        "optimize_part52",
         "StudyRepository",
         "create_study_repository",
         "CoreError",

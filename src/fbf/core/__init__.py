@@ -16,7 +16,7 @@ from fbf.core.execution import (
     ResearchExecutionResult,
     execute_study_plan,
 )
-from fbf.core.optimization import optimize_study_swr
+from fbf.core.optimization import optimize_part52, optimize_study_swr
 from fbf.core.persistence import StudyRepository, create_study_repository
 from fbf.core.study import (
     BuiltStudy,
@@ -57,6 +57,7 @@ __all__ = [
     "execute_study_plan",
     "ResearchExecutionResult",
     "optimize_study_swr",
+    "optimize_part52",
     "StudyRepository",
     "create_study_repository",
     "CoreError",
