@@ -635,3 +635,217 @@ class TestInitialWealthReconciliation:
 
         assert decision.nominal_amount.amount == expected_monthly
         assert decision.loan_draw_amount == expected_loan
+
+
+# ---------------------------------------------------------------------------
+# Part 52 parameter-grid axes (S6.4A)
+# ---------------------------------------------------------------------------
+
+
+class TestPart52ParameterAxes:
+    """Verify borrow_pct and drawdown_threshold participate in the Cartesian product."""
+
+    BASE_YAML: dict[str, Any] = {
+        "metadata": {"name": "test-part52-axes"},
+        "dataset": {"identifier": "ern_swr_h720"},
+        "cohorts": {"horizon_years": [10]},
+        "allocation_policy": {
+            "type": "ConstantAllocationPolicy",
+            "equity_allocation": [0.75],
+        },
+        "withdrawal_policy": {
+            "type": "Part52WithdrawalPolicy",
+            "withdrawal_rate": [0.0358],
+        },
+        "debt": {
+            "interest_rate": 0.015,
+            "ltv_limit": 0.50,
+        },
+    }
+
+    def _yaml(self, **overrides: Any) -> dict[str, Any]:
+        """Return a copy of BASE_YAML with deep-merged overrides for ``debt``."""
+        data = dict(self.BASE_YAML)
+        if "debt" in overrides:
+            debt = dict(self.BASE_YAML["debt"])
+            debt.update(overrides.pop("debt"))
+            overrides["debt"] = debt
+        data.update(overrides)
+        return data
+
+    def test_scalar_borrow_pct_produces_one_element_axis(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        config = StudyConfiguration.from_yaml(self._yaml(
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50, "borrow_pct": 0.4108},
+        ))
+        configs = _build_unified_parameter_configs(config)
+        assert len(configs) == 1
+        assert configs[0].values["borrow_pct"] == 0.4108
+
+    def test_list_borrow_pct_produces_multi_element_axis(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        config = StudyConfiguration.from_yaml(self._yaml(
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50, "borrow_pct": [0.1, 0.2, 0.4]},
+        ))
+        configs = _build_unified_parameter_configs(config)
+        borrow_pcts = {pc.values["borrow_pct"] for pc in configs}
+        assert borrow_pcts == {0.1, 0.2, 0.4}
+
+    def test_scalar_drawdown_threshold_produces_one_element_axis(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        config = StudyConfiguration.from_yaml(self._yaml(
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50, "drawdown_threshold": 0.20},
+        ))
+        configs = _build_unified_parameter_configs(config)
+        assert len(configs) == 1
+        assert configs[0].values["drawdown_threshold"] == 0.20
+
+    def test_list_drawdown_threshold_produces_multi_element_axis(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        config = StudyConfiguration.from_yaml(self._yaml(
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50,
+                  "drawdown_threshold": [0.15, 0.20, 0.25]},
+        ))
+        configs = _build_unified_parameter_configs(config)
+        thresholds = {pc.values["drawdown_threshold"] for pc in configs}
+        assert thresholds == {0.15, 0.20, 0.25}
+
+    def test_cartesian_product_includes_all_axes(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = self._yaml(
+            withdrawal_policy={
+                "type": "Part52WithdrawalPolicy",
+                "withdrawal_rate": [0.0358, 0.0378],
+            },
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50,
+                  "borrow_pct": [0.1, 0.4],
+                  "drawdown_threshold": [0.15, 0.20]},
+        )
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        # 2 WR × 2 borrow_pct × 2 threshold × 1 horizon × 1 alloc = 8
+        assert len(configs) == 8
+        combos = {
+            (pc.values["withdrawal_rate"],
+             pc.values["borrow_pct"],
+             pc.values["drawdown_threshold"])
+            for pc in configs
+        }
+        assert len(combos) == 8
+
+    def test_no_leverage_axes_when_not_declared(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = self._yaml(
+            withdrawal_policy={
+                "type": "FixedRealWithdrawalPolicy",
+                "withdrawal_rate": [0.04],
+            },
+        )
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        assert all("borrow_pct" not in pc.values for pc in configs)
+        assert all("drawdown_threshold" not in pc.values for pc in configs)
+
+    def test_non_part52_policy_ignores_borrow_pct_axis(self) -> None:
+        """When borrow_pct axis exists but policy is not Part52, axis is harmless."""
+        from fbf.core.study.builder import StudyConfiguration, _build_unified_parameter_configs
+
+        data = self._yaml(
+            withdrawal_policy={
+                "type": "FixedRealWithdrawalPolicy",
+                "withdrawal_rate": [0.04],
+            },
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50, "borrow_pct": [0.1, 0.4]},
+        )
+        config = StudyConfiguration.from_yaml(data)
+        configs = _build_unified_parameter_configs(config)
+        assert len(configs) == 2
+        assert all("borrow_pct" in pc.values for pc in configs)
+
+    def test_policy_resolver_uses_axis_values(self) -> None:
+        """Resolver reads borrow_pct from ParameterConfiguration, not closure."""
+        from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
+        from fbf.core.study.builder import StudyConfiguration, _make_policy_resolver
+        from fbf.core.study.internal.parameter.configuration import (
+            ParameterConfiguration,
+        )
+
+        data = self._yaml(
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50, "borrow_pct": [0.1, 0.4]},
+        )
+        config = StudyConfiguration.from_yaml(data)
+        resolver = _make_policy_resolver(config)
+
+        pc1 = ParameterConfiguration({
+            "equity_allocation": 0.75, "withdrawal_rate": 0.0358,
+            "horizon_years": 10, "borrow_pct": 0.1,
+        })
+        pc2 = ParameterConfiguration({
+            "equity_allocation": 0.75, "withdrawal_rate": 0.0358,
+            "horizon_years": 10, "borrow_pct": 0.4,
+        })
+
+        _, policy1 = resolver(pc1)
+        _, policy2 = resolver(pc2)
+
+        assert isinstance(policy1, Part52WithdrawalPolicy)
+        assert isinstance(policy2, Part52WithdrawalPolicy)
+        assert policy1.borrow_pct == Decimal("0.1")
+        assert policy2.borrow_pct == Decimal("0.4")
+        assert policy1 is not policy2
+
+    def test_policy_cache_distinguishes_borrow_pct(self) -> None:
+        """Two configs with same WR but different borrow_pct get different policies."""
+        from fbf.core.study.builder import StudyConfiguration, _make_policy_resolver
+        from fbf.core.study.internal.parameter.configuration import (
+            ParameterConfiguration,
+        )
+
+        data = self._yaml(
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50, "borrow_pct": [0.1, 0.4]},
+        )
+        config = StudyConfiguration.from_yaml(data)
+        resolver = _make_policy_resolver(config)
+
+        pc1 = ParameterConfiguration({
+            "equity_allocation": 0.75, "withdrawal_rate": 0.0358,
+            "horizon_years": 10, "borrow_pct": 0.1,
+        })
+        pc2 = ParameterConfiguration({
+            "equity_allocation": 0.75, "withdrawal_rate": 0.0358,
+            "horizon_years": 10, "borrow_pct": 0.4,
+        })
+
+        _, policy1 = resolver(pc1)
+        _, policy2 = resolver(pc2)
+
+        assert policy1 is not policy2
+
+    def test_scalar_fallback_when_no_axis(self) -> None:
+        """Resolver falls back to scalar config when no axis exists."""
+        from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
+        from fbf.core.study.builder import StudyConfiguration, _make_policy_resolver
+        from fbf.core.study.internal.parameter.configuration import (
+            ParameterConfiguration,
+        )
+
+        data = self._yaml(
+            debt={"interest_rate": 0.015, "ltv_limit": 0.50, "borrow_pct": 0.4108},
+        )
+        config = StudyConfiguration.from_yaml(data)
+        resolver = _make_policy_resolver(config)
+
+        pc = ParameterConfiguration({
+            "equity_allocation": 0.75, "withdrawal_rate": 0.0358,
+            "horizon_years": 10,
+        })
+
+        _, policy = resolver(pc)
+        assert isinstance(policy, Part52WithdrawalPolicy)
+        assert policy.borrow_pct == Decimal("0.4108")

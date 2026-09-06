@@ -845,6 +845,39 @@ def _build_unified_parameter_configs(
                 values=(float(config.debt_interest_rate),),
             )
         )
+    # Part 52 leverage axes: borrow_pct and drawdown_threshold participate in
+    # the Cartesian product when declared as arrays.  A single scalar value
+    # becomes a one-element axis for uniform resolver behaviour.  When neither
+    # form is declared the axis is omitted (non-Part52 policies ignore these
+    # parameters).
+    if config.debt_borrow_pct_values is not None:
+        axes.append(
+            ParameterAxis(
+                name="borrow_pct",
+                values=tuple(float(v) for v in config.debt_borrow_pct_values),
+            )
+        )
+    elif config.debt_borrow_pct is not None:
+        axes.append(
+            ParameterAxis(
+                name="borrow_pct",
+                values=(float(config.debt_borrow_pct),),
+            )
+        )
+    if config.debt_drawdown_threshold_values is not None:
+        axes.append(
+            ParameterAxis(
+                name="drawdown_threshold",
+                values=tuple(float(v) for v in config.debt_drawdown_threshold_values),
+            )
+        )
+    elif config.debt_drawdown_threshold is not None:
+        axes.append(
+            ParameterAxis(
+                name="drawdown_threshold",
+                values=(float(config.debt_drawdown_threshold),),
+            )
+        )
     return ParameterSweepEngine.cartesian_product(axes)
 
 
@@ -939,7 +972,7 @@ def _make_policy_resolver(
     """
     _alloc_by_weight: dict[Decimal, AllocationPolicy] = {}
     _alloc_glidepath: dict[tuple[Decimal, Decimal, Decimal, str], AllocationPolicy] = {}
-    _withdraw_by_rate: dict[Decimal, WithdrawalPolicy] = {}
+    _withdraw_by_params: dict[tuple[Decimal, Decimal, Decimal], WithdrawalPolicy] = {}
 
     def resolve(
         param_config: ParameterConfiguration,
@@ -969,15 +1002,32 @@ def _make_policy_resolver(
                 )
                 _alloc_by_weight[weight] = resolved_alloc
         rate = Decimal(str(param_config.get("withdrawal_rate")))
-        resolved_withd = _withdraw_by_rate.get(rate)
+        # Read leverage parameters from the parameter configuration (axis values)
+        # with fallback to the scalar study-level configuration.  The cache key
+        # includes all three to prevent distinct leverage configurations from
+        # sharing a policy instance.
+        borrow_pct_raw = param_config.values.get("borrow_pct")
+        borrow_pct = (
+            Decimal(str(borrow_pct_raw))
+            if borrow_pct_raw is not None
+            else config.debt_borrow_pct
+        )
+        threshold_raw = param_config.values.get("drawdown_threshold")
+        drawdown_threshold = (
+            Decimal(str(threshold_raw))
+            if threshold_raw is not None
+            else config.debt_drawdown_threshold
+        )
+        cache_key = (rate, borrow_pct or Decimal("0"), drawdown_threshold or Decimal("0"))
+        resolved_withd = _withdraw_by_params.get(cache_key)
         if resolved_withd is None:
             resolved_withd = build_withdrawal_policy(
                 config.withdrawal_policy_type,
                 rate,
-                borrow_pct=config.debt_borrow_pct,
-                drawdown_threshold=config.debt_drawdown_threshold,
+                borrow_pct=borrow_pct,
+                drawdown_threshold=drawdown_threshold,
             )
-            _withdraw_by_rate[rate] = resolved_withd
+            _withdraw_by_params[cache_key] = resolved_withd
         return resolved_alloc, resolved_withd
 
     return resolve
