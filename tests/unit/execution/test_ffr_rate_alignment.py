@@ -144,7 +144,7 @@ def test_build_schedule_covers_full_horizon() -> None:
 
 
 def test_build_schedule_out_of_range_raises() -> None:
-    """Verify ValueError when FFR dataset doesn't cover the full horizon."""
+    """Verify explicit failure when FFR dataset doesn't cover full horizon."""
     import pytest
 
     ffr_rates = (
@@ -152,12 +152,12 @@ def test_build_schedule_out_of_range_raises() -> None:
         (date(2020, 2, 1), Decimal("0.02")),
     )
 
-    with pytest.raises(ValueError, match="FFR dataset does not cover"):
+    with pytest.raises(ValueError, match="No FFR rate available"):
         build_interest_rate_schedule(
             ffr_rates=ffr_rates,
             spread=Decimal("0"),
             start_date=date(2020, 1, 1),
-            horizon_months=6,  # Only 2 months of data
+            horizon_months=6,  # Only 2 months of data — must fail
         )
 
 

@@ -140,6 +140,137 @@ implement without profiling evidence.
 
 ---
 
+## S6 Part 52 Numerical Discrepancy Investigation
+
+**Classification:** unresolved investigation — blocks S6.6 canonical replication
+
+The threshold=20% scenario (WR=3.91%, borrow=41.08%) does not reproduce
+ERN's published result exactly:
+
+- ERN anchor: all 1,739 cohorts succeed
+- FBF result: 1733/1739 (99.65%) succeed
+- Six cohorts fail
+
+### Corrected facts (from S6.3 investigation)
+
+- All six failures are **portfolio depletion**, not LTV enforcement
+- Loan balance is zero at failure (no outstanding debt)
+- At least the 1929 cohort also fails without leverage at WR=3.91%
+- The original attribution to LTV enforcement was incorrect
+
+### Required investigation
+
+1. **Dataset provenance:** Verify `ern_swr_h720.json` faithfully represents
+   ERN's source data (date coverage, monthly alignment, return construction,
+   inflation adjustment, truncation).
+2. **Cohort set comparison:** Determine whether FBF's 1,739 cohorts match
+   ERN's published cohort population exactly.
+3. **Success criterion comparison:** Compare ERN's terminal wealth criterion
+   against FBF's `final_value_target` (nominal vs real, timing, horizon).
+4. **Part 52 mechanics trace:** Trace failing cohorts through the full pipeline.
+5. **Baseline comparison (critical):** For each failing cohort, compare:
+   - No leverage → survive?
+   - Untimed leverage → survive?
+   - Timed leverage → fail?
+   This determines whether the discrepancy is in Part 52 or the withdrawal model.
+
+**Do not introduce tolerances or weaken assertions before this investigation.**
+
+---
+
+## S6 Part 52 Parameter-Grid Architecture Gap
+
+**Classification:** architectural gap — blocks S6.4 and S6.6
+
+`borrow_pct` and `drawdown_threshold` cannot participate in the generic
+Cartesian product grid. The `ParameterAxis` and `ParameterSweepEngine` are
+generic, but `_build_unified_parameter_configs` is not — it has hardcoded
+knowledge of which fields map to which axes.
+
+### Current state
+
+```python
+StudyConfiguration
+    → scalar borrow_pct        # works
+    → scalar drawdown_threshold # works
+    → borrow_pct axis           # NOT possible
+    → drawdown_threshold axis   # NOT possible
+```
+
+### Approved correction (Option 1 — minimal)
+
+- Add `borrow_pct_values: tuple[Decimal, ...] | None` to StudyConfiguration
+- Add `drawdown_threshold_values: tuple[Decimal, ...] | None` to StudyConfiguration
+- Construct corresponding ParameterAxis instances in `_build_unified_parameter_configs`
+- Include them in the existing Cartesian product mechanism
+
+### Future improvement (Option 2 — generic, deferred)
+
+A genuinely generic axes mapping may eventually be preferable, but is not
+required to unblock Part 52.
+
+---
+
+## S6 Historical Rate Data Coverage (1871–1954)
+
+**Classification:** data gap — blocks S6.6 canonical replication
+
+The FFR dataset covers only 1954-07 to 2023-12. ERN cohorts begin 1871.
+Any cohort starting before 1954-07 lacks interest-rate data.
+
+### Required coverage
+
+| Period | Source | Status |
+|--------|--------|--------|
+| 1954+ | FRED FEDFUNDS | IMPLEMENTED (S6.2) |
+| 1928–1954 | FRED category 33951 | METHODOLOGY DECIDED (S6.P), NOT IMPLEMENTED |
+| pre-1928 | Call money rate proxy | METHODOLOGY DECIDED (S6.P), NOT IMPLEMENTED |
+
+### Requirements for S6.4
+
+1. Retrieve and transform FRED category 33951 data (1928–1954)
+2. Source and validate call money rate proxy (pre-1928)
+3. Extend `ffr_monthly.json` schema or implement multi-source loading
+4. Integrate into `build_interest_rate_schedule` with strict coverage validation
+5. Audit provenance and continuity of S6.P methodology before implementation
+
+**No silent fallback should conceal missing data.**
+
+---
+
+## S6 Dataset Loader Type Discrimination
+
+**Classification:** architectural debt — not blocking S6.3
+
+The JSON dataset loader identifies auxiliary datasets by checking
+`"frequency" in raw`. This is fragile: any JSON file with a `"frequency"`
+key could be misidentified.
+
+### Current behavior
+
+```python
+if "frequency" in raw:
+    # Assume Dataset
+else:
+    # Ignore file
+```
+
+### Recommended future correction
+
+Use positive identification rather than key presence:
+- Explicit dataset type field
+- Schema discriminator
+- Registry
+- Validation of both `frequency` and `snapshots`
+
+### Current workaround
+
+The FFR file was renamed `"frequency"` → `"data_frequency"` to avoid
+collision. This is acceptable as a tactical workaround but the broader
+issue must not disappear.
+
+---
+
 ## Deferred Scalability Architecture
 
 **Classification:** deferred — not required for current canonical workloads

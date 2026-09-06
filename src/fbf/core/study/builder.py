@@ -162,6 +162,9 @@ def build_interest_rate_schedule(
     """
     # Build date -> rate lookup
     rate_map: dict[date, Decimal] = dict(ffr_rates)
+    available_dates = sorted(rate_map.keys())
+    earliest = available_dates[0] if available_dates else None
+    latest = available_dates[-1] if available_dates else None
 
     schedule: list[Decimal] = []
     import calendar
@@ -173,11 +176,16 @@ def build_interest_rate_schedule(
         month = total_months % 12 + 1
         day = min(start_date.day, calendar.monthrange(year, month)[1])
         period_date = date(year, month, day)
+
         rate = rate_map.get(period_date)
         if rate is None:
             raise ValueError(
-                f"FFR dataset does not cover {period_date.isoformat()} "
-                f"(cohort start: {start_date.isoformat()}, month: {month_idx})"
+                f"No FFR rate available for {period_date}. "
+                f"Available range: {earliest} to {latest}. "
+                f"Requested start_date={start_date}, horizon_months={horizon_months}, "
+                f"period_date={period_date}. "
+                f"Provide FFR data covering the full simulation period, or restrict "
+                f"cohorts to dates within the available rate dataset."
             )
         schedule.append(rate + spread)
 
@@ -335,8 +343,14 @@ def build_glidepath_allocation_policy(
     )
 
 
-def build_withdrawal_policy(policy_type: str, scalar: Decimal) -> WithdrawalPolicy:
-    """Build the concrete withdrawal policy for the declared YAML ``type``."""
+def build_withdrawal_policy(
+    policy_type: str,
+    scalar: Decimal,
+    *,
+    borrow_pct: Decimal | None = None,
+    drawdown_threshold: Decimal | None = None,
+) -> WithdrawalPolicy:
+    """Build a WithdrawalPolicy from its YAML type name and scalar value."""
     policy_enum = WithdrawalPolicyType.from_yaml_name(policy_type)
     if policy_enum is WithdrawalPolicyType.FIXED_REAL:
         return FixedRealWithdrawalPolicy(withdrawal_rate=scalar)
@@ -345,6 +359,12 @@ def build_withdrawal_policy(policy_type: str, scalar: Decimal) -> WithdrawalPoli
     if policy_enum is WithdrawalPolicyType.PART49:
         from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
         return Part49WithdrawalPolicy(withdrawal_rate=scalar)
+    if policy_enum is WithdrawalPolicyType.PART52:
+        return build_part52_withdrawal_policy(
+            withdrawal_rate=scalar,
+            borrow_pct=borrow_pct or Decimal("0"),
+            drawdown_threshold=drawdown_threshold or Decimal("0.20"),
+        )
     raise ValueError(f"Unsupported withdrawal policy type: {policy_type!r}")
 
 
@@ -951,7 +971,12 @@ def _make_policy_resolver(
         rate = Decimal(str(param_config.get("withdrawal_rate")))
         resolved_withd = _withdraw_by_rate.get(rate)
         if resolved_withd is None:
-            resolved_withd = build_withdrawal_policy(config.withdrawal_policy_type, rate)
+            resolved_withd = build_withdrawal_policy(
+                config.withdrawal_policy_type,
+                rate,
+                borrow_pct=config.debt_borrow_pct,
+                drawdown_threshold=config.debt_drawdown_threshold,
+            )
             _withdraw_by_rate[rate] = resolved_withd
         return resolved_alloc, resolved_withd
 

@@ -692,16 +692,71 @@ rates. Validate rate alignment independently.
 - Floating-rate scenarios produce results consistent with ERN anchors
 - Fixed-rate scenarios remain unaffected
 
-### S6.3 — Canonical Part 52 Replication
+### S6.3 — Part 52 Deterministic Scenario Validation
 
-**Scope:** Execute the defined ERN grid. Compare against independently
-established anchors. Validate all components.
+**Scope:** Validate that Part 52 mechanics are correctly implemented and
+executable through the production study-building path. Test deterministic
+scenarios with known parameters. Document any replication discrepancies.
+
+**NOT in scope:** Full ERN grid execution, solver-derived parameters,
+arbitrary success tolerances, WR probe methodologies, silent historical-rate
+fallbacks.
 
 **Deliverables:**
-- Full Part 52 study YAML configuration
-- Grid execution across all threshold × Borrow% × FFR combinations
-- Validation report comparing against ERN published results
-- Performance benchmark
+- PART52 policy registration and construction through StudyConfiguration
+- borrow_pct / drawdown_threshold propagation verification
+- Deterministic execution of three anchor scenarios:
+  - Baseline (no leverage): WR=3.58%
+  - Fixed-rate no-timing: WR=3.78%, borrow=10.76%
+  - Threshold timing: WR=3.91%, borrow=41.08%, threshold=20%
+- Explicit discrepancy documentation where reproduction fails
+
+**Validation structure:**
+- Mechanism correctness tests (PASS/FAIL)
+- Replication validation tests (PASS or DISCREPANCY DOCUMENTED)
+
+**Exit criteria:**
+- All mechanism correctness tests pass
+- All scenarios execute deterministically
+- Replication discrepancies are documented (not tolerated)
+- Quality gates pass (ruff, mypy, unit + contract tests)
+
+**Status:** CURRENT (reconciled scope)
+
+### S6.4 — Parameter-Grid Architecture + Historical Rate Coverage
+
+**Scope:** Close two architectural gaps that block full canonical replication.
+
+**A. Parameter-space expressiveness:**
+- Add `borrow_pct_values` and `drawdown_threshold_values` to StudyConfiguration
+- Construct corresponding ParameterAxis instances in `_build_unified_parameter_configs`
+- Enable Part 52 parameter sweeps through the generic Cartesian product mechanism
+
+**B. Historical rate coverage (1871–1954):**
+- FRED category 33951 data (1928–1954)
+- Pre-1928 call money rate proxy
+- Dataset schema extension or multi-source loading
+- Builder integration for full 1871+ coverage
+
+**Depends on:** S6.3 complete.
+**Blocked by:** Historical rate data provenance audit.
+
+### S6.5 — Solver/Search Capability
+
+**Scope:** Implement parameter optimization to discover ERN's published
+grid values (borrow_pct, drawdown_threshold as functions of WR).
+
+**Candidate approaches:**
+1. Manual parameter sweep (no new dependencies)
+2. Grid refinement with binary search
+3. FBF optimization layer (if constraint support exists)
+
+**Depends on:** S6.4 (parameter-grid architecture).
+
+### S6.6 — Canonical ERN Replication
+
+**Scope:** Execute the full ERN Part 52 grid and validate against published
+results. This phase requires all preceding infrastructure to exist.
 
 **Grid (approximate):**
 - 4 thresholds × 5 Borrow% × 3 FFR scenarios = 60 cells
@@ -711,25 +766,13 @@ established anchors. Validate all components.
 - 1965 cohort results (6 scenarios)
 - 1929 cohort results (2 scenarios)
 
+**Depends on:** S6.4 (historical rates) + S6.5 (solver).
+
 **Exit criteria:**
 - All cells execute successfully
-- Results are qualitatively consistent with ERN anchors
+- Results reproduce ERN published anchors (exact match required)
 - Performance is comparable to Part 49 baseline
 - Validation report is complete
-
-### S6.4 — Optimization/Solver (Conditional)
-
-**Scope:** Only if the goal is to reproduce ERN's optimization procedure
-itself (maximizing WR subject to constraints).
-
-**Classification:** This is NOT required for Part 52 replication if S6.3
-validates against already-known ERN parameter points. It IS required if
-the goal is to reproduce the ERN process of discovering those points.
-
-**Candidate approaches:**
-1. Manual parameter sweep (no new dependencies)
-2. FBF optimization layer (if constraint support exists)
-3. Grid refinement with binary search
 
 ---
 
@@ -742,7 +785,7 @@ spread, etc.)` configuration and produce correct results?
 
 **This does not require a solver.** This is the core replication goal.
 
-### B. ERN Optimization Reproduction (S6.4)
+### B. ERN Optimization Reproduction (S6.5)
 
 Can FBF reproduce ERN's process of maximizing withdrawal rate subject to
 the terminal-net-worth ($250K) and LTV (50%) constraints?
@@ -750,7 +793,7 @@ the terminal-net-worth ($250K) and LTV (50%) constraints?
 **This may require a solver/search procedure.** It is a separate concern
 from framework execution.
 
-**Classification:** S6.4 is deferred only if S6 initially targets
+**Classification:** S6.5 is deferred only if S6 initially targets
 execution/replication of already-known ERN parameter points rather than
 reproducing the optimization procedure itself. Do not silently omit it
 from the definition of "full Part 52 replication."
@@ -1312,13 +1355,17 @@ All semantic/data questions have been resolved:
 ```
 S6.P  Semantic/data closure — COMPLETE
   ↓
-S6.1  Core execution (policy, repayment, bug fix, fixed-rate fixtures)
+S6.1  Core execution (policy, repayment, bug fix, fixed-rate fixtures) — COMPLETE
   ↓
-S6.2  FFR integration (dataset, time-varying rates)
+S6.2  FFR integration (dataset, time-varying rates) — COMPLETE
   ↓
-S6.3  Canonical replication (full grid, validation)
+S6.3  Deterministic scenario validation (mechanism correctness + discrepancy documentation)
   ↓
-S6.4  Optimization/solver (conditional, separate authorization)
+S6.4  Parameter-grid architecture + historical rate coverage
+  ↓
+S6.5  Solver/search capability (conditional, separate authorization)
+  ↓
+S6.6  Canonical ERN replication (full grid, exact reproduction)
 ```
 
 ### Recommended Next Step

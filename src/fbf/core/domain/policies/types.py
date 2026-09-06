@@ -52,6 +52,7 @@ class WithdrawalPolicyType(Enum):
     FIXED_REAL = ("FixedRealWithdrawalPolicy", "Fixed Real", "withdrawal_rate")
     CONSTANT = ("ConstantWithdrawalPolicy", "Constant", "withdrawal_rate")
     PART49 = ("Part49WithdrawalPolicy", "Part 49 Leverage", "withdrawal_rate")
+    PART52 = ("Part52WithdrawalPolicy", "Part 52 Timing Leverage", "withdrawal_rate")
 
     def __init__(
         self, yaml_name: str, display_name: str, parameter_key: str
