@@ -11,6 +11,7 @@ import sys
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -140,12 +141,12 @@ class TestAggregateDailyToMonthly:
 
     def test_all_none_raises(self) -> None:
         with pytest.raises(ValueError, match="No observations"):
-            aggregate_daily_to_monthly([None, None])  # type: ignore[list-item]
+            aggregate_daily_to_monthly([None, None])
 
     def test_mixed_none_and_values(self) -> None:
         result = aggregate_daily_to_monthly([
             Decimal("0.10"),
-            None,  # type: ignore[list-item]
+            None,
             Decimal("0.30"),
         ])
         assert result == Decimal("0.20")
@@ -201,7 +202,7 @@ class TestSourceBoundaryNumericalAnchors:
     """
 
     @pytest.fixture(scope="class")
-    def raw_data(self) -> dict:
+    def raw_data(self) -> dict[str, Any]:
         return {
             "ht_high": parse_fred_csv(_RAW_DIR / "FFHTHIGH.csv"),
             "ht_low": parse_fred_csv(_RAW_DIR / "FFHTLOW.csv"),
@@ -211,13 +212,14 @@ class TestSourceBoundaryNumericalAnchors:
         }
 
     @pytest.fixture(scope="class")
-    def daily_ffr(self, raw_data: dict) -> dict[date, Decimal]:
-        return build_daily_reconstructed_ffr(
+    def daily_ffr(self, raw_data: dict[str, Any]) -> dict[date, Decimal]:
+        result: dict[date, Decimal] = build_daily_reconstructed_ffr(
             raw_data["ht_high"],
             raw_data["ht_low"],
             raw_data["wsj_high"],
             raw_data["wsj_low"],
         )
+        return result
 
     def test_ht_only_anchor_april_1928(self, daily_ffr: dict[date, Decimal]) -> None:
         """April 1928: HT only. First observation 1928-04-04: HIGH=4.000, LOW=3.750.
@@ -287,41 +289,43 @@ class TestArtifactStructure:
     """Verify the generated artifact has correct structure."""
 
     @pytest.fixture(scope="class")
-    def artifact(self) -> dict:
-        return json.loads(_ARTIFACT_PATH.read_text(encoding="utf-8"))
+    def artifact(self) -> dict[str, Any]:
+        result: dict[str, Any] = json.loads(_ARTIFACT_PATH.read_text(encoding="utf-8"))
+        return result
 
     @pytest.fixture(scope="class")
-    def rates(self, artifact: dict) -> list[dict]:
-        return artifact["rates"]
+    def rates(self, artifact: dict[str, Any]) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = artifact["rates"]
+        return result
 
-    def test_schema_version(self, artifact: dict) -> None:
+    def test_schema_version(self, artifact: dict[str, Any]) -> None:
         assert artifact["schema_version"] == "2.0"
 
-    def test_methodology_version(self, artifact: dict) -> None:
+    def test_methodology_version(self, artifact: dict[str, Any]) -> None:
         assert artifact["methodology_version"] == "1.0"
 
-    def test_first_observation_date(self, rates: list[dict]) -> None:
+    def test_first_observation_date(self, rates: list[dict[str, Any]]) -> None:
         assert rates[0]["date"] == "1928-04-01"
 
-    def test_coverage_start(self, artifact: dict) -> None:
+    def test_coverage_start(self, artifact: dict[str, Any]) -> None:
         assert artifact["coverage_start"] == "1928-04-01"
 
-    def test_no_duplicate_months(self, rates: list[dict]) -> None:
+    def test_no_duplicate_months(self, rates: list[dict[str, Any]]) -> None:
         dates = [o["date"] for o in rates]
         assert len(dates) == len(set(dates))
 
-    def test_strictly_increasing_dates(self, rates: list[dict]) -> None:
+    def test_strictly_increasing_dates(self, rates: list[dict[str, Any]]) -> None:
         dates = [o["date"] for o in rates]
         assert dates == sorted(dates)
 
-    def test_rates_are_decimal_fractions(self, rates: list[dict]) -> None:
+    def test_rates_are_decimal_fractions(self, rates: list[dict[str, Any]]) -> None:
         for obs in rates:
             rate = Decimal(obs["rate"])
             # All rates in decimal fraction form: 0.00xx to 0.xx
             # Max ~17.61% = 0.1761 (Volcker peak)
             assert Decimal("0") <= rate <= Decimal("0.20")
 
-    def test_no_missing_months(self, rates: list[dict]) -> None:
+    def test_no_missing_months(self, rates: list[dict[str, Any]]) -> None:
         from build_historical_rates import MonthlyRate
 
         monthly_rates = [
@@ -340,7 +344,7 @@ class TestArtifactNumericalAnchors:
 
     @pytest.fixture(scope="class")
     def rate_map(self) -> dict[str, str]:
-        artifact = json.loads(_ARTIFACT_PATH.read_text(encoding="utf-8"))
+        artifact: dict[str, Any] = json.loads(_ARTIFACT_PATH.read_text(encoding="utf-8"))
         return {o["date"]: o["rate"] for o in artifact["rates"]}
 
     def test_1929_cohort_start(self, rate_map: dict[str, str]) -> None:
