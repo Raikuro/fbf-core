@@ -182,9 +182,9 @@ def test_real_ffr_dataset_loads() -> None:
 
     rates = load_ffr_rates("ffr_monthly", str(ffr_path.parent))
     assert len(rates) > 0
-    # FEDFUNDS covers 1954-07 to present
-    assert rates[0][0] == date(1954, 7, 1)
-    assert rates[-1][0] == date(2023, 12, 1)
+    # Historical FFR covers 1928-04 to present
+    assert rates[0][0] == date(1928, 4, 1)
+    assert rates[-1][0] >= date(2023, 12, 1)
     # All rates should be non-negative Decimals
     for _, r in rates:
         assert isinstance(r, Decimal)
