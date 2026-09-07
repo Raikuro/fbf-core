@@ -28,6 +28,10 @@ Homepage = "https://github.com/Raikuro/fbf-core"
 Repository = "https://github.com/Raikuro/fbf-core"
 
 [project.optional-dependencies]
+numba = [
+    "numpy>=2.1",
+    "numba>=0.61",
+]
 dev = [
     "pytest>=8",
     "pytest-cov",
@@ -36,6 +40,7 @@ dev = [
     "mypy",
     "pyyaml>=6.0",
     "types-PyYAML",
+    "fbf-core[numba]",
 ]
 
 [tool.black]
