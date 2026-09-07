@@ -142,39 +142,46 @@ implement without profiling evidence.
 
 ## S6 Part 52 Numerical Discrepancy Investigation
 
-**Classification:** unresolved investigation — blocks S6.6 canonical replication
+**Classification:** partially resolved — leverage discrepancy resolved, baseline discrepancy deferred
 
-The threshold=20% scenario (WR=3.91%, borrow=41.08%) does not reproduce
-ERN's published result exactly:
+### Leverage-induced discrepancy — RESOLVED (S6.5B, commit e9f0e5f)
 
-- ERN anchor: all 1,739 cohorts succeed
-- FBF result: 1733/1739 (99.65%) succeed
-- Six cohorts fail
+The missing `LoanRepaymentStep` in `_create_default_simulation_executor()`
+caused loans to be drawn but never repaid, accumulating interest
+indefinitely. This was the root cause of all 19 leverage-induced failures
+observed at WR=3.5%.
 
-### Corrected facts (from S6.3 investigation)
+- Without fix (WR=3.50%, B%=41.08%): 1720/1739 (19 leverage-induced failures)
+- With fix (WR=3.50%, B%=41.08%): **1739/1739** (all succeed)
+- With fix (WR=3.91%, B%=41.08%): 1733/1739 (6 baseline failures remain)
+
+Pipeline parity regression tests (`test_pipeline_parity.py`) now protect
+against future divergence between the canonical and parallel pipelines.
+
+### Remaining baseline discrepancy — DEFERRED to E2E validation pass
+
+Six cohorts fail at WR=3.91% even with B%=0 (no leverage):
+
+| Cohort | Failure month |
+|--------|--------------|
+| 1929-09-01 | 339 |
+| 1965-11-01 | 344 |
+| 1965-12-01 | 354 |
+| 1966-01-01 | 354 |
+| 1966-02-01 | 350 |
+| 1968-12-01 | 328 |
 
 - All six failures are **portfolio depletion**, not LTV enforcement
 - Loan balance is zero at failure (no outstanding debt)
-- At least the 1929 cohort also fails without leverage at WR=3.91%
-- The original attribution to LTV enforcement was incorrect
+- The same six cohorts fail at B%=0 — this is NOT leverage-related
+- LoanRepaymentStep parity is no longer implicated
+- ERN anchor: all 1,739 cohorts succeed at WR=3.91%, B%=41.08%
+- FBF result: 1733/1739 (99.65%) at WR=3.91%, any B%
 
-### Required investigation
-
-1. **Dataset provenance:** Verify `ern_swr_h720.json` faithfully represents
-   ERN's source data (date coverage, monthly alignment, return construction,
-   inflation adjustment, truncation).
-2. **Cohort set comparison:** Determine whether FBF's 1,739 cohorts match
-   ERN's published cohort population exactly.
-3. **Success criterion comparison:** Compare ERN's terminal wealth criterion
-   against FBF's `final_value_target` (nominal vs real, timing, horizon).
-4. **Part 52 mechanics trace:** Trace failing cohorts through the full pipeline.
-5. **Baseline comparison (critical):** For each failing cohort, compare:
-   - No leverage → survive?
-   - Untimed leverage → survive?
-   - Timed leverage → fail?
-   This determines whether the discrepancy is in Part 52 or the withdrawal model.
-
-**Do not introduce tolerances or weaken assertions before this investigation.**
+**Deferred to:** comprehensive E2E/replication validation pass. Potential
+causes: dataset provenance, success criterion timing, forward extrapolation
+methodology, or withdrawal timing conventions. See S6 architecture plan
+for investigation areas.
 
 ---
 
