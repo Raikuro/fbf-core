@@ -48,6 +48,7 @@ def _create_default_simulation_executor() -> SimulationExecutor:
     Pipeline order (K.5.1 corrected):
     - LoanDrawStep (step 28): Borrow before withdrawal, cash available for spending
     - WithdrawalExecutionStep (step 30): Consume cash first, then sell assets
+    - LoanRepaymentStep (step 32): Repay at fresh ATH (Part 52)
     - InterestAccrualStep (step 65): Compound interest at end of period
     - LTVEvaluationStep (step 66): Enforce LTV constraint
     - FailureDetectionStep (step 75): Detect depletion and margin call impossible
@@ -55,6 +56,7 @@ def _create_default_simulation_executor() -> SimulationExecutor:
     from fbf.core.execution.pipeline.steps.failure_detection_step import FailureDetectionStep
     from fbf.core.execution.pipeline.steps.interest_accrual_step import InterestAccrualStep
     from fbf.core.execution.pipeline.steps.loan_draw_step import LoanDrawStep
+    from fbf.core.execution.pipeline.steps.loan_repayment_step import LoanRepaymentStep
     from fbf.core.execution.pipeline.steps.ltv_evaluation_step import LTVEvaluationStep
 
     pipeline = SimulationPipeline(
@@ -64,6 +66,7 @@ def _create_default_simulation_executor() -> SimulationExecutor:
             WithdrawalDecisionStep(),
             LoanDrawStep(),  # BEFORE withdrawal - cash available for spending
             WithdrawalExecutionStep(),  # Consume cash first, then sell assets
+            LoanRepaymentStep(),  # Part 52: repay at fresh ATH
             AllocationDecisionStep(),
             PortfolioRebalanceStep(),
             MarketEvolutionStep(),

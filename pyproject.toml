@@ -60,6 +60,8 @@ python_functions = ["test_*"]
 addopts = ["-ra", "--strict-markers"]
 markers = [
     "ern_e2e: end-to-end ERN validation requiring the real execution path / CLI",
+    "benchmark: performance benchmark test",
+    "slow: slow-running test",
 ]
 
 [tool.coverage.run]
