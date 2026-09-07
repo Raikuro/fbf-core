@@ -17,7 +17,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 # Real FRED FEDFUNDS data (monthly averages of daily figures).

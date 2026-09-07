@@ -60,7 +60,7 @@ A change that does not pass every step is not committed.
 
 ```bash
 # 1. Lint — must report "All checks passed!"
-ruff check src tests
+ruff check .
 
 # 2. Type check — must report "Success: no issues found in N source files"
 mypy --strict .
@@ -75,7 +75,7 @@ pytest tests/contract/
 ```
 
 `ruff` runs with `--fix` for auto-applicable findings, but the final state must
-be clean under the plain `ruff check src tests` form above.
+be clean under the plain `ruff check .` form above.
 
 ### Heavyweight E2E / Oracle Tests
 
@@ -202,7 +202,7 @@ This policy applies to all future phases unless explicitly overridden by the use
 2. Export from the subpackage's `__init__.py`.
 3. If the symbol is Tier 1, add it to `src/fbf/core/__init__.py` and `__all__`.
 4. Update `test_public_facade_symbols` in `tests/contract/test_core_boundaries.py`.
-5. Run `mypy --strict .` and `ruff check src tests` before committing.
+5. Run `mypy --strict .` and `ruff check .` before committing.
 
 ---
 

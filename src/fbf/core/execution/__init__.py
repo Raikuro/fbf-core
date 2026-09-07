@@ -9,7 +9,12 @@ from enum import StrEnum
 from typing import Any
 
 from fbf.core.execution.profiling import (
+    CompositeProfiler,
+    CpuProfiler,
+    EnhancedProfileReport,
     ExecutionProfiler,
+    MemoryProfiler,
+    NestedPhaseTiming,
     NoOpProfiler,
     Profiler,
     ProfileReport,
@@ -248,6 +253,7 @@ def execute_study_plan(
     strategy = opt.strategy
 
     # --- Backend selection ---
+    profiler.start("backend_selection")
     sim_executor: Any = None
     if backend == ExecutionBackend.FAST:
         try:
@@ -272,8 +278,10 @@ def execute_study_plan(
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
 
         sim_executor = FastPathSimulationExecutor(profiler=profiler)
+    profiler.stop("backend_selection")
 
     # --- Strategy selection ---
+    profiler.start("strategy_selection")
     # ``workers`` is an optional resource hint, not a strategy directive.
     # When not provided, the execution layer inspects host capabilities.
     workers = opt.workers if opt.workers is not None else kwargs.get("workers")
@@ -302,6 +310,8 @@ def execute_study_plan(
             )
 
     if use_parallel:
+        profiler.stop("strategy_selection")
+        profiler.start("parallel_dispatch")
         result = parallel_execute(
             plan=built.plan,
             max_workers=workers,
@@ -309,13 +319,17 @@ def execute_study_plan(
             progress_callback=opt.progress_callback,
             profiler=profiler,
         )
+        profiler.stop("parallel_dispatch")
     else:
+        profiler.stop("strategy_selection")
+        profiler.start("sequential_dispatch")
         result = sequential_execute(
             plan=built.plan,
             simulation_executor=sim_executor,
             progress_callback=opt.progress_callback,
             profiler=profiler,
         )
+        profiler.stop("sequential_dispatch")
 
     profiler.record("total_units", len(built.plan.units))
     profiler.stop("total")
@@ -347,4 +361,9 @@ __all__ = [
     "NoOpProfiler",
     "ExecutionProfiler",
     "ProfileReport",
+    "NestedPhaseTiming",
+    "EnhancedProfileReport",
+    "CpuProfiler",
+    "MemoryProfiler",
+    "CompositeProfiler",
 ]

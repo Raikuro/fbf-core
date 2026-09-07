@@ -212,6 +212,11 @@ def test_public_facade_symbols() -> None:
         "NoOpProfiler",
         "ExecutionProfiler",
         "ProfileReport",
+        "NestedPhaseTiming",
+        "EnhancedProfileReport",
+        "CpuProfiler",
+        "MemoryProfiler",
+        "CompositeProfiler",
     }
     actual_symbols = set(fbf.core.__all__)
     assert expected_symbols == actual_symbols, (

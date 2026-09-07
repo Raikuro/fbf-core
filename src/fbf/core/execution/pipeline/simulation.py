@@ -54,6 +54,9 @@ class SimulationState:
     ltv_limit: Decimal = Decimal("0")
     ltv_enforcement: bool = True
 
+    # Profiling (set by runner before build_result)
+    _execution_time_seconds: float = 0.0
+
 
 class ExecutionStatus(Enum):
     """Enumeration of simulation execution states."""
@@ -117,7 +120,7 @@ class SimulationStatistics:
     failure_month: int | None
     failure_state: str | None
     months_simulated: int
-    execution_time_seconds: float
+    execution_time_seconds: float = field(default=0.0, compare=False)
 
 
 @dataclass(frozen=True)

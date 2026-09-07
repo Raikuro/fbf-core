@@ -32,7 +32,7 @@ from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import Portfolio
 from fbf.core.execution.pipeline.steps.simulation_state_update_step import SimulationStateUpdateStep
 from fbf.core.execution.pipeline.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from fbf.core.execution.pipeline.steps.withdrawal_execution_step import WithdrawalExecutionStep
-from fbf.core.execution.profiling import Profiler
+from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
@@ -451,6 +451,9 @@ def sequential_execute(
     ResearchExecutionResult
         Aggregated result preserving plan-unit provenance.
     """
+    profiler = profiler or NoOpProfiler()
+
+    profiler.start("sequential_setup")
     sim_exec = simulation_executor or _create_default_simulation_executor()
     if progress_callback is not None:
         sim_exec = _ProgressReportingSimulationExecutor(
@@ -458,10 +461,19 @@ def sequential_execute(
             progress_callback,
             total=len(plan.units),
         )
+    profiler.stop("sequential_setup")
+
+    profiler.start("sequential_execution")
     research_executor = ResearchExecutor(sim_exec, profiler=profiler)
     result = research_executor.execute(plan)
+    profiler.stop("sequential_execution")
+
     if summary_only:
-        return _strip_result_timelines(result)
+        profiler.start("sequential_strip_timelines")
+        result = _strip_result_timelines(result)
+        profiler.stop("sequential_strip_timelines")
+
+    profiler.record("sequential_units", len(plan.units))
     return result
 
 
@@ -504,6 +516,9 @@ def parallel_execute(
     ResearchExecutionResult
         Aggregated result with bit-for-bit equivalence to sequential_execute(plan).
     """
+    profiler = profiler or NoOpProfiler()
+
+    profiler.start("parallel_overhead")
     if config is None:
         config = ExecutionConfig()
 
@@ -513,6 +528,7 @@ def parallel_execute(
 
     total_units = len(plan.units)
     if total_units == 0:
+        profiler.stop("parallel_overhead")
         return sequential_execute(
             plan,
             simulation_executor=simulation_executor,
@@ -522,6 +538,7 @@ def parallel_execute(
         )
 
     if effective_workers == 1:
+        profiler.stop("parallel_overhead")
         return sequential_execute(
             plan,
             simulation_executor=simulation_executor,
@@ -536,20 +553,13 @@ def parallel_execute(
         and config.chunk_size is not None
         and config.chunk_size > 0
     ):
-        # Explicitly requested fine-grained chunks give smooth progress updates;
-        # each chunk's payload is tiny in summary-only mode. This is opt-in via
-        # ExecutionConfig.chunk_size: the default (None) dispatches worker-sized
-        # batches so a 300k-unit grid runs as a few dozen tasks rather than one
-        # task per unit.
         batches = create_chunked_batches(plan, config.chunk_size)
     else:
         batches = create_work_batches(plan, effective_workers)
-    executor_cls = ProcessPoolExecutor if config.use_processes else ThreadPoolExecutor
+    profiler.record("parallel_batches", len(batches))
+    profiler.record("parallel_workers", effective_workers)
 
-    # Map unit batches to index ranges. The experiment definition and unit
-    # datasets are seeded once per worker via the pool initializer, and tasks
-    # carry only these integer index ranges, eliminating per-task re-pickling of
-    # the (potentially large) experiment definition.
+    # Map unit batches to index ranges.
     all_unit_indexes = tuple(range(total_units))
     index_batches: list[tuple[int, ...]] = []
     offset = 0
@@ -557,15 +567,22 @@ def parallel_execute(
         index_batches.append(all_unit_indexes[offset : offset + len(batch)])
         offset += len(batch)
     assert offset == total_units
+    profiler.stop("parallel_overhead")
+
+    profiler.start("parallel_pool_creation")
+    executor_cls = ProcessPoolExecutor if config.use_processes else ThreadPoolExecutor
+    profiler.stop("parallel_pool_creation")
 
     all_simulation_results: list[SimulationResult] = []
     completed_count = 0
 
+    profiler.start("parallel_execution")
     with executor_cls(
         max_workers=effective_workers,
         initializer=_initialize_worker,
         initargs=(plan.experiment_definition, plan.units, simulation_executor),
     ) as executor:
+        profiler.start("parallel_task_submission")
         futures = [
             executor.submit(
                 _worker_execute_index_batch,
@@ -574,7 +591,9 @@ def parallel_execute(
             )
             for index_batch in index_batches
         ]
+        profiler.stop("parallel_task_submission")
 
+        profiler.start("parallel_result_collection")
         for future in futures:
             if config.timeout_seconds is not None:
                 batch_results = future.result(timeout=config.timeout_seconds)
@@ -585,7 +604,10 @@ def parallel_execute(
             completed_count += len(batch_results)
             if progress_callback is not None:
                 progress_callback(completed_count, total_units)
+        profiler.stop("parallel_result_collection")
+    profiler.stop("parallel_execution")
 
+    profiler.start("parallel_assembly")
     # Reconstruct Engine SimulationContexts for engine ExperimentRun
     sim_exec = simulation_executor or _create_default_simulation_executor()
     research_executor = ResearchExecutor(sim_exec)
@@ -603,6 +625,9 @@ def parallel_execute(
         definition=engine_def,
         simulation_results=tuple(all_simulation_results),
     )
+    profiler.stop("parallel_assembly")
+
+    profiler.record("parallel_units", total_units)
     return ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from fbf.core.execution.pipeline.runner import SimulationRunner
 from fbf.core.execution.pipeline.simulation import ExperimentDefinition, ExperimentRun
 
@@ -19,8 +21,11 @@ class SimulationExecutor:
         if not isinstance(definition, ExperimentDefinition):
             raise ValueError("ExperimentDefinition is required")
 
+        t_start = time.perf_counter()
         results = tuple(
             self._simulation_runner.run(context)
             for context in definition.simulation_contexts
         )
+        t_end = time.perf_counter()
+        self._last_execution_seconds = t_end - t_start
         return ExperimentRun(definition=definition, simulation_results=results)

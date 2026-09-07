@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import date
 from decimal import Decimal
 
@@ -42,6 +43,7 @@ class SimulationRunner:
         self._validate_context(context)
         state = self._initialize_state(context)
 
+        t_start = time.perf_counter()
         while state.status == ExecutionStatus.RUNNING:
             for step in self.pipeline.steps:
                 state = step.execute(state)
@@ -52,7 +54,9 @@ class SimulationRunner:
                     break
             if state.status != ExecutionStatus.RUNNING:
                 break
+        t_end = time.perf_counter()
 
+        state._execution_time_seconds = t_end - t_start  # noqa: SLF001
         return self._build_result(state)
 
     def _validate_context(self, context: SimulationContext) -> None:

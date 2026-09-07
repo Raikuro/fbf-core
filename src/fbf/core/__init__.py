@@ -6,10 +6,15 @@ from fbf.core.domain.policies import AllocationPolicyType, WithdrawalPolicyType
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
 from fbf.core.errors import CoreError
 from fbf.core.execution import (
+    CompositeProfiler,
+    CpuProfiler,
+    EnhancedProfileReport,
     ExecutionBackend,
     ExecutionOptions,
     ExecutionProfiler,
     ExecutionStrategy,
+    MemoryProfiler,
+    NestedPhaseTiming,
     NoOpProfiler,
     Profiler,
     ProfileReport,
@@ -66,4 +71,9 @@ __all__ = [
     "NoOpProfiler",
     "ExecutionProfiler",
     "ProfileReport",
+    "NestedPhaseTiming",
+    "EnhancedProfileReport",
+    "CpuProfiler",
+    "MemoryProfiler",
+    "CompositeProfiler",
 ]

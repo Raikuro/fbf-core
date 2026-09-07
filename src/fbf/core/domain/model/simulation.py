@@ -6,7 +6,7 @@ Contains simulation context, state, results, and related value objects.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from .allocation import Allocation, AllocationTarget
@@ -45,7 +45,7 @@ class SimulationStatistics:
     min_wealth: Money
     max_drawdown: float
     cagr: float
-    execution_time_seconds: float
+    execution_time_seconds: float = field(default=0.0, compare=False)
 
 
 @dataclass(frozen=True)

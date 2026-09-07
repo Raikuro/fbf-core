@@ -71,5 +71,5 @@ class DefaultSimulationStatisticsBuilder(SimulationStatisticsBuilder):
             failure_month=failure_month,
             failure_state=state.failure_state,
             months_simulated=len(state.monthly_results),
-            execution_time_seconds=0.0,  # Placeholder: requires timing instrumentation
+            execution_time_seconds=state._execution_time_seconds,
         )
