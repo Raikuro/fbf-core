@@ -191,7 +191,7 @@ The deferred architecture document is formally incorporated into the repository 
 | `docs/roadmap/S5_ARCHITECTURE_PLAN.md` | S5 architecture plan | Committed (S5.0) |
 | `docs/roadmap/S5_6_ERN_VALIDATION_REPORT.md` | ERN validation report | Committed (S5.6) |
 | `docs/roadmap/S5_7_PERFORMANCE_REPORT.md` | Performance report | Committed (S5.7) |
-| `docs/roadmap/s57_benchmark_results.json` | Raw benchmark results | Committed (S5.7) |
+| `docs/roadmap/s57_benchmark_results.json` | Raw benchmark results (reproducible, intentionally not versioned) | Removed from history |
 | `docs/roadmap/S5_4_R2_ARCHITECTURE.md` | Deferred: architecture design | Committed (S5.8) |
 | `docs/roadmap/S5_CLOSURE_REPORT.md` | S5 closure report | Committed (S5.8) |
 

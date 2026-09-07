@@ -24,3 +24,6 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .venv/
+
+# Generated benchmark output (reproducible, not versioned)
+docs/roadmap/s57_benchmark_results.json

@@ -282,7 +282,7 @@ These changes remain **deferred** for larger user-defined workloads. The canonic
 - Modified: 0 production files
 - New: `tests/benchmarks/s57_performance_benchmark.py` (benchmark script)
 - New: `docs/roadmap/S5_7_PERFORMANCE_REPORT.md` (this report)
-- New: `docs/roadmap/s57_benchmark_results.json` (raw results)
+- Note: `s57_benchmark_results.json` is reproducible generated output, intentionally not versioned
 
 **No commits created. No production code modified.**
 
@@ -294,7 +294,6 @@ These changes remain **deferred** for larger user-defined workloads. The canonic
 |------|---------|
 | `tests/benchmarks/s57_performance_benchmark.py` | Benchmark script |
 | `docs/roadmap/S5_7_PERFORMANCE_REPORT.md` | This report |
-| `docs/roadmap/s57_benchmark_results.json` | Raw benchmark results |
 
 ---
 
