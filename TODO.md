@@ -222,8 +222,14 @@ required to unblock Part 52.
 
 **Classification:** data gap — blocks S6.6 canonical replication
 
-The FFR dataset covers only 1954-07 to 2023-12. ERN cohorts begin 1871.
-Any cohort starting before 1954-07 lacks interest-rate data.
+The FFR dataset covers only 1928-04 to 2026-08. ERN cohorts begin 1871.
+Any cohort starting before 1928-04 lacks interest-rate data.
+
+### Impact confirmed (S6.6B)
+
+`build_interest_rate_schedule` fails with ValueError for cohorts starting
+before 1928-04. FFR scenarios (A2-A8, A10-A11) used fixed-rate approximation
+as documented fallback. These are NOT canonical ERN executions.
 
 ### Required coverage
 
@@ -431,3 +437,111 @@ architecture plan §4.4 for full assessment.
 All semantic questions resolved during S6.P. See S6 architecture plan
 §10.1–§10.8 for full findings. Architecture is frozen. Implementation
 may proceed with explicit authorization.
+
+---
+
+## S6.6B FFR Integration Limitation — Canonical Replication Blocked
+
+**Classification:** architectural limitation — blocks full canonical ERN replication
+
+### Problem
+
+The framework generates ALL 1,739 cohorts (1871+) and requires FFR data for
+the full 30-year simulation horizon. FFR data starts 1928-04. For cohorts
+starting before 1928-04, `build_interest_rate_schedule` fails with ValueError.
+
+### Impact on S6.6B
+
+FFR scenarios (A2-A8, A10-A11) used fixed-rate approximation instead of
+actual FFR data. These are NOT canonical ERN executions.
+
+| Scenario | Actual Result | Expected | Methodology |
+|----------|--------------|----------|-------------|
+| A2 | 1739/1739 | 1739/1739 | Fixed-rate approx (D) |
+| A3 | 1733/1739 | 1739/1739 | Fixed-rate approx (C) |
+| A4 | 1731/1739 | 1739/1739 | Fixed-rate approx (C) |
+| A5 | 1736/1739 | 1739/1739 | Fixed-rate approx (C) |
+| A6 | 1739/1739 | 1739/1739 | Fixed-rate approx (D) |
+| A7 | 1729/1739 | 1739/1739 | Fixed-rate approx (C) |
+| A8 | 1738/1739 | 1739/1739 | Fixed-rate approx (C) |
+| A10 | 1613/1739 | 1739/1739 | Fixed-rate approx (C) |
+| A11 | 1413/1739 | 1739/1739 | Fixed-rate approx (C) |
+
+### Required resolution
+
+1. **Historical FFR partial-coverage architecture:** Determine how a generic
+   study should handle datasets whose temporal coverage does not span all
+   generated cohorts. Consider cohort filtering, dataset coverage validation,
+   or another generic framework-level solution.
+
+2. **Pre-1928 historical FFR methodology:** Investigate whether an
+   authoritative historical rate source/proxy exists that is methodologically
+   defensible for the ERN replication. Do NOT introduce a proxy now.
+
+### Deferred to
+
+Comprehensive E2E/replication validation pass after FFR coverage is resolved.
+
+---
+
+## S6.6B Part52Evaluator Infeasible-Search Semantics
+
+**Classification:** API ambiguity — does not block S6.6B
+
+### Problem
+
+When the Part52Evaluator grid sweep finds no feasible Borrow%, it returns
+Borrow%=0.00% in the provenance. This silently conflates two cases:
+
+a) A feasible optimum at Borrow%=0% (valid result)
+b) No feasible Borrow% found by the configured search (fallback)
+
+### Current behavior
+
+```python
+# In Part52Evaluator.evaluate():
+if outcome.success:
+    return outcome  # success=True, borrow_pct is feasible
+else:
+    # Returns best outcome, which may have borrow_pct=0.00%
+    return best_outcome  # success=False, but borrow_pct=0.00%
+```
+
+### Required correction
+
+Distinguish explicitly between:
+- Feasible optimum at Borrow%=0%
+- No feasible Borrow% found (fallback)
+
+Do NOT redesign the optimizer now.
+
+---
+
+## S6.6B Canonical Part 52 Historical Replication — Deferred
+
+**Classification:** deferred — blocked by FFR coverage limitation
+
+### Current state
+
+- 11 published ERN scenarios audited
+- A1 and A9: exact matches (non-FFR baselines)
+- A2: explainable under documented methodology difference (FFR→fixed approx)
+- A3: preserves known six-cohort baseline discrepancy
+- A4-A8, A10-A11: deferred methodology/data-coverage discrepancies
+
+### Required before revisiting
+
+1. FFR coverage limitation resolved (see above)
+2. Pre-1928 FFR methodology investigated
+3. Part52Evaluator infeasible-search semantics corrected
+
+### Do NOT
+
+- Modify the simulation engine
+- Modify canonical Part 52 semantics
+- Add a pre-1928 proxy
+- Change cohort generation
+- Change the optimizer
+- Change execution architecture
+- Add batching or worker architecture
+- Rerun expensive optimizer sweeps
