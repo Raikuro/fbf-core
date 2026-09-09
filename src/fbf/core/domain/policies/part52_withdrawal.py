@@ -17,6 +17,7 @@ from typing import Any
 from fbf.core.domain.model.decision_context import DecisionContext
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies.decisions import WithdrawalDecision
+from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 
 
@@ -24,19 +25,29 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
     """Withdrawal policy for Part 52 timing-leverage studies.
 
     Computes both the portfolio withdrawal and the loan draw as fractions
-    of the monthly budget. The budget is computed from initial_wealth at
-    cohort start and is constant across all periods.
+    of the budget.  The budget is computed from initial_wealth at cohort
+    start and is constant across all periods.
+
+    In ``MONTHLY`` mode the budget is ``initial_wealth × rate / 12``; in
+    ``ANNUAL`` mode it is ``initial_wealth × rate``.  The borrow/repay
+    decision logic is identical in both modes and is coupled to the
+    withdrawal event — leverage actions occur only when the policy
+    produces a non-zero withdrawal.
 
     Parameters
     ----------
     withdrawal_rate:
         Annual portfolio withdrawal rate (e.g. ``Decimal("0.0391")`` for 3.91%).
     borrow_pct:
-        Fraction of the monthly budget funded by the margin loan
+        Fraction of the budget funded by the margin loan
         (e.g. ``Decimal("0.4108")`` for 41.08%).
     drawdown_threshold:
         Index drawdown below which borrowing is activated
         (e.g. ``Decimal("0.20")`` for 20%).
+    frequency:
+        Withdrawal cadence.  ``MONTHLY`` (default) divides the annual rate
+        by 12 per invocation.  ``ANNUAL`` uses the full annual rate once
+        per year (``period_index % 12 == 0``).
     """
 
     def __init__(
@@ -44,12 +55,15 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
         withdrawal_rate: Decimal,
         borrow_pct: Decimal,
         drawdown_threshold: Decimal,
+        *,
+        frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
     ) -> None:
+        super().__init__(frequency=frequency)
         self.withdrawal_rate = withdrawal_rate
         self.borrow_pct = borrow_pct
         self.drawdown_threshold = drawdown_threshold
 
-    def decide(self, context: DecisionContext) -> WithdrawalDecision:
+    def _decide_active(self, context: DecisionContext) -> WithdrawalDecision:
         sim_context: Any = getattr(context, "simulation_context", None)
         if sim_context is None:
             raise TypeError(
@@ -69,7 +83,10 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
         for holding in sim_context.initial_portfolio.holdings:
             price = initial_snapshot.index_levels[holding.asset_class]
             initial_wealth += Money(holding.units * price, Currency.EUR)
-        budget = initial_wealth.amount * self.withdrawal_rate / Decimal("12")
+        if self.frequency is WithdrawalFrequency.ANNUAL:
+            budget = initial_wealth.amount * self.withdrawal_rate
+        else:
+            budget = initial_wealth.amount * self.withdrawal_rate / Decimal("12")
 
         # 2. Compute index-level drawdown
         equity_asset = None
@@ -89,7 +106,7 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
         if context.debt_info is not None:
             loan_balance = context.debt_info.loan_balance
 
-        # 4. Decision logic
+        # 4. Decision logic (identical structure for both frequencies)
         if drawdown >= self.drawdown_threshold and loan_balance == 0:
             # BORROW: activate leverage
             portfolio_withdrawal = budget * (Decimal("1") - self.borrow_pct)

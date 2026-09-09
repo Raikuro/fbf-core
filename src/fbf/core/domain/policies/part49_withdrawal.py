@@ -17,6 +17,7 @@ from typing import Any
 from fbf.core.domain.model.decision_context import DecisionContext
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies.decisions import WithdrawalDecision
+from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 
 
@@ -31,12 +32,22 @@ class Part49WithdrawalPolicy(WithdrawalPolicy):
     ----------
     withdrawal_rate:
         Annual portfolio withdrawal rate (e.g. ``Decimal("0.04")`` for 4%).
+    frequency:
+        Withdrawal cadence.  ``MONTHLY`` (default) divides the annual rate
+        by 12 per invocation.  ``ANNUAL`` uses the full annual rate once
+        per year (``period_index % 12 == 0``).
     """
 
-    def __init__(self, withdrawal_rate: Decimal) -> None:
+    def __init__(
+        self,
+        withdrawal_rate: Decimal,
+        *,
+        frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
+    ) -> None:
+        super().__init__(frequency=frequency)
         self.withdrawal_rate = withdrawal_rate
 
-    def decide(self, context: DecisionContext) -> WithdrawalDecision:
+    def _decide_active(self, context: DecisionContext) -> WithdrawalDecision:
         sim_context: Any = getattr(context, "simulation_context", None)
         if (
             sim_context is None
@@ -53,14 +64,20 @@ class Part49WithdrawalPolicy(WithdrawalPolicy):
             price = initial_snapshot.index_levels[holding.asset_class]
             total += Money(holding.units * price, Currency.EUR)
 
-        monthly_withdrawal = total.amount * self.withdrawal_rate / Decimal("12")
+        if self.frequency is WithdrawalFrequency.ANNUAL:
+            portfolio_withdrawal = total.amount * self.withdrawal_rate
+        else:
+            portfolio_withdrawal = total.amount * self.withdrawal_rate / Decimal("12")
 
         loan_draw_rate: Decimal = getattr(sim_context, "loan_draw_rate", None) or Decimal("0")
-        monthly_loan = total.amount * loan_draw_rate / Decimal("12")
+        if self.frequency is WithdrawalFrequency.ANNUAL:
+            loan_draw = total.amount * loan_draw_rate
+        else:
+            loan_draw = total.amount * loan_draw_rate / Decimal("12")
 
         return WithdrawalDecision(
             reason="Part49WithdrawalPolicy",
-            nominal_amount=Money(monthly_withdrawal, Currency.EUR),
-            real_amount=Money(monthly_withdrawal, Currency.EUR),
-            loan_draw_amount=monthly_loan,
+            nominal_amount=Money(portfolio_withdrawal, Currency.EUR),
+            real_amount=Money(portfolio_withdrawal, Currency.EUR),
+            loan_draw_amount=loan_draw,
         )

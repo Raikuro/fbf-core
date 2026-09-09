@@ -16,6 +16,7 @@ from fbf.core.domain.model.decision_context import DecisionContext
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
+from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 
 
@@ -55,16 +56,25 @@ class ConstantWithdrawalPolicy(WithdrawalPolicy):
     Real amount uses the same value (inflation adjustment deferred).
     """
 
-    def __init__(self, withdrawal_rate: Decimal) -> None:
+    def __init__(
+        self,
+        withdrawal_rate: Decimal,
+        *,
+        frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
+    ) -> None:
+        super().__init__(frequency=frequency)
         self.withdrawal_rate = withdrawal_rate
 
-    def decide(self, context: DecisionContext) -> WithdrawalDecision:
+    def _decide_active(self, context: DecisionContext) -> WithdrawalDecision:
         total = sum(h.units for h in context.portfolio.holdings)
-        monthly = total * self.withdrawal_rate / Decimal("12")
+        if self.frequency is WithdrawalFrequency.ANNUAL:
+            amount = total * self.withdrawal_rate
+        else:
+            amount = total * self.withdrawal_rate / Decimal("12")
         return WithdrawalDecision(
             reason="ConstantWithdrawalPolicy",
-            nominal_amount=Money(monthly, Currency.EUR),
-            real_amount=Money(monthly, Currency.EUR),
+            nominal_amount=Money(amount, Currency.EUR),
+            real_amount=Money(amount, Currency.EUR),
         )
 
 
@@ -81,10 +91,16 @@ class FixedRealWithdrawalPolicy(WithdrawalPolicy):
     (index-level) units for the entire horizon.
     """
 
-    def __init__(self, withdrawal_rate: Decimal) -> None:
+    def __init__(
+        self,
+        withdrawal_rate: Decimal,
+        *,
+        frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
+    ) -> None:
+        super().__init__(frequency=frequency)
         self.withdrawal_rate = withdrawal_rate
 
-    def decide(self, context: DecisionContext) -> WithdrawalDecision:
+    def _decide_active(self, context: DecisionContext) -> WithdrawalDecision:
         sim_context: Any = getattr(context, "simulation_context", None)
         if (
             sim_context is None
@@ -99,9 +115,12 @@ class FixedRealWithdrawalPolicy(WithdrawalPolicy):
         for holding in sim_context.initial_portfolio.holdings:
             price = initial_snapshot.index_levels[holding.asset_class]
             total += Money(holding.units * price, Currency.EUR)
-        monthly = total.amount * self.withdrawal_rate / Decimal("12")
+        if self.frequency is WithdrawalFrequency.ANNUAL:
+            amount = total.amount * self.withdrawal_rate
+        else:
+            amount = total.amount * self.withdrawal_rate / Decimal("12")
         return WithdrawalDecision(
             reason="FixedRealWithdrawalPolicy",
-            nominal_amount=Money(monthly, Currency.EUR),
-            real_amount=Money(monthly, Currency.EUR),
+            nominal_amount=Money(amount, Currency.EUR),
+            real_amount=Money(amount, Currency.EUR),
         )

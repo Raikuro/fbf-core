@@ -24,6 +24,7 @@ from fbf.core.domain.policies import (
     ConstantWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
     GlidepathAllocationPolicy,
+    WithdrawalFrequency,
     WithdrawalPolicyType,
 )
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
@@ -320,6 +321,20 @@ def _parse_optional_string_array(
     return tuple(raw)
 
 
+def _validate_withdrawal_frequency(raw: object) -> None:
+    """Validate that *raw* is a valid ``WithdrawalFrequency`` value."""
+    if not isinstance(raw, str):
+        raise ValueError("withdrawal_policy.frequency must be a string")
+    try:
+        WithdrawalFrequency(raw)
+    except ValueError:
+        valid = ", ".join(f.value for f in WithdrawalFrequency)
+        raise ValueError(
+            f"withdrawal_policy.frequency must be one of {valid}, "
+            f"got {raw!r}"
+        ) from None
+
+
 def build_allocation_policy(policy_type: str, scalar: Decimal) -> AllocationPolicy:
     """Build the concrete allocation policy for the declared YAML ``type``."""
     policy_enum = AllocationPolicyType.from_yaml_name(policy_type)
@@ -349,21 +364,23 @@ def build_withdrawal_policy(
     *,
     borrow_pct: Decimal | None = None,
     drawdown_threshold: Decimal | None = None,
+    frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
 ) -> WithdrawalPolicy:
     """Build a WithdrawalPolicy from its YAML type name and scalar value."""
     policy_enum = WithdrawalPolicyType.from_yaml_name(policy_type)
     if policy_enum is WithdrawalPolicyType.FIXED_REAL:
-        return FixedRealWithdrawalPolicy(withdrawal_rate=scalar)
+        return FixedRealWithdrawalPolicy(withdrawal_rate=scalar, frequency=frequency)
     if policy_enum is WithdrawalPolicyType.CONSTANT:
-        return ConstantWithdrawalPolicy(withdrawal_rate=scalar)
+        return ConstantWithdrawalPolicy(withdrawal_rate=scalar, frequency=frequency)
     if policy_enum is WithdrawalPolicyType.PART49:
         from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
-        return Part49WithdrawalPolicy(withdrawal_rate=scalar)
+        return Part49WithdrawalPolicy(withdrawal_rate=scalar, frequency=frequency)
     if policy_enum is WithdrawalPolicyType.PART52:
         return build_part52_withdrawal_policy(
             withdrawal_rate=scalar,
             borrow_pct=borrow_pct or Decimal("0"),
             drawdown_threshold=drawdown_threshold or Decimal("0.20"),
+            frequency=frequency,
         )
     raise ValueError(f"Unsupported withdrawal policy type: {policy_type!r}")
 
@@ -372,6 +389,8 @@ def build_part52_withdrawal_policy(
     withdrawal_rate: Decimal,
     borrow_pct: Decimal,
     drawdown_threshold: Decimal,
+    *,
+    frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
 ) -> WithdrawalPolicy:
     """Build a Part52WithdrawalPolicy from its three parameters."""
     from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
@@ -379,6 +398,7 @@ def build_part52_withdrawal_policy(
         withdrawal_rate=withdrawal_rate,
         borrow_pct=borrow_pct,
         drawdown_threshold=drawdown_threshold,
+        frequency=frequency,
     )
 
 
@@ -607,6 +627,8 @@ class StudyConfiguration:
         withdrawal_policy_values = _parse_decimal_values(
             withdrawal_policy, "withdrawal_rate"
         )
+        withdrawal_frequency_raw = withdrawal_policy.get("frequency", "monthly")
+        _validate_withdrawal_frequency(withdrawal_frequency_raw)
 
         final_value_target_values = _parse_optional_decimal_array(
             data, "final_value_target"
@@ -963,6 +985,8 @@ def _make_horizon_resolver(
 
 def _make_policy_resolver(
     config: StudyConfiguration,
+    *,
+    withdrawal_frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
 ) -> Callable[[ParameterConfiguration], tuple[AllocationPolicy, WithdrawalPolicy]]:
     """Per-configuration policies from the study's declared value arrays.
 
@@ -972,7 +996,9 @@ def _make_policy_resolver(
     """
     _alloc_by_weight: dict[Decimal, AllocationPolicy] = {}
     _alloc_glidepath: dict[tuple[Decimal, Decimal, Decimal, str], AllocationPolicy] = {}
-    _withdraw_by_params: dict[tuple[Decimal, Decimal, Decimal], WithdrawalPolicy] = {}
+    _withdraw_by_params: dict[
+        tuple[Decimal, Decimal, Decimal, WithdrawalFrequency], WithdrawalPolicy
+    ] = {}
 
     def resolve(
         param_config: ParameterConfiguration,
@@ -1018,7 +1044,12 @@ def _make_policy_resolver(
             if threshold_raw is not None
             else config.debt_drawdown_threshold
         )
-        cache_key = (rate, borrow_pct or Decimal("0"), drawdown_threshold or Decimal("0"))
+        cache_key = (
+            rate,
+            borrow_pct or Decimal("0"),
+            drawdown_threshold or Decimal("0"),
+            withdrawal_frequency,
+        )
         resolved_withd = _withdraw_by_params.get(cache_key)
         if resolved_withd is None:
             resolved_withd = build_withdrawal_policy(
@@ -1026,6 +1057,7 @@ def _make_policy_resolver(
                 rate,
                 borrow_pct=borrow_pct,
                 drawdown_threshold=drawdown_threshold,
+                frequency=withdrawal_frequency,
             )
             _withdraw_by_params[cache_key] = resolved_withd
         return resolved_alloc, resolved_withd
@@ -1077,6 +1109,8 @@ def _make_interest_rate_resolver(
 
 def _representative_policies(
     config: StudyConfiguration,
+    *,
+    withdrawal_frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
 ) -> tuple[AllocationPolicy, WithdrawalPolicy]:
     """Policies built from the first declared value of each array.
 
@@ -1118,7 +1152,9 @@ def _representative_policies(
     return (
         representative_alloc,
         build_withdrawal_policy(
-            config.withdrawal_policy_type, config.withdrawal_policy_values[0]
+            config.withdrawal_policy_type,
+            config.withdrawal_policy_values[0],
+            frequency=withdrawal_frequency,
         ),
     )
 
@@ -1137,6 +1173,8 @@ def build_study_plan(
     config: StudyConfiguration,
     data_dir: str | None,
     initial_wealth: Money,
+    *,
+    withdrawal_frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
 ) -> BuiltStudy:
     """Build the single unified ResearchPlan for a normalized study.
 
@@ -1163,7 +1201,9 @@ def build_study_plan(
         )
     param_configs = _build_unified_parameter_configs(config)
 
-    representative_allocation, representative_withdrawal = _representative_policies(config)
+    representative_allocation, representative_withdrawal = _representative_policies(
+        config, withdrawal_frequency=withdrawal_frequency
+    )
 
     experiment_def = ExperimentDefinition(
         name=config.name,
@@ -1192,7 +1232,9 @@ def build_study_plan(
         param_configs=param_configs,
         initial_portfolio=portfolio,
         horizon_resolver=_make_horizon_resolver(config),
-        policy_resolver=_make_policy_resolver(config),
+        policy_resolver=_make_policy_resolver(
+            config, withdrawal_frequency=withdrawal_frequency
+        ),
         target_resolver=_make_target_resolver(config),
         interest_rate_resolver=_make_interest_rate_resolver(config),
         ffr_rates=ffr_rates,
