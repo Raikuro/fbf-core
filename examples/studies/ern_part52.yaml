@@ -1,0 +1,61 @@
+# Early Retirement Now Part 52: Timing Leverage in Retirement
+#
+# Studies the impact of drawdown-triggered leverage timing on SWR success rates.
+# Uses the Part 52 withdrawal policy (conditional borrowing below index
+# drawdown threshold, repayment at fresh all-time high).
+#
+# ERN Part 52 methodology:
+#   - 75/25 stock/bond allocation (fixed)
+#   - 30-year horizon
+#   - Drawdown trigger: 20%+ below real S&P 500 TR all-time high (index-level)
+#   - Repayment: double withdrawal at fresh ATH, excess repays margin loan
+#   - LTV limit: 50% (enforced)
+#   - Final net-worth target: $250,000 (0.25 × initial)
+#
+# This YAML expresses the FIXED-RATE scenarios (A1, A9 baselines and the
+# no-timing leverage case).  FFR-based floating-rate scenarios (A2-A8,
+# A10-A11) require FFR coverage extending to 1871 and are deferred to
+# the canonical replication phase.
+#
+# Grid: 3 drawdown_threshold x 2 borrow_pct x 1 SWR x 1 horizon = 6 cells
+# Each cell runs over 1,739 rolling cohorts from the ERN dataset.
+#
+# Run example:
+#   sim-retire --data-dir data/ern run examples/studies/ern_part52.yaml \
+#     --no-persist --summary-only
+
+metadata:
+  name: "ERN Part 52 — Timing Leverage in Retirement"
+  version: "1.0"
+  description: >
+    Early Retirement Now Part 52 replication:
+    drawdown-triggered leverage with repayment at fresh ATH.
+    Fixed-rate scenarios only (FFR scenarios require historical rate coverage).
+
+dataset:
+  identifier: "ern_swr_h720"
+
+cohorts:
+  horizon_years: [30]
+
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: [0.75]
+
+withdrawal_policy:
+  type: "Part52WithdrawalPolicy"
+  withdrawal_rate: [0.0358]
+
+# Part 52 timing-leverage configuration
+debt:
+  interest_rate: 0.015
+  ltv_limit: 0.50
+  ltv_enforcement: true
+  borrow_pct: [0.0, 0.4108]
+  drawdown_threshold: [0.20, 0.25, 0.35]
+
+final_value_target: [0.25]
+
+# Note: The 30-year horizon generates 2,099 cohorts (superset of the
+# canonical 1,739).  To match the canonical grid, set
+# cohort_horizon_years=60 programmatically (not yet supported from YAML).

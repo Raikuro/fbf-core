@@ -103,21 +103,54 @@ class Part52Evaluator:
         EvaluationOutcome
             success=True if any Borrow% achieves all-cohort feasibility.
             provenance includes the selected B%, success count, and LTV stats.
+
+        Provenance keys
+        ---------------
+        borrow_pct:
+            The Borrow% value that was returned (feasible or last-tested).
+        feasible_borrow_pct:
+            The Borrow% that achieved feasibility, or ``None`` when no
+            Borrow% in the grid achieves all-cohort success.  This
+            distinguishes a feasible solution at B%=0% from complete
+            infeasibility across the grid.
+        tested_borrow_pcts:
+            Tuple of all Borrow% values that were tested, in grid order.
         """
         wr = Decimal(str(candidate))
         config = self._config
         best_outcome: EvaluationOutcome | None = None
+        tested: list[Decimal] = []
 
         for b_pct in config.borrow_pcts:
+            tested.append(b_pct)
             outcome = self._evaluate_single(wr, b_pct)
             if outcome.success:
-                return outcome
-            if best_outcome is None:
-                best_outcome = outcome
+                enriched = dict(outcome.provenance)
+                enriched["feasible_borrow_pct"] = b_pct
+                enriched["tested_borrow_pcts"] = tuple(tested)
+                return EvaluationOutcome(
+                    success=True,
+                    provenance=enriched,
+                )
+            best_outcome = outcome
 
-        return best_outcome or EvaluationOutcome(
+        # No B% achieved success — annotate with full grid context.
+        if best_outcome is not None:
+            enriched = dict(best_outcome.provenance)
+            enriched["feasible_borrow_pct"] = None
+            enriched["tested_borrow_pcts"] = tuple(tested)
+            return EvaluationOutcome(
+                success=False,
+                provenance=enriched,
+            )
+
+        return EvaluationOutcome(
             success=False,
-            provenance={"error": "no B% values tested"},
+            provenance={
+                "feasible_borrow_pct": None,
+                "tested_borrow_pcts": tuple(tested),
+                "error": "no B% values tested",
+            },
         )
 
     def _evaluate_single(self, wr: Decimal, b_pct: Decimal) -> EvaluationOutcome:

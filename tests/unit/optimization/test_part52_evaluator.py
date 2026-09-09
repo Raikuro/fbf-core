@@ -97,6 +97,8 @@ class TestPart52EvaluatorContract:
         assert "max_post_enforcement_ltv" in result.provenance
         assert "ltv_limit" in result.provenance
         assert "ltv_enforcement" in result.provenance
+        assert "feasible_borrow_pct" in result.provenance
+        assert "tested_borrow_pcts" in result.provenance
 
 
 class TestPart52EvaluatorConfig:
@@ -177,6 +179,97 @@ class TestPart52EvaluatorFeasibility:
         assert ltv <= Decimal("0.50")
 
 
+class TestPart52EvaluatorProvenance:
+    """Verify provenance distinguishes feasible B%=0% from infeasibility."""
+
+    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    def test_feasible_borrow_pct_on_success(self, mock_exec: MagicMock) -> None:
+        """feasible_borrow_pct equals the B% that achieved success."""
+        mock_exec.return_value = _make_mock_result(success=True)
+        config = _make_config(
+            borrow_pcts=(Decimal("0"), Decimal("0.20"), Decimal("0.50"))
+        )
+        evaluator = Part52Evaluator(config)
+        result = evaluator.evaluate(Decimal("0.035"))
+        assert result.success is True
+        assert result.provenance["feasible_borrow_pct"] == Decimal("0")
+        # tested_borrow_pcts only includes values tested before returning;
+        # B%=0% succeeds immediately so only that one is tested.
+        assert result.provenance["tested_borrow_pcts"] == (Decimal("0"),)
+
+    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    def test_feasible_borrow_pct_on_success_at_higher_b(self, mock_exec: MagicMock) -> None:
+        """feasible_borrow_pct is the first B% that succeeds, not B%=0%."""
+        fail_result = _make_mock_result(success=False)
+        success_result = _make_mock_result(success=True)
+        mock_exec.side_effect = [fail_result, success_result]
+        config = _make_config(borrow_pcts=(Decimal("0"), Decimal("0.50")))
+        evaluator = Part52Evaluator(config)
+        result = evaluator.evaluate(Decimal("0.035"))
+        assert result.success is True
+        assert result.provenance["feasible_borrow_pct"] == Decimal("0.50")
+        assert result.provenance["tested_borrow_pcts"] == (
+            Decimal("0"), Decimal("0.50"),
+        )
+
+    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    def test_feasible_borrow_pct_none_when_infeasible(self, mock_exec: MagicMock) -> None:
+        """feasible_borrow_pct is None when no B% achieves success."""
+        mock_exec.return_value = _make_mock_result(success=False)
+        config = _make_config(
+            borrow_pcts=(Decimal("0"), Decimal("0.20"), Decimal("0.50"))
+        )
+        evaluator = Part52Evaluator(config)
+        result = evaluator.evaluate(Decimal("0.050"))
+        assert result.success is False
+        assert result.provenance["feasible_borrow_pct"] is None
+        assert result.provenance["tested_borrow_pcts"] == (
+            Decimal("0"), Decimal("0.20"), Decimal("0.50"),
+        )
+
+    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    def test_infeasible_returns_last_failure_provenance(self, mock_exec: MagicMock) -> None:
+        """When infeasible, provenance reflects the last tested B%, not the first."""
+        mock_exec.return_value = _make_mock_result(success=False)
+        config = _make_config(
+            borrow_pcts=(Decimal("0"), Decimal("0.50"))
+        )
+        evaluator = Part52Evaluator(config)
+        result = evaluator.evaluate(Decimal("0.050"))
+        assert result.success is False
+        # borrow_pct should be the last-tested value (0.50), not the first (0)
+        assert result.provenance["borrow_pct"] == "0.50"
+
+    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    def test_empty_borrow_pcts_returns_error(self, mock_exec: MagicMock) -> None:
+        """Empty borrow_pcts grid returns error provenance."""
+        config = Part52EvaluatorConfig(
+            data_dir=str(DATA_DIR),
+            initial_wealth=INITIAL_WEALTH,
+            drawdown_threshold=Decimal("0.20"),
+            debt_interest_rate=Decimal("0.015"),
+            borrow_pcts=(),
+            workers=1,
+        )
+        evaluator = Part52Evaluator(config)
+        result = evaluator.evaluate(Decimal("0.035"))
+        assert result.success is False
+        assert "error" in result.provenance
+        assert result.provenance["tested_borrow_pcts"] == ()
+        mock_exec.assert_not_called()
+
+    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    def test_single_b_pct_zero_feasible(self, mock_exec: MagicMock) -> None:
+        """Single B%=0% that succeeds — distinguishes from multi-B% grid."""
+        mock_exec.return_value = _make_mock_result(success=True)
+        config = _make_config(borrow_pcts=(Decimal("0"),))
+        evaluator = Part52Evaluator(config)
+        result = evaluator.evaluate(Decimal("0.035"))
+        assert result.success is True
+        assert result.provenance["feasible_borrow_pct"] == Decimal("0")
+        assert result.provenance["tested_borrow_pcts"] == (Decimal("0"),)
+
+
 class TestSWROptimizerIntegration:
     """Verify Part52Evaluator works with SWROptimizer binary search."""
 
@@ -246,3 +339,5 @@ class TestOptimizePart52API:
         assert "withdrawal_rate" in result.provenance
         assert "borrow_pct" in result.provenance
         assert "all_success" in result.provenance
+        assert "feasible_borrow_pct" in result.provenance
+        assert "tested_borrow_pcts" in result.provenance
