@@ -5,8 +5,6 @@ Covers:
 - repeated resolution returns the identical Dataset object,
 - prefix slicing of a longer dataset is value-equivalent to a shorter
   independently-loaded dataset (generic, synthetic),
-- ERN prefix identity: h720 sliced to h360 is value-equivalent to the
-  committed h360 dataset,
 - persistence context reuses the same cache instead of loading again,
 - cache unit behaviour: path normalization, no failure caching, clear.
 """
@@ -237,34 +235,6 @@ class TestPrefixSlicing:
 
 
 # ---------------------------------------------------------------------------
-# ERN prefix identity (verified on committed acceptance data)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not ERN_DATA_DIR.is_dir(), reason="ERN data directory not present")
-class TestErnPrefixIdentity:
-    def test_h720_sliced_to_h360_equals_h360_dataset(self) -> None:
-        from fbf.core.study.builder import resolve_dataset
-
-        h360 = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
-        h720 = resolve_dataset("ern_swr_h720", str(ERN_DATA_DIR))
-
-        sliced = h720.slice(h360.start_date, len(h360))
-
-        assert len(sliced) == len(h360)
-        assert h360.start_date == h720.start_date
-        for got, expected in zip(sliced.snapshots, h360.snapshots, strict=True):
-            assert _value_equal(got, expected)
-
-    def test_cached_resolution_is_single_object_across_horizons(self) -> None:
-        from fbf.core.study.builder import resolve_dataset
-
-        h360a = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
-        h360b = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
-        assert h360a is h360b
-
-
-# ---------------------------------------------------------------------------
 # Persistence context reuse
 # ---------------------------------------------------------------------------
 
@@ -418,7 +388,6 @@ class TestErnArtifactBoundary:
         datasets = cache.load_dir(str(ERN_DATA_DIR))
 
         known_datasets = {
-            "ern_swr_h360", "ern_swr_h480", "ern_swr_h600",
             "ern_swr_h720", "ern_cape_1871_2016",
         }
         assert set(datasets.keys()) >= known_datasets
@@ -432,11 +401,3 @@ class TestErnArtifactBoundary:
         h720 = resolve_dataset("ern_swr_h720", str(ERN_DATA_DIR))
         assert h720 is not None
         assert len(h720) > 0
-
-    def test_ern_h360_resolves_after_boundary_fix(self) -> None:
-        """ern_swr_h360 must resolve correctly after the artifact boundary fix."""
-        from fbf.core.study.builder import resolve_dataset
-
-        h360 = resolve_dataset("ern_swr_h360", str(ERN_DATA_DIR))
-        assert h360 is not None
-        assert len(h360) > 0

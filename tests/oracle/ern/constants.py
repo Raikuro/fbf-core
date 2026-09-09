@@ -4,7 +4,7 @@ Source data lives in the repository under ``data/ern/`` (see the P4.9
 investigation report, docs/continuity/P4_9_E2E_REPLICATION_INVESTIGATION.md):
 
 - ``ern_real_returns_1871_2016.csv``  extracted monthly real returns (source).
-- ``ern_swr_h{360,480,600,720}.json`` per-horizon datasets (derived).
+- ``ern_swr_h720.json``               primary 60-year horizon dataset (derived).
 - ``p49_oracle_table.csv``            pinned ERN oracle matrix (derived).
 
 Provenance of every file is documented in Section 4 of that report.

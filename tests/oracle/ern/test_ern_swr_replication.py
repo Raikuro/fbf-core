@@ -21,10 +21,15 @@ and compares every cell against the pinned oracle.
 The grid runs in non-persistent, summary-only mode: no SQLite study database is
 created and per-month timelines are never materialized or transferred.
 
-Enable with ``RUN_ERN_E2E=1``; the full 180-cell grid also needs
-``RUN_ERN_E2E_FULL=1``.  The fast-path acceptance check needs
-``ERN_E2E_FAST_PATH=1``.  Reference is the sole reference execution
-strategy (the no-flag default and ``--reference`` are identical).
+Test execution model:
+- ``test_smoke_grid_matches_oracle``: smoke/oracle execution test (normal suite).
+- ``test_full_grid_matches_oracle``: canonical Research E2E (gated by ``RUN_ERN_E2E=1``).
+- ``test_*fast_path*``: optimization equivalence check, not canonical replication.
+
+Canonical E2E tests are gated behind ``RUN_ERN_E2E=1`` via the centralized
+skip hook in ``tests/conftest.py``.  They are NOT part of the normal
+``pytest`` invocation.
+
 The default worker selection when ``ERN_E2E_WORKERS`` is unset is the
 conservative ``min(8, cpu_count)``;
 ``ERN_E2E_WORKERS=N`` pins an exact override count and ``ERN_E2E_WORKERS=max``
@@ -65,11 +70,7 @@ from .constants import (
 )
 from .fixtures import PerCellStats, run_grid_study
 
-RUN_ERN_E2E = os.environ.get("RUN_ERN_E2E") == "1"
-RUN_ERN_E2E_FULL = RUN_ERN_E2E and os.environ.get("RUN_ERN_E2E_FULL") == "1"
 FAST_PATH_ENABLED = os.environ.get("ERN_E2E_FAST_PATH") == "1"
-
-pytestmark = [pytest.mark.ern_e2e]
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 GRID_YAML = _REPO_ROOT / "examples" / "studies" / "ern_grid.yaml"
@@ -184,10 +185,7 @@ def test_smoke_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: Oracl
     _assert_anchors(oracle, cells)
 
 
-@pytest.mark.skipif(
-    not RUN_ERN_E2E_FULL,
-    reason="set RUN_ERN_E2E_FULL=1 for the full 180-cell acceptance run",
-)
+@pytest.mark.ern_e2e
 def test_full_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: OracleTable) -> None:
     """Full Table 1 grid (5 weights x 9 rates x 4 horizons = 180 cells).
 
@@ -276,10 +274,10 @@ def test_full_grid_matches_oracle(data_dir: Path, tmp_path: Path, oracle: Oracle
     assert worst_diff == 0, f"mismatched cells: {sorted(outside, reverse=True)}"
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
-    not (RUN_ERN_E2E_FULL and FAST_PATH_ENABLED),
-    reason="set RUN_ERN_E2E_FULL=1 and ERN_E2E_FAST_PATH=1 for the full-grid "
-    "fast-path equivalence check",
+    not FAST_PATH_ENABLED,
+    reason="set ERN_E2E_FAST_PATH=1 for the full-grid fast-path equivalence check",
 )
 def test_full_grid_fast_path_reproduces_reference_success_rates(
     data_dir: Path, tmp_path: Path

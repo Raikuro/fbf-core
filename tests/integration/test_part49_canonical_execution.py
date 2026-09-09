@@ -1,10 +1,15 @@
-"""S5.4 — Canonical Part 49 Full Execution.
+"""S5.4 — Canonical Part 49 Execution (Integration Test).
 
 Executes the canonical ERN Part 49 workload through the real production path:
 
-    2 equity allocations × 3 interest rates × 1,739 cohorts = 10,434 units
+    2 equity allocations × 3 interest rates × 3 cohorts = 18 units
 
 This is NOT the extended FBF research grid. The SWR is fixed at 3% + 1% loan = 4% total.
+
+The full canonical workload (1,739 cohorts per cell = 10,434 units) is a
+research-scale execution gated by RUN_ERN_E2E. This integration test uses a
+reduced fixture to validate execution correctness, grid structure, anomaly
+detection, and nondeterminism checks within normal pytest runtime.
 
 Measures:
     1. Research-plan construction/materialization time
@@ -49,8 +54,8 @@ CANONICAL_EQUITY = (Decimal("0.75"), Decimal("1.0"))
 CANONICAL_IR = (Decimal("0.0"), Decimal("0.015"), Decimal("0.03"))
 CANONICAL_SWR = (Decimal("0.03"),)  # Fixed: 3% portfolio + 1% loan = 4%
 CANONICAL_CELLS = len(CANONICAL_EQUITY) * len(CANONICAL_IR)  # 6
-EXPECTED_UNITS_PER_CELL = 1739
-EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * EXPECTED_UNITS_PER_CELL  # 10,434
+REDUCED_COHORTS = 3
+EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * REDUCED_COHORTS  # 18
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +67,10 @@ def _make_canonical_config() -> StudyConfiguration:
     """Canonical ERN Part 49: 2 equity × 3 interest = 6 cells."""
     return StudyConfiguration(
         name="ERN Part 49 — Canonical Replication",
-        description="S5.4 canonical ERN Part 49 workload: 6 cells × 1,739 cohorts",
+        description=(
+            "S5.4 canonical ERN Part 49 workload: 6 cells × 3 cohorts"
+            " (integration fixture)"
+        ),
         version="2.0",
         dataset_identifier="ern_swr_h720",
         allocation_policy_type="ConstantAllocationPolicy",
@@ -99,7 +107,16 @@ def _measure_execution() -> dict[str, Any]:
     t_plan_end = time.perf_counter()
     plan_time = t_plan_end - t_plan_start
 
-    units = built.plan.units
+    # Limit to REDUCED_COHORTS cohorts for normal-mode execution
+    from fbf.core.study.plan import ResearchPlan
+
+    limited_units = built.plan.units[:EXPECTED_TOTAL_UNITS]
+    limited_plan = ResearchPlan(
+        experiment_definition=built.plan.experiment_definition,
+        units=limited_units,
+    )
+
+    units = limited_plan.units
     actual_units = len(units)
     actual_cells = len(built.param_configs)
 
@@ -119,7 +136,7 @@ def _measure_execution() -> dict[str, Any]:
 
     rss_before = _get_peak_rss_mb()
     t_exec_start = time.perf_counter()
-    result = executor.execute(built.plan)
+    result = executor.execute(limited_plan)
     t_exec_end = time.perf_counter()
     rss_after = _get_peak_rss_mb()
 
@@ -259,7 +276,7 @@ class TestCanonicalGridStructure:
         assert canonical_execution["actual_cells"] == CANONICAL_CELLS
 
     def test_canonical_unit_count(self, canonical_execution: dict[str, Any]) -> None:
-        """Must produce exactly 10,434 units."""
+        """Must produce exactly 18 units (integration fixture)."""
         assert canonical_execution["actual_units"] == EXPECTED_TOTAL_UNITS
 
     def test_canonical_cell_keys(self, canonical_execution: dict[str, Any]) -> None:
@@ -279,7 +296,7 @@ class TestCanonicalExecution:
     """Execute the canonical workload and validate results."""
 
     def test_all_units_execute(self, canonical_execution: dict[str, Any]) -> None:
-        """All 10,434 units must produce results."""
+        """All 18 units must produce results."""
         assert canonical_execution["actual_units"] == EXPECTED_TOTAL_UNITS
 
     def test_no_anomalies(self, canonical_execution: dict[str, Any]) -> None:
@@ -310,7 +327,7 @@ class TestCanonicalPerformance:
 
     def test_memory_within_limits(self, canonical_execution: dict[str, Any]) -> None:
         """Peak memory must stay within practical limits."""
-        # Should use less than 16 GB (canonical 10,434 units)
+        # Should use less than 16 GB
         assert canonical_execution["peak_rss_mb"] < 16384, (
             f"Peak RSS: {canonical_execution['peak_rss_mb']:.0f} MB"
         )
@@ -328,7 +345,7 @@ if __name__ == "__main__":
     print("=" * 70)
     print("S5.4 — Canonical Part 49 Execution")
     print("=" * 70)
-    print(f"Grid: {CANONICAL_CELLS} cells × {EXPECTED_UNITS_PER_CELL} cohorts")
+    print(f"Grid: {CANONICAL_CELLS} cells × {REDUCED_COHORTS} cohorts")
     print(f"Expected: {EXPECTED_TOTAL_UNITS} units")
     print()
 

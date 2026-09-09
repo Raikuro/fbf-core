@@ -1,15 +1,5 @@
-"""Shared pytest configuration for the P4.9 E2E package.
+"""Shared pytest configuration for the ERN oracle test package.
 
-Registers the ``ern_e2e`` marker used to gate the slow ERN study runs.
+The ``ern_e2e`` marker is registered in ``pyproject.toml``.  The
+centralized skip hook lives in ``tests/conftest.py``.
 """
-
-from __future__ import annotations
-
-import pytest
-
-
-def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line(
-        "markers",
-        "ern_e2e: black-box ERN SWR replication run (slow; enable with RUN_ERN_E2E=1)",
-    )

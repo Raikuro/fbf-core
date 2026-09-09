@@ -139,10 +139,6 @@ class TestPart3DatasetIdentifier:
     """C6.1: Part 3 YAMLs must reference ern_swr_h720, not ern_cape_1871_2016."""
 
     PART3_YAML_FILES = [
-        "ern_part3_expA.yaml",
-        "ern_part3_expB.yaml",
-        "ern_part3_expC.yaml",
-        "ern_part3_expD.yaml",
         "ern_part3_replication.yaml",
     ]
 
@@ -186,26 +182,7 @@ class TestPart3DatasetIdentifier:
         assert Decimal("0.0") in config.final_value_target_values
         assert Decimal("0.5") in config.final_value_target_values
 
-    def test_part3_expA_has_single_zero_target(self) -> None:
-        from decimal import Decimal
 
-        from fbf.core.study.builder import StudyConfiguration
-
-        data = self._load_config("ern_part3_expA.yaml")
-        config = StudyConfiguration.from_yaml(data)
-        assert config.final_value_target_values == (Decimal("0.0"),)
-
-    def test_part3_expBcd_have_single_half_target(self) -> None:
-        from decimal import Decimal
-
-        from fbf.core.study.builder import StudyConfiguration
-
-        for filename in ["ern_part3_expB.yaml", "ern_part3_expC.yaml", "ern_part3_expD.yaml"]:
-            data = self._load_config(filename)
-            config = StudyConfiguration.from_yaml(data)
-            assert config.final_value_target_values == (Decimal("0.5"),), (
-                f"{filename} must have final_value_target = [0.5]"
-            )
 
 
 class TestNonPart3StudiesUnchanged:

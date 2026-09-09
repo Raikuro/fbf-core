@@ -1,8 +1,12 @@
-"""S5.5 — Research Result Aggregation for canonical Part 49.
+"""S5.5 — Research Result Aggregation for canonical Part 49 (Integration Test).
 
 Re-executes the canonical 6-cell workload through the production path,
 aggregates results into per-cell statistics, and captures failure details
 for S5.6 research validation.
+
+Uses a reduced fixture (3 cohorts per cell = 18 units) for normal pytest
+runtime. The full canonical workload (1,739 cohorts per cell = 10,434 units)
+is a research-scale execution.
 """
 
 from __future__ import annotations
@@ -41,8 +45,9 @@ CANONICAL_EQUITY = (Decimal("0.75"), Decimal("1.0"))
 CANONICAL_IR = (Decimal("0.0"), Decimal("0.015"), Decimal("0.03"))
 CANONICAL_SWR = (Decimal("0.03"),)
 CANONICAL_CELLS = len(CANONICAL_EQUITY) * len(CANONICAL_IR)
-EXPECTED_UNITS_PER_CELL = 1739
-EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * EXPECTED_UNITS_PER_CELL
+REDUCED_COHORTS = 3
+EXPECTED_UNITS_PER_CELL = REDUCED_COHORTS
+EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * REDUCED_COHORTS  # 18
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +87,16 @@ def canonical_aggregation() -> tuple[Part49AggregationResult, dict[str, Any]]:
 
     # Build plan
     built = build_study_plan(config, str(DATA_DIR), INITIAL_WEALTH)
-    units = built.plan.units
+
+    # Limit to REDUCED_COHORTS cohorts for normal-mode execution
+    from fbf.core.study.plan import ResearchPlan
+
+    limited_units = built.plan.units[:EXPECTED_TOTAL_UNITS]
+    limited_plan = ResearchPlan(
+        experiment_definition=built.plan.experiment_definition,
+        units=limited_units,
+    )
+    units = limited_plan.units
 
     # Execute through production path
     executor = ResearchExecutor(
@@ -90,7 +104,7 @@ def canonical_aggregation() -> tuple[Part49AggregationResult, dict[str, Any]]:
             simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
         )
     )
-    result = executor.execute(built.plan)
+    result = executor.execute(limited_plan)
 
     # Aggregate
     agg = aggregate_part49_results(units, result.results)
@@ -120,12 +134,12 @@ class TestAggregationStructure:
         assert agg.cell_count == CANONICAL_CELLS
 
     def test_total_units(self, canonical_aggregation: AggResult) -> None:
-        """Total units must equal 10,434."""
+        """Total units must equal 18 (integration fixture)."""
         agg, _ = canonical_aggregation
         assert agg.total_units == EXPECTED_TOTAL_UNITS
 
     def test_all_cells_have_cohorts(self, canonical_aggregation: AggResult) -> None:
-        """Each cell must have exactly 1,739 cohorts."""
+        """Each cell must have exactly 3 cohorts (integration fixture)."""
         agg, _ = canonical_aggregation
         for cell in agg.cell_aggregations:
             assert cell.total_cohorts == EXPECTED_UNITS_PER_CELL

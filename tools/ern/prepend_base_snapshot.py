@@ -30,9 +30,6 @@ BASE_DATE = "1871-01-31"
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "ern"
 CSV_PATH = DATA_DIR / "ern_real_returns_1871_2016.csv"
 DATASETS = (
-    "ern_swr_h360.json",
-    "ern_swr_h480.json",
-    "ern_swr_h600.json",
     "ern_swr_h720.json",
 )
 

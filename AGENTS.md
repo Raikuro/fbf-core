@@ -77,32 +77,40 @@ pytest tests/contract/
 `ruff` runs with `--fix` for auto-applicable findings, but the final state must
 be clean under the plain `ruff check .` form above.
 
-### Heavyweight E2E / Oracle Tests
+### Heavyweight ERN Research Workloads
 
 The ERN SWR replication tests in `tests/oracle/ern/` are heavyweight workloads
 (313,020 simulation units across 180 grid cells). They are **not part of the
 routine quality gate** and must never be enabled automatically.
 
-**Invocation hierarchy (opt-in via environment variables):**
+Two categories of heavyweight ERN research workloads are controlled by the
+shared `RUN_ERN_E2E=1` environment variable:
+
+1. **Canonical Research E2E** (`@pytest.mark.ern_e2e`): Full canonical ERN
+   research replication through the production path with no material
+   approximation.
+
+2. **Non-Canonical Research Validation** (`@pytest.mark.research_validation`):
+   Research-scale validation executing published/research-derived scenarios
+   with documented methodology/data substitution (e.g., Part 52 FFR
+   approximations).
+
+**Invocation hierarchy (opt-in via environment variable):**
 
 | Scope | Env vars | Grid | Approx. units |
 |-------|----------|------|---------------|
-| Routine validation | *(none)* | E2E skipped | 0 |
-| Smoke E2E | `RUN_ERN_E2E=1` | 2×2×2 = 8 cells | 13,912 |
-| Full grid | `RUN_ERN_E2E=1` + `RUN_ERN_E2E_FULL=1` | 5×9×4 = 180 cells | 313,020 |
-| Fast-path full grid | `RUN_ERN_E2E=1` + `RUN_ERN_E2E_FULL=1` + `ERN_E2E_FAST_PATH=1` | 180 cells × 2 paths | 626,040 |
+| Routine validation | *(none)* | E2E + research validation skipped | 0 |
+| Full ERN research suite | `RUN_ERN_E2E=1` | All canonical E2Es + research validations | 350K+ |
+| Fast-path equivalence | `RUN_ERN_E2E=1` + `ERN_E2E_FAST_PATH=1` | Full grid × 2 paths | 626,040 |
 
 **Manual invocation (developer workstation or CI only):**
 
 ```bash
-# Smoke grid (quick sanity check):
-RUN_ERN_E2E=1 pytest tests/oracle/ -v
-
-# Full 180-cell acceptance grid:
-RUN_ERN_E2E=1 RUN_ERN_E2E_FULL=1 pytest tests/oracle/ -v
+# All canonical ERN E2Es + research validations:
+RUN_ERN_E2E=1 pytest tests/oracle/ tests/integration/test_part52_*.py -v
 
 # Full grid with fast-path equivalence:
-RUN_ERN_E2E=1 RUN_ERN_E2E_FULL=1 ERN_E2E_FAST_PATH=1 pytest tests/oracle/ -v
+RUN_ERN_E2E=1 ERN_E2E_FAST_PATH=1 pytest tests/oracle/ -v
 ```
 
 Worker count is controlled by `ERN_E2E_WORKERS` (default: `min(8, cpu_count)`).

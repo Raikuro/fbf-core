@@ -467,6 +467,7 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
 # Tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.research_validation
 class TestCanonicalERNReplication:
     """Execute and validate all 11 canonical ERN scenarios."""
 
