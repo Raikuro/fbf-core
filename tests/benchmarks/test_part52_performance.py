@@ -27,7 +27,7 @@ class TestPart52EvaluatorBenchmark:
     """Part52Evaluator performance characteristics."""
 
     @pytest.mark.slow
-    def test_single_eval_wall_clock(self, benchmark: object) -> None:
+    def test_single_eval_wall_clock(self) -> None:
         """Measure time for a single evaluator call on real data."""
         config = Part52EvaluatorConfig(
             data_dir=str(DATA_DIR),
