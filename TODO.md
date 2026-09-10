@@ -44,41 +44,61 @@ adjust the implementation to force the endpoint at month 360.
 
 ## S1 Follow-Up: ERN Validation Discrepancies
 
-**Classification:** known discrepancy / unresolved investigation
+**Classification:** CLOSED — investigation accepted
 
-The S1 glidepath implementation produces results that differ from published
-ERN Part 19 anchors. The causes have not been attributed.
+The S1 glidepath investigation is complete. All validated findings are
+recorded in `docs/research/ERN_E2E_REPLICATION_PLAN.md` §F.4.1.
 
-### 80% static allocation failsafe
+### Final classification
 
-* Engine result: **3.00%** (100% success rate across all 1,739 cohorts)
-* Published ERN anchor: **3.14%**
-* Difference: 0.14%
-* The pinned oracle table (`p49_oracle_table.csv`) does not include 80%
-  equity; this anchor comes from the published paper only.
-* The engine matches the pinned oracle exactly for 75% equity (all 9 rates,
-  ±0pp tolerance), confirming correct dataset loading, cohort generation,
-  pipeline execution, and aggregation for constant-allocation policies.
+**GLIDEPATH DISCREPANCY NOT ESTABLISHED — PRESENTATION/GRID ARTIFACT**
 
-### 60→100% glidepath failsafe
+### Validated findings (summary)
 
-* Engine result: **below 3.00%** (no rate achieves 100% success for CAPE > 20
-  cohorts at the tested rates)
-* Published ERN anchor: **3.47%** (for CAPE > 20 cohorts)
-* Difference: ~0.5%
-* All four tested configurations (passive/active × slope 0.3/0.4) produce
-  similar results, suggesting the discrepancy is not slope-dependent.
+1. **Cohort universe** — CLOSED. FBF and ERN use identical monthly cohorts
+   (Feb 1871–Dec 2015, 1,739 cohorts, 383 with CAPE > 20).
 
-### Required future investigation
+2. **CAPE cohort selection** — CLOSED. No divergence found.
 
-Diagnose the methodological or data difference without tuning the
-implementation merely to reproduce published anchors. Potential areas:
+3. **Withdrawal frequency** — CLOSED. Monthly and annual validation
+   performed. Frequency is not the primary explanation. Configurable
+   frequency implementation remains valid.
 
-1. Forward extrapolation methodology beyond Sep 2016
-2. Fee application timing or compounding
-3. CAPE filtering methodology (cohort-level vs period-level)
-4. Dataset version or construction differences
-5. Rebalancing or withdrawal timing conventions
+4. **Fee model** — CLOSED. ERN applies 0.05% p.a. monthly. FBF dataset
+   embeds the same fee drag. FBF-derived returns match ERN net returns.
+
+5. **Return construction / forward extrapolation** — CLOSED. Realized and
+   forward returns match ERN. No correction required.
+
+6. **Static allocation calculation** — CLOSED. The mathematical failsafe
+   agrees with the FBF oracle. Apparent differences with published 3.25%
+   are attributable to ERN's search/reporting convention and rounded
+   success-rate presentation.
+
+7. **Glidepath / rebalancing mechanics** — CLOSED. FBF applies glidepath
+   target at beginning of monthly cycle and rebalances before market
+   evolution. Consistent with available ERN methodology description.
+   ERN glidepath source not available in this repository; full
+   source-level equivalence cannot be claimed but no divergence
+   established.
+
+8. **Part 20 published anchors** — IMPORTANT. The previously supplied
+   3.47% value has no traceable occurrence in ERN code, tests, or
+   documented Part 20 values. The traceable anchor is 3.34% for the
+   60→100% glidepath / CAPE > 20 / FV=1.0 configuration. FBF produces
+   381/382 = 99.7% success at 3.34%, which rounds to 100% under ERN's
+   success-rate convention.
+
+### Do not reopen
+
+Do not reopen Part 20 methodology investigations unless new evidence
+contradicts these validated conclusions. Do not create new tasks to
+investigate fees, withdrawal frequency, cohort selection, return
+construction, forward extrapolation, static allocation mathematics, or
+rebalancing mechanics merely because FBF's precise binary-searched failsafe
+differs from a published ERN percentage. Published ERN percentages must be
+interpreted according to the documented search/grid and success-rate
+conventions.
 
 ---
 

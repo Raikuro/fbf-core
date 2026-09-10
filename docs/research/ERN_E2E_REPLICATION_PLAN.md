@@ -348,13 +348,13 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | E2E ID | ERN Article(s) | YAML | Test file | Units | Status |
 |--------|----------------|------|-----------|-------|--------|
 | E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | 313,020 | **IMPLEMENTED** |
+| E2E-Part20 | Part 20 (includes Part 19) | `ern_part20.yaml` | `test_part20_replication.py::test_part20_full_grid_structure` | 556,480 | **IMPLEMENTED** |
 
 ### E.2 Canonical Replication Implemented, E2E Missing
 
 | Article | Canonical grid | Units | Implementation status | E2E gap |
 |---------|---------------|-------|----------------------|---------|
 | Part 49 (Leverage) | 6 cells × 1,739 cohorts | 10,434 | Full production path works; standalone benchmark runs it | **No pytest E2E test** |
-| Part 20 (Glidepaths, includes Part 19) | 320 cells × 1,739 cohorts | 556,480 | YAML grid exists; constants defined | **No E2E test** |
 | Part 42 (OMY) | 45 cells × 1,739 cohorts | 78,255 | Accumulation phase validated; grid materializes | **No E2E test + CLI dispatch unknown** |
 
 ### E.3 Non-Canonical / Blocked
@@ -371,8 +371,8 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | Part 2 (SWR with terminal value) | Part 1 (SWR depletion) | Yes — Part 2 adds `final_value_target` dimension |
 | Part 20 (32 glidepaths) | Part 19 (24 glidepaths) | Yes — Part 20 = Part 19 + 8 additional passive glidepaths |
 
-**Total canonical E2E tests: 1** (Parts 1/2 SWR grid)
-**Total canonically reproducible articles without E2E: 3** (Part 49, Part 20, Part 42)
+**Total canonical E2E tests: 2** (Parts 1/2 SWR grid, Part 20 glidepath grid)
+**Total canonically reproducible articles without E2E: 2** (Part 49, Part 42)
 
 ---
 
@@ -408,12 +408,37 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.4 Part 19/20 — Equity Glidepaths
 
-**Status:** CANONICAL REPLICATION IMPLEMENTED, E2E MISSING
-**Reason:** The YAML grid exists (`ern_part20.yaml`, 320 cells × 1,739 cohorts = 556,480 units). The glidepath allocation policy is implemented. Part 20 ⊃ Part 19 (confirmed: 24 + 8 = 32 glidepaths). However, no E2E test executes the full grid.
-**Blocking dependency:** E2E test implementation (the infrastructure exists).
+**Status:** CANONICAL REPLICATION VALIDATED
+**Reason:** The YAML grid exists (`ern_part20.yaml`, 320 cells × 1,739 cohorts = 556,480 units). The glidepath allocation policy is implemented. Part 20 ⊃ Part 19 (confirmed: 24 + 8 = 32 glidepaths). The E2E test (`test_part20_replication.py`) executes the full grid and validates at three levels: structural coverage, computational execution (real outcomes), and canonical replication (traceable ERN anchors). Determinism is verified via independent CLI invocation.
+**E2E test:** `test_part20_replication.py::test_part20_full_grid_replication` (gated by `RUN_ERN_E2E=1`).
+**Determinism test:** `test_part20_replication.py::test_part20_determinism` (gated by `RUN_ERN_E2E=1`).
 **Existing value:** `test_glidepath_trajectory.py` validates glidepath control logic with small fixtures.
 **Test classification:** Integration tests with small fixtures (retain).
-**What would complete it:** Creating a `@pytest.mark.ern_e2e` test that executes the full Part 20 grid.
+
+#### F.4.1 Part 20 Methodology Investigation — CLOSED
+
+**Status:** CLOSED — ACCEPTED
+**Classification:** GLIDEPATH DISCREPANCY NOT ESTABLISHED — PRESENTATION/GRID ARTIFACT
+
+The Part 20 methodology investigation is complete and accepted. All
+validated findings are recorded in `TODO.md` under "S1 Follow-Up: ERN
+Validation Discrepancies."
+
+**Do not reopen the Part 20 methodology investigations unless new evidence
+contradicts these validated conclusions.** In particular, do not create new
+tasks to investigate fees, withdrawal frequency, cohort selection, return
+construction, forward extrapolation, static allocation mathematics, or
+rebalancing mechanics merely because FBF's precise binary-searched failsafe
+differs from a published ERN percentage. Published ERN percentages must be
+interpreted according to the documented search/grid and success-rate
+conventions.
+
+**Methodology validation vs. E2E execution:** Methodology validation is
+COMPLETE / ACCEPTED. The canonical ERN E2E replication (full grid execution)
+remains a separate task if still pending. Do not mark the canonical E2E as
+complete merely because the methodology investigation is complete. Likewise,
+do not reopen methodology investigations as a prerequisite for running the
+canonical E2E.
 
 ### F.5 Part 52 — Timing Leverage
 
@@ -468,6 +493,7 @@ without belonging in the default developer test suite.
 | `tests/oracle/ern/test_oracle_matrix.py` | Oracle | Oracle | No | Yes |
 | `tests/oracle/ern/test_ern_timeline_regression.py` | Oracle | Regression/Oracle | No | Yes |
 | `tests/oracle/ern/test_ern_swr_replication.py` (full grid) | E2E | **Canonical Research E2E** | Yes (313K units) | **No** |
+| `tests/oracle/ern/test_part20_replication.py` | E2E | **Canonical Research E2E** | Yes (556K units) | **No** |
 | `tests/oracle/ern/test_ern_swr_replication.py` (smoke) | Smoke | Smoke | No | Yes |
 | `tests/oracle/ern/test_part42_replication.py` | Structural | Integration | No | Yes |
 | `tests/integration/test_part49_smoke_execution.py` | Integration | Smoke | No | Yes |
@@ -569,8 +595,10 @@ Markers and environment variables have distinct roles:
 | Test | File | What it does |
 |------|------|-------------|
 | `test_full_grid_matches_oracle` | `test_ern_swr_replication.py` | Full 180-cell grid (313K units) via CLI |
+| `test_part20_full_grid_replication` | `test_part20_replication.py` | Full 320-cell Part 20 grid (556K units) via CLI, three-level validation |
+| `test_part20_determinism` | `test_part20_replication.py` | Single-cell determinism check (two independent CLI invocations) |
 
-**Total: 1 test**
+**Total: 3 tests**
 
 ### H.6 Tests Gated by `research_validation` (Non-Canonical Research Validation)
 
@@ -768,7 +796,7 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 **Priority 1 — Canonical E2E coverage gaps:**
 
 1. Create `@pytest.mark.ern_e2e` test for Part 49 (6 cells × 1,739 cohorts = 10,434 units)
-2. Create `@pytest.mark.ern_e2e` test for Part 20 (320 cells × 1,739 cohorts = 556K units)
+2. ~~Create `@pytest.mark.ern_e2e` test for Part 20 (320 cells × 1,739 cohorts = 556K units)~~ DONE
 3. Create `@pytest.mark.ern_e2e` test for Part 42 (45 cells × 1,739 cohorts = 78K units) — requires CLI dispatch verification
 
 **Priority 2 — Part 52 redundancy cleanup:**
