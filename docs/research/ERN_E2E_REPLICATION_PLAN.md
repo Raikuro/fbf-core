@@ -349,12 +349,12 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 |--------|----------------|------|-----------|-------|--------|
 | E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | 313,020 | **IMPLEMENTED** |
 | E2E-Part20 | Part 20 (includes Part 19) | `ern_part20.yaml` | `test_part20_replication.py::test_part20_full_grid_structure` | 556,480 | **IMPLEMENTED** |
+| E2E-Part49 | Part 49 | (Python API) | `test_part49_replication.py::test_part49_canonical_replication` | 10,434 | **IMPLEMENTED** |
 
 ### E.2 Canonical Replication Implemented, E2E Missing
 
 | Article | Canonical grid | Units | Implementation status | E2E gap |
 |---------|---------------|-------|----------------------|---------|
-| Part 49 (Leverage) | 6 cells × 1,739 cohorts | 10,434 | Full production path works; standalone benchmark runs it | **No pytest E2E test** |
 | Part 42 (OMY) | 45 cells × 1,739 cohorts | 78,255 | Accumulation phase validated; grid materializes | **No E2E test + CLI dispatch unknown** |
 
 ### E.3 Non-Canonical / Blocked
@@ -399,12 +399,15 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.3 Part 49 — Using Leverage in Retirement
 
-**Status:** CANONICAL REPLICATION IMPLEMENTED, E2E MISSING
-**Reason:** The full production path works (verified by standalone `s57_performance_benchmark.py`). The canonical 6-cell grid (2 equity × 3 IR × 1,739 cohorts = 10,434 units) is fully reproducible. However, no pytest E2E test executes the full canonical workload.
-**Blocking dependency:** E2E test implementation (the production path is complete).
+**Status:** CANONICAL REPLICATION VALIDATED
+**Reason:** The full production path works (verified by standalone `s57_performance_benchmark.py`). The canonical 6-cell grid (2 equity × 3 IR × 1,739 cohorts = 10,434 units) is fully reproducible. The E2E test executes the full canonical workload via Python API and validates at three levels: structural coverage, computational execution, and canonical replication (non-leverage cells against pinned oracle table; leverage cells with directional assertions).
+**E2E test:** `test_part49_replication.py::test_part49_canonical_replication` (gated by `RUN_ERN_E2E=1`, ~7.5m runtime).
+**Documented limitations:**
+- LTV enforcement intentionally OFF (`DECISIONS.md` S4-LTV).
+- 1929 depletion anchor NOT validated (depends on LTV enforcement).
+- Leverage cells (interest_rate > 0) have no published ERN oracle table; validation is directional only.
 **Existing value:** Integration tests with reduced fixtures (18 units) validate execution correctness. Materialization tests validate 54-cell grid structure.
 **Test classification:** Integration tests with reduced fixtures (retain). Grid materialization tests (retain).
-**What would complete it:** Creating a `@pytest.mark.ern_e2e` test that executes the full 10,434-unit canonical workload.
 
 ### F.4 Part 19/20 — Equity Glidepaths
 
@@ -597,8 +600,9 @@ Markers and environment variables have distinct roles:
 | `test_full_grid_matches_oracle` | `test_ern_swr_replication.py` | Full 180-cell grid (313K units) via CLI |
 | `test_part20_full_grid_replication` | `test_part20_replication.py` | Full 320-cell Part 20 grid (556K units) via CLI, three-level validation |
 | `test_part20_determinism` | `test_part20_replication.py` | Single-cell determinism check (two independent CLI invocations) |
+| `test_part49_canonical_replication` | `test_part49_replication.py` | Full 6-cell Part 49 grid (10K units) via Python API, three-level validation |
 
-**Total: 3 tests**
+**Total: 4 tests**
 
 ### H.6 Tests Gated by `research_validation` (Non-Canonical Research Validation)
 
@@ -632,6 +636,7 @@ Markers and environment variables have distinct roles:
 |------|----------------|------------------|----------------------|-------------------|-------------------|
 | `test_ern_swr_replication.py::test_smoke_grid_matches_oracle` | ~14s | 2,099 | 1 cell | None | No (already minimal) |
 | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | ~51s (measured in test_oracle_matrix) | 313,020 | 180 cells (independent) | CLI subprocess, dataset loading | No (single CLI subprocess) |
+| `test_part49_replication.py::test_part49_canonical_replication` | ~7.5m | 10,434 | 6 cells (2E × 3I) | Python API, dataset loading | No (single Python API call) |
 | `test_part49_canonical_execution.py` | ~1s (reduced fixture) | 18 | 6 cells (2E × 3I) | Dataset loading, pipeline construction | No (integration test, not research-scale) |
 | `test_part49_aggregation.py` | ~1s (reduced fixture) | 18 | 6 cells (2E × 3I) | Dataset loading, pipeline construction | No (integration test, not research-scale) |
 | `test_part52_canonical_ern_replication.py` | >15 min (timeout) | 19,129 | 11 scenarios | Part52Evaluator grid sweep per scenario | Yes — scenarios are independent |
@@ -795,7 +800,7 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 
 **Priority 1 — Canonical E2E coverage gaps:**
 
-1. Create `@pytest.mark.ern_e2e` test for Part 49 (6 cells × 1,739 cohorts = 10,434 units)
+1. ~~Create `@pytest.mark.ern_e2e` test for Part 49 (6 cells × 1,739 cohorts = 10,434 units)~~ DONE
 2. ~~Create `@pytest.mark.ern_e2e` test for Part 20 (320 cells × 1,739 cohorts = 556K units)~~ DONE
 3. Create `@pytest.mark.ern_e2e` test for Part 42 (45 cells × 1,739 cohorts = 78K units) — requires CLI dispatch verification
 
