@@ -513,6 +513,9 @@ class TestCanonicalERNReplication:
         """A3: 1965 20% threshold, WR=3.91%, B%=41.08% → all cohorts succeed.
 
         KNOWN: This scenario has a documented 6-cohort discrepancy.
+        While the discrepancy persists, this test xfails.  If the
+        discrepancy is resolved, this test FAILS to force explicit
+        update of the test expectation.
         """
         r = next(x for x in all_results if x.scenario.scenario_id == "A3")
         if r.success_rate < Decimal("1"):
@@ -524,6 +527,13 @@ class TestCanonicalERNReplication:
                     f"Got: {r.successful_units}/{r.total_units} — {failing} cohorts fail. "
                     f"See TODO.md: Part 52 numerical discrepancy investigation."
                 ),
+            )
+        else:
+            pytest.fail(
+                "A3 threshold scenario now reproduces ERN exactly (1739/1739). "
+                "Update this test to assert reproduction and remove the xfail. "
+                "Also update test_threshold_does_not_reproduce in "
+                "test_part52_deterministic_validation.py."
             )
         assert r.success_rate == Decimal("1")
 

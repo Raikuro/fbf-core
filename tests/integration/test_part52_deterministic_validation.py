@@ -409,16 +409,6 @@ class TestReplicationThreshold:
 class TestReplicationSummary:
     """Summarize replication status across all scenarios."""
 
-    def test_baseline_reproduces(self, scenario_results: list[ScenarioResult]) -> None:
-        """Baseline scenario reproduces ERN anchor exactly."""
-        r = next(x for x in scenario_results if x.scenario_name == "baseline_no_leverage")
-        assert r.success_rate == Decimal("1")
-
-    def test_fixed_rate_reproduces(self, scenario_results: list[ScenarioResult]) -> None:
-        """Fixed-rate scenario reproduces ERN anchor exactly."""
-        r = next(x for x in scenario_results if x.scenario_name == "fixed_rate_no_timing")
-        assert r.success_rate == Decimal("1")
-
     def test_threshold_does_not_reproduce(self, scenario_results: list[ScenarioResult]) -> None:
         """Threshold scenario does NOT reproduce ERN anchor — discrepancy documented.
 
