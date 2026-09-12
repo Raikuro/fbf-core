@@ -197,6 +197,15 @@ class ExecutionOptions:
         Profiler instance for execution timing.  Default is ``NoOpProfiler``
         (zero overhead).  Pass ``ExecutionProfiler()`` to collect timings.
         The profiler is resolved once here and propagated to executors.
+    summary_only:
+        When ``True``, per-month timelines are stripped from the returned
+        results after simulation completes.  Callers that only need
+        aggregate statistics (success, failure month, final wealth) avoid
+        the cost of serializing hundreds of megabytes of monthly payloads
+        through IPC in the parallel path.  The simulation itself is
+        unchanged; only the returned ``SimulationResult`` objects carry
+        empty timelines.  Default is ``False`` to preserve existing
+        behaviour for callers that require full timeline data.
     """
 
     backend: ExecutionBackend = ExecutionBackend.DEFAULT
@@ -205,6 +214,7 @@ class ExecutionOptions:
     batch_size: int | None = None
     progress_callback: ProgressCallback | None = None
     profiler: Profiler = field(default_factory=NoOpProfiler)
+    summary_only: bool = False
 
     @staticmethod
     def with_profiling(**kwargs: Any) -> ExecutionOptions:
@@ -317,6 +327,7 @@ def execute_study_plan(
             max_workers=workers,
             simulation_executor=sim_executor,
             progress_callback=opt.progress_callback,
+            summary_only=opt.summary_only,
             profiler=profiler,
         )
         profiler.stop("parallel_dispatch")
@@ -327,6 +338,7 @@ def execute_study_plan(
             plan=built.plan,
             simulation_executor=sim_executor,
             progress_callback=opt.progress_callback,
+            summary_only=opt.summary_only,
             profiler=profiler,
         )
         profiler.stop("sequential_dispatch")

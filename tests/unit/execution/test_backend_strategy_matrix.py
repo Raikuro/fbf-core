@@ -17,7 +17,9 @@ from fbf.core.execution import (
     ExecutionOptions,
     ExecutionStrategy,
     execute_study_plan,
+    sequential_execute,
 )
+from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.study.builder import BuiltStudy
 from tests.unit.execution.conftest import make_plan
 
@@ -44,10 +46,12 @@ class TestDefaultBackendStrategy:
             backend=ExecutionBackend.DEFAULT,
             strategy=ExecutionStrategy.AUTO,
             workers=8,
+            summary_only=True,
         )
         # Should not raise; result is produced via sequential path
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
+        assert all(r.timeline.monthly_results == () for r in result.results)
 
     def test_default_auto_large_workload_selects_parallel(
         self, monkeypatch: pytest.MonkeyPatch
@@ -62,6 +66,7 @@ class TestDefaultBackendStrategy:
             backend=ExecutionBackend.DEFAULT,
             strategy=ExecutionStrategy.AUTO,
             workers=2,
+            summary_only=True,
         )
         # Should execute in parallel (workers > 1 and units >= threshold)
         result = execute_study_plan(built, options)
@@ -74,6 +79,7 @@ class TestDefaultBackendStrategy:
             backend=ExecutionBackend.DEFAULT,
             strategy=ExecutionStrategy.AUTO,
             workers=None,
+            summary_only=True,
         )
         # Should complete without error regardless of host CPU count
         result = execute_study_plan(built, options)
@@ -86,6 +92,7 @@ class TestDefaultBackendStrategy:
             backend=ExecutionBackend.DEFAULT,
             strategy=ExecutionStrategy.SEQUENTIAL,
             workers=8,
+            summary_only=True,
         )
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
@@ -97,6 +104,7 @@ class TestDefaultBackendStrategy:
             backend=ExecutionBackend.DEFAULT,
             strategy=ExecutionStrategy.PARALLEL,
             workers=2,
+            summary_only=True,
         )
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
@@ -112,6 +120,7 @@ class TestFastBackendStrategy:
             backend=ExecutionBackend.FAST,
             strategy=ExecutionStrategy.AUTO,
             workers=8,
+            summary_only=True,
         )
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
@@ -122,6 +131,7 @@ class TestFastBackendStrategy:
         options = ExecutionOptions(
             backend=ExecutionBackend.FAST,
             strategy=ExecutionStrategy.SEQUENTIAL,
+            summary_only=True,
         )
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
@@ -179,6 +189,7 @@ class TestAutoRoutingPolicy:
             backend=ExecutionBackend.DEFAULT,
             strategy=ExecutionStrategy.AUTO,
             workers=64,
+            summary_only=True,
         )
         # Should complete without spawning parallel workers
         result = execute_study_plan(built, options)
@@ -191,6 +202,7 @@ class TestAutoRoutingPolicy:
             backend=ExecutionBackend.DEFAULT,
             strategy=ExecutionStrategy.SEQUENTIAL,
             workers=64,
+            summary_only=True,
         )
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
@@ -207,6 +219,7 @@ class TestAutoRoutingPolicy:
             backend=ExecutionBackend.DEFAULT,
             strategy=ExecutionStrategy.PARALLEL,
             workers=2,
+            summary_only=True,
         )
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
@@ -226,3 +239,94 @@ class TestExecutionOptionsDefaults:
     def test_workers_default_is_none(self) -> None:
         opts = ExecutionOptions()
         assert opts.workers is None
+
+    def test_summary_only_default_is_false(self) -> None:
+        opts = ExecutionOptions()
+        assert opts.summary_only is False
+
+
+class TestSummaryOnlyEquivalence:
+    """summary_only=True must produce identical statistics but empty timelines.
+
+    The invariant: ``summary_only`` only strips per-month timelines from the
+    returned ``SimulationResult`` objects.  All other semantic content —
+    aggregate statistics, plan, experiment definition — must be unchanged.
+
+    The DEFAULT and FAST backends always produce empty timelines (they use
+    closed-form / Numba kernels that don't build monthly results).  To test
+    the stripping behaviour we must use the reference SimulationExecutor
+    directly via ``sequential_execute``.
+    """
+
+    def _make_reference_executor(self) -> SimulationExecutor:
+        """Create a reference SimulationExecutor that produces full timelines."""
+        from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
+        from fbf.core.execution.pipeline.runner import SimulationRunner
+
+        return SimulationExecutor(SimulationRunner(pipeline=create_default_pipeline()))
+
+    def test_statistics_identical(self) -> None:
+        """Complete SimulationStatistics must match across both modes."""
+        plan = make_plan(cohorts=1, horizons=[720])
+        sim_exec = self._make_reference_executor()
+
+        result_full = sequential_execute(
+            plan, simulation_executor=sim_exec, summary_only=False,
+        )
+        result_summary = sequential_execute(
+            plan, simulation_executor=sim_exec, summary_only=True,
+        )
+
+        assert len(result_full.results) == len(result_summary.results)
+
+        for i, (full, summary) in enumerate(
+            zip(result_full.results, result_summary.results, strict=True)
+        ):
+            assert full.statistics == summary.statistics, (
+                f"Unit {i}: statistics differ. "
+                f"full={full.statistics} summary={summary.statistics}"
+            )
+
+    def test_timelines_differ_intentionally(self) -> None:
+        """summary_only=False must have a populated timeline; summary_only=True
+        must have an empty timeline."""
+        plan = make_plan(cohorts=1, horizons=[720])
+        sim_exec = self._make_reference_executor()
+
+        result_full = sequential_execute(
+            plan, simulation_executor=sim_exec, summary_only=False,
+        )
+        result_summary = sequential_execute(
+            plan, simulation_executor=sim_exec, summary_only=True,
+        )
+
+        assert len(result_full.results) == len(result_summary.results)
+
+        for i, (full, summary) in enumerate(
+            zip(result_full.results, result_summary.results, strict=True)
+        ):
+            assert full.timeline.monthly_results != (), (
+                f"Unit {i}: summary_only=False must have a populated timeline"
+            )
+            assert summary.timeline.monthly_results == (), (
+                f"Unit {i}: summary_only=True must have an empty timeline"
+            )
+
+    def test_plan_and_definition_preserved(self) -> None:
+        """ResearchExecutionResult.plan and ExperimentRun.definition are unchanged."""
+        plan = make_plan(cohorts=1, horizons=[720])
+        sim_exec = self._make_reference_executor()
+
+        result_full = sequential_execute(
+            plan, simulation_executor=sim_exec, summary_only=False,
+        )
+        result_summary = sequential_execute(
+            plan, simulation_executor=sim_exec, summary_only=True,
+        )
+
+        assert result_full.plan == result_summary.plan
+        assert (
+            result_full.experiment_result.definition
+            == result_summary.experiment_result.definition
+        )
+        assert len(result_full.results) == len(result_summary.results)

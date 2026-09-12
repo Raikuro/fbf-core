@@ -183,9 +183,14 @@ class TestNumbaE2ESmall:
             param_configs=(),
         )
 
-        ref_result = execute_study_plan(built)
+        ref_result = execute_study_plan(
+            built, options=ExecutionOptions(summary_only=True)
+        )
         numba_result = execute_study_plan(
-            built, options=ExecutionOptions(backend=ExecutionBackend.FAST)
+            built,
+            options=ExecutionOptions(
+                backend=ExecutionBackend.FAST, summary_only=True
+            ),
         )
 
         _compare_results(

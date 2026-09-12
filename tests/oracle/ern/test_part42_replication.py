@@ -48,7 +48,7 @@ from typing import TypedDict
 import pytest
 
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import execute_study_plan
+from fbf.core.execution import ExecutionOptions, execute_study_plan
 from fbf.core.study import (
     OmyStudyConfiguration,
     StudyConfiguration,
@@ -166,7 +166,10 @@ def _execute_canonical() -> CanonicalResult:
 
     # Phase 2: Execution
     t_exec_start = time.perf_counter()
-    result = execute_study_plan(built)
+    result = execute_study_plan(
+        built,
+        options=ExecutionOptions(summary_only=True),
+    )
     t_exec_end = time.perf_counter()
     peak_rss = _get_peak_rss_mb()
     exec_time = t_exec_end - t_exec_start

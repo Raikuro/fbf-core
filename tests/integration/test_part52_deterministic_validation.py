@@ -4,38 +4,21 @@ Validates that Part 52 mechanics (drawdown-triggered borrowing, repayment at
 ATH, FFR-based interest, LTV enforcement) are correctly implemented and
 executable through the production study-building path.
 
-This file tests MECHANISM CORRECTNESS, not ERN replication. Replication
-discrepancies are documented explicitly — they are not weakened or tolerated.
-
-ERN Part 52 Anchors (from article §2.1):
-
-    Cohort | Threshold | Interest   | WR     | Borrow% | Scenario
-    -------|-----------|------------|--------|---------|----------
-    1965   | none      | fixed 1.5% | 3.58%  | 0%      | baseline
-    1965   | none      | fixed 1.5% | 3.78%  | 10.76%  | no-timing leverage
-    1965   | 20%       | repayment  | 3.91%  | 41.08%  | timing leverage
-
-Parameters (§2):
-    Horizon: 30 years (360 months)
-    Allocation: 75/25 stocks/bonds
-    Initial portfolio: $1,000,000
-    LTV limit: 50% (enforced)
-    Final value target: $250,000 (0.25 × initial_wealth)
+This file tests MECHANISM CORRECTNESS and the ResearchExecutor internal path.
+Full ERN replication scenarios (A1/A2/A3) are owned by
+``test_part52_canonical_ern_replication.py`` and are not duplicated here.
 
 Scope:
-    - PART52 policy type registration: PASS
-    - Policy construction through StudyConfiguration: PASS
-    - borrow_pct / drawdown_threshold propagation: PASS
-    - Baseline scenario (no leverage): PASS
-    - Fixed-rate no-timing scenario: PASS
-    - Threshold scenario — mechanism correctness: PASS
-    - Threshold scenario — ERN exact reproduction: DISCREPANCY DOCUMENTED
+    - PART52 policy type registration
+    - Policy construction through StudyConfiguration
+    - borrow_pct / drawdown_threshold propagation
+    - ResearchExecutor internal execution path (single scenario)
+    - Unit count and success-rate structure
 
-    Not in scope (deferred to S6.5/S6.6):
-    - Full ERN grid execution
-    - Solver-derived parameter discovery
-    - WR probe methodology
-    - Success-rate tolerances
+Not in scope (owned by canonical replication):
+    - Full 3-scenario ERN replication (A1/A2/A3)
+    - Success-rate assertion at published WR anchors
+    - Grid-sweep optimizer path
 """
 
 from __future__ import annotations
@@ -62,18 +45,14 @@ from fbf.core.study import StudyConfiguration, build_study_plan
 
 DATA_DIR = Path("data/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
-FINAL_VALUE_TARGET = Decimal("0.25")  # $250K terminal net-worth
 LTV_LIMIT = Decimal("0.50")
 HORIZON_YEARS = 30
 FIXED_INTEREST_RATE = Decimal("0.015")
 EXPECTED_UNITS = 1739
 
-# Fully-specified anchors: WR + borrow_pct both known
-FULLY_SPECIFIED_ANCHORS = [
-    ("baseline_no_leverage",  1965, None,                Decimal("0.0358"), Decimal("0")),
-    ("fixed_rate_no_timing",  1965, None,                Decimal("0.0378"), Decimal("0.1076")),
-    ("threshold_20_repayment",1965, Decimal("0.20"),      Decimal("0.0391"), Decimal("0.4108")),
-]
+# Baseline anchor (no leverage) — used for the ResearchExecutor path test.
+# Full 3-scenario replication is owned by test_part52_canonical_ern_replication.
+BASELINE_ANCHOR = ("baseline_no_leverage", 1965, None, Decimal("0.0358"), Decimal("0"))
 
 
 # ---------------------------------------------------------------------------
@@ -127,11 +106,11 @@ def _build_study_config(
 
 
 # ---------------------------------------------------------------------------
-# Execution
+# Execution via ResearchExecutor (internal path — not execute_study_plan)
 # ---------------------------------------------------------------------------
 
 def _execute_study(config: StudyConfiguration) -> tuple[Any, float]:
-    """Execute a study and return (result, wall_time_seconds)."""
+    """Execute a study via ResearchExecutor and return (result, wall_time_seconds)."""
     built = build_study_plan(config, str(DATA_DIR), INITIAL_WEALTH)
     executor = ResearchExecutor(
         simulation_executor=SimulationExecutor(
@@ -152,20 +131,9 @@ def _count_successes(result: Any) -> tuple[int, int]:
     return successful, total
 
 
-# ---------------------------------------------------------------------------
-# Scenario execution
-# ---------------------------------------------------------------------------
-
-def _execute_scenario(
-    scenario_name: str,
-    cohort_year: int,
-    threshold: Decimal | None,
-    anchor_wr: Decimal,
-    borrow_pct: Decimal,
-) -> ScenarioResult:
-    """Execute one fully-specified scenario and return results."""
-    anomalies: list[str] = []
-
+def _execute_baseline_scenario() -> ScenarioResult:
+    """Execute the baseline (no leverage) scenario via ResearchExecutor."""
+    scenario_name, cohort_year, threshold, anchor_wr, borrow_pct = BASELINE_ANCHOR
     config = _build_study_config(
         withdrawal_rate=anchor_wr,
         borrow_pct=borrow_pct,
@@ -185,28 +153,18 @@ def _execute_scenario(
         successful_units=succ,
         success_rate=rate,
         execution_time_s=t_elapsed,
-        anomalies=anomalies,
+        anomalies=[],
     )
 
 
 # ---------------------------------------------------------------------------
-# Fixture: execute all scenarios once
+# Fixture: single-scenario ResearchExecutor execution
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def scenario_results() -> list[ScenarioResult]:
-    """Execute all fully-specified anchor scenarios and return results."""
-    results = []
-    for scenario_name, cohort_year, threshold, anchor_wr, borrow_pct in FULLY_SPECIFIED_ANCHORS:
-        result = _execute_scenario(
-            scenario_name=scenario_name,
-            cohort_year=cohort_year,
-            threshold=threshold,
-            anchor_wr=anchor_wr,
-            borrow_pct=borrow_pct,
-        )
-        results.append(result)
-    return results
+def baseline_result() -> ScenarioResult:
+    """Execute the baseline scenario once via ResearchExecutor and return result."""
+    return _execute_baseline_scenario()
 
 
 # ===========================================================================
@@ -258,146 +216,41 @@ class TestMechanismConstruction:
         assert config.debt_drawdown_threshold == Decimal("0.20")
 
 
-class TestMechanismExecution:
-    """Verify all scenarios execute deterministically with correct structure."""
-
-    def test_all_scenarios_produce_results(self, scenario_results: list[ScenarioResult]) -> None:
-        """All three scenarios must produce results."""
-        assert len(scenario_results) == len(FULLY_SPECIFIED_ANCHORS)
-
-    def test_correct_unit_count(self, scenario_results: list[ScenarioResult]) -> None:
-        """All scenarios must produce exactly 1,739 simulation units."""
-        for r in scenario_results:
-            assert r.total_units == EXPECTED_UNITS, (
-                f"{r.scenario_name}: expected {EXPECTED_UNITS} units, "
-                f"got {r.total_units}"
-            )
-
-    def test_baseline_executes(self, scenario_results: list[ScenarioResult]) -> None:
-        """Baseline scenario must execute and produce valid results."""
-        r = next(x for x in scenario_results if x.scenario_name == "baseline_no_leverage")
-        assert r.success_rate >= Decimal("0"), (
-            f"Baseline produced invalid success rate: {r.success_rate}"
-        )
-
-    def test_fixed_rate_executes(self, scenario_results: list[ScenarioResult]) -> None:
-        """Fixed-rate scenario must execute and produce valid results."""
-        r = next(x for x in scenario_results if x.scenario_name == "fixed_rate_no_timing")
-        assert r.success_rate >= Decimal("0"), (
-            f"Fixed-rate produced invalid success rate: {r.success_rate}"
-        )
-
-    def test_threshold_executes(self, scenario_results: list[ScenarioResult]) -> None:
-        """Threshold scenario must execute and produce valid results."""
-        r = next(x for x in scenario_results if x.scenario_name == "threshold_20_repayment")
-        assert r.success_rate >= Decimal("0"), (
-            f"Threshold produced invalid success rate: {r.success_rate}"
-        )
-
-    def test_no_critical_anomalies(self, scenario_results: list[ScenarioResult]) -> None:
-        """No scenario should have critical anomalies."""
-        for r in scenario_results:
-            assert r.anomalies == [], (
-                f"{r.scenario_name} has anomalies: {r.anomalies}"
-            )
-
-    def test_execution_within_time_limit(self, scenario_results: list[ScenarioResult]) -> None:
-        """All scenarios must complete within 60 minutes."""
-        for r in scenario_results:
-            assert r.execution_time_s < 3600, (
-                f"{r.scenario_name}: took {r.execution_time_s:.0f}s (> 60 min)"
-            )
-
-
 # ===========================================================================
-# SECTION 2: REPLICATION VALIDATION
-# These tests check whether FBF reproduces ERN's published results.
-# Discrepancies are documented, not tolerated.
+# SECTION 2: RESEARCH EXECUTOR PATH
+# Validates that the internal ResearchExecutor execution path works correctly.
+# Full ERN scenario replication is owned by test_part52_canonical_ern_replication.
 # ===========================================================================
 
-class TestReplicationBaseline:
-    """Validate baseline (no leverage) against ERN anchor."""
+class TestResearchExecutorPath:
+    """Verify the ResearchExecutor internal path executes Part 52 correctly."""
 
-    def test_baseline_100_percent_success(self, scenario_results: list[ScenarioResult]) -> None:
-        """ERN anchor: WR=3.58%, no leverage → all 1,739 cohorts succeed.
-
-        ERN reports this as the maximum sustainable WR for the baseline.
-        FBF must reproduce 100% success at this WR.
-        """
-        r = next(x for x in scenario_results if x.scenario_name == "baseline_no_leverage")
-        assert r.success_rate == Decimal("1"), (
-            f"REPLICATION DISCREPANCY: baseline WR={r.anchor_wr}, "
-            f"expected 1739/1739 (100%), got {r.successful_units}/{r.total_units} "
-            f"({r.success_rate})"
-        )
-
-
-class TestReplicationFixedRate:
-    """Validate fixed-rate no-timing against ERN anchor."""
-
-    def test_fixed_rate_100_percent_success(self, scenario_results: list[ScenarioResult]) -> None:
-        """ERN anchor: WR=3.78%, borrow=10.76% → all 1,739 cohorts succeed.
-
-        ERN reports this as the maximum sustainable WR for untimed leverage.
-        FBF must reproduce 100% success at this WR.
-        """
-        r = next(x for x in scenario_results if x.scenario_name == "fixed_rate_no_timing")
-        assert r.success_rate == Decimal("1"), (
-            f"REPLICATION DISCREPANCY: fixed_rate WR={r.anchor_wr}, "
-            f"expected 1739/1739 (100%), got {r.successful_units}/{r.total_units} "
-            f"({r.success_rate})"
-        )
-
-
-class TestReplicationThreshold:
-    """Validate threshold timing against ERN anchor.
-
-    This scenario is the subject of an active discrepancy investigation.
-    ERN reports WR=3.91% as sustainable for all cohorts. FBF produces
-    1733/1739 (99.65%). The discrepancy is documented below.
-    """
-
-    def test_threshold_mechanism_correct(self, scenario_results: list[ScenarioResult]) -> None:
-        """Threshold scenario must execute correctly (mechanism test)."""
-        r = next(x for x in scenario_results if x.scenario_name == "threshold_20_repayment")
-        assert r.success_rate > Decimal("0"), (
-            "Threshold scenario produced no successful cohorts"
-        )
-
-    def test_threshold_reproduction_discrepancy(
-        self, scenario_results: list[ScenarioResult]
+    def test_baseline_produces_correct_unit_count(
+        self, baseline_result: ScenarioResult
     ) -> None:
-        """Threshold scenario reproduces ERN anchor — discrepancy resolved.
-
-        The monthly-draw fix (removing the loan_balance == 0 guard) resolved
-        the 6-cohort discrepancy.  The threshold scenario now achieves
-        1739/1739 success, matching ERN's published result.
-        """
-        r = next(x for x in scenario_results if x.scenario_name == "threshold_20_repayment")
-        assert r.success_rate == Decimal("1"), (
-            f"Threshold scenario expected 1739/1739, got "
-            f"{r.successful_units}/{r.total_units} ({r.success_rate})"
+        """Baseline scenario must produce exactly 1,739 simulation units."""
+        assert baseline_result.total_units == EXPECTED_UNITS, (
+            f"expected {EXPECTED_UNITS} units, got {baseline_result.total_units}"
         )
 
+    def test_baseline_executes_successfully(
+        self, baseline_result: ScenarioResult
+    ) -> None:
+        """Baseline scenario must execute and produce valid results."""
+        assert baseline_result.success_rate >= Decimal("0"), (
+            f"Baseline produced invalid success rate: {baseline_result.success_rate}"
+        )
 
-# ===========================================================================
-# SECTION 3: REPLICATION SUMMARY
-# ===========================================================================
+    def test_baseline_no_anomalies(self, baseline_result: ScenarioResult) -> None:
+        """Baseline scenario must have no critical anomalies."""
+        assert baseline_result.anomalies == []
 
-class TestReplicationSummary:
-    """Summarize replication status across all scenarios."""
-
-    def test_threshold_reproduces_ern(self, scenario_results: list[ScenarioResult]) -> None:
-        """Threshold scenario reproduces ERN anchor — discrepancy resolved.
-
-        The monthly-draw fix (removing the loan_balance == 0 guard) resolved
-        the 6-cohort discrepancy.  The threshold scenario now achieves
-        1739/1739 success, matching ERN's published result.
-        """
-        r = next(x for x in scenario_results if x.scenario_name == "threshold_20_repayment")
-        assert r.success_rate == Decimal("1"), (
-            f"Threshold scenario expected 1739/1739, got "
-            f"{r.successful_units}/{r.total_units} ({r.success_rate})"
+    def test_baseline_completes_within_time_limit(
+        self, baseline_result: ScenarioResult
+    ) -> None:
+        """Baseline scenario must complete within 60 minutes."""
+        assert baseline_result.execution_time_s < 3600, (
+            f"took {baseline_result.execution_time_s:.0f}s (> 60 min)"
         )
 
 
@@ -409,38 +262,17 @@ if __name__ == "__main__":
     print("=" * 80)
     print("S6.3 — Part 52 Deterministic Scenario Validation")
     print("=" * 80)
-    print(f"Scenarios: {len(FULLY_SPECIFIED_ANCHORS)}")
-    print(f"Total units per scenario: {EXPECTED_UNITS:,}")
+    print("Scenario: baseline (no leverage)")
+    print(f"Total units: {EXPECTED_UNITS:,}")
     print()
 
-    results = []
-    for scenario_name, cohort_year, threshold, anchor_wr, borrow_pct in FULLY_SPECIFIED_ANCHORS:
-        print(f"--- {scenario_name} (WR={anchor_wr}, cohort={cohort_year}) ---")
-        r = _execute_scenario(
-            scenario_name=scenario_name,
-            cohort_year=cohort_year,
-            threshold=threshold,
-            anchor_wr=anchor_wr,
-            borrow_pct=borrow_pct,
-        )
-        results.append(r)
-        print(f"  Result:     {r.successful_units}/{r.total_units} "
-              f"({r.success_rate}), {r.execution_time_s:.1f}s")
-        if r.anomalies:
-            for a in r.anomalies:
-                print(f"  NOTE: {a}")
-        else:
-            print("  OK")
-        print()
-
-    # Summary
-    total_time = sum(r.execution_time_s for r in results)
-    print("=" * 80)
-    print(f"Total execution time: {total_time:.1f}s ({total_time/60:.1f} min)")
-    print()
-    print("Replication status:")
-    for r in results:
-        status = "PASS" if r.success_rate == Decimal("1") else f"DISCREPANCY ({r.success_rate})"
-        print(f"  {r.scenario_name}: {status}")
+    r = _execute_baseline_scenario()
+    print(f"Result: {r.successful_units}/{r.total_units} "
+          f"({r.success_rate}), {r.execution_time_s:.1f}s")
+    if r.anomalies:
+        for a in r.anomalies:
+            print(f"  NOTE: {a}")
+    else:
+        print("  OK")
     print()
     print("=" * 80)
