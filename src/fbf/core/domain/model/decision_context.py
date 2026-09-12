@@ -60,3 +60,5 @@ class DecisionContext:
     market_snapshot: MarketSnapshot
     dataset: Dataset
     debt_info: DebtInfo | None = None
+    compound_drawdown: Decimal = Decimal("0")
+    previous_draw_repay: Decimal = Decimal("0")

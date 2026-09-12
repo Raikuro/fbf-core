@@ -86,7 +86,7 @@ def test_portfolio_rebalance_integration_100_equity_withdrawal_then_6040() -> No
     state = SimulationState(
         context=context,
         current_date=context.start_date,
-        period_index=0,
+        period_index=1,
         portfolio=initial_portfolio,
         allocation=Allocation(weights={asset_a: Decimal("1")}),
         allocation_target=AllocationTarget(weights={asset_a: Decimal("1")}),

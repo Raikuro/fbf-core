@@ -54,6 +54,24 @@ class SimulationState:
     ltv_limit: Decimal = Decimal("0")
     ltv_enforcement: bool = True
 
+    # Compound drawdown tracking (Part 52 — ERN behavioral equivalence)
+    compound_drawdown: Decimal = Decimal("0")
+    previous_equity_index: Decimal | None = None
+
+    # ERN spreadsheet artifact: previous period's draw/repay is included
+    # in the portfolio growth base (P_{t-1} - C + D_{t-1}) * (1 + w - exp/12)
+    previous_draw_repay: Decimal = Decimal("0")
+    period_draw_repay: Decimal = Decimal("0")
+
+    # Post-rebalance portfolio value at the END of the previous period
+    # (at previous-period prices).  Used by ExpenseDeductionStep to compute
+    # the ERN-precise expense and timing correction.
+    previous_portfolio_value: Decimal = Decimal("0")
+
+    # Pre-computed C * r_t timing correction for the current period.
+    # Set by ExpenseDeductionStep after computing r_t from the snapshot change.
+    timing_correction: Decimal = Decimal("0")
+
     # Profiling (set by runner before build_result)
     _execution_time_seconds: float = 0.0
 

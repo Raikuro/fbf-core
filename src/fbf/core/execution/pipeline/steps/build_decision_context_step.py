@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fbf.core.domain.model.decision_context import DebtInfo, DecisionContext
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.execution.pipeline.pipeline import PipelineStep
 from fbf.core.execution.pipeline.simulation import SimulationState
 
@@ -44,6 +45,11 @@ class BuildDecisionContextStep(PipelineStep):
                 ltv_enforcement=state.ltv_enforcement,
             )
 
+        # Compute compound drawdown from previous equity index
+        compound_dd = self._compute_compound_drawdown(
+            state, state.market_snapshot
+        )
+
         decision_context = DecisionContext(
             date=state.current_date,
             period_index=state.period_index,
@@ -54,10 +60,45 @@ class BuildDecisionContextStep(PipelineStep):
             market_snapshot=state.market_snapshot,
             dataset=state.context.dataset,
             debt_info=debt_info,
+            compound_drawdown=compound_dd,
+            previous_draw_repay=state.previous_draw_repay,
         )
 
         state.decision_context = decision_context
+        state.compound_drawdown = compound_dd
         return state
+
+    def _compute_compound_drawdown(
+        self, state: SimulationState, market_snapshot: MarketSnapshot
+    ) -> Decimal:
+        """Compute compound (path-dependent) real total-return drawdown.
+
+        Formula: cDD = min(0, (1 + prev_cDD) * (equity_curr / equity_prev) - 1)
+        where equity values are real total-return index levels.
+
+        On period 0, compound drawdown is 0 (no prior history).
+        """
+        if state.previous_equity_index is None:
+            return Decimal("0")
+
+        equity_asset = None
+        for asset_class in market_snapshot.index_levels:
+            if asset_class.id == "equity":
+                equity_asset = asset_class
+                break
+        if equity_asset is None:
+            return Decimal("0")
+
+        equity_curr = market_snapshot.index_levels[equity_asset]
+        equity_prev = state.previous_equity_index
+
+        if equity_prev <= 0:
+            return Decimal("0")
+
+        prev_cdd = state.compound_drawdown
+        ratio = equity_curr / equity_prev
+        raw = (Decimal("1") + prev_cdd) * ratio - Decimal("1")
+        return min(Decimal("0"), raw)
 
     def _validate_state(self, state: SimulationState) -> None:
         if state.portfolio is None:

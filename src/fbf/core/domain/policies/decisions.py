@@ -30,9 +30,14 @@ class WithdrawalDecision(PolicyDecision):
     Contains both portfolio withdrawal and optional loan draw amounts.
     The policy computes both amounts at the beginning of the period,
     observing current prices only.
+
+    ``spending_budget`` is the base monthly consumption (C) used by
+    LoanRepaymentStep to compute the repayment excess.  In the NORMAL
+    case (no leverage), ``nominal_amount == spending_budget``.
     """
 
     nominal_amount: Money
     real_amount: Money
     loan_draw_amount: Decimal = Decimal("0")
     is_repayment: bool = False
+    spending_budget: Decimal = Decimal("0")

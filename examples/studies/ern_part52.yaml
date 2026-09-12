@@ -11,14 +11,10 @@
 #   - Repayment: double withdrawal at fresh ATH, excess repays margin loan
 #   - LTV limit: 50% (enforced)
 #   - Final net-worth target: $250,000 (0.25 × initial)
-#
-# This YAML expresses the FIXED-RATE scenarios (A1, A9 baselines and the
-# no-timing leverage case).  FFR-based floating-rate scenarios (A2-A8,
-# A10-A11) require FFR coverage extending to 1871 and are deferred to
-# the canonical replication phase.
+#   - Interest rate: FFR + 0.50% spread, CPI-adjusted (canonical ERN formula)
 #
 # Grid: 3 drawdown_threshold x 2 borrow_pct x 1 SWR x 1 horizon = 6 cells
-# Each cell runs over 1,739 rolling cohorts from the ERN dataset.
+# Each cell runs over rolling cohorts from the ERN dataset.
 #
 # Run example:
 #   sim-retire --data-dir data/ern run examples/studies/ern_part52.yaml \
@@ -48,13 +44,18 @@ withdrawal_policy:
 
 # Part 52 timing-leverage configuration
 debt:
-  interest_rate: 0.015
+  ffr:
+    dataset_identifier: "ffr_monthly"
+    spread: 0.005
   ltv_limit: 0.50
   ltv_enforcement: true
   borrow_pct: [0.0, 0.4108]
   drawdown_threshold: [0.20, 0.25, 0.35]
 
 final_value_target: [0.25]
+
+# Annual expense ratio (applied monthly). Canonical ERN value: 0.0005.
+expense_ratio: 0.0005
 
 # Note: The 30-year horizon generates 2,099 cohorts (superset of the
 # canonical 1,739).  To match the canonical grid, set

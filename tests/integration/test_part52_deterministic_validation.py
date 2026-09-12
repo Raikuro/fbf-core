@@ -367,39 +367,17 @@ class TestReplicationThreshold:
     def test_threshold_reproduction_discrepancy(
         self, scenario_results: list[ScenarioResult]
     ) -> None:
-        """DOCUMENTED DISCREPANCY: threshold scenario does not reproduce ERN exactly.
+        """Threshold scenario reproduces ERN anchor — discrepancy resolved.
 
-        ERN anchor: WR=3.91%, borrow=41.08%, threshold=20% → all cohorts succeed.
-        FBF result: 1733/1739 (99.65%) succeed.
-
-        Six cohorts fail. Investigation shows:
-        - All six are portfolio depletion (not LTV enforcement)
-        - Loan balance is zero at failure
-        - At least the 1929 cohort also fails without leverage at WR=3.91%
-
-        This test documents the discrepancy using xfail:
-        - When discrepancy exists: test xfails → suite green, discrepancy visible
-        - When discrepancy is unexpectedly resolved: test passes normally
-          (detected by test_threshold_does_not_reproduce which fails on resolution)
-
-        See TODO.md: "Part 52 numerical discrepancy investigation".
-        DO NOT WEAKEN THIS ASSERTION to make it pass.
+        The monthly-draw fix (removing the loan_balance == 0 guard) resolved
+        the 6-cohort discrepancy.  The threshold scenario now achieves
+        1739/1739 success, matching ERN's published result.
         """
         r = next(x for x in scenario_results if x.scenario_name == "threshold_20_repayment")
-
-        if r.success_rate < Decimal("1"):
-            failing = r.total_units - r.successful_units
-            pytest.xfail(
-                reason=(
-                    f"REPLICATION DISCREPANCY: threshold WR={r.anchor_wr}, "
-                    f"borrow={r.borrow_pct}, threshold={r.threshold}. "
-                    f"Expected: 1739/1739 (100%). "
-                    f"Got: {r.successful_units}/{r.total_units} "
-                    f"({r.success_rate}) — {failing} cohorts fail. "
-                    f"Failure type: portfolio depletion (not LTV enforcement). "
-                    f"Status: UNEXPLAINED DISCREPANCY — requires investigation"
-                ),
-            )
+        assert r.success_rate == Decimal("1"), (
+            f"Threshold scenario expected 1739/1739, got "
+            f"{r.successful_units}/{r.total_units} ({r.success_rate})"
+        )
 
 
 # ===========================================================================
@@ -409,28 +387,18 @@ class TestReplicationThreshold:
 class TestReplicationSummary:
     """Summarize replication status across all scenarios."""
 
-    def test_threshold_does_not_reproduce(self, scenario_results: list[ScenarioResult]) -> None:
-        """Threshold scenario does NOT reproduce ERN anchor — discrepancy documented.
+    def test_threshold_reproduces_ern(self, scenario_results: list[ScenarioResult]) -> None:
+        """Threshold scenario reproduces ERN anchor — discrepancy resolved.
 
-        This test explicitly asserts that reproduction has NOT been achieved.
-        When this test fails (assertion error), it means reproduction HAS
-        been achieved and this test should be updated.
+        The monthly-draw fix (removing the loan_balance == 0 guard) resolved
+        the 6-cohort discrepancy.  The threshold scenario now achieves
+        1739/1739 success, matching ERN's published result.
         """
         r = next(x for x in scenario_results if x.scenario_name == "threshold_20_repayment")
-        if r.success_rate < Decimal("1"):
-            # Reproduction not achieved — this is the expected state
-            # Document the discrepancy for tracking
-            failing = r.total_units - r.successful_units
-            assert True, (
-                f"DISCREPANCY DOCUMENTED: {r.successful_units}/{r.total_units} "
-                f"({r.success_rate}) — {failing} cohorts fail at WR={r.anchor_wr}"
-            )
-        else:
-            pytest.fail(
-                "Threshold scenario now reproduces ERN exactly. "
-                "Update this test to assert reproduction and remove the "
-                "discrepancy documentation."
-            )
+        assert r.success_rate == Decimal("1"), (
+            f"Threshold scenario expected 1739/1739, got "
+            f"{r.successful_units}/{r.total_units} ({r.success_rate})"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.execution.pipeline.pipeline import PipelineStep
@@ -26,6 +27,10 @@ class SimulationStateUpdateStep(PipelineStep):
             state.status = ExecutionStatus.COMPLETED
             return state
 
+        # Save current equity index before loading next snapshot
+        if state.market_snapshot is not None:
+            state.previous_equity_index = self._get_equity_index(state.market_snapshot)
+
         next_market_snapshot = self._select_next_market_snapshot(state)
         if next_market_snapshot is None:
             state.status = ExecutionStatus.COMPLETED
@@ -35,6 +40,10 @@ class SimulationStateUpdateStep(PipelineStep):
         state.period_index += 1
         state.market_snapshot = next_market_snapshot
         state.status = ExecutionStatus.RUNNING
+
+        # Carry forward the current period's draw/repay as next period's D_{t-1}
+        # for the ExpenseDeductionStep timing correction.
+        state.previous_draw_repay = state.period_draw_repay
 
         return state
 
@@ -68,3 +77,10 @@ class SimulationStateUpdateStep(PipelineStep):
         year = current_date.year + (current_date.month // 12)
         month = current_date.month % 12 + 1
         return date(year, month, min(current_date.day, 28))
+
+    def _get_equity_index(self, snapshot: MarketSnapshot) -> Decimal | None:
+        """Extract the equity index level from a market snapshot."""
+        for asset_class in snapshot.index_levels:
+            if asset_class.id == "equity":
+                return snapshot.index_levels[asset_class]
+        return None

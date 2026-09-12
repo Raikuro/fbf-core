@@ -308,6 +308,7 @@ def evaluate_path(
         series=series,
         horizon=horizon,
         c=withdrawal,
+        expense_ratio=context.expense_ratio or Decimal("0"),
     )
 
     return ClosedFormPath(
@@ -325,6 +326,7 @@ def _evaluate_decimal_recurrence(
     series: dict[object, tuple[Decimal, ...]],
     horizon: int,
     c: Decimal,
+    expense_ratio: Decimal = Decimal("0"),
 ) -> tuple[list[Decimal], list[Decimal], int | None, Decimal | None]:
     """Bit-exact Decimal replica of the reference engine's monthly pipeline.
 
@@ -390,6 +392,12 @@ def _evaluate_decimal_recurrence(
         if residual < Decimal("0"):
             residual = Decimal("0")
         new_units[canonical[-1]] = residual / series[canonical[-1]][m]
+
+        if expense_ratio != Decimal("0"):
+            _exp_scale = Decimal("1") - expense_ratio / Decimal("12")
+            for a in canonical:
+                new_units[a] = new_units[a] * _exp_scale
+
         units = new_units
         order = canonical
         post.append(sum((units[a] * series[a][m] for a in order), Decimal("0")))
@@ -516,6 +524,7 @@ def _unit_simulation_context(plan: ResearchPlan, unit: PlannedSimulationUnit) ->
         interest_rate_schedule=unit.interest_rate_schedule,
         ltv_limit=unit.ltv_limit,
         ltv_enforcement=unit.ltv_enforcement,
+        expense_ratio=unit.expense_ratio,
     )
 
 

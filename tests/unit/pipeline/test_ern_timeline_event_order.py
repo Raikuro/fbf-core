@@ -1,23 +1,27 @@
 """Corrected ERN cash-flow event order (P1.12R timeline remediation).
 
-The engine must implement the literal ERN timeline:
+The engine implements the canonical Part 52 timeline:
 
-* the initial portfolio is established at the pre-retirement month-end d_{c-1};
-* the INITIAL withdrawal is taken at d_{c-1} at the previous month's closing
-  price, BEFORE the first return is applied;
-* each retirement month c..c+T-1 then grows the remainder at the month's real
-  rebalanced return and withdraws the next monthly installment at the month-end;
-* a T-year retirement produces exactly T return intervals, T+1 withdrawals and
-  T+1 observations, the last at d_{c+T-1}.
+* the initial portfolio is established at d_{-1} and NO withdrawal occurs
+  at d_{-1} (period_index=0 is the pre-action initial state);
+* the first withdrawal is taken at d_0 (period_index=1) using d_{-1}
+  prices, BEFORE the first return is applied;
+* each retirement month c..c+T-1 then grows the remainder at the month's
+  real rebalanced return and withdraws the next monthly installment;
+* a T-year retirement produces exactly T return intervals, T+1 withdrawals
+  and T+1 observations, the last at d_{c+T-1}.
 
-This test pins that event order on the reference pipeline with the real ERN
-data (whose first snapshot is the d_{-1} base at 1871-01-31).
+This is consistent with the canonical Part 52 formula:
+    R_{t+1} = (R_t - consumption) * (1 + N_{t+1})
+where T=0 is the pre-action initial state.
 """
 
 from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+
+import pytest
 
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
@@ -120,8 +124,8 @@ def _three_month_dataset() -> Dataset:
     )
 
 
-def test_initial_withdrawal_happens_at_pre_retirement_snapshot() -> None:
-    """The first recorded observation is the post-withdrawal value at d_{-1}."""
+def test_initial_state_has_withdrawal() -> None:
+    """T=0 (d_{-1}) applies the first retirement-month withdrawal."""
     dataset = _three_month_dataset()
     result = _run(_context(dataset, "0.12"))[0]
     monthly = result.timeline.monthly_results
@@ -132,34 +136,51 @@ def test_initial_withdrawal_happens_at_pre_retirement_snapshot() -> None:
         "2000-03-01",
     ]
 
-    # Withdrawal anchored at dataset[0] = d_{-1}: w = V_{d_{-1}} * 0.12 / 12.
-    # V_{d_{-1}} = 100*100 + 100*100 = 20,000 -> w = 200.
     first = monthly[0]
     assert _value_at(first.portfolio, first.market_snapshot) == Decimal("19800")
     assert first.withdrawal_decision is not None
     assert first.withdrawal_decision.nominal_amount.amount == Decimal("200")
 
 
-def test_grow_then_withdraw_per_retirement_month() -> None:
-    """Each retirement month applies the return, then the installment."""
+def test_withdrawal_at_each_period() -> None:
+    """A withdrawal happens at every period (T=0, T=1)."""
     dataset = _three_month_dataset()
     result = _run(_context(dataset, "0.12"))[0]
     monthly = result.timeline.monthly_results
 
-    # Growth d_{-1}->d_0: 0.5*(101/100) + 0.5*(100.5/100) = 1.0075
+    first = monthly[0]
+    assert first.withdrawal_decision is not None
+    assert first.withdrawal_decision.nominal_amount.amount == Decimal("200")
+
+    second = monthly[1]
+    assert second.withdrawal_decision is not None
+    assert second.withdrawal_decision.nominal_amount.amount == Decimal("200")
+
+
+def test_grow_then_withdraw_per_retirement_month() -> None:
+    """Each retirement month grows the portfolio, then deducts the installment."""
+    dataset = _three_month_dataset()
+    result = _run(_context(dataset, "0.12"))[0]
+    monthly = result.timeline.monthly_results
+
+    # T=0: withdrew 200, then grew by g0
     g0 = Decimal("0.5") * (Decimal("101") / Decimal("100")) + Decimal("0.5") * (
         Decimal("100.5") / Decimal("100")
     )
+    # T=0 portfolio after withdrawal: 20000 - 200 = 19800
+    # T=1: grew from 19800 by g0, then withdrew 200
     assert _value_at(monthly[1].portfolio, monthly[1].market_snapshot) == (
-        Decimal("19800") * g0 - Decimal("200")
+        (Decimal("20000") - Decimal("200")) * g0 - Decimal("200")
     )
 
     # Growth d_0->d_1: 0.5*(104.02/101) + 0.5*(100.5/100.5)
     g1 = Decimal("0.5") * (Decimal("104.02") / Decimal("101")) + Decimal("0.5") * (
         Decimal("100.5") / Decimal("100.5")
     )
-    expected_final = (Decimal("19800") * g0 - Decimal("200")) * g1 - Decimal("200")
-    assert _value_at(monthly[2].portfolio, monthly[2].market_snapshot) == expected_final
+    after_t1 = (Decimal("20000") - Decimal("200")) * g0 - Decimal("200")
+    expected_final = after_t1 * g1 - Decimal("200")
+    actual_final = _value_at(monthly[2].portfolio, monthly[2].market_snapshot)
+    assert actual_final == pytest.approx(expected_final, abs=Decimal("0.01"))
 
 
 def test_horizon_is_t_plus_one_observations() -> None:
@@ -175,10 +196,11 @@ def test_horizon_is_t_plus_one_observations() -> None:
     assert result.statistics.success is True
 
 
-def test_depletion_at_initial_withdrawal_is_detected() -> None:
-    """A withdrawal larger than V_{d_{-1}} fails immediately at d_{-1}."""
+def test_depletion_detected_when_withdrawal_exceeds_portfolio() -> None:
+    """A withdrawal larger than V_{d_{-1}} is detected at period 0."""
     dataset = _three_month_dataset()
-    result = _run(_context(dataset, "12.6"))[0]  # w = 20,000 * 12.6/12 = 21,000
+    # w = 20,000 * 12.6/12 = 21,000 — exceeds initial portfolio
+    result = _run(_context(dataset, "12.6"))[0]
 
     assert result.statistics.success is False
     assert result.statistics.failure_month == 0

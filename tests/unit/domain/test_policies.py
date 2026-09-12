@@ -33,7 +33,7 @@ def _make_dataset() -> Dataset:
 
 
 def _make_portfolio(total: Decimal) -> Portfolio:
-    asset = AssetClass(id="initial", name="Initial", description="")
+    asset = AssetClass(id="acwi", name="ACWI", description="")
     return Portfolio(holdings=(AssetHolding(asset_class=asset, units=total),))
 
 
@@ -41,7 +41,7 @@ def _make_context(portfolio: Portfolio) -> DecisionContext:
     asset = AssetClass(id="acwi", name="ACWI", description="")
     snapshot = MarketSnapshot(
         date=date(2020, 1, 1),
-        index_levels={asset: Decimal("100")},
+        index_levels={asset: Decimal("1")},
         inflation=Decimal("0"),
         inflation_cumulative=Decimal("0"),
         is_ath=True,

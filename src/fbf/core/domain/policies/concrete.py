@@ -66,11 +66,15 @@ class ConstantWithdrawalPolicy(WithdrawalPolicy):
         self.withdrawal_rate = withdrawal_rate
 
     def _decide_active(self, context: DecisionContext) -> WithdrawalDecision:
-        total = sum(h.units for h in context.portfolio.holdings)
+        portfolio_value = Decimal("0")
+        for holding in context.portfolio.holdings:
+            price = context.market_snapshot.index_levels.get(holding.asset_class)
+            if price is not None:
+                portfolio_value += holding.units * price
         if self.frequency is WithdrawalFrequency.ANNUAL:
-            amount = total * self.withdrawal_rate
+            amount = portfolio_value * self.withdrawal_rate
         else:
-            amount = total * self.withdrawal_rate / Decimal("12")
+            amount = portfolio_value * self.withdrawal_rate / Decimal("12")
         return WithdrawalDecision(
             reason="ConstantWithdrawalPolicy",
             nominal_amount=Money(amount, Currency.EUR),

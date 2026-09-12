@@ -143,22 +143,26 @@ def test_build_schedule_covers_full_horizon() -> None:
         assert schedule[i] == Decimal(str(expected))
 
 
-def test_build_schedule_out_of_range_raises() -> None:
-    """Verify explicit failure when FFR dataset doesn't cover full horizon."""
-    import pytest
-
+def test_build_schedule_forward_fills_beyond_dataset_end() -> None:
+    """Verify forward-fill: periods beyond FFR dataset end use last known rate."""
     ffr_rates = (
         (date(2020, 1, 1), Decimal("0.01")),
         (date(2020, 2, 1), Decimal("0.02")),
     )
 
-    with pytest.raises(ValueError, match="No FFR rate available"):
-        build_interest_rate_schedule(
-            ffr_rates=ffr_rates,
-            spread=Decimal("0"),
-            start_date=date(2020, 1, 1),
-            horizon_months=6,  # Only 2 months of data — must fail
-        )
+    schedule = build_interest_rate_schedule(
+        ffr_rates=ffr_rates,
+        spread=Decimal("0"),
+        start_date=date(2020, 1, 1),
+        horizon_months=6,  # Only 2 months of data — months 3-6 forward-filled
+    )
+
+    assert len(schedule) == 6
+    # Month 1: Jan 2020 → 0.01, Month 2: Feb 2020 → 0.02
+    # Months 3-6: forward-filled from Feb 2020 → 0.02
+    expected = [0.01, 0.02, 0.02, 0.02, 0.02, 0.02]
+    for i, exp in enumerate(expected):
+        assert schedule[i] == Decimal(str(exp))
 
 
 def test_load_ffr_rates_empty_dataset(tmp_path: Path) -> None:

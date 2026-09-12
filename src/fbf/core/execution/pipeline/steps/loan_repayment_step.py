@@ -17,9 +17,8 @@ class LoanRepaymentStep(PipelineStep):
     """PipelineStep that executes loan repayment.
 
     This step only executes when WithdrawalDecision.is_repayment is True.
-    It computes the excess as portfolio_withdrawal - budget (where budget
-    is portfolio_withdrawal / 2 in repayment mode) and repays the lesser
-    of the excess and the outstanding loan balance.
+    It computes the excess as nominal_amount - spending_budget and repays
+    the lesser of the excess and the outstanding loan balance.
 
     Sequence order: 32 (after WithdrawalExecutionStep at 30).
     """
@@ -34,26 +33,32 @@ class LoanRepaymentStep(PipelineStep):
         - Only execute when loan_balance > 0
         - Repayment = min(excess, loan_balance)
         - loan_balance -= repayment
+
+        Also records period_draw_repay for the ERN spreadsheet artifact:
+        positive = draw, negative = repay, zero = neutral.
         """
         if state.withdrawal_decision is None:
+            state.period_draw_repay = Decimal("0")
             return state
 
-        if not state.withdrawal_decision.is_repayment:
-            return state
+        loan_draw = state.withdrawal_decision.loan_draw_amount
 
-        if state.loan_balance <= 0:
-            return state
+        if state.withdrawal_decision.is_repayment and state.loan_balance > 0:
+            # Compute excess: nominal_amount - spending_budget
+            # REPAY: nominal_amount = C, spending_budget = C - D_{t-1}
+            # excess = C - (C - D_{t-1}) = D_{t-1}
+            nominal_amount = state.withdrawal_decision.nominal_amount.amount
+            spending_budget = state.withdrawal_decision.spending_budget
+            excess = nominal_amount - spending_budget
 
-        # Compute excess: double withdrawal minus normal budget
-        # In repayment mode, portfolio_withdrawal = budget * 2
-        # So budget = portfolio_withdrawal / 2
-        portfolio_withdrawal = state.withdrawal_decision.nominal_amount.amount
-        budget = portfolio_withdrawal / Decimal("2")
-        excess = portfolio_withdrawal - budget  # = budget
-
-        # Repay the lesser of excess and loan_balance
-        repayment = min(excess, state.loan_balance)
-        state.loan_balance -= repayment
+            # Repay the lesser of excess and loan_balance
+            repayment = min(excess, state.loan_balance)
+            state.loan_balance -= repayment
+            state.period_draw_repay = -repayment
+        elif loan_draw > 0:
+            state.period_draw_repay = loan_draw
+        else:
+            state.period_draw_repay = Decimal("0")
 
         return state
 

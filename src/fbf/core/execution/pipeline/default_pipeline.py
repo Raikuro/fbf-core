@@ -14,6 +14,9 @@ from fbf.core.execution.pipeline.steps.allocation_decision_step import (
 from fbf.core.execution.pipeline.steps.build_decision_context_step import (
     BuildDecisionContextStep,
 )
+from fbf.core.execution.pipeline.steps.expense_deduction_step import (
+    ExpenseDeductionStep,
+)
 from fbf.core.execution.pipeline.steps.failure_detection_step import (
     FailureDetectionStep,
 )
@@ -47,23 +50,29 @@ from fbf.core.execution.pipeline.steps.withdrawal_execution_step import (
 def create_default_pipeline() -> SimulationPipeline:
     """Create the default pipeline with debt support.
 
-    Pipeline order (K.5.1 corrected):
-    10: InitializeAllocation
-    20: BuildDecisionContext
-    25: WithdrawalDecision
-    28: LoanDraw (borrow from margin - BEFORE withdrawal)
+    Pipeline order (K.5.1 corrected, ERN Part 52 interest ordering):
+    0: InitializeAllocation
+    5: ExpenseDeduction (ERN-precise expense + C-timing correction)
+    10: BuildDecisionContext
+    20: WithdrawalDecision
+    26: InterestAccrual (ERN: interest on prior balance BEFORE draw)
+    28: LoanDraw (ERN: new draw added AFTER interest accrual)
     30: WithdrawalExecution (consume cash first, then sell assets)
     32: LoanRepayment (Part 52: repay at fresh ATH)
     40: AllocationDecision
     50: PortfolioRebalance
     60: MarketEvolution
-    65: InterestAccrual
     66: LTVEvaluation
     70: MonthlyResultBuilder
     75: FailureDetection
     80: SimulationStateUpdate
 
+    ERN ordering (from spreadsheet):
+        T(N) = Y(N-1) * (1 + M(N))    [interest on prior balance]
+        Y(N) = X(N) + T(N)             [draw added after interest]
+
     Cash lifecycle:
+    - InterestAccrualStep: loan_balance += interest (on prior balance only)
     - LoanDrawStep: cash_balance += loan_draw_amount
     - WithdrawalExecutionStep: cash_balance -= min(cash_balance, total_spending)
                                 portfolio -= (total_spending - cash_consumed)
@@ -73,15 +82,16 @@ def create_default_pipeline() -> SimulationPipeline:
     return SimulationPipeline(
         steps=[
             InitializeAllocationStep(),
+            ExpenseDeductionStep(),  # ERN-precise expense + C-timing correction
             BuildDecisionContextStep(),
             WithdrawalDecisionStep(),
-            LoanDrawStep(),  # BEFORE withdrawal - cash available for spending
+            InterestAccrualStep(),  # BEFORE draw: interest on prior balance (ERN order)
+            LoanDrawStep(),  # AFTER interest: new draw does not accrue interest same month
             WithdrawalExecutionStep(),  # Consume cash first, then sell assets
             LoanRepaymentStep(),  # Part 52: repay at fresh ATH
             AllocationDecisionStep(),
             PortfolioRebalanceStep(),
             MarketEvolutionStep(),
-            InterestAccrualStep(),
             LTVEvaluationStep(),
             MonthlyResultBuilderStep(),
             FailureDetectionStep(),

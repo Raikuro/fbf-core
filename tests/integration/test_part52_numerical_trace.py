@@ -189,36 +189,50 @@ def test_complete_numerical_trace() -> None:
     result_month1 = state.monthly_results[-1]
 
     # Verify Month 1
+    # nominal_amount = budget + D_t - D_{t-1} = C + D_t (first borrow, D_{t-1}=0)
     assert result_month1.withdrawal_decision is not None
     expected_loan_draw = BUDGET * BORROW_PCT
-    expected_portfolio_withdrawal = BUDGET * (Decimal("1") - BORROW_PCT)
+    expected_nominal_m1 = BUDGET + expected_loan_draw  # C + D_t
     assert result_month1.withdrawal_decision.loan_draw_amount == expected_loan_draw
-    assert result_month1.withdrawal_decision.nominal_amount.amount == expected_portfolio_withdrawal
+    assert result_month1.withdrawal_decision.nominal_amount.amount == expected_nominal_m1
     assert result_month1.withdrawal_decision.is_repayment is False
-    # Loan balance after interest accrual (interest accrues in same month)
-    expected_interest_m1 = expected_loan_draw * INTEREST_RATE / Decimal("12")
-    expected_loan_balance_m1 = expected_loan_draw + expected_interest_m1
+    # ERN ordering: interest accrues on PRIOR balance (0), then draw is added.
+    # T(N) = Y(N-1) * (1+M), Y(N) = X(N) + T(N)
+    expected_loan_balance_m1 = expected_loan_draw  # draw added after interest
     assert state.loan_balance == expected_loan_balance_m1
     assert state.cash_balance == Decimal("0")  # Cash consumed
 
-    # Execute Month 2: BORROW (loan_balance > 0, not at ATH)
+    # Execute Month 2: BORROW (drawdown=30% >= threshold, loan_balance > 0)
+    # Monthly-draw: a new draw occurs every eligible month regardless of
+    # existing loan balance.
     state.market_snapshot = snapshots[2]
     state.period_index = 2
     state.current_date = date(1966, 1, 1)
     state = pipeline.execute(state)
     result_month2 = state.monthly_results[-1]
 
-    # Verify Month 2 (loan balance accrues another month of interest)
+    # Verify Month 2 — new draw on top of existing loan
+    # nominal_amount = budget + D_t - D_{t-1} = C + D_t - D_t = C (steady borrow)
     assert result_month2.withdrawal_decision is not None
-    assert result_month2.withdrawal_decision.nominal_amount.amount == BUDGET
-    assert result_month2.withdrawal_decision.loan_draw_amount == Decimal("0")
+    expected_loan_draw_m2 = BUDGET * BORROW_PCT
+    expected_nominal_m2 = BUDGET  # C (D_t cancels D_{t-1})
+    assert result_month2.withdrawal_decision.loan_draw_amount == expected_loan_draw_m2
+    assert (
+        result_month2.withdrawal_decision.nominal_amount.amount
+        == expected_nominal_m2
+    )
     assert result_month2.withdrawal_decision.is_repayment is False
-    # Interest accrues on current loan balance (which already includes M1 interest)
-    expected_interest_m2 = expected_loan_balance_m1 * INTEREST_RATE / Decimal("12")
-    expected_loan_balance_m2 = expected_loan_balance_m1 + expected_interest_m2
+    # ERN ordering: interest accrues on PRIOR balance, then draw is added.
+    # T(N) = Y(N-1) * (1+M), Y(N) = X(N) + T(N)
+    expected_interest_m2 = (
+        expected_loan_balance_m1 * INTEREST_RATE / Decimal("12")
+    )
+    expected_loan_balance_m2 = (
+        expected_loan_balance_m1 + expected_interest_m2 + expected_loan_draw_m2
+    )
     assert state.loan_balance == expected_loan_balance_m2
 
-    # Execute Month 3: REPAY (is_ath = True, loan_balance > 0)
+    # Execute Month 3: REPAY (compound_drawdown == 0, loan_balance > 0)
     state.market_snapshot = snapshots[3]
     state.period_index = 3
     state.current_date = date(1966, 2, 1)
@@ -226,17 +240,24 @@ def test_complete_numerical_trace() -> None:
     result_month3 = state.monthly_results[-1]
 
     # Verify Month 3
+    # REPAY: nominal_amount = C (not C - D_{t-1})
     assert result_month3.withdrawal_decision is not None
-    assert result_month3.withdrawal_decision.nominal_amount.amount == BUDGET * 2
+    assert result_month3.withdrawal_decision.nominal_amount.amount == BUDGET
     assert result_month3.withdrawal_decision.loan_draw_amount == Decimal("0")
     assert result_month3.withdrawal_decision.is_repayment is True
-    # Loan balance reduced by repayment
-    excess = BUDGET * 2 - BUDGET  # = BUDGET
-    repayment = min(excess, expected_loan_balance_m2)
-    expected_loan_balance_after_repayment = expected_loan_balance_m2 - repayment
+    # Interest accrues BEFORE repayment (seq 26 < seq 32)
+    expected_interest_m3 = expected_loan_balance_m2 * INTEREST_RATE / Decimal("12")
+    loan_balance_after_interest_m3 = expected_loan_balance_m2 + expected_interest_m3
+    # Loan balance reduced by repayment: excess = nominal_amount - spending_budget
+    # REPAY case: spending_budget = C - d_{t-1}, excess = d_{t-1}
+    d_prev_m3 = expected_loan_draw_m2  # previous period's draw
+    spending_budget_m3 = BUDGET - d_prev_m3
+    excess_m3 = BUDGET - spending_budget_m3  # = d_prev_m3
+    repayment_m3 = min(excess_m3, loan_balance_after_interest_m3)
+    expected_loan_balance_after_repayment = loan_balance_after_interest_m3 - repayment_m3
     assert state.loan_balance == expected_loan_balance_after_repayment
 
-    # Execute Month 4: NORMAL (is_ath = True, loan_balance = 0 or > 0)
+    # Execute Month 4: NORMAL (compound_drawdown == 0, loan_balance = 0 or > 0)
     state.market_snapshot = snapshots[4]
     state.period_index = 4
     state.current_date = date(1966, 3, 1)
@@ -252,7 +273,8 @@ def test_complete_numerical_trace() -> None:
         assert result_month4.withdrawal_decision.is_repayment is False
     else:
         # Still has debt, REPAY again
-        assert result_month4.withdrawal_decision.nominal_amount.amount == BUDGET * 2
+        # REPAY: nominal_amount = C
+        assert result_month4.withdrawal_decision.nominal_amount.amount == BUDGET
         assert result_month4.withdrawal_decision.is_repayment is True
 
 

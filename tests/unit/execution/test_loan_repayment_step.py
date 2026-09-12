@@ -98,12 +98,13 @@ class TestLoanRepaymentStep:
             real_amount=Money(Decimal("1000"), Currency.EUR),
             loan_draw_amount=Decimal("0"),
             is_repayment=True,
+            spending_budget=Decimal("500"),
         )
 
         step = LoanRepaymentStep()
         result = step.execute(state)
 
-        # excess = 1000 / 2 = 500
+        # excess = 1000 - 500 = 500
         # repayment = min(500, 5000) = 500
         assert result.loan_balance == Decimal("4500")
 
@@ -124,6 +125,7 @@ class TestLoanRepaymentStep:
             real_amount=Money(Decimal("1000"), Currency.EUR),
             loan_draw_amount=Decimal("0"),
             is_repayment=True,
+            spending_budget=Decimal("500"),
         )
 
         step = LoanRepaymentStep()
@@ -200,6 +202,7 @@ class TestLoanRepaymentStep:
             real_amount=Money(Decimal("1000"), Currency.EUR),
             loan_draw_amount=Decimal("0"),
             is_repayment=True,
+            spending_budget=Decimal("500"),
         )
 
         step = LoanRepaymentStep()

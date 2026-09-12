@@ -2,7 +2,7 @@
 
 Verifies end-to-end execution across multiple rolling cohorts:
 - Domain materialization (Dataset.slice & materialize_research_plan)
-- Per-cohort dataset alignment (unit.dataset[0].date == unit.cohort.start_date)
+- Per-cohort dataset alignment (unit.dataset[0].date <= unit.cohort.start_date)
 - Caching identity (unit_a.dataset is unit_b.dataset for same cohort)
 - Stateless ResearchExecutor -> SimulationExecutor -> SimulationRunner pipeline
 - Sequential execution & parallel ProcessPoolExecutor execution
@@ -126,7 +126,10 @@ class TestMultiCohortExecution:
         # Verify cohort alignment & horizon length
         for unit in plan:
             assert unit.dataset is not None
-            assert unit.dataset[0].date == unit.cohort.start_date
+            # With ERN Part 52 baseline slicing, dataset[0] may be one month
+            # before cohort.start_date when the baseline snapshot exists.
+            first_date = unit.dataset[0].date
+            assert first_date <= unit.cohort.start_date
             assert len(unit.dataset) == 12
 
         # Verify dataset identity caching per cohort

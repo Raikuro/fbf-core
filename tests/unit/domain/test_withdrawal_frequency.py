@@ -99,6 +99,8 @@ def _build_context(
     is_ath: bool,
     period_index: int = 0,
     loan_balance: Decimal = Decimal("0"),
+    compound_drawdown: Decimal = Decimal("0"),
+    previous_draw_repay: Decimal = Decimal("0"),
 ) -> DecisionContext:
     equity_asset = AssetClass(id="equity", name="Equity", description="")
     bond_asset = AssetClass(id="bond", name="Bond", description="")
@@ -144,6 +146,8 @@ def _build_context(
         market_snapshot=market_snapshot,
         dataset=mock_sim_ctx.dataset,
         debt_info=debt_info,
+        compound_drawdown=compound_drawdown,
+        previous_draw_repay=previous_draw_repay,
     )
 
 
@@ -296,8 +300,8 @@ class TestConstantWithdrawalFrequency:
         snapshot = MarketSnapshot(
             date=date(1965, 11, 1),
             index_levels={
-                equity_asset: Decimal("100"),
-                bond_asset: Decimal("100"),
+                equity_asset: Decimal("1"),
+                bond_asset: Decimal("1"),
             },
             inflation=Decimal("0"),
             inflation_cumulative=Decimal("1"),
@@ -516,11 +520,13 @@ class TestPart52WithdrawalFrequency:
             running_ath=Decimal("100"),
             is_ath=False,
             period_index=0,
+            compound_drawdown=Decimal("-0.25"),
         )
         decision = policy.decide(context)
         annual_budget = Decimal("100000") * Decimal("0.04")
         assert decision.loan_draw_amount == annual_budget * Decimal("0.25")
-        assert decision.nominal_amount.amount == annual_budget * Decimal("0.75")
+        # BORROW: nominal = C + D_t - D_{t-1} = budget + D_t (D_{t-1}=0)
+        assert decision.nominal_amount.amount == annual_budget + annual_budget * Decimal("0.25")
         assert decision.is_repayment is False
 
     def test_annual_repay_mode(
@@ -542,10 +548,12 @@ class TestPart52WithdrawalFrequency:
             is_ath=True,
             period_index=0,
             loan_balance=Decimal("5000"),
+            previous_draw_repay=Decimal("1337.86"),
         )
         decision = policy.decide(context)
         annual_budget = Decimal("100000") * Decimal("0.04")
-        assert decision.nominal_amount.amount == annual_budget * 2
+        # REPAY: nominal = C (not C * 2)
+        assert decision.nominal_amount.amount == annual_budget
         assert decision.loan_draw_amount == Decimal("0")
         assert decision.is_repayment is True
 
@@ -591,6 +599,7 @@ class TestPart52WithdrawalFrequency:
             running_ath=Decimal("100"),
             is_ath=False,
             period_index=12,
+            compound_drawdown=Decimal("-0.25"),
         )
         decision = policy.decide(context)
         annual_budget = Decimal("100000") * Decimal("0.04")

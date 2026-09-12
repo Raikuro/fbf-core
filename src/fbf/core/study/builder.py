@@ -134,11 +134,22 @@ def build_interest_rate_schedule(
     spread: Decimal,
     start_date: date,
     horizon_months: int,
+    *,
+    lag_months: int = 0,
+    inflation_adjustment: Decimal | None = None,
 ) -> tuple[Decimal, ...]:
     """Build an interest rate schedule from FFR data + spread.
 
-    Maps FFR rates to simulation periods by date alignment. The FFR rate
-    for month M is the rate observed in month M (no lag/lead).
+    Maps FFR rates to simulation periods by date alignment. When lag_months=1
+    (ERN Part 52 convention), month T's interest uses the FFR observed at
+    month T-1.
+
+    For real-terms datasets (CPI=0), the ERN spreadsheet's CPI adjustment
+    (CPI_prev/CPI_curr) collapses to 1. The nominal FFR must therefore be
+    converted to real terms by subtracting expected inflation. When
+    inflation_adjustment is provided, the schedule rate is
+    max(0, FFR - inflation_adjustment + spread). When None, no adjustment
+    is applied (nominal FFR + spread).
 
     Parameters
     ----------
@@ -150,6 +161,13 @@ def build_interest_rate_schedule(
         Start date of the simulation cohort.
     horizon_months:
         Number of months in the simulation horizon.
+    lag_months:
+        Number of months to lag the FFR observation (default 0).
+        ERN Part 52 uses lag_months=1: month T uses FFR from month T-1.
+    inflation_adjustment:
+        Expected annual inflation to subtract from nominal FFR to obtain
+        the real rate. Required for real-terms datasets where CPI=0.
+        E.g., Decimal("0.02") for 2% expected inflation.
 
     Returns
     -------
@@ -178,17 +196,48 @@ def build_interest_rate_schedule(
         day = min(start_date.day, calendar.monthrange(year, month)[1])
         period_date = date(year, month, day)
 
-        rate = rate_map.get(period_date)
-        if rate is None:
-            raise ValueError(
-                f"No FFR rate available for {period_date}. "
-                f"Available range: {earliest} to {latest}. "
-                f"Requested start_date={start_date}, horizon_months={horizon_months}, "
-                f"period_date={period_date}. "
-                f"Provide FFR data covering the full simulation period, or restrict "
-                f"cohorts to dates within the available rate dataset."
-            )
-        schedule.append(rate + spread)
+        # Apply lag: use FFR from lag_months earlier
+        if lag_months > 0:
+            lagged_total = total_months - lag_months
+            lagged_year = lagged_total // 12
+            lagged_month = lagged_total % 12 + 1
+            lagged_day = min(start_date.day, calendar.monthrange(lagged_year, lagged_month)[1])
+            lagged_date = date(lagged_year, lagged_month, lagged_day)
+            rate = rate_map.get(lagged_date)
+            if rate is None:
+                # Forward-fill: use last known FFR for periods beyond dataset end
+                if latest is not None and lagged_date > latest:
+                    rate = rate_map[latest]
+                else:
+                    raise ValueError(
+                        f"No FFR rate available for lagged date {lagged_date} "
+                        f"(period {month_idx}, start={start_date}, lag={lag_months}). "
+                        f"Available range: {earliest} to {latest}."
+                    )
+        else:
+            rate = rate_map.get(period_date)
+            if rate is None:
+                # Forward-fill: use last known FFR for periods beyond dataset end
+                if latest is not None and period_date > latest:
+                    rate = rate_map[latest]
+                else:
+                    raise ValueError(
+                        f"No FFR rate available for {period_date}. "
+                        f"Available range: {earliest} to {latest}. "
+                        f"Requested start_date={start_date}, horizon_months={horizon_months}, "
+                        f"period_date={period_date}. "
+                        f"Provide FFR data covering the full simulation period, or restrict "
+                        f"cohorts to dates within the available rate dataset."
+                    )
+
+        # Convert nominal FFR to real rate if inflation_adjustment provided
+        if inflation_adjustment is not None:
+            real_rate = rate - inflation_adjustment
+            if real_rate < Decimal("0"):
+                real_rate = Decimal("0")
+            schedule.append(real_rate + spread)
+        else:
+            schedule.append(rate + spread)
 
     return tuple(schedule)
 
@@ -484,6 +533,9 @@ class StudyConfiguration:
     # S6.2 FFR integration parameters
     ffr_dataset_identifier: str | None = None
     ffr_spread: Decimal | None = None
+    ffr_inflation_adjustment: Decimal | None = None
+    # ERN Part 52 expense ratio (annual). None means no expense deduction.
+    expense_ratio: Decimal | None = None
 
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
@@ -634,6 +686,9 @@ class StudyConfiguration:
             data, "final_value_target"
         )
 
+        # Parse optional expense_ratio (annual, ERN Part 52)
+        expense_ratio = _parse_optional_decimal_scalar(data, "expense_ratio")
+
         # Parse optional OMY configuration
         omy_data = data.get("omy")
         omy_contribution_amount: Decimal | None = None
@@ -671,6 +726,7 @@ class StudyConfiguration:
         # S6.2 FFR integration parameters
         ffr_dataset_identifier: str | None = None
         ffr_spread: Decimal | None = None
+        ffr_inflation_adjustment: Decimal | None = None
         if debt_data is not None:
             if not isinstance(debt_data, dict):
                 raise ValueError("debt must be a mapping")
@@ -734,6 +790,9 @@ class StudyConfiguration:
                 raw_spread = raw_ffr.get("spread")
                 if raw_spread is not None:
                     ffr_spread = Decimal(str(raw_spread))
+                raw_inflation = raw_ffr.get("inflation_adjustment")
+                if raw_inflation is not None:
+                    ffr_inflation_adjustment = Decimal(str(raw_inflation))
 
         return cls(
             name=str(metadata.get("name", "Unnamed Study")),
@@ -766,6 +825,8 @@ class StudyConfiguration:
             debt_drawdown_threshold_values=debt_drawdown_threshold_values,
             ffr_dataset_identifier=ffr_dataset_identifier,
             ffr_spread=ffr_spread,
+            ffr_inflation_adjustment=ffr_inflation_adjustment,
+            expense_ratio=expense_ratio,
         )
 
 
@@ -1199,6 +1260,36 @@ def build_study_plan(
             f"{config.cohort_horizon_years or _longest_horizon_years(config)}-year "
             f"({cohort_horizon_months}-observation) horizon"
         )
+
+    # Load FFR rates early to filter cohorts that predate or exceed FFR
+    # coverage (S6.2).  ERN lag convention: month T uses FFR from month
+    # T-1, so the earliest feasible cohort is the one whose
+    # (start_date - 1 month) has FFR data.  ERN uses IF(ISNUMBER(M), M, N)
+    # splice which never rejects cohorts by rate availability; forward-fill
+    # in build_interest_rate_schedule handles periods beyond FFR dataset end.
+    ffr_rates: tuple[tuple[date, Decimal], ...] | None = None
+    ffr_spread: Decimal | None = None
+    if config.ffr_dataset_identifier is not None:
+        ffr_rates = load_ffr_rates(config.ffr_dataset_identifier, data_dir)
+        ffr_spread = config.ffr_spread if config.ffr_spread is not None else Decimal("0")
+        ffr_rate_map = dict(ffr_rates)
+        earliest_ffr = min(ffr_rate_map.keys())
+        lag_months = 1  # ERN Part 52 convention
+        filtered: list[CohortSpecification] = []
+        from calendar import monthrange
+        for cohort in cohorts:
+            # Check earliest bound: lagged date must have FFR data
+            total = cohort.start_date.year * 12 + cohort.start_date.month - 1 - lag_months
+            lag_year = total // 12
+            lag_month = total % 12 + 1
+            lag_day = min(cohort.start_date.day, monthrange(lag_year, lag_month)[1])
+            lagged_date = date(lag_year, lag_month, lag_day)
+            if lagged_date < earliest_ffr:
+                continue
+            filtered.append(cohort)
+        if filtered:
+            cohorts = tuple(filtered)
+
     param_configs = _build_unified_parameter_configs(config)
 
     representative_allocation, representative_withdrawal = _representative_policies(
@@ -1218,13 +1309,6 @@ def build_study_plan(
 
     portfolio = build_initial_portfolio(initial_wealth, dataset)
 
-    # Load FFR rates if configured
-    ffr_rates: tuple[tuple[date, Decimal], ...] | None = None
-    ffr_spread: Decimal | None = None
-    if config.ffr_dataset_identifier is not None:
-        ffr_rates = load_ffr_rates(config.ffr_dataset_identifier, data_dir)
-        ffr_spread = config.ffr_spread if config.ffr_spread is not None else Decimal("0")
-
     plan = materialize_research_plan(
         experiment_def=experiment_def,
         canonical_trajectory=dataset,
@@ -1239,9 +1323,11 @@ def build_study_plan(
         interest_rate_resolver=_make_interest_rate_resolver(config),
         ffr_rates=ffr_rates,
         ffr_spread=ffr_spread,
+        ffr_inflation_adjustment=config.ffr_inflation_adjustment,
         ltv_limit=config.debt_ltv_limit,
         ltv_enforcement=config.debt_ltv_enforcement,
         loan_draw_rate=config.debt_loan_draw_rate,
+        expense_ratio=config.expense_ratio,
     )
     return BuiltStudy(
         plan=plan,

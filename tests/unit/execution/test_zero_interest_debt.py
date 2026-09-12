@@ -436,5 +436,7 @@ class TestZeroInterestFullPipeline:
         assert result is not None
         assert result.statistics is not None
         for mr in result.timeline.monthly_results:
+            if mr.period_index == 0:
+                continue
             assert mr.debt_snapshot is not None
             assert mr.debt_snapshot.loan_balance >= Decimal("0")

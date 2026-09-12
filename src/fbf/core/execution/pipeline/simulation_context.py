@@ -32,3 +32,4 @@ class SimulationContext:
     interest_rate_schedule: tuple[Decimal, ...] | None = None
     ltv_limit: Decimal | None = None
     ltv_enforcement: bool = True
+    expense_ratio: Decimal | None = None

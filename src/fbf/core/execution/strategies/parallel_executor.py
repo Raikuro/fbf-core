@@ -53,6 +53,7 @@ def _create_default_simulation_executor() -> SimulationExecutor:
     - LTVEvaluationStep (step 66): Enforce LTV constraint
     - FailureDetectionStep (step 75): Detect depletion and margin call impossible
     """
+    from fbf.core.execution.pipeline.steps.expense_deduction_step import ExpenseDeductionStep
     from fbf.core.execution.pipeline.steps.failure_detection_step import FailureDetectionStep
     from fbf.core.execution.pipeline.steps.interest_accrual_step import InterestAccrualStep
     from fbf.core.execution.pipeline.steps.loan_draw_step import LoanDrawStep
@@ -62,16 +63,17 @@ def _create_default_simulation_executor() -> SimulationExecutor:
     pipeline = SimulationPipeline(
         [
             InitializeAllocationStep(),
+            ExpenseDeductionStep(),
             BuildDecisionContextStep(),
             WithdrawalDecisionStep(),
-            LoanDrawStep(),  # BEFORE withdrawal - cash available for spending
+            InterestAccrualStep(),  # BEFORE draw: interest on prior balance (ERN order)
+            LoanDrawStep(),  # AFTER interest: new draw does not accrue interest same month
             WithdrawalExecutionStep(),  # Consume cash first, then sell assets
             LoanRepaymentStep(),  # Part 52: repay at fresh ATH
             AllocationDecisionStep(),
             PortfolioRebalanceStep(),
             MarketEvolutionStep(),
-            InterestAccrualStep(),  # No-op when interest_rate = 0
-            LTVEvaluationStep(),  # No-op when interest_rate = 0
+            LTVEvaluationStep(),
             MonthlyResultBuilderStep(),
             FailureDetectionStep(),
             SimulationStateUpdateStep(),

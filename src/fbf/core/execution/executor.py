@@ -227,4 +227,5 @@ class ResearchExecutor:
             interest_rate_schedule=unit.interest_rate_schedule,
             ltv_limit=unit.ltv_limit,
             ltv_enforcement=unit.ltv_enforcement,
+            expense_ratio=unit.expense_ratio,
         )

@@ -1,12 +1,18 @@
 """Part 52 timing-leverage withdrawal policy.
 
 Implements the ERN Part 52 (Timing Leverage in Retirement) withdrawal semantics:
-- Borrow when index drawdown >= threshold (loan_balance == 0)
+- Borrow when compound real total-return drawdown >= threshold (every eligible
+  month, regardless of existing loan balance — matching ERN's monthly-draw
+  methodology)
 - Repay at fresh index ATH (loan_balance > 0)
 - Normal withdrawal when neither condition is met
 
-The policy reads index-level ATH data from MarketSnapshot and loan
+The policy reads compound drawdown from DecisionContext and loan
 balance from DebtInfo.
+
+Compound drawdown is the path-dependent, multiplicative real total-return
+drawdown: ``cDD = min(0, (1 + prev_cDD) * real_TR_ratio - 1)``. This
+matches ERN's exact formula from the Excel spreadsheet.
 """
 
 from __future__ import annotations
@@ -33,6 +39,10 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
     decision logic is identical in both modes and is coupled to the
     withdrawal event — leverage actions occur only when the policy
     produces a non-zero withdrawal.
+
+    Each month the drawdown condition is active (index drawdown >= threshold),
+    a new loan draw is created, matching ERN's monthly-draw methodology.
+    Draws accumulate on the existing loan balance rather than replacing it.
 
     Parameters
     ----------
@@ -88,45 +98,53 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
         else:
             budget = initial_wealth.amount * self.withdrawal_rate / Decimal("12")
 
-        # 2. Compute index-level drawdown
-        equity_asset = None
-        for asset_class in context.market_snapshot.index_levels:
-            if asset_class.id == "equity":
-                equity_asset = asset_class
-                break
-        if equity_asset is None:
-            raise ValueError("MarketSnapshot must contain an equity asset class")
+        # 2. Use compound (path-dependent) real total-return drawdown
+        #    This matches ERN's exact formula from the Excel spreadsheet.
+        compound_dd = context.compound_drawdown
 
-        equity_index = context.market_snapshot.index_levels[equity_asset]
-        running_ath = context.market_snapshot.running_ath
-        drawdown = Decimal("1") - equity_index / running_ath if running_ath > 0 else Decimal("0")
+        # 3. Get D_{t-1} from context.previous_draw_repay
+        d_prev = context.previous_draw_repay
 
-        # 3. Get current loan balance from debt_info
+        # 3b. Get current loan balance for REPAY condition check
         loan_balance = Decimal("0")
         if context.debt_info is not None:
             loan_balance = context.debt_info.loan_balance
 
         # 4. Decision logic (identical structure for both frequencies)
-        if drawdown >= self.drawdown_threshold and loan_balance == 0:
+        # drawdown_threshold is positive (e.g., 0.20 for 20% drawdown).
+        # Borrow when compound drawdown <= -threshold (more negative = deeper drawdown).
+        if compound_dd <= -self.drawdown_threshold:
             # BORROW: activate leverage
-            portfolio_withdrawal = budget * (Decimal("1") - self.borrow_pct)
+            # nominal = C + D_t - D_{t-1} → portfolio_sale = C - D_{t-1}
             loan_draw = budget * self.borrow_pct
+            nominal_amount = budget + loan_draw - d_prev
             is_repayment = False
-        elif context.market_snapshot.is_ath and loan_balance > 0:
-            # REPAY: double withdrawal, no loan draw
-            portfolio_withdrawal = budget * 2
+        elif compound_dd == Decimal("0") and loan_balance > 0:
+            # REPAY: no loan draw, repay outstanding balance
+            # nominal = C → portfolio_sale = C - D_{t-1}
             loan_draw = Decimal("0")
+            nominal_amount = budget
             is_repayment = True
         else:
             # NORMAL: no leverage activity
-            portfolio_withdrawal = budget
+            # nominal = C → portfolio_sale = C
             loan_draw = Decimal("0")
+            nominal_amount = budget
             is_repayment = False
+
+        # spending_budget = C - D_{t-1}: what's available for spending after
+        # accounting for the prior period's debt.  LoanRepaymentStep computes
+        # excess = nominal_amount - spending_budget:
+        #   BORROW: (C + D_t - D_{t-1}) - (C - D_{t-1}) = D_t
+        #   REPAY:  C - (C - D_{t-1}) = D_{t-1}
+        #   NORMAL: C - C = 0
+        spending_budget = budget - d_prev
 
         return WithdrawalDecision(
             reason="Part52WithdrawalPolicy",
-            nominal_amount=Money(portfolio_withdrawal, Currency.EUR),
-            real_amount=Money(portfolio_withdrawal, Currency.EUR),
+            nominal_amount=Money(nominal_amount, Currency.EUR),
+            real_amount=Money(nominal_amount, Currency.EUR),
             loan_draw_amount=loan_draw,
             is_repayment=is_repayment,
+            spending_budget=spending_budget,
         )

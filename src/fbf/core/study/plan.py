@@ -70,6 +70,7 @@ class PlannedSimulationUnit:
     ltv_limit: Decimal | None = None
     ltv_enforcement: bool = True
     loan_draw_rate: Decimal | None = None
+    expense_ratio: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.cohort is None:
@@ -178,9 +179,11 @@ def materialize_research_plan(
     interest_rate_schedule: tuple[Decimal, ...] | None = None,
     ffr_rates: tuple[tuple[date, Decimal], ...] | None = None,
     ffr_spread: Decimal | None = None,
+    ffr_inflation_adjustment: Decimal | None = None,
     ltv_limit: Decimal | None = None,
     ltv_enforcement: bool = True,
     loan_draw_rate: Decimal | None = None,
+    expense_ratio: Decimal | None = None,
 ) -> ResearchPlan:
     """Build a ResearchPlan whose units take horizon and policies per parameter config.
 
@@ -289,6 +292,8 @@ def materialize_research_plan(
                     spread=ffr_spread,
                     start_date=cohort.start_date,
                     horizon_months=horizon_months,
+                    lag_months=1,  # ERN Part 52: month T uses FFR from month T-1
+                    inflation_adjustment=ffr_inflation_adjustment,
                 )
             units.append(
                 PlannedSimulationUnit(
@@ -305,6 +310,7 @@ def materialize_research_plan(
                     ltv_limit=ltv_limit,
                     ltv_enforcement=ltv_enforcement,
                     loan_draw_rate=loan_draw_rate,
+                    expense_ratio=expense_ratio,
                 )
             )
     return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))

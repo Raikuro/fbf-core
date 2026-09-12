@@ -213,34 +213,17 @@ def _build_study_config(
 ) -> StudyConfiguration:
     """Build a StudyConfiguration for one canonical scenario.
 
-    For FFR scenarios: the framework generates all 1,739 cohorts (1871+), but
-    FFR data only covers 1928-04+. The build_interest_rate_schedule fails for
-    pre-1928 cohorts. Since pre-1928 FFR proxy reconstruction is not authorized,
-    FFR scenarios use a fixed interest rate approximation derived from the
-    FFR+spread scenario. This is documented as an explainable methodology
-    difference (classification D).
+    For FFR scenarios: use actual FFR+spread via ffr_dataset_identifier.
+    The framework filters cohorts to those with FFR data coverage (post-1928).
+    This matches ERN's behavior: FFR is used for all cohorts with data.
 
     For non-FFR scenarios: use the full cohort set with no FFR.
     """
-    # For FFR scenarios, use fixed-rate approximation because the framework
-    # cannot handle partial FFR coverage across 1,739 cohorts.
-    # The fixed rate approximates the FFR+spread for the scenario's era.
     if scenario.ffr_spread is not None:
-        # Use a fixed rate approximating FFR+spread for the scenario's era.
-        # ERN's scenarios span 1965-1995 (30y), where average FFR was ~5-6%.
-        # FFR+0.50% ≈ 5.5%, FFR+1.25% ≈ 6.25%, FFR+2.75% ≈ 7.75%
-        # Use a conservative middle estimate for each spread tier.
-        if scenario.ffr_spread == Decimal("0.005"):
-            fixed_rate = Decimal("0.055")  # FFR+0.50% approximation
-        elif scenario.ffr_spread == Decimal("0.0125"):
-            fixed_rate = Decimal("0.0625")  # FFR+1.25% approximation
-        elif scenario.ffr_spread == Decimal("0.0275"):
-            fixed_rate = Decimal("0.0775")  # FFR+2.75% approximation
-        else:
-            fixed_rate = Decimal("0.055")
+        # Use actual FFR + spread — cohorts are filtered to FFR coverage
         return StudyConfiguration(
             name=f"ERN_Part52_{scenario.scenario_id}",
-            description=f"S6.6B canonical ERN replication: {scenario.scenario_id} (fixed-rate)",
+            description=f"S6.6B canonical ERN replication: {scenario.scenario_id}",
             version="1.0",
             dataset_identifier="ern_swr_h720",
             allocation_policy_type="ConstantAllocationPolicy",
@@ -249,7 +232,8 @@ def _build_study_config(
             withdrawal_policy_values=(scenario.published_wr,),
             horizon_years=(HORIZON_YEARS,),
             cohort_horizon_years=COHORT_HORIZON_YEARS,
-            debt_interest_rate=fixed_rate,
+            ffr_dataset_identifier="ffr_monthly",
+            ffr_spread=scenario.ffr_spread,
             debt_ltv_limit=LTV_LIMIT,
             debt_ltv_enforcement=True,
             debt_borrow_pct=borrow_pct,
@@ -338,8 +322,7 @@ def _find_compatible_borrow_pct(
     Uses a grid sweep over Borrow% values at the published WR.
     Returns the first Borrow% that achieves 100% success.
 
-    For FFR scenarios: uses fixed-rate approximation because the framework
-    cannot handle partial FFR coverage across 1,739 cohorts.
+    For FFR scenarios: uses actual FFR+spread with cohort filtering.
     """
     if borrow_grid is None:
         # Default grid: 0% to 50% in 5% steps
@@ -347,15 +330,6 @@ def _find_compatible_borrow_pct(
 
     # Determine interest rate configuration
     if scenario.ffr_spread is not None:
-        # Use fixed-rate approximation for FFR scenarios
-        if scenario.ffr_spread == Decimal("0.005"):
-            fixed_rate = Decimal("0.055")
-        elif scenario.ffr_spread == Decimal("0.0125"):
-            fixed_rate = Decimal("0.0625")
-        elif scenario.ffr_spread == Decimal("0.0275"):
-            fixed_rate = Decimal("0.0775")
-        else:
-            fixed_rate = Decimal("0.055")
         config = Part52EvaluatorConfig(
             data_dir=str(DATA_DIR),
             initial_wealth=INITIAL_WEALTH,
@@ -363,11 +337,11 @@ def _find_compatible_borrow_pct(
                 scenario.threshold if scenario.threshold is not None
                 else Decimal("0")
             ),
-            debt_interest_rate=fixed_rate,
+            debt_interest_rate=Decimal("0"),  # Not used when FFR is configured
             ltv_limit=LTV_LIMIT,
             ltv_enforcement=True,
-            ffr_dataset_identifier=None,
-            ffr_spread=None,
+            ffr_dataset_identifier="ffr_monthly",
+            ffr_spread=scenario.ffr_spread,
             borrow_pcts=borrow_grid,
             horizon_years=HORIZON_YEARS,
             cohort_horizon_years=COHORT_HORIZON_YEARS,
@@ -512,30 +486,13 @@ class TestCanonicalERNReplication:
     def test_a3_threshold_20_reproduces(self, all_results: list[ExecutionResult]) -> None:
         """A3: 1965 20% threshold, WR=3.91%, B%=41.08% → all cohorts succeed.
 
-        KNOWN: This scenario has a documented 6-cohort discrepancy.
-        While the discrepancy persists, this test xfails.  If the
-        discrepancy is resolved, this test FAILS to force explicit
-        update of the test expectation.
+        The monthly-draw fix (removing the loan_balance == 0 guard) resolved
+        the 6-cohort discrepancy.  A3 now reproduces ERN's 1739/1739 anchor.
         """
         r = next(x for x in all_results if x.scenario.scenario_id == "A3")
-        if r.success_rate < Decimal("1"):
-            failing = r.total_units - r.successful_units
-            pytest.xfail(
-                reason=(
-                    f"KNOWN DEFERRED DISCREPANCY: A3 WR={r.scenario.published_wr}, "
-                    f"B%={r.borrow_pct_used}. Expected: 1739/1739. "
-                    f"Got: {r.successful_units}/{r.total_units} — {failing} cohorts fail. "
-                    f"See TODO.md: Part 52 numerical discrepancy investigation."
-                ),
-            )
-        else:
-            pytest.fail(
-                "A3 threshold scenario now reproduces ERN exactly (1739/1739). "
-                "Update this test to assert reproduction and remove the xfail. "
-                "Also update test_threshold_does_not_reproduce in "
-                "test_part52_deterministic_validation.py."
-            )
-        assert r.success_rate == Decimal("1")
+        assert r.success_rate == Decimal("1"), (
+            f"A3 expected 1739/1739, got {r.successful_units}/{r.total_units}"
+        )
 
     def test_a9_1929_baseline_reproduces(self, all_results: list[ExecutionResult]) -> None:
         """A9: 1929 baseline, WR=3.61%, no leverage → all cohorts succeed."""

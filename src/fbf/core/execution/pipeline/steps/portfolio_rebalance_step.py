@@ -32,6 +32,11 @@ class PortfolioRebalanceStep(PipelineStep):
         state.allocation_target = result.allocation_target
         state.current_wealth = result.current_value
 
+        # Store post-rebalance value at current-period prices for the
+        # ExpenseDeductionStep timing correction in the next period.
+        if result.current_value is not None:
+            state.previous_portfolio_value = result.current_value.amount
+
         return state
 
     def _validate_state(self, state: SimulationState) -> None:

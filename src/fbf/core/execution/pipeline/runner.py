@@ -74,6 +74,12 @@ class SimulationRunner:
             raise ValueError("SimulationContext.initial_wealth is required")
         if context.start_date is None:
             raise ValueError("SimulationContext.start_date is required")
+        if context.horizon_months > 0 and len(context.dataset) > 0:
+            first_snapshot_date = context.dataset[0].date
+            if first_snapshot_date != context.start_date:
+                raise ValueError(
+                    "start_date must match the first dataset snapshot date"
+                )
 
     def _initialize_state(self, context: SimulationContext) -> SimulationState:
         if context.horizon_months == 0:
@@ -88,10 +94,6 @@ class SimulationRunner:
                     "SimulationContext.dataset must provide an initial MarketSnapshot "
                     "for a positive horizon"
                 ) from exc
-            if market_snapshot.date != context.start_date:
-                raise ValueError(
-                    "SimulationContext.start_date must match the first dataset snapshot date"
-                )
 
         # Initialize debt state from context if available
         loan_balance = Decimal("0")
@@ -99,9 +101,13 @@ class SimulationRunner:
         ltv_limit = context.ltv_limit if context.ltv_limit is not None else Decimal("0")
         ltv_enforcement = context.ltv_enforcement
 
+        # The simulation clock starts at the first dataset snapshot date
+        # (the pre-retirement baseline d_{c-1}).
+        initial_date = market_snapshot.date if market_snapshot is not None else context.start_date
+
         return SimulationState(
             context=context,
-            current_date=context.start_date,
+            current_date=initial_date,
             period_index=0,
             portfolio=context.initial_portfolio,
             market_snapshot=market_snapshot,

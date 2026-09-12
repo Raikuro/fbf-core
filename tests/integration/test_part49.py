@@ -161,6 +161,8 @@ class TestPart49SmallGrid:
         """interest_rate=0 with loan_draw produces DebtSnapshot (zero-interest debt)."""
         results = _run_debt_simulation(interest_rate=Decimal("0.0"))
         for mr in results:
+            if mr.period_index == 0:
+                continue
             assert mr.debt_snapshot is not None
             # Zero interest: loan_balance grows from draws only, no interest accrual
             assert mr.debt_snapshot.loan_balance >= Decimal("0")

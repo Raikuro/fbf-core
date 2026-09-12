@@ -162,18 +162,18 @@ def test_ffr_schedule_used_in_interest_accrual() -> None:
     loan_after_m1 = state.loan_balance
     assert loan_after_m1 > Decimal("0"), "Should have borrowed in Month 1"
 
-    # Execute Month 2: Interest accrues at FFR schedule rate for month 2
+    # Execute Month 2: Drawdown still >= threshold → new draw + interest at FFR[2]
     state.market_snapshot = dataset.snapshots[2]
     state.period_index = 2
     state.current_date = date(1966, 1, 1)
     state = pipeline.execute(state)
 
-    # Interest should be: loan_after_m1 * (0.0500 / 12)
+    # Monthly-draw: interest on PRIOR balance, then draw is added (ERN order)
+    new_draw_m2 = BUDGET * BORROW_PCT
     expected_interest_m2 = loan_after_m1 * ffr_schedule[2] / Decimal("12")
-    expected_loan_m2 = loan_after_m1 + expected_interest_m2
+    expected_loan_m2 = loan_after_m1 + expected_interest_m2 + new_draw_m2
     assert state.loan_balance == expected_loan_m2, (
-        f"Interest accrual should use FFR schedule rate for month 2: "
-        f"expected {expected_loan_m2}, got {state.loan_balance}"
+        f"Month 2: expected {expected_loan_m2}, got {state.loan_balance}"
     )
 
 
@@ -309,12 +309,14 @@ def test_no_schedule_falls_back_to_fixed_rate() -> None:
     loan_after_m1 = state.loan_balance
     assert loan_after_m1 > Decimal("0")
 
-    # Execute Month 2: Interest accrues at fixed rate
+    # Execute Month 2: Drawdown still >= threshold → new draw + interest at fixed rate
     state.market_snapshot = dataset.snapshots[2]
     state.period_index = 2
     state.current_date = date(1966, 1, 1)
     state = pipeline.execute(state)
 
+    # ERN ordering: interest on PRIOR balance, then draw is added
+    new_draw_m2 = BUDGET * BORROW_PCT
     expected_interest = loan_after_m1 * fixed_rate / Decimal("12")
-    expected_loan = loan_after_m1 + expected_interest
+    expected_loan = loan_after_m1 + expected_interest + new_draw_m2
     assert state.loan_balance == expected_loan

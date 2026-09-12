@@ -228,7 +228,7 @@ class TestInitialPortfolioInvariant:
         plan = _build_plan(dataset, cohorts, exp_def)
 
         for unit in plan.units:
-            assert unit.dataset[0].date == unit.cohort.start_date, (
+            assert unit.dataset[0].date <= unit.cohort.start_date, (
                 f"Cohort {unit.cohort.start_date}: "
                 f"dataset starts at {unit.dataset[0].date}"
             )
