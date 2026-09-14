@@ -138,7 +138,81 @@ These invariants are enforced by `Dataset.__post_init__` and validated by the
 test suite. A Dataset that violates any of these constraints raises `ValueError`
 at construction time.
 
-## 7. Caching and local materialization
+## 7. Canonical CSV filename contract (ERN dataset)
+
+The ERN dataset directory contains CSV source files whose **filenames define the
+semantic identity** of each series. The `--data-dir` flag specifies the directory
+location; the canonical filenames carry the asset semantics. Study YAML does not
+repeat this mapping.
+
+```
+--data-dir/
+  ├── sp500_tr_real_return.csv   → equity asset
+  ├── bond_10y_tr_real_return.csv → bond / fixed-income asset
+  └── ffr.csv                    → Federal Funds Rate (rate-only time series)
+```
+
+| Canonical filename | Semantic role | Loader |
+|---|---|---|
+| `sp500_tr_real_return.csv` | S&P 500 total-return real returns | `fbf.core.datasets.ern` → `AssetClass(id="equity")` |
+| `bond_10y_tr_real_return.csv` | 10-Year Bond Market real returns | `fbf.core.datasets.ern` → `AssetClass(id="bond")` |
+| `ffr.csv` | Federal Funds Rate (annual, nominal) | `fbf.core.study.builder.load_ffr_rates` → `tuple[date, Decimal]` |
+
+The equity and bond CSVs are loaded by the canonical ERN dataset loader and
+materialised as `MarketSnapshot.index_levels` entries. The FFR CSV is a
+rate-only time series loaded separately by `load_ffr_rates` for Part 52
+floating-rate interest schedules; it does not produce `MarketSnapshot` entries.
+
+The canonical loader is the **single source of truth** for CSV → `AssetClass`
+mapping. No second mapping (e.g. in study YAML) is needed or desirable.
+
+`equity_allocation: 0.75` therefore means 75% equity and 25% bond under the
+current two-asset allocation policy. The complement is implicit.
+
+### Future extension: explicit role mapping
+
+The current canonical filenames are sufficient for today's ERN studies, which
+have a fixed two-series input set. This must not become a permanent assumption
+that the framework can only use those specific files.
+
+If a future study needs alternative market series (e.g. a different equity
+index or a different bond benchmark), `--data-dir` alone becomes insufficient.
+It answers only *where* the files are, not *which file plays which role*. At
+that point, an explicit semantic role mapping would be needed:
+
+```yaml
+market_data:
+  equity: my_equity_series.csv
+  fixed_income: my_bond_series.csv
+```
+
+This is fundamentally different from dataset identity (which was removed
+earlier). The conceptual hierarchy is:
+
+```
+--data-dir         → physical location of input files
+market_data        → semantic mapping from input series to framework roles
+AssetClass         → runtime representation of those semantic roles
+```
+
+Until an actual requirement demands alternative series:
+
+- Keep the current canonical filename contract for the present ERN studies.
+- Keep `--data-dir` as the location mechanism.
+- Do not add `market_data:` to the current YAMLs.
+- Ensure future implementation maps files to semantic roles before
+  constructing the runtime Dataset.
+- Never reintroduce `Dataset.identifier` as a substitute for series-role
+  mapping.
+- Do not introduce generic N-asset infrastructure until an actual requirement
+  requires it.
+
+Equity-derived state (ATH, underwater, drawdown) follows the semantic `equity`
+role, not a hardcoded filename. If a future study maps another CSV to the
+`equity` role, the derived state pipeline must operate on whichever series
+occupies that role.
+
+## 8. Caching and local materialization
 
 - `DatasetCache` loads each canonical directory path at most once per process; repeated
   resolution returns the identical `Dataset` object (identity preserved across resolvers,
@@ -149,7 +223,7 @@ at construction time.
 - Local materialization **is** the Dataset Directory; there is no cache-rebuild or
   remote-sync stage.
 
-## 8. How should future datasets be distributed?
+## 9. How should future datasets be distributed?
 
 - Add a new `<identifier>.json` file to a Dataset Directory (and release it in a new
   dataset bundle, if bundles are used).
@@ -159,7 +233,7 @@ at construction time.
 - The framework code itself does not change when a dataset is added; the loader is
   schema-driven, not identifier-driven.
 
-## 9. Reproducibility and dataset versioning
+## 10. Reproducibility and dataset versioning
 
 - Every dataset carries a `version` marker; datasets in one bundle should share the
   bundle's version for easy provenance checks.
