@@ -106,8 +106,6 @@ def _make_debt_dataset() -> Dataset:
     return Dataset(
         snapshots=tuple(snapshots),
         frequency="monthly",
-        version="test",
-        identifier="debt-parity-test",
     )
 
 

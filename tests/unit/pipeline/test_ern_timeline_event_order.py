@@ -120,7 +120,6 @@ def _three_month_dataset() -> Dataset:
             _snapshot(date(2000, 3, 1), "104.02", "100.5"),
         ),
         frequency="monthly",
-        version="1.0",
     )
 
 

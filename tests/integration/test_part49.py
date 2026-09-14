@@ -52,7 +52,7 @@ def _make_dataset(n_months: int = 12) -> Dataset:
         pe *= Decimal("1.006")
         pb *= Decimal("1.002")
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="test")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 class _Part49WithdrawalPolicy(WithdrawalPolicy):

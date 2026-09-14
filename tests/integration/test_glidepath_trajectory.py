@@ -71,7 +71,7 @@ def _build_plan(mode: str, underwater_flags: list[bool]) -> tuple[Dataset, Resea
         _snap(prices[i], underwater_flags[i], date(2000 + (i // 12), (i % 12) + 1, 1))
         for i in range(len(underwater_flags))
     ]
-    dataset = Dataset(snapshots=snapshots, frequency="monthly", version="TEST")
+    dataset = Dataset(snapshots=snapshots, frequency="monthly")
 
     policy = GlidepathAllocationPolicy(
         start_equity=Decimal("0.6"),

@@ -46,7 +46,7 @@ def dummy_dataset() -> Dataset:
         is_underwater=False,
         running_ath=Decimal("100.00"),
     )
-    return Dataset(snapshots=[snapshot], frequency="monthly", version="1.0")
+    return Dataset(snapshots=[snapshot], frequency="monthly")
 
 
 @pytest.fixture

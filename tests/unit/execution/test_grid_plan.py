@@ -91,7 +91,6 @@ def _make_dataset(num_months: int) -> Dataset:
     return Dataset(
         snapshots=tuple(_make_snapshot(m) for m in range(1, num_months + 1)),
         frequency="monthly",
-        version="1.0",
     )
 
 

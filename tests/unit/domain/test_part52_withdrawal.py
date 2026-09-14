@@ -40,7 +40,6 @@ def initial_portfolio(equity_asset: AssetClass, bond_asset: AssetClass) -> Portf
 @pytest.fixture
 def dataset(equity_asset: AssetClass, bond_asset: AssetClass) -> Dataset:
     return Dataset(
-        identifier="test",
         snapshots=(
             MarketSnapshot(
                 date=date(1965, 11, 1),
@@ -56,7 +55,6 @@ def dataset(equity_asset: AssetClass, bond_asset: AssetClass) -> Dataset:
             ),
         ),
         frequency="monthly",
-        version="test",
     )
 
 

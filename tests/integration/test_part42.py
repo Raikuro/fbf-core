@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
+from pathlib import Path
+
+import pytest
 
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
@@ -26,15 +29,15 @@ def _small_omy_dataset(num_snapshots: int) -> Dataset:
     return Dataset(
         snapshots=snapshots,
         frequency="monthly",
-        version="test-omy-integration",
-        identifier="test-omy-integration",
     )
 
 
 class TestOmySmallGridExecution:
     """Small grid must execute successfully."""
 
-    def test_single_cohort_single_swr_sequential(self) -> None:
+    def test_single_cohort_single_swr_sequential(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """1 cohort × 1 SWR with accumulation → completes."""
         from fbf.core.study.builder import (
             OmyStudyConfiguration,
@@ -47,7 +50,6 @@ class TestOmySmallGridExecution:
                 name="test-omy-e2e",
                 description="test",
                 version="1.0",
-                dataset_identifier="test-omy-integration",
                 allocation_policy_type="ConstantAllocationPolicy",
                 allocation_policy_values=(Decimal("0.75"),),
                 withdrawal_policy_type="FixedRealWithdrawalPolicy",
@@ -63,26 +65,20 @@ class TestOmySmallGridExecution:
 
         small = _small_omy_dataset(26)
 
-        import fbf.core.study.builder as builder_mod
+        monkeypatch.setattr(
+            "fbf.core.study.builder.load_canonical_dataset",
+            lambda _p: small,
+        )
 
-        original_resolve = builder_mod.resolve_dataset
+        result = build_omy_study_plan(config, data_dir=str(tmp_path))
+        plan = result.plan
 
-        def mock_resolve(identifier: str, data_dir: str | None) -> Dataset:
-            return small
-
-        builder_mod.resolve_dataset = mock_resolve
-        try:
-            result = build_omy_study_plan(config, data_dir=None)
-            plan = result.plan
-
-            # Verify plan structure
-            assert len(plan.units) >= 1
-            for unit in plan.units:
-                assert unit.horizon_months is not None
-                assert unit.dataset is not None
-                assert len(unit.dataset) > 0
-        finally:
-            builder_mod.resolve_dataset = original_resolve
+        # Verify plan structure
+        assert len(plan.units) >= 1
+        for unit in plan.units:
+            assert unit.horizon_months is not None
+            assert unit.dataset is not None
+            assert len(unit.dataset) > 0
 
 
 class TestHorizonMonthsContract:
@@ -125,8 +121,6 @@ class TestPortfolioHandoff:
         dataset = Dataset(
             snapshots=snapshots,
             frequency="monthly",
-            version="test-handoff",
-            identifier="test-handoff",
         )
 
         result = run_accumulation_phase(

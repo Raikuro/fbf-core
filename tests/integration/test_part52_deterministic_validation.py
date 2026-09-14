@@ -89,7 +89,6 @@ def _build_study_config(
         name=f"ERN Part 52 — {withdrawal_rate}",
         description="S6.3 deterministic Part 52 scenario validation",
         version="1.0",
-        dataset_identifier="ern_swr_h720",
         allocation_policy_type="ConstantAllocationPolicy",
         allocation_policy_values=(Decimal("0.75"),),
         withdrawal_policy_type="Part52WithdrawalPolicy",

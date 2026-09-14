@@ -44,7 +44,7 @@ def make_dataset(n_months: int) -> Dataset:
         pe *= Decimal("1.006")
         pb *= Decimal("1.002")
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def make_context(

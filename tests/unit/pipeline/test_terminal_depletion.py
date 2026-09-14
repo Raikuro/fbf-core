@@ -108,7 +108,7 @@ def _make_context(
         horizon_months=horizon_months,
         initial_wealth=initial_wealth,
         initial_portfolio=initial_portfolio,
-        dataset=Dataset(snapshots=tuple(dataset), frequency="M", version="1.0", identifier="test"),
+        dataset=Dataset(snapshots=tuple(dataset), frequency="M"),
         allocation_policy=ConstantAllocationPolicy(equity_allocation=Decimal("1.0")),
         withdrawal_policy=FixedRealWithdrawalPolicy(withdrawal_rate=withdrawal_rate),
     )
@@ -352,8 +352,6 @@ class TestPersistenceConsistency:
         ds = Dataset(
             snapshots=tuple(dataset),
             frequency="monthly",
-            version="1.0",
-            identifier="test_dataset",
         )
 
         experiment = ResearchExperimentDefinition(
@@ -405,12 +403,15 @@ class TestPersistenceConsistency:
 
         from fbf.core.persistence.studies.sqlite.codecs import (
             AllocationPolicyCodec,
-            DefaultDatasetResolver,
             WithdrawalPolicyCodec,
         )
 
+        class _TestLoader:
+            def load(self) -> Dataset:
+                return ds
+
         context = PersistenceReconstructionContext(
-            dataset_resolver=DefaultDatasetResolver(datasets={"test_dataset": ds}),
+            dataset_loader=_TestLoader(),
             policy_codecs={
                 ("allocation", "AllocationPolicy"): AllocationPolicyCodec(),
                 ("withdrawal", "WithdrawalPolicy"): WithdrawalPolicyCodec(),
@@ -490,8 +491,6 @@ class TestPersistenceConsistency:
         ds = Dataset(
             snapshots=tuple(dataset),
             frequency="monthly",
-            version="1.0",
-            identifier="test_dataset",
         )
 
         experiment = ResearchExperimentDefinition(
@@ -542,12 +541,15 @@ class TestPersistenceConsistency:
 
         from fbf.core.persistence.studies.sqlite.codecs import (
             AllocationPolicyCodec,
-            DefaultDatasetResolver,
             WithdrawalPolicyCodec,
         )
 
+        class _TestLoader2:
+            def load(self) -> Dataset:
+                return ds
+
         context = PersistenceReconstructionContext(
-            dataset_resolver=DefaultDatasetResolver(datasets={"test_dataset": ds}),
+            dataset_loader=_TestLoader2(),
             policy_codecs={
                 ("allocation", "AllocationPolicy"): AllocationPolicyCodec(),
                 ("withdrawal", "WithdrawalPolicy"): WithdrawalPolicyCodec(),
@@ -611,8 +613,6 @@ class TestPersistenceConsistency:
         ds = Dataset(
             snapshots=tuple(dataset),
             frequency="monthly",
-            version="1.0",
-            identifier="test_dataset",
         )
 
         experiment = ResearchExperimentDefinition(
@@ -662,12 +662,15 @@ class TestPersistenceConsistency:
 
         from fbf.core.persistence.studies.sqlite.codecs import (
             AllocationPolicyCodec,
-            DefaultDatasetResolver,
             WithdrawalPolicyCodec,
         )
 
+        class _TestLoader3:
+            def load(self) -> Dataset:
+                return ds
+
         context = PersistenceReconstructionContext(
-            dataset_resolver=DefaultDatasetResolver(datasets={"test_dataset": ds}),
+            dataset_loader=_TestLoader3(),
             policy_codecs={
                 ("allocation", "AllocationPolicy"): AllocationPolicyCodec(),
                 ("withdrawal", "WithdrawalPolicy"): WithdrawalPolicyCodec(),

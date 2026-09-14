@@ -5,7 +5,6 @@ construction work correctly, independent of full study execution.
 """
 from __future__ import annotations
 
-import json
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -16,22 +15,27 @@ from fbf.core.study.builder import (
 )
 
 
-def test_load_ffr_rates_from_file(tmp_path: Path) -> None:
-    """Verify FFR dataset loading from a JSON file."""
-    ffr_data = {
-        "version": "1.0",
-        "type": "ffr",
-        "rates": [
-            {"date": "2020-01-01", "rate": "0.0155"},
-            {"date": "2020-02-01", "rate": "0.0155"},
-            {"date": "2020-03-01", "rate": "0.0065"},
-            {"date": "2020-04-01", "rate": "0.0005"},
-        ],
-    }
-    ffr_path = tmp_path / "test_ffr.json"
-    ffr_path.write_text(json.dumps(ffr_data), encoding="utf-8")
+def _write_ffr_csv(path: Path, rows: list[tuple[str, str]]) -> None:
+    """Write a canonical DD-MM-YYYY,value FFR CSV file."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("DD-MM-YYYY,value\n")
+        for date_str, value in rows:
+            f.write(f"{date_str},{value}\n")
 
-    rates = load_ffr_rates("test_ffr", str(tmp_path))
+
+def test_load_ffr_rates_from_file(tmp_path: Path) -> None:
+    """Verify FFR dataset loading from a canonical CSV file."""
+    _write_ffr_csv(
+        tmp_path / "ffr.csv",
+        [
+            ("01-01-2020", "0.0155"),
+            ("01-02-2020", "0.0155"),
+            ("01-03-2020", "0.0065"),
+            ("01-04-2020", "0.0005"),
+        ],
+    )
+
+    rates = load_ffr_rates(str(tmp_path))
     assert len(rates) == 4
     assert rates[0] == (date(2020, 1, 1), Decimal("0.0155"))
     assert rates[2] == (date(2020, 3, 1), Decimal("0.0065"))
@@ -42,19 +46,18 @@ def test_load_ffr_rates_missing_file(tmp_path: Path) -> None:
     import pytest
 
     with pytest.raises(FileNotFoundError, match="FFR dataset not found"):
-        load_ffr_rates("nonexistent", str(tmp_path))
+        load_ffr_rates(str(tmp_path))
 
 
 def test_load_ffr_rates_invalid_format(tmp_path: Path) -> None:
-    """Verify ValueError for invalid FFR dataset format."""
+    """Verify ValueError for invalid FFR dataset format (missing value column)."""
     import pytest
 
-    bad_data = {"version": "1.0", "rates": "not_a_list"}
-    bad_path = tmp_path / "bad_ffr.json"
-    bad_path.write_text(json.dumps(bad_data), encoding="utf-8")
+    bad_path = tmp_path / "ffr.csv"
+    bad_path.write_text("DD-MM-YYYY,rate\n01-01-2020,0.01\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="must be a list"):
-        load_ffr_rates("bad_ffr", str(tmp_path))
+    with pytest.raises(KeyError):
+        load_ffr_rates(str(tmp_path))
 
 
 def test_build_schedule_basic() -> None:
@@ -169,22 +172,21 @@ def test_load_ffr_rates_empty_dataset(tmp_path: Path) -> None:
     """Verify ValueError for empty FFR dataset."""
     import pytest
 
-    empty_data = {"version": "1.0", "type": "ffr", "rates": []}
-    empty_path = tmp_path / "empty_ffr.json"
-    empty_path.write_text(json.dumps(empty_data), encoding="utf-8")
+    empty_path = tmp_path / "ffr.csv"
+    empty_path.write_text("DD-MM-YYYY,value\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="contains no rates"):
-        load_ffr_rates("empty_ffr", str(tmp_path))
+        load_ffr_rates(str(tmp_path))
 
 
 def test_real_ffr_dataset_loads() -> None:
     """Verify the committed FFR dataset loads and covers the expected range."""
-    ffr_path = Path(__file__).parent.parent.parent.parent / "data" / "ern" / "ffr_monthly.json"
+    ffr_path = Path(__file__).parent.parent.parent.parent / "data" / "ern" / "ffr.csv"
     if not ffr_path.exists():
         import pytest
         pytest.skip("FFR dataset not found")
 
-    rates = load_ffr_rates("ffr_monthly", str(ffr_path.parent))
+    rates = load_ffr_rates(str(ffr_path.parent))
     assert len(rates) > 0
     # Historical FFR covers 1928-04 to present
     assert rates[0][0] == date(1928, 4, 1)
@@ -201,12 +203,12 @@ def test_real_ffr_known_values() -> None:
     These are anchor values directly from the FRED series to validate
     dataset integrity. Source: FRED FEDFUNDS, retrieved 2026-09-05.
     """
-    ffr_path = Path(__file__).parent.parent.parent.parent / "data" / "ern" / "ffr_monthly.json"
+    ffr_path = Path(__file__).parent.parent.parent.parent / "data" / "ern" / "ffr.csv"
     if not ffr_path.exists():
         import pytest
         pytest.skip("FFR dataset not found")
 
-    rates = load_ffr_rates("ffr_monthly", str(ffr_path.parent))
+    rates = load_ffr_rates(str(ffr_path.parent))
     rate_map = dict(rates)
 
     # Known FRED FEDFUNDS values (percent / 100 = decimal)

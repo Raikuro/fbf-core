@@ -26,7 +26,6 @@ from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 from fbf.core.persistence.studies.sqlite import (
     create_persistence_context,
 )
-from fbf.core.persistence.studies.sqlite.codecs import DefaultDatasetResolver
 from fbf.core.persistence.studies.sqlite.sqlite_repository import (
     PersistenceReconstructionContext,
     SQLiteRepository,
@@ -73,7 +72,7 @@ def _make_dataset(num_months: int, start_year: int = 1871) -> Dataset:
         if month > 12:
             month = 1
             year += 1
-    return Dataset(snapshots=snapshots, frequency="monthly", version="INTEGRATION_TEST_v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 # ---------------------------------------------------------------------------
@@ -130,21 +129,22 @@ def integration_repo(integration_db_path: Path) -> Iterator[SQLiteRepository]:
 
 @pytest.fixture
 def persistence_context() -> PersistenceReconstructionContext:
-    return create_persistence_context()
+    return create_persistence_context("data/ern")
 
 
 @pytest.fixture
 def persistence_context_with_dataset(
     sample_dataset: Dataset,
 ) -> PersistenceReconstructionContext:
-    resolver = DefaultDatasetResolver(
-        datasets={sample_dataset.version: sample_dataset}
-    )
-    ctx = create_persistence_context()
+    class _TestLoader:
+        def load(self) -> Dataset:
+            return sample_dataset
+
+    ref_ctx = create_persistence_context("data/ern")
     return PersistenceReconstructionContext(
-        dataset_resolver=resolver,
-        policy_codecs=ctx.policy_codecs,
-        simulation_result_codec=ctx.simulation_result_codec,
+        dataset_loader=_TestLoader(),
+        policy_codecs=ref_ctx.policy_codecs,
+        simulation_result_codec=ref_ctx.simulation_result_codec,
     )
 
 
@@ -244,9 +244,9 @@ def study_yaml_path(tmp_path: Path) -> Path:
 @pytest.fixture
 def ern_dataset() -> Dataset:
     """Load the canonical ERN SWR h720 dataset."""
-    from fbf.core.study.builder import resolve_dataset
+    from fbf.core.datasets import load_canonical_dataset
 
-    return resolve_dataset("ern_swr_h720", "data/ern")
+    return load_canonical_dataset(Path("data/ern"))
 
 
 @pytest.fixture
@@ -256,7 +256,6 @@ def ern_part49_config() -> StudyConfiguration:
         name="ERN Part 49 -- Using Leverage in Retirement",
         description="Full 54-cell Part 49 grid",
         version="2.0",
-        dataset_identifier="ern_swr_h720",
         allocation_policy_type="ConstantAllocationPolicy",
         allocation_policy_values=(Decimal("0.75"), Decimal("1.0")),
         withdrawal_policy_type="Part49WithdrawalPolicy",

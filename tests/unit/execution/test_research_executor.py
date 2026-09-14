@@ -92,7 +92,7 @@ def make_dataset(start_date: date = date(2000, 1, 1)) -> Dataset:
         is_underwater=False,
         running_ath=Decimal("100.00"),
     )
-    return Dataset(snapshots=[snapshot], frequency="monthly", version="1.0")
+    return Dataset(snapshots=[snapshot], frequency="monthly")
 
 
 def make_minimal_dataset(year: int = 2000, month: int = 1) -> Dataset:

@@ -103,7 +103,7 @@ def _make_shared_dataset() -> Dataset:
                 running_ath=Decimal("100.00"),
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version="TEST_DATASET_v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 _TEST_DATASET: Dataset = _make_shared_dataset()
@@ -207,14 +207,17 @@ class DummyWithdrawalPolicyCodec:
 # ---------------------------------------------------------------------------
 
 
-class DummyDatasetResolver:
-    def resolve(self, dataset_identifier: str) -> Dataset:
-        return _TEST_DATASET
+class DummyDatasetLoader:
+    def __init__(self, dataset: Dataset) -> None:
+        self._dataset = dataset
+
+    def load(self) -> Dataset:
+        return self._dataset
 
 
 def get_dummy_context() -> PersistenceReconstructionContext:
     return PersistenceReconstructionContext(
-        dataset_resolver=DummyDatasetResolver(),
+        dataset_loader=DummyDatasetLoader(_TEST_DATASET),
         policy_codecs={
             ("allocation", "AllocationPolicy"): DummyAllocationPolicyCodec(),
             ("withdrawal", "WithdrawalPolicy"): DummyWithdrawalPolicyCodec(),
@@ -258,7 +261,7 @@ def get_detailed_context() -> PersistenceReconstructionContext:
     placeholder payload).
     """
     return PersistenceReconstructionContext(
-        dataset_resolver=DummyDatasetResolver(),
+        dataset_loader=DummyDatasetLoader(_TEST_DATASET),
         policy_codecs={
             ("allocation", "AllocationPolicy"): AllocationPolicyCodec(),
             ("withdrawal", "WithdrawalPolicy"): WithdrawalPolicyCodec(),
@@ -284,7 +287,7 @@ def make_versioned_dataset(version: str) -> Dataset:
                 running_ath=Decimal("100.00"),
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version=version)
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def make_restore_experiment(
@@ -688,8 +691,8 @@ def test_restore_allowed_identical_deterministic_content(repo: SQLiteRepository)
     assert loaded_alloc.equity_allocation == "0.60"
 
 
-def test_restore_forbidden_different_dataset(repo: SQLiteRepository) -> None:
-    """Same identity but a different dataset must NOT restore the deleted entry."""
+def test_restore_succeeds_identical_dataset(repo: SQLiteRepository) -> None:
+    """Same identity and same dataset content must restore the deleted entry."""
     ctx = get_detailed_context()
     identity = ExperimentIdentity(name="restore-ds", revision="v1")
     exp_v1 = make_restore_experiment(
@@ -701,8 +704,7 @@ def test_restore_forbidden_different_dataset(repo: SQLiteRepository) -> None:
     exp_v2 = make_restore_experiment(
         "restore-ds", dataset=make_versioned_dataset("TEST_DATASET_v2")
     )
-    with pytest.raises(DuplicateStudyError, match="Refusing to restore"):
-        repo.save_experiment(identity, exp_v2, ctx)
+    repo.save_experiment(identity, exp_v2, ctx)
 
 
 def test_restore_forbidden_different_policy(repo: SQLiteRepository) -> None:
@@ -1521,7 +1523,7 @@ def test_get_experiment_metadata_existing(repo: SQLiteRepository) -> None:
     assert result["name"] == "metadata-test"
     assert result["revision"] == "v1"
     assert result["description"] == "Round-trip test experiment"
-    assert result["dataset_identifier"] == "TEST_DATASET_v1"
+    assert result["dataset_identifier"] is None
     assert result["horizon_months"] == 120
     assert result["initial_wealth"] == "500000.00"
     assert result["initial_wealth_currency"] == "EUR"

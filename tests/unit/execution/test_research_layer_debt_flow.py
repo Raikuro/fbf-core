@@ -55,7 +55,7 @@ def _make_dataset(n_months: int = 13) -> Dataset:
             running_ath=pe,
         ))
         d = date(d.year + (d.month // 12), (d.month % 12) + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="test")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _make_experiment_def() -> ExperimentDefinition:

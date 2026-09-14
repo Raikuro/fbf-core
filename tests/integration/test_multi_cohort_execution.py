@@ -70,7 +70,7 @@ def make_large_dataset(num_months: int = 120, start_year: int = 2000) -> Dataset
                 running_ath=Decimal(100 + i),
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version="MULTI_COHORT_v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def make_multi_cohort_experiment(horizon_months: int = 12) -> ExperimentDefinition:

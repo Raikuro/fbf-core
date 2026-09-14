@@ -49,7 +49,7 @@ _SNAPSHOTS = tuple(
     )
     for i in range(240)
 )
-_DATASET = Dataset(snapshots=_SNAPSHOTS, frequency="monthly", version="TEST_v1")
+_DATASET = Dataset(snapshots=_SNAPSHOTS, frequency="monthly")
 
 
 class _DummyAlloc(AllocationPolicy):
@@ -69,8 +69,8 @@ class _DummyWithdraw(WithdrawalPolicy):
         )
 
 
-class _DummyDatasetResolver:
-    def resolve(self, dataset_identifier: str) -> Dataset:
+class _DummyDatasetLoader:
+    def load(self) -> Dataset:
         return _DATASET
 
 
@@ -106,7 +106,7 @@ class _DummySimCodec:
 
 def _make_ctx() -> PersistenceReconstructionContext:
     return PersistenceReconstructionContext(
-        dataset_resolver=_DummyDatasetResolver(),
+        dataset_loader=_DummyDatasetLoader(),
         policy_codecs={
             ("allocation", "AllocationPolicy"): _DummyAllocCodec(),  # type: ignore[dict-item]
             ("withdrawal", "WithdrawalPolicy"): _DummyWithdrawCodec(),  # type: ignore[dict-item]

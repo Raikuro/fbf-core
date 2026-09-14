@@ -51,7 +51,6 @@ def _make_test_dataset() -> Dataset:
     return Dataset(
         snapshots=[_make_market_snapshot(date(2024, 1, 1))],
         frequency="monthly",
-        version="1.0",
     )
 
 

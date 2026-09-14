@@ -49,7 +49,7 @@ def _make_dataset() -> Dataset:
         is_underwater=False,
         running_ath=Decimal("100"),
     )
-    return Dataset(snapshots=(snapshot,), frequency="monthly", version="1.0")
+    return Dataset(snapshots=(snapshot,), frequency="monthly")
 
 
 def _make_context(portfolio: Portfolio) -> DecisionContext:
@@ -65,7 +65,7 @@ def _make_context(portfolio: Portfolio) -> DecisionContext:
         is_underwater=False,
         running_ath=Decimal("100"),
     )
-    dataset = Dataset(snapshots=(snapshot,), frequency="monthly", version="1.0")
+    dataset = Dataset(snapshots=(snapshot,), frequency="monthly")
     dummy = _loader_asset("equity")
     dummy_alloc = Allocation(weights={dummy: Decimal("1")})
     dummy_target = AllocationTarget(weights={dummy: Decimal("1")})
@@ -135,79 +135,25 @@ def test_constant_allocation_policy_assets_present_in_snapshot() -> None:
     assert set(decision.allocation_target.weights) == snapshot_keys
 
 
-class TestPart3DatasetIdentifier:
-    """C6.1: Part 3 YAMLs must reference ern_swr_h720, not ern_cape_1871_2016."""
+def test_part3_parse_as_study_configuration() -> None:
+    from fbf.core.study.builder import StudyConfiguration, load_yaml
 
-    PART3_YAML_FILES = [
-        "ern_part3_replication.yaml",
-    ]
-
-    def _load_config(self, filename: str) -> dict[str, Any]:
-        from fbf.core.study.builder import load_yaml
-
-        return load_yaml(Path("examples/studies") / filename)
-
-    def test_all_part3_use_ern_swr_h720(self) -> None:
-        for filename in self.PART3_YAML_FILES:
-            data = self._load_config(filename)
-            assert data["dataset"]["identifier"] == "ern_swr_h720", (
-                f"{filename} must reference ern_swr_h720"
-            )
-
-    def test_no_part3_references_ern_cape(self) -> None:
-        for filename in self.PART3_YAML_FILES:
-            data = self._load_config(filename)
-            assert data["dataset"]["identifier"] != "ern_cape_1871_2016", (
-                f"{filename} must not reference ern_cape_1871_2016"
-            )
-
-    def test_part3_parse_as_study_configuration(self) -> None:
-        from fbf.core.study.builder import StudyConfiguration
-
-        for filename in self.PART3_YAML_FILES:
-            data = self._load_config(filename)
-            config = StudyConfiguration.from_yaml(data)
-            assert config.dataset_identifier == "ern_swr_h720", (
-                f"{filename} parsed config must have ern_swr_h720"
-            )
-
-    def test_part3_replication_has_dual_final_value_targets(self) -> None:
-        from decimal import Decimal
-
-        from fbf.core.study.builder import StudyConfiguration
-
-        data = self._load_config("ern_part3_replication.yaml")
-        config = StudyConfiguration.from_yaml(data)
-        assert config.final_value_target_values is not None
-        assert Decimal("0.0") in config.final_value_target_values
-        assert Decimal("0.5") in config.final_value_target_values
+    data = load_yaml(Path("examples/studies/ern_part3_replication.yaml"))
+    StudyConfiguration.from_yaml(data)
 
 
+def test_part3_replication_has_dual_final_value_targets() -> None:
+    from decimal import Decimal
+
+    from fbf.core.study.builder import StudyConfiguration, load_yaml
+
+    data = load_yaml(Path("examples/studies/ern_part3_replication.yaml"))
+    config = StudyConfiguration.from_yaml(data)
+    assert config.final_value_target_values is not None
+    assert Decimal("0.0") in config.final_value_target_values
+    assert Decimal("0.5") in config.final_value_target_values
 
 
-class TestNonPart3StudiesUnchanged:
-    """C6.1: Non-Part-3 studies must remain untouched."""
-
-    def test_ern_grid_uses_h720(self) -> None:
-        from fbf.core.study.builder import load_yaml
-
-        data = load_yaml(Path("examples/studies/ern_grid.yaml"))
-        assert data["dataset"]["identifier"] == "ern_swr_h720"
-
-    def test_no_study_references_ern_cape_as_dataset(self) -> None:
-        import os
-
-        from fbf.core.study.builder import load_yaml
-
-        yaml_dir = Path("examples/studies")
-        for filename in os.listdir(yaml_dir):
-            if not filename.endswith(".yaml"):
-                continue
-            data = load_yaml(yaml_dir / filename)
-            identifier = data.get("dataset", {}).get("identifier", "")
-            assert identifier != "ern_cape_1871_2016", (
-                f"{filename} must not use ern_cape_1871_2016 as dataset"
-            )
 
 
 class TestLoadYamlError:
@@ -217,7 +163,6 @@ class TestLoadYamlError:
         """When PyYAML is not installed, load_yaml() raises RuntimeError with clear guidance."""
         import sys
         import unittest.mock
-        from pathlib import Path
 
         from fbf.core.study.builder import load_yaml
 
@@ -514,7 +459,7 @@ class TestInitialWealthReconciliation:
             is_underwater=False,
             running_ath=price_eq,
         )
-        dataset = Dataset(snapshots=(snapshot,), frequency="monthly", version="test")
+        dataset = Dataset(snapshots=(snapshot,), frequency="monthly")
 
         initial_wealth = Money(Decimal("1000000"), Money.ZERO.currency)
         portfolio = build_initial_portfolio(initial_wealth, dataset)
@@ -554,7 +499,7 @@ class TestInitialWealthReconciliation:
             is_underwater=False,
             running_ath=price_eq,
         )
-        dataset = Dataset(snapshots=(snapshot,), frequency="monthly", version="test")
+        dataset = Dataset(snapshots=(snapshot,), frequency="monthly")
 
         initial_wealth = Money(Decimal("1000000"), Money.ZERO.currency)
         portfolio = build_initial_portfolio(initial_wealth, dataset)

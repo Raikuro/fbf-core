@@ -65,7 +65,6 @@ def dataset(
     equity_asset: AssetClass, bond_asset: AssetClass
 ) -> Dataset:
     return Dataset(
-        identifier="test",
         snapshots=(
             MarketSnapshot(
                 date=date(1965, 11, 1),
@@ -81,7 +80,6 @@ def dataset(
             ),
         ),
         frequency="monthly",
-        version="test",
     )
 
 
@@ -310,10 +308,8 @@ class TestConstantWithdrawalFrequency:
             running_ath=Decimal("100"),
         )
         ds = Dataset(
-            identifier="t",
             snapshots=(snapshot,),
             frequency="monthly",
-            version="t",
         )
         return DecisionContext(
             date=date(1965, 11, 1),

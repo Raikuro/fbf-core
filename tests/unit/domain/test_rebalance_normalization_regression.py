@@ -240,7 +240,7 @@ class TestConfiguredAllocationIsAuthoritative:
 
     @staticmethod
     def _context(portfolio: Portfolio, market: MarketSnapshot) -> DecisionContext:
-        dataset = Dataset(snapshots=(market,), frequency="monthly", version="v1")
+        dataset = Dataset(snapshots=(market,), frequency="monthly")
         bootstrap_allocation = Allocation(weights={EQUITY: Decimal("1")})
         bootstrap_target = AllocationTarget(weights={EQUITY: Decimal("1")})
         return DecisionContext(
@@ -271,7 +271,7 @@ class TestConfiguredAllocationIsAuthoritative:
         market = self._snapshot()
 
         ds = Dataset(
-            snapshots=(market,), frequency="monthly", version="v1"
+            snapshots=(market,), frequency="monthly"
         )
         bootstrap = build_initial_portfolio(wealth, ds)
         assert [h.asset_class for h in bootstrap.holdings] == [EQUITY, BOND]

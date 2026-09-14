@@ -53,7 +53,7 @@ class TestConftestFixtures:
     def test_persistence_context_created(
         self, persistence_context: PersistenceReconstructionContext
     ) -> None:
-        assert persistence_context.dataset_resolver is not None
+        assert persistence_context.dataset_loader is not None
         assert persistence_context.policy_codecs is not None
         assert persistence_context.simulation_result_codec is not None
 

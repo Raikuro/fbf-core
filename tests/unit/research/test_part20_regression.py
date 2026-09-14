@@ -148,7 +148,6 @@ class TestPart20YAMLRegression:
 
         data = load_yaml(Path("examples/studies/ern_part20.yaml"))
         config = StudyConfiguration.from_yaml(data)
-        assert config.dataset_identifier == "ern_swr_h720"
         assert config.allocation_policy_type == "GlidepathAllocationPolicy"
 
     def test_yaml_grid_dimensions(self) -> None:

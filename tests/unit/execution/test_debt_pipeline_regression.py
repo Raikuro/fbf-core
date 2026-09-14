@@ -55,8 +55,6 @@ def _make_dataset(n_months: int = 6) -> Dataset:
     return Dataset(
         snapshots=snapshots,
         frequency="monthly",
-        version="test",
-        identifier="test",
     )
 
 

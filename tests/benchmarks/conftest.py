@@ -24,10 +24,9 @@ from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDec
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 from fbf.core.persistence.studies.sqlite import (
     PersistenceReconstructionContext,
+    SimulationResultCodec,
     SQLiteRepository,
-    create_persistence_context,
 )
-from fbf.core.persistence.studies.sqlite.codecs import DefaultDatasetResolver
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
@@ -70,7 +69,7 @@ def make_benchmark_dataset(num_months: int, version: str = "BENCHMARK_v1") -> Da
         year = 2000 + (m - 1) // 12
         month = ((m - 1) % 12) + 1
         snapshots.append(_snapshot(date(year, month, 1)))
-    return Dataset(snapshots=snapshots, frequency="monthly", version=version)
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 # ---------------------------------------------------------------------------
@@ -165,12 +164,14 @@ def make_benchmark_repo(path: Path) -> SQLiteRepository:
 
 
 def make_persistence_context(dataset: Dataset) -> PersistenceReconstructionContext:
-    resolver = DefaultDatasetResolver(datasets={dataset.version: dataset})
-    ctx = create_persistence_context()
+    class _BenchmarkLoader:
+        def load(self) -> Dataset:
+            return dataset
+
     return PersistenceReconstructionContext(
-        dataset_resolver=resolver,
-        policy_codecs=ctx.policy_codecs,
-        simulation_result_codec=ctx.simulation_result_codec,
+        dataset_loader=_BenchmarkLoader(),
+        policy_codecs={},
+        simulation_result_codec=SimulationResultCodec(),
     )
 
 

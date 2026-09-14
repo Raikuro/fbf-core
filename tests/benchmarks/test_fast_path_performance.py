@@ -56,7 +56,7 @@ def _synthetic_dataset(n_months: int, seed: int = 7) -> Dataset:
         pe *= Decimal(str(1 + rng.gauss(0.006, 0.045)))
         pb *= Decimal(str(1 + rng.gauss(0.002, 0.01)))
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _contexts(dataset: Dataset, start: date, horizons: list[int]) -> list[SimulationContext]:

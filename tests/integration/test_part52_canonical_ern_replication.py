@@ -71,7 +71,7 @@ LTV_LIMIT = Decimal("0.50")
 HORIZON_YEARS = 30
 COHORT_HORIZON_YEARS = 60
 EXPECTED_UNITS = 1739
-FFR_DATASET = "ffr_monthly"
+FFR_DATASET = "ffr"
 
 # ---------------------------------------------------------------------------
 # Canonical ERN Configuration Matrix
@@ -213,7 +213,7 @@ def _build_study_config(
 ) -> StudyConfiguration:
     """Build a StudyConfiguration for one canonical scenario.
 
-    For FFR scenarios: use actual FFR+spread via ffr_dataset_identifier.
+    For FFR scenarios: use actual FFR+spread via ffr_spread.
     The framework filters cohorts to those with FFR data coverage (post-1928).
     This matches ERN's behavior: FFR is used for all cohorts with data.
 
@@ -225,14 +225,12 @@ def _build_study_config(
             name=f"ERN_Part52_{scenario.scenario_id}",
             description=f"S6.6B canonical ERN replication: {scenario.scenario_id}",
             version="1.0",
-            dataset_identifier="ern_swr_h720",
             allocation_policy_type="ConstantAllocationPolicy",
             allocation_policy_values=(Decimal("0.75"),),
             withdrawal_policy_type="Part52WithdrawalPolicy",
             withdrawal_policy_values=(scenario.published_wr,),
             horizon_years=(HORIZON_YEARS,),
             cohort_horizon_years=COHORT_HORIZON_YEARS,
-            ffr_dataset_identifier="ffr_monthly",
             ffr_spread=scenario.ffr_spread,
             debt_ltv_limit=LTV_LIMIT,
             debt_ltv_enforcement=True,
@@ -244,7 +242,6 @@ def _build_study_config(
         name=f"ERN_Part52_{scenario.scenario_id}",
         description=f"S6.6B canonical ERN replication: {scenario.scenario_id}",
         version="1.0",
-        dataset_identifier="ern_swr_h720",
         allocation_policy_type="ConstantAllocationPolicy",
         allocation_policy_values=(Decimal("0.75"),),
         withdrawal_policy_type="Part52WithdrawalPolicy",
@@ -340,7 +337,6 @@ def _find_compatible_borrow_pct(
             debt_interest_rate=Decimal("0"),  # Not used when FFR is configured
             ltv_limit=LTV_LIMIT,
             ltv_enforcement=True,
-            ffr_dataset_identifier="ffr_monthly",
             ffr_spread=scenario.ffr_spread,
             borrow_pcts=borrow_grid,
             horizon_years=HORIZON_YEARS,
@@ -358,7 +354,6 @@ def _find_compatible_borrow_pct(
             debt_interest_rate=Decimal("0.015"),
             ltv_limit=LTV_LIMIT,
             ltv_enforcement=True,
-            ffr_dataset_identifier=None,
             ffr_spread=None,
             borrow_pcts=borrow_grid,
             horizon_years=HORIZON_YEARS,

@@ -69,7 +69,7 @@ def make_dataset(num_months: int = 500, start_year: int = 1871) -> Dataset:
         if month > 12:
             month = 1
             year += 1
-    return Dataset(snapshots=snapshots, frequency="monthly", version="INTEGRATION_TEST_v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 # ---------------------------------------------------------------------------

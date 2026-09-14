@@ -60,7 +60,7 @@ def _make_equity_bond_dataset(months: int = 36) -> Dataset:
                 running_ath=Decimal("100.00"),
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version="v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _build_plan(horizon_months: int = 12, param_sweep: int = 1) -> tuple[Dataset, ResearchPlan]:

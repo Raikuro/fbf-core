@@ -92,7 +92,7 @@ def _make_dataset(
                 running_ath=ep,
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version="C3_v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 # ---------------------------------------------------------------------------

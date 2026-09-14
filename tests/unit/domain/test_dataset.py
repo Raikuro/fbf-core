@@ -32,7 +32,7 @@ def test_dataset_ordering_validation() -> None:
     )
 
     with pytest.raises(ValueError):
-        Dataset(snapshots=[snapshot_a, snapshot_b], frequency="monthly", version="1.0")
+        Dataset(snapshots=[snapshot_a, snapshot_b], frequency="monthly")
 
 
 def test_dataset_unique_dates_validation() -> None:
@@ -48,7 +48,7 @@ def test_dataset_unique_dates_validation() -> None:
     )
 
     with pytest.raises(ValueError):
-        Dataset(snapshots=[snapshot, snapshot], frequency="monthly", version="1.0")
+        Dataset(snapshots=[snapshot, snapshot], frequency="monthly")
 
 
 def test_dataset_slice_access() -> None:
@@ -62,7 +62,7 @@ def test_dataset_slice_access() -> None:
         is_underwater=False,
         running_ath=Decimal("100.00"),
     )
-    dataset = Dataset(snapshots=[snapshot], frequency="monthly", version="1.0")
+    dataset = Dataset(snapshots=[snapshot], frequency="monthly")
 
     assert len(dataset) == 1
     assert dataset[0].date == date(2000, 1, 1)

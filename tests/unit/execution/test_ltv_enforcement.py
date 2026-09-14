@@ -61,7 +61,6 @@ def _make_dataset(*snapshots: MarketSnapshot) -> Dataset:
     return Dataset(
         snapshots=tuple(snapshots),
         frequency="monthly",
-        version="1.0",
     )
 
 

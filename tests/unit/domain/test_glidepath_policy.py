@@ -46,7 +46,7 @@ def _snap(is_underwater: bool, d: date) -> MarketSnapshot:
 def _dataset(underwater_flags: list[bool]) -> Dataset:
     base = date(2020, 1, 1)
     snaps = [_snap(uw, base + timedelta(days=30 * i)) for i, uw in enumerate(underwater_flags)]
-    return Dataset(snapshots=snaps, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snaps, frequency="monthly")
 
 
 def _context(dataset: Dataset, period_index: int) -> DecisionContext:

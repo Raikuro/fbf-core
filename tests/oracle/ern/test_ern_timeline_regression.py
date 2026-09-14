@@ -62,7 +62,6 @@ def _make_study_config(weight: float, rate: float, horizons: tuple[int, ...]) ->
         name="regression",
         description="",
         version="",
-        dataset_identifier="ern_swr_h720",
         allocation_policy_type="ConstantAllocationPolicy",
         allocation_policy_values=(Decimal(str(weight)),),
         withdrawal_policy_type="FixedRealWithdrawalPolicy",
@@ -111,7 +110,7 @@ def _units_by_horizon(plan: ResearchPlan) -> dict[int, list[PlannedSimulationUni
 def _oracle_success(weight: float, rate: float, horizon_years: int) -> list[bool]:
     """Per-cohort oracle success for a cell (cohort start 1..1739)."""
     T = HORIZON_MONTHS[horizon_years] - 1
-    r_eq, r_bd = load_real_returns(DATA_DIR / "ern_real_returns_1871_2016.csv")
+    r_eq, r_bd = load_real_returns(DATA_DIR)
     P, pre = prefix_tables(*build_extended(r_eq, r_bd), weight)
     return [
         cohort_annual_swr(P, pre, start, T) >= rate for start in range(1, COHORTS_PER_CELL + 1)

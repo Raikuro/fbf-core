@@ -29,7 +29,7 @@ def _make_dataset() -> Dataset:
         is_underwater=False,
         running_ath=Decimal("100"),
     )
-    return Dataset(snapshots=(snap,), frequency="monthly", version="1.0")
+    return Dataset(snapshots=(snap,), frequency="monthly")
 
 
 def _make_portfolio(total: Decimal) -> Portfolio:

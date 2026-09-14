@@ -39,8 +39,6 @@ def _create_dataset(snapshots: list[MarketSnapshot]) -> Dataset:
     return Dataset(
         snapshots=snapshots,
         frequency="monthly",
-        version="test",
-        identifier="test-dataset",
     )
 
 

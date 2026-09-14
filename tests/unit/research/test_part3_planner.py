@@ -122,7 +122,7 @@ def _make_minimal_trajectory(num_months: int = 24) -> Dataset:
                 running_ath=Decimal("100"),
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 # ---------------------------------------------------------------------------
@@ -431,10 +431,12 @@ class TestManifestIndexConvention:
 
     def test_start_month_index_offset(self) -> None:
         """start_month_index is trajectory_index - 1 for all cohorts."""
-        from fbf.core.study.builder import resolve_dataset
+        from pathlib import Path
+
+        from fbf.core.datasets import load_canonical_dataset
 
         manifest = load_manifest(MANIFEST_PATH)
-        dataset = resolve_dataset("ern_swr_h720", "data/ern")
+        dataset = load_canonical_dataset(Path("data/ern"))
         traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
 
         for entry in manifest.cohorts:
@@ -446,10 +448,12 @@ class TestManifestIndexConvention:
 
     def test_max_horizon_formula(self) -> None:
         """max_horizon = n_snapshots - trajectory_index for all cohorts."""
-        from fbf.core.study.builder import resolve_dataset
+        from pathlib import Path
+
+        from fbf.core.datasets import load_canonical_dataset
 
         manifest = load_manifest(MANIFEST_PATH)
-        dataset = resolve_dataset("ern_swr_h720", "data/ern")
+        dataset = load_canonical_dataset(Path("data/ern"))
         n = len(dataset)
         traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
 
@@ -501,10 +505,12 @@ class TestManifestIndexConvention:
 
     def test_no_systematic_offset(self) -> None:
         """max_horizon - (n_snapshots - trajectory_index) == 0 for all cohorts."""
-        from fbf.core.study.builder import resolve_dataset
+        from pathlib import Path
+
+        from fbf.core.datasets import load_canonical_dataset
 
         manifest = load_manifest(MANIFEST_PATH)
-        dataset = resolve_dataset("ern_swr_h720", "data/ern")
+        dataset = load_canonical_dataset(Path("data/ern"))
         n = len(dataset)
         traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
 

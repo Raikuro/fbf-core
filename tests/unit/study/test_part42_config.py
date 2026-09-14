@@ -29,11 +29,6 @@ class TestPart42YamlParsing:
         config = StudyConfiguration.from_yaml(data)
         assert config.name == "ERN Part 42 — One More Year Syndrome"
 
-    def test_dataset_identifier(self) -> None:
-        data = self._load_part42()
-        config = StudyConfiguration.from_yaml(data)
-        assert config.dataset_identifier == "ern_swr_h720"
-
     def test_horizon_years(self) -> None:
         data = self._load_part42()
         config = StudyConfiguration.from_yaml(data)
@@ -109,7 +104,6 @@ class TestBackwardCompatibility:
             name="test",
             description="test",
             version="1.0",
-            dataset_identifier="test",
             allocation_policy_type="ConstantAllocationPolicy",
             allocation_policy_values=(Decimal("0.75"),),
             withdrawal_policy_type="FixedRealWithdrawalPolicy",

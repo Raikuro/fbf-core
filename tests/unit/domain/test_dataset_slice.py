@@ -43,7 +43,7 @@ def make_test_dataset(num_months: int = 48, start_year: int = 2000) -> Dataset:
                 running_ath=Decimal(100 + i),
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version="SLICE_TEST_v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 class TestDatasetSlice:
@@ -112,7 +112,6 @@ class TestDatasetSlice:
         sliced = dataset.slice(start_date=date(2000, 5, 1), horizon_months=6)
 
         assert sliced.frequency == dataset.frequency
-        assert sliced.version == dataset.version
 
     def test_original_dataset_remains_unchanged(self) -> None:
         dataset = make_test_dataset(48)

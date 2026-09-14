@@ -19,6 +19,7 @@ from __future__ import annotations
 import random
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -35,7 +36,6 @@ from fbf.core.execution.strategies.fast_path import (
     select_validation_units,
 )
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
-from fbf.core.persistence.studies.sqlite.codecs import DefaultDatasetResolver
 from fbf.core.study.builder import (
     BuiltStudy,
     StudyConfiguration,
@@ -59,8 +59,6 @@ _WEALTH = Money(Decimal("1000000"), Currency.EUR)
 _SINGLE_HORIZON_YAML = """\
 metadata:
   name: "Single Horizon Study"
-dataset:
-  identifier: "TEST_DATASET"
 cohorts:
   horizon_years: [4]
 allocation_policy:
@@ -92,7 +90,7 @@ def _synthetic_dataset(n_months: int = 240, seed: int = 7) -> Dataset:
         pe *= Decimal(str(1 + rng.gauss(0.006, 0.045)))
         pb *= Decimal(str(1 + rng.gauss(0.002, 0.01)))
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _parameter_configs(
@@ -206,21 +204,24 @@ class TestFalsyArrayValuePreservation:
     """
 
     @staticmethod
-    def _build(config_data: dict[str, object], monkeypatch: pytest.MonkeyPatch) -> BuiltStudy:
-        def mock_resolve(self: DefaultDatasetResolver, identifier: str) -> Dataset:
-            return _synthetic_dataset()
-
-        monkeypatch.setattr(DefaultDatasetResolver, "resolve", mock_resolve)
+    def _build(
+        config_data: dict[str, object],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> BuiltStudy:
+        monkeypatch.setattr(
+            "fbf.core.study.builder.load_canonical_dataset",
+            lambda _p: _synthetic_dataset(),
+        )
         config = StudyConfiguration.from_yaml(config_data)
-        return build_study_plan(config, None, _WEALTH)
+        return build_study_plan(config, str(tmp_path), _WEALTH)
 
     def test_zero_allocation_value_in_array(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         built = self._build(
             {
                 "metadata": {"name": "zero-alloc"},
-                "dataset": {"identifier": "TEST_DATASET"},
                 "cohorts": {"horizon_years": [4]},
                 "allocation_policy": {
                     "type": "ConstantAllocationPolicy",
@@ -232,18 +233,18 @@ class TestFalsyArrayValuePreservation:
                 },
             },
             monkeypatch,
+            tmp_path,
         )
         for unit in built.plan.units:
             alloc = cast(ConstantAllocationPolicy, unit.allocation_policy)
             assert alloc.equity_allocation == Decimal("0.0")
 
     def test_zero_withdrawal_value_in_array(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         built = self._build(
             {
                 "metadata": {"name": "zero-withdraw"},
-                "dataset": {"identifier": "TEST_DATASET"},
                 "cohorts": {"horizon_years": [4]},
                 "allocation_policy": {
                     "type": "ConstantAllocationPolicy",
@@ -255,6 +256,7 @@ class TestFalsyArrayValuePreservation:
                 },
             },
             monkeypatch,
+            tmp_path,
         )
         for unit in built.plan.units:
             withdraw = cast(FixedRealWithdrawalPolicy, unit.withdrawal_policy)

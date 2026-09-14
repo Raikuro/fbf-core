@@ -101,7 +101,7 @@ def _make_flat_dataset(n_months: int, price: Decimal = Decimal("100")) -> Datase
             )
         )
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _make_constant_return_dataset(
@@ -131,7 +131,7 @@ def _make_constant_return_dataset(
         pe *= 1 + eq_return
         pb *= 1 + bd_return
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _make_random_dataset(
@@ -159,7 +159,7 @@ def _make_random_dataset(
         pe *= Decimal(str(1 + rng.gauss(float(eq_mu), eq_sigma)))
         pb *= Decimal(str(1 + rng.gauss(0.002, 0.01)))
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _run_differential(

@@ -82,7 +82,7 @@ def _make_dataset(n_months: int = 600, start_year: int = 1970) -> Dataset:
         pe += Decimal("0.5")
         pb += Decimal("0.1")
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="C4_bench")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 # ---------------------------------------------------------------------------

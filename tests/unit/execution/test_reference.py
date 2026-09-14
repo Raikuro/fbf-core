@@ -61,7 +61,7 @@ def _make_flat_dataset(months: int, price: Decimal = Decimal("100")) -> Dataset:
             )
         )
         current = date(current.year + (current.month // 12), current.month % 12 + 1, 1)
-    return Dataset(snapshots=tuple(snapshots), frequency="monthly", version="1.0")
+    return Dataset(snapshots=tuple(snapshots), frequency="monthly")
 
 
 def _make_portfolio(initial_wealth: Money) -> Portfolio:

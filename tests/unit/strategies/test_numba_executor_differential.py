@@ -60,7 +60,7 @@ def _make_dataset(n_months: int) -> Dataset:
         pe *= Decimal("1.006")
         pb *= Decimal("1.002")
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _make_context(
@@ -320,7 +320,7 @@ class TestGrowthFactorCache:
                 for m in range(120)
             ],
         ]
-        ds2 = Dataset(snapshots=snapshots2, frequency="monthly", version="1.0")
+        ds2 = Dataset(snapshots=snapshots2, frequency="monthly")
         ctx2 = _make_context(ds2, horizon=120, w=0.5, r=0.04)
         defn2 = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx2,),
@@ -457,7 +457,7 @@ class TestPriceFloatCache:
                 is_underwater=s.is_underwater,
                 running_ath=s.running_ath,
             ))
-        ds2_shifted = Dataset(snapshots=shifted_snaps, frequency="monthly", version="1.0")
+        ds2_shifted = Dataset(snapshots=shifted_snaps, frequency="monthly")
         ctx2 = _make_context(ds2_shifted, horizon=120, w=0.5, r=0.04)
         defn = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx1, ctx2),
@@ -486,7 +486,7 @@ class TestPriceFloatCache:
             )
             for s in ds_long.snapshots
         ]
-        ds_long_shifted = Dataset(snapshots=long_snaps, frequency="monthly", version="1.0")
+        ds_long_shifted = Dataset(snapshots=long_snaps, frequency="monthly")
         ctx2 = _make_context(ds_long_shifted, horizon=240, w=0.5, r=0.04)
         defn = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx1, ctx2),
@@ -587,7 +587,7 @@ class TestIndexSeriesCache:
             )
             for s in ds2_shifted.snapshots
         ]
-        ds2_shifted = Dataset(snapshots=shifted_snaps, frequency="monthly", version="1.0")
+        ds2_shifted = Dataset(snapshots=shifted_snaps, frequency="monthly")
         ctx2 = _make_context(ds2_shifted, horizon=120, w=0.5, r=0.04)
         defn = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx1, ctx2),
@@ -615,7 +615,7 @@ class TestIndexSeriesCache:
             )
             for s in ds_long.snapshots
         ]
-        ds_long_shifted = Dataset(snapshots=long_snaps, frequency="monthly", version="1.0")
+        ds_long_shifted = Dataset(snapshots=long_snaps, frequency="monthly")
         ctx2 = _make_context(ds_long_shifted, horizon=240, w=0.5, r=0.04)
         defn = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx1, ctx2),

@@ -84,7 +84,7 @@ def make_minimal_dataset(year: int = 2000, month: int = 1) -> Dataset:
         is_underwater=False,
         running_ath=Decimal("100.00"),
     )
-    return Dataset(snapshots=[snapshot], frequency="monthly", version="test-v1")
+    return Dataset(snapshots=[snapshot], frequency="monthly")
 
 
 def make_unit(
@@ -459,7 +459,7 @@ def minimal_experiment_def() -> ExperimentDefinition:
         is_underwater=False,
         running_ath=Decimal("100.00"),
     )
-    dataset = Dataset(snapshots=[snapshot], frequency="monthly", version="1.0")
+    dataset = Dataset(snapshots=[snapshot], frequency="monthly")
 
     return ExperimentDefinition(
         name="test-experiment",

@@ -65,7 +65,7 @@ def make_context(portfolio: Portfolio, dataset: Dataset) -> SimulationContext:
 
 
 def make_dataset(market_snapshot: MarketSnapshot) -> Dataset:
-    return DummyDataset(snapshots=[market_snapshot], frequency="M", version="1.0")
+    return DummyDataset(snapshots=[market_snapshot], frequency="M")
 
 
 def test_portfolio_rebalance_integration_100_equity_withdrawal_then_6040() -> None:

@@ -194,8 +194,6 @@ class TestProductionEdgeCases:
                 for i in range(5)
             ],
             frequency="monthly",
-            version="bad",
-            identifier="bad",
         )
         with pytest.raises(ValueError, match="13 snapshots"):
             run_accumulation_phase(

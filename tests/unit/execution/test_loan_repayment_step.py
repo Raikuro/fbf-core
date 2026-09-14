@@ -46,7 +46,6 @@ def simulation_context(equity_asset: AssetClass, bond_asset: AssetClass) -> Simu
     )
 
     dataset = Dataset(
-        identifier="test",
         snapshots=(
             MarketSnapshot(
                 date=date(1965, 11, 1),
@@ -62,7 +61,6 @@ def simulation_context(equity_asset: AssetClass, bond_asset: AssetClass) -> Simu
             ),
         ),
         frequency="monthly",
-        version="test",
     )
 
     return SimulationContext(

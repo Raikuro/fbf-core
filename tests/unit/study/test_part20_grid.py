@@ -177,10 +177,6 @@ class TestPart20Constants:
 class TestPart20YAMLStructure:
     """Tests for the YAML file structure."""
 
-    def test_dataset_identifier(self) -> None:
-        data = _load_part20_raw()
-        assert data["dataset"]["identifier"] == "ern_swr_h720"
-
     def test_allocation_policy_type(self) -> None:
         data = _load_part20_raw()
         assert data["allocation_policy"]["type"] == "GlidepathAllocationPolicy"

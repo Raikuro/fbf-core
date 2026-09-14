@@ -97,7 +97,7 @@ def make_dataset(start_date: date = date(2000, 1, 1)) -> Dataset:
         is_underwater=False,
         running_ath=Decimal("100.00"),
     )
-    return Dataset(snapshots=[snapshot], frequency="monthly", version="1.0")
+    return Dataset(snapshots=[snapshot], frequency="monthly")
 
 
 def make_minimal_dataset(year: int = 2000, month: int = 1) -> Dataset:
@@ -318,7 +318,7 @@ def _make_real_engine_plan() -> ResearchPlan:
         pe *= Decimal(str(1 + rng.gauss(0.006, 0.04)))
         pb *= Decimal(str(1 + rng.gauss(0.002, 0.01)))
         d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    dataset = Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    dataset = Dataset(snapshots=snapshots, frequency="monthly")
 
     cohorts = CohortGenerator.generate_rolling_monthly(dataset, 36)
     alloc = ConstantAllocationPolicy(Decimal("0.6"))

@@ -114,7 +114,6 @@ def _make_canonical_config() -> OmyStudyConfiguration:
             "Canonical ERN Part 42 workload: 45 cells × 1,739 cohorts"
         ),
         version="2.0",
-        dataset_identifier="ern_swr_h720",
         allocation_policy_type="ConstantAllocationPolicy",
         allocation_policy_values=CANONICAL_WEIGHTS,
         withdrawal_policy_type="FixedRealWithdrawalPolicy",

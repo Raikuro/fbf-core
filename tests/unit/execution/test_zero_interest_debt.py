@@ -51,8 +51,6 @@ def _dataset() -> Dataset:
     return Dataset(
         snapshots=[_snapshot(0), _snapshot(1)],
         frequency="monthly",
-        version="test",
-        identifier="test",
     )
 
 
@@ -412,7 +410,7 @@ class TestZeroInterestFullPipeline:
             pe *= Decimal("1.006")
             pb *= Decimal("1.002")
             d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-        ds = Dataset(snapshots=snapshots, frequency="monthly", version="test")
+        ds = Dataset(snapshots=snapshots, frequency="monthly")
 
         runner = SimulationRunner(pipeline=create_default_pipeline())
         ctx = SimulationContext(

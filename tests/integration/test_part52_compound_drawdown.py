@@ -191,8 +191,8 @@ class TestCompoundDrawdownPipeline:
             ),
         ]
         return Dataset(
-            identifier="test", snapshots=tuple(snapshots),
-            frequency="monthly", version="test",
+            snapshots=tuple(snapshots),
+            frequency="monthly",
         )
 
     @pytest.fixture

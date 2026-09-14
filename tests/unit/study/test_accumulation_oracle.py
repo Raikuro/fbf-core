@@ -204,8 +204,6 @@ class TestOracleEdgeCases:
                 for i in range(5)
             ],
             frequency="monthly",
-            version="bad",
-            identifier="bad",
         )
         with pytest.raises(ValueError, match="13 snapshots"):
             oracle_accumulate(

@@ -49,8 +49,6 @@ def _context(
     dataset = Dataset(
         snapshots=[_snapshot(equity_price, 0), _snapshot(equity_price, 1)],
         frequency="monthly",
-        version="test",
-        identifier="test",
     )
     return SimulationContext(
         experiment_name="test",

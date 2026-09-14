@@ -19,8 +19,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
@@ -37,11 +35,9 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.persistence.studies.sqlite import (
     AllocationPolicyCodec,
-    DefaultDatasetResolver,
+    CanonicalDatasetLoader,
     PersistenceReconstructionContext,
-    RepositoryError,
     SimulationResultCodec,
-    StudyNotFoundError,
     WithdrawalPolicyCodec,
 )
 from fbf.core.persistence.studies.sqlite.codecs import (
@@ -74,7 +70,7 @@ def _make_shared_dataset() -> Dataset:
                 running_ath=Decimal("100.00"),
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version="TEST_v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 _TEST_DATASET: Dataset = _make_shared_dataset()
@@ -118,51 +114,40 @@ class _TestWithdrawalPolicy(WithdrawalPolicy):
 
 
 def test_reconstruction_context_creates_with_concrete_codecs() -> None:
-    resolver = DefaultDatasetResolver(datasets={"TEST": _TEST_DATASET})
+
+    class _StaticLoader:
+        def load(self) -> Dataset:
+            return _TEST_DATASET
+
+    loader = _StaticLoader()
     alloc_codec = AllocationPolicyCodec()
     withd_codec = WithdrawalPolicyCodec()
     sim_codec = SimulationResultCodec()
 
     ctx = PersistenceReconstructionContext(
-        dataset_resolver=resolver,
+        dataset_loader=loader,
         policy_codecs={
             ("allocation", "AllocationPolicy"): alloc_codec,
             ("withdrawal", "WithdrawalPolicy"): withd_codec,
         },
         simulation_result_codec=sim_codec,
     )
-    assert ctx.dataset_resolver is resolver
+    assert ctx.dataset_loader is loader
     assert ctx.simulation_result_codec is sim_codec
     assert len(ctx.policy_codecs) == 2
 
 
 # ---------------------------------------------------------------------------
-# DatasetResolver tests
+# DatasetLoader tests
 # ---------------------------------------------------------------------------
 
 
-class TestDefaultDatasetResolver:
-    def test_resolve_valid_identifier(self) -> None:
-        resolver = DefaultDatasetResolver(datasets={"ACWI_2024": _TEST_DATASET})
-        result = resolver.resolve("ACWI_2024")
-        assert result is _TEST_DATASET
-        assert result.version == "TEST_v1"
-
-    def test_resolve_unknown_identifier_raises(self) -> None:
-        resolver = DefaultDatasetResolver(datasets={"KNOWN": _TEST_DATASET})
-        with pytest.raises(StudyNotFoundError) as exc:
-            resolver.resolve("UNKNOWN")
-        assert "Dataset not found" in str(exc.value)
-
-    def test_resolve_unknown_identifier_is_repository_error(self) -> None:
-        resolver = DefaultDatasetResolver(datasets={})
-        with pytest.raises(RepositoryError):
-            resolver.resolve("anything")
-
-    def test_resolve_empty_registry(self) -> None:
-        resolver = DefaultDatasetResolver()
-        with pytest.raises(StudyNotFoundError):
-            resolver.resolve("anything")
+class TestCanonicalDatasetLoader:
+    def test_load_returns_dataset(self) -> None:
+        loader = CanonicalDatasetLoader("data/ern")
+        result = loader.load()
+        assert result is not None
+        assert len(result) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -548,7 +533,7 @@ def _make_cohort_dataset(month: int) -> Dataset:
         is_underwater=False,
         running_ath=Decimal("100.00"),
     )
-    return Dataset(snapshots=[snapshot], frequency="monthly", version="TEST_v1")
+    return Dataset(snapshots=[snapshot], frequency="monthly")
 
 
 def _make_plan(experiment: Any, num_units: int = 2) -> Any:
@@ -594,11 +579,12 @@ def test_sqlite_repository_integration_with_concrete_codecs(
         ExperimentIdentity,
     )
 
-    resolver = DefaultDatasetResolver(
-        datasets={"TEST_v1": _TEST_DATASET}
-    )
+    class _StaticLoader:
+        def load(self) -> Dataset:
+            return _TEST_DATASET
+
     ctx = PersistenceReconstructionContext(
-        dataset_resolver=resolver,
+        dataset_loader=_StaticLoader(),
         policy_codecs={
             ("allocation", "AllocationPolicy"): AllocationPolicyCodec(),
             ("withdrawal", "WithdrawalPolicy"): WithdrawalPolicyCodec(),

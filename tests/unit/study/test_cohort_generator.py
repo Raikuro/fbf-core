@@ -46,7 +46,7 @@ def _make_dataset(num_months: int, start_year: int = 1871) -> Dataset:
         if month > 12:
             month = 1
             year += 1
-    return Dataset(snapshots=snapshots, frequency="monthly", version="1.0")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 @pytest.fixture

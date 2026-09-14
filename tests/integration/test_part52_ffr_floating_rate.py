@@ -89,10 +89,8 @@ def _create_dataset() -> Dataset:
         ),
     ]
     return Dataset(
-        identifier="test",
         snapshots=tuple(snapshots),
         frequency="monthly",
-        version="test",
     )
 
 

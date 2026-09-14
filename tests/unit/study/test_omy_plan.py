@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any
+from pathlib import Path
+
+import pytest
 
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
@@ -34,14 +36,11 @@ def _small_dataset(num_snapshots: int) -> Dataset:
     return Dataset(
         snapshots=small_snapshots,
         frequency="monthly",
-        version="test-small",
-        identifier="test-small",
     )
 
 
 def _make_omy_config(
     *,
-    dataset_identifier: str = "test-small",
     withdrawal_rate: Decimal = Decimal("0.04"),
     horizon_years: int = 30,
 ) -> OmyStudyConfiguration:
@@ -50,7 +49,6 @@ def _make_omy_config(
         name="test-omy",
         description="test",
         version="1.0",
-        dataset_identifier=dataset_identifier,
         allocation_policy_type="ConstantAllocationPolicy",
         allocation_policy_values=(Decimal("0.75"),),
         withdrawal_policy_type="FixedRealWithdrawalPolicy",
@@ -67,92 +65,77 @@ def _make_omy_config(
     )
 
 
-def _patch_resolve(small_dataset: Dataset) -> Any:
-    """Patch resolve_dataset to return small_dataset. Returns the original for restoration."""
-    import fbf.core.study.builder as builder_mod
-
-    original_resolve = builder_mod.resolve_dataset
-
-    def mock_resolve(identifier: str, data_dir: str | None) -> Dataset:
-        return small_dataset
-
-    builder_mod.resolve_dataset = mock_resolve
-    return original_resolve
+def _patch_load_canonical(
+    small_dataset: Dataset, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Monkeypatch load_canonical_dataset to return small_dataset."""
+    monkeypatch.setattr(
+        "fbf.core.study.builder.load_canonical_dataset",
+        lambda _p: small_dataset,
+    )
 
 
 class TestOmyPlanAccumulationCaching:
     """Accumulation must be executed exactly once per cohort."""
 
-    def test_single_cohort_single_swr(self) -> None:
+    def test_single_cohort_single_swr(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """With flat prices, accumulation produces same portfolio for all cohorts."""
         config = _make_omy_config(horizon_years=1)
         # 12 (acc) + 13 (ret: 12+1) = 25 snapshots minimum
         small = _small_dataset(26)
-        original_resolve = _patch_resolve(small)
-        try:
-            result = build_omy_study_plan(config, data_dir=None)
-            plan = result.plan
-            # Multiple cohorts may be generated; accumulation is cached per cohort.
-            # With flat prices, all cohorts get the same accumulated portfolio.
-            portfolios = [u.initial_portfolio for u in plan.units]
-            assert len(portfolios) >= 1
-            # All should be identical (same flat prices, same accumulation)
-            assert all(p == portfolios[0] for p in portfolios)
-        finally:
-            import fbf.core.study.builder as builder_mod
+        _patch_load_canonical(small, monkeypatch)
+        result = build_omy_study_plan(config, data_dir=str(tmp_path))
+        plan = result.plan
+        # Multiple cohorts may be generated; accumulation is cached per cohort.
+        # With flat prices, all cohorts get the same accumulated portfolio.
+        portfolios = [u.initial_portfolio for u in plan.units]
+        assert len(portfolios) >= 1
+        # All should be identical (same flat prices, same accumulation)
+        assert all(p == portfolios[0] for p in portfolios)
 
-            builder_mod.resolve_dataset = original_resolve
-
-    def test_multiple_param_configs(self) -> None:
+    def test_multiple_param_configs(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """1 cohort × M SWR = M retirement units, 1 accumulation."""
         config = _make_omy_config(
             horizon_years=1,
             withdrawal_rate=Decimal("0.03"),
         )
         small = _small_dataset(26)
-        original_resolve = _patch_resolve(small)
-        try:
-            result = build_omy_study_plan(config, data_dir=None)
-            plan = result.plan
-            # 1 cohort × 1 SWR = 1 unit
-            assert len(plan.units) >= 1
-        finally:
-            import fbf.core.study.builder as builder_mod
-
-            builder_mod.resolve_dataset = original_resolve
+        _patch_load_canonical(small, monkeypatch)
+        result = build_omy_study_plan(config, data_dir=str(tmp_path))
+        plan = result.plan
+        # 1 cohort × 1 SWR = 1 unit
+        assert len(plan.units) >= 1
 
 
 class TestOmyPlanUnitStructure:
     """Plan units must have correct structure for retirement."""
 
-    def test_unit_has_horizon_months(self) -> None:
+    def test_unit_has_horizon_months(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Each unit must have horizon_months set."""
         config = _make_omy_config(horizon_years=2)
         small = _small_dataset(37)
-        original_resolve = _patch_resolve(small)
-        try:
-            result = build_omy_study_plan(config, data_dir=None)
-            plan = result.plan
-            for unit in plan.units:
-                assert unit.horizon_months is not None
-                assert unit.horizon_months > 0
-        finally:
-            import fbf.core.study.builder as builder_mod
+        _patch_load_canonical(small, monkeypatch)
+        result = build_omy_study_plan(config, data_dir=str(tmp_path))
+        plan = result.plan
+        for unit in plan.units:
+            assert unit.horizon_months is not None
+            assert unit.horizon_months > 0
 
-            builder_mod.resolve_dataset = original_resolve
-
-    def test_unit_initial_portfolio_has_holdings(self) -> None:
+    def test_unit_initial_portfolio_has_holdings(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Accumulation must produce a non-empty portfolio."""
         config = _make_omy_config(horizon_years=1)
         small = _small_dataset(26)
-        original_resolve = _patch_resolve(small)
-        try:
-            result = build_omy_study_plan(config, data_dir=None)
-            plan = result.plan
-            for unit in plan.units:
-                total = sum(h.units for h in unit.initial_portfolio.holdings)
-                assert total > Decimal("0")
-        finally:
-            import fbf.core.study.builder as builder_mod
-
-            builder_mod.resolve_dataset = original_resolve
+        _patch_load_canonical(small, monkeypatch)
+        result = build_omy_study_plan(config, data_dir=str(tmp_path))
+        plan = result.plan
+        for unit in plan.units:
+            total = sum(h.units for h in unit.initial_portfolio.holdings)
+            assert total > Decimal("0")

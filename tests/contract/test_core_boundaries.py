@@ -195,6 +195,7 @@ def test_public_facade_symbols() -> None:
         "ResearchExecutionResult",
         "optimize_study_swr",
         "optimize_part52",
+        "load_canonical_dataset",
         "StudyRepository",
         "create_study_repository",
         "CoreError",

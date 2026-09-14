@@ -72,7 +72,6 @@ def _make_canonical_config() -> StudyConfiguration:
             " (integration fixture)"
         ),
         version="2.0",
-        dataset_identifier="ern_swr_h720",
         allocation_policy_type="ConstantAllocationPolicy",
         allocation_policy_values=CANONICAL_EQUITY,
         withdrawal_policy_type="Part49WithdrawalPolicy",

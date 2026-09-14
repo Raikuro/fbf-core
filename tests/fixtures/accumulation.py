@@ -49,8 +49,6 @@ _FLAT_SNAPSHOTS = [_snapshot(d, Decimal("1"), Decimal("1")) for d in _FLAT_DATES
 FLAT_DATASET = Dataset(
     snapshots=_FLAT_SNAPSHOTS,
     frequency="monthly",
-    version="test-flat",
-    identifier="flat",
 )
 
 
@@ -71,8 +69,6 @@ _GROWTH_SNAPSHOTS = [
 GROWTH_DATASET = Dataset(
     snapshots=_GROWTH_SNAPSHOTS,
     frequency="monthly",
-    version="test-growth",
-    identifier="growth",
 )
 
 
@@ -138,6 +134,4 @@ _ERN_SNAPSHOTS = [
 ERN_REALISTIC_DATASET = Dataset(
     snapshots=_ERN_SNAPSHOTS,
     frequency="monthly",
-    version="test-ern",
-    identifier="ern-realistic",
 )

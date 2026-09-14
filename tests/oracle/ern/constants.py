@@ -3,9 +3,10 @@
 Source data lives in the repository under ``data/ern/`` (see the P4.9
 investigation report, docs/continuity/P4_9_E2E_REPLICATION_INVESTIGATION.md):
 
-- ``ern_real_returns_1871_2016.csv``  extracted monthly real returns (source).
-- ``ern_swr_h720.json``               primary 60-year horizon dataset (derived).
-- ``p49_oracle_table.csv``            pinned ERN oracle matrix (derived).
+- ``sp500_tr_real_return.csv``          canonical S&P 500 real returns (DD-MM-YYYY,value).
+- ``bond_10y_tr_real_return.csv``       canonical 10Y bond real returns (DD-MM-YYYY,value).
+- ``ern_swr_h720.json``                 primary 60-year horizon dataset (derived).
+- ``p49_oracle_table.csv``              pinned ERN oracle matrix (derived).
 
 Provenance of every file is documented in Section 4 of that report.
 """
@@ -19,7 +20,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = _REPO_ROOT / "data" / "ern"
 ORACLE_CSV = DATA_DIR / "p49_oracle_table.csv"
-RETURNS_CSV = DATA_DIR / "ern_real_returns_1871_2016.csv"
+RETURNS_DIR = DATA_DIR
 
 # ---------------------------------------------------------------------------
 # E2E worker selection

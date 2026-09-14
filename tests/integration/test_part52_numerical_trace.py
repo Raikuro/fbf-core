@@ -109,10 +109,8 @@ def test_complete_numerical_trace() -> None:
     ]
 
     dataset = Dataset(
-        identifier="test",
         snapshots=tuple(snapshots),
         frequency="monthly",
-        version="test",
     )
 
     # Create initial portfolio (75/25 split)
@@ -294,10 +292,8 @@ def test_fixed_rate_compatibility() -> None:
     ]
 
     dataset = Dataset(
-        identifier="test",
         snapshots=tuple(snapshots),
         frequency="monthly",
-        version="test",
     )
 
     initial_portfolio = Portfolio(

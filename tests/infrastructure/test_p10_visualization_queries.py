@@ -84,11 +84,11 @@ class DummyWithdrawalPolicy(WithdrawalPolicy):
 # ---------------------------------------------------------------------------
 
 
-class DummyDatasetResolver:
+class DummyDatasetLoader:
     def __init__(self, dataset: Any) -> None:
         self._dataset = dataset
 
-    def resolve(self, dataset_identifier: str) -> Any:
+    def load(self) -> Any:
         return self._dataset
 
 
@@ -240,7 +240,7 @@ def _make_test_dataset(months: int = 24) -> Any:
                 running_ath=Decimal("100.00"),
             )
         )
-    return Dataset(snapshots=snapshots, frequency="monthly", version="P10_TEST_v1")
+    return Dataset(snapshots=snapshots, frequency="monthly")
 
 
 def _make_unit(month: int = 1) -> PlannedSimulationUnit:
@@ -305,9 +305,9 @@ def _make_experiment_run(
 
 def _get_context(plan: ResearchPlan) -> PersistenceReconstructionContext:
     dataset = _make_test_dataset(24)
-    resolver = DummyDatasetResolver(dataset)
+    loader = DummyDatasetLoader(dataset)
     return PersistenceReconstructionContext(
-        dataset_resolver=resolver,
+        dataset_loader=loader,
         policy_codecs={
             ("allocation", "AllocationPolicy"): type(
                 "C",
@@ -695,7 +695,7 @@ def _make_ern_scale_plan(
         )
     from fbf.core.domain.model.dataset import Dataset
 
-    dataset = Dataset(snapshots=snapshots, frequency="monthly", version="ERN_BENCH_v1")
+    dataset = Dataset(snapshots=snapshots, frequency="monthly")
 
     # Generate unique cohort dates across multiple years
     cohort_dates = []
@@ -732,9 +732,9 @@ def _make_ern_scale_plan(
     )
 
     plan = ResearchPlan(experiment_definition=experiment, units=units)
-    resolver = DummyDatasetResolver(dataset)
+    loader = DummyDatasetLoader(dataset)
     ctx = PersistenceReconstructionContext(
-        dataset_resolver=resolver,
+        dataset_loader=loader,
         policy_codecs={
             ("allocation", "AllocationPolicy"): type(
                 "C",

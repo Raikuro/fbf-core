@@ -377,14 +377,14 @@ class TestArtifactNumericalAnchors:
 
 
 class TestLoadFfrRatesCompat:
-    """Verify load_ffr_rates() accepts the generated artifact."""
+    """Verify load_ffr_rates() accepts the canonical CSV artifact."""
 
     def test_load_succeeds(self) -> None:
         sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
         from fbf.core.study.builder import load_ffr_rates
 
         data_dir = str(_ARTIFACT_PATH.parent)
-        rates = load_ffr_rates("ffr_monthly", data_dir)
+        rates = load_ffr_rates(data_dir)
         assert len(rates) > 0
         assert rates[0][0] == date(1928, 4, 1)
 
@@ -394,7 +394,7 @@ class TestLoadFfrRatesCompat:
         from fbf.core.study.builder import build_interest_rate_schedule, load_ffr_rates
 
         data_dir = str(_ARTIFACT_PATH.parent)
-        ffr_rates = load_ffr_rates("ffr_monthly", data_dir)
+        ffr_rates = load_ffr_rates(data_dir)
         schedule = build_interest_rate_schedule(
             ffr_rates=ffr_rates,
             spread=Decimal("0.0125"),

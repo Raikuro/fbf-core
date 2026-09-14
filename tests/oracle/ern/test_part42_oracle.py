@@ -70,8 +70,6 @@ class TestTemporalInvariants:
         dataset = Dataset(
             snapshots=snapshots,
             frequency="monthly",
-            version="test",
-            identifier="test",
         )
         sliced = dataset.slice(base, 13)
         assert len(sliced) == 13
@@ -87,8 +85,6 @@ class TestTemporalInvariants:
         dataset = Dataset(
             snapshots=snapshots,
             frequency="monthly",
-            version="test",
-            identifier="test",
         )
         sliced = dataset.slice(base, 349)
         assert len(sliced) == 349
