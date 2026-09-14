@@ -5,6 +5,10 @@
 # is sliced per unit: the ``cohorts.horizon_years`` array selects the prefixes
 # each unit receives.
 #
+# Canonical data required (in --data-dir):
+#   sp500_tr_real_return.csv   S&P 500 total-return real returns (monthly)
+#   bond_10y_tr_real_return.csv  10-Year Bond Market real returns (monthly)
+#
 # Run (dry-run / real construction check):
 #   sim-retire --data-dir data/ern run --dry-run examples/studies/ern_grid.yaml
 #   sim-retire --data-dir data/ern run examples/studies/ern_grid.yaml \
@@ -14,9 +18,6 @@ metadata:
   name: "ERN SWR Full Grid"
   version: "1.0"
   description: "ERN SWR grid: 5 weights x 9 rates x 4 horizons x 1739 cohorts"
-
-dataset:
-  identifier: "ern_swr_h720"
 
 cohorts:
   horizon_years: [30, 40, 50, 60]

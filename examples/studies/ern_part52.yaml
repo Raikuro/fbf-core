@@ -16,6 +16,11 @@
 # Grid: 3 drawdown_threshold x 2 borrow_pct x 1 SWR x 1 horizon = 6 cells
 # Each cell runs over rolling cohorts from the ERN dataset.
 #
+# Canonical data required (in --data-dir):
+#   sp500_tr_real_return.csv   S&P 500 total-return real returns (monthly)
+#   bond_10y_tr_real_return.csv  10-Year Bond Market real returns (monthly)
+#   ffr.csv                   Federal Funds Rate (monthly, for FFR scenarios)
+#
 # Run example:
 #   sim-retire --data-dir data/ern run examples/studies/ern_part52.yaml \
 #     --no-persist --summary-only
@@ -27,9 +32,6 @@ metadata:
     Early Retirement Now Part 52 replication:
     drawdown-triggered leverage with repayment at fresh ATH.
     Fixed-rate scenarios only (FFR scenarios require historical rate coverage).
-
-dataset:
-  identifier: "ern_swr_h720"
 
 cohorts:
   horizon_years: [30]
@@ -45,7 +47,6 @@ withdrawal_policy:
 # Part 52 timing-leverage configuration
 debt:
   ffr:
-    dataset_identifier: "ffr_monthly"
     spread: 0.005
   ltv_limit: 0.50
   ltv_enforcement: true
