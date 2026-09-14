@@ -7,12 +7,11 @@ NEVER called by the E2E test.  The E2E asserts against the pinned oracle matrix
 ``data/ern/p49_oracle_table.csv`` that this tool regenerates.
 
 Inputs (source, from ERN's public SWR Toolbox Google Sheet "Asset Returns" tab,
-spreadsheet id 1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8):
-    data/ern/ern_real_returns_1871_2016.csv
-        columns: year, month, spx_tr_real, y10_bm_real
-        rows: Jan 1871 (base, empty) .. Sep 2016 (1749 months)
-        spx_tr_real = S&P 500 total-return monthly REAL return
-        y10_bm_real  = 10Y Treasury total-return monthly REAL return
+    spreadsheet id 1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8):
+    data/ern/sp500_tr_real_return.csv   (canonical DD-MM-YYYY,value)
+        S&P 500 total-return monthly REAL return
+    data/ern/bond_10y_tr_real_return.csv (canonical DD-MM-YYYY,value)
+        10Y Treasury total-return monthly REAL return
 
 Methodology (ERN "Safe Withdrawal Rates"):
     - Working entirely in REAL terms, initial portfolio normalized to 1.
@@ -59,13 +58,25 @@ HORIZONS = {30: 360, 40: 480, 50: 600, 60: 720}
 WEIGHTS = [1.0, 0.75, 0.5, 0.25, 0.0]
 
 
-def load_real_returns(path: Path) -> tuple[list[float], list[float]]:
-    with open(path) as f:
-        rows = list(csv.reader(f))
-    data = rows[1:]
-    assert len(data) == 1749, len(data)
-    r_eq = [float(r[2]) if r[2] else 0.0 for r in data]
-    r_bd = [float(r[3]) if r[3] else 0.0 for r in data]
+def load_real_returns(data_dir: Path) -> tuple[list[float], list[float]]:
+    """Load real equity and bond returns from canonical DD-MM-YYYY,value CSVs.
+
+    Parameters
+    ----------
+    data_dir:
+        Directory containing ``sp500_tr_real_return.csv`` and
+        ``bond_10y_tr_real_return.csv``.
+    """
+
+    def _load_canonical(csv_path: Path) -> list[float]:
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            return [float(row["value"]) if row["value"] else 0.0 for row in reader]
+
+    r_eq = _load_canonical(data_dir / "sp500_tr_real_return.csv")
+    r_bd = _load_canonical(data_dir / "bond_10y_tr_real_return.csv")
+    assert len(r_eq) == 1749, len(r_eq)
+    assert len(r_bd) == 1749, len(r_bd)
     r_eq[0] = r_eq[1]
     r_bd[0] = r_bd[1]
     return r_eq, r_bd
@@ -127,8 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--source",
         type=Path,
-        default=_DATA_DIR / "ern_real_returns_1871_2016.csv",
-        help="Path to the extracted ERN real-returns CSV",
+        default=_DATA_DIR,
+        help="Directory containing canonical real-return CSV files",
     )
     parser.add_argument(
         "--output",

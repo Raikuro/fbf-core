@@ -5,27 +5,30 @@ The canonical ERN interest rate formula requires CPI data:
 
 The FBF datasets currently have `inflation_cumulative = 0` everywhere,
 which makes this CPI adjustment a no-op. This script populates the
-`inflation_cumulative` field with canonical CPI values from the
-ERN Part 52 Return Data sheet.
+`inflation_cumulative` field with canonical CPI values from
+``data/ern/part52/cpi.csv``.
 """
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "ern"
-CANONICAL_PATH = DATA_DIR / "part52" / "canonical_market_data.json"
+CPI_CSV = DATA_DIR / "part52" / "cpi.csv"
 DATASETS = ("ern_swr_h720.json",)
 
 
 def load_canonical_cpi() -> dict[str, float]:
-    """Load canonical CPI values indexed by YYYY-MM."""
-    raw = json.loads(CANONICAL_PATH.read_text(encoding="utf-8"))
+    """Load canonical CPI values indexed by YYYY-MM from DD-MM-YYYY,value CSV."""
     cpi_map: dict[str, float] = {}
-    for entry in raw["data"]:
-        key = f"{entry['year']}-{entry['month']:02d}"
-        cpi_map[key] = entry["cpi"]
+    with open(CPI_CSV, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            dd, mm, yyyy = row["DD-MM-YYYY"].split("-")
+            key = f"{yyyy}-{mm}"
+            cpi_map[key] = float(row["value"])
     return cpi_map
 
 

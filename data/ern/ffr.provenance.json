@@ -1,0 +1,11 @@
+{
+  "source_file": "data/ern/ffr_monthly.json",
+  "source_field": "rates[].rate",
+  "source_date_format": "YYYY-MM-DD (ISO)",
+  "source_numeric_type": "string (decimal)",
+  "extraction_method": "Direct mapping: date.fromisoformat() -> DD-MM-YYYY, rate string preserved exactly",
+  "observation_count": 1181,
+  "date_range": "01-04-1928 to 01-08-2026",
+  "validation_result": "PASS",
+  "notes": "Monthly Federal Funds Rate / borrowing rate. Sources: reconstructed FFR (1928-04 to 1954-06) and official FEDFUNDS (1954-07 to present)."
+}

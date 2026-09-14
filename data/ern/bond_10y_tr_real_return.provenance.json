@@ -1,0 +1,11 @@
+{
+  "source_file": "data/ern/ern_real_returns_1871_2016.csv",
+  "source_field": "y10_bm_real (column 4)",
+  "source_date_format": "YYYY,MM (integer columns)",
+  "source_numeric_type": "float (10+ decimal places)",
+  "extraction_method": "date = YYYY-MM-01 mapped to DD-MM-YYYY. Value preserved as source string (no rounding).",
+  "observation_count": 1749,
+  "date_range": "01-01-1871 to 01-09-2016",
+  "validation_result": "PASS",
+  "notes": "10-Year Bond Total Return real (inflation-adjusted) monthly returns. Empty values (e.g. 1871-01) represent baseline period with no return applied."
+}
