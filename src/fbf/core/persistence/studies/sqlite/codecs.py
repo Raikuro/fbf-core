@@ -3,7 +3,8 @@
 Provides production-ready implementations of the three codec
 protocols required by PersistenceReconstructionContext:
 
-- DefaultDatasetResolver: resolves dataset identifiers to Dataset objects
+- CanonicalDatasetLoader: loads the canonical dataset from CSV files
+  via ``data_dir``.
 - AllocationPolicyCodec: PolicyCodec for AllocationPolicy compatible objects
 - WithdrawalPolicyCodec: PolicyCodec for WithdrawalPolicy compatible objects
 - SimulationResultCodec: Codec for SimulationResult objects
@@ -15,11 +16,11 @@ import json
 from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
-from fbf.core.persistence.studies.sqlite.errors import StudyNotFoundError
 from fbf.core.persistence.studies.sqlite.serializers import to_canonical_json
 
 if TYPE_CHECKING:
@@ -33,47 +34,20 @@ from fbf.core.persistence.studies.sqlite.sqlite_repository import (
 )
 
 
-class DefaultDatasetResolver:
-    """Resolves dataset identifiers to Dataset objects.
+class CanonicalDatasetLoader:
+    """Loads the canonical dataset from CSV files via ``data_dir``.
 
-    Uses an in-memory registry pre-populated at construction time.
-    In production the registry is loaded from a data directory.
+    This is the only supported dataset loading path. There is no
+    dataset identifier, version, or in-memory fallback.
     """
 
-    def __init__(self, datasets: Mapping[str, Dataset] | None = None) -> None:
-        self._datasets = dict(datasets) if datasets else {}
+    def __init__(self, data_dir: str) -> None:
+        self._data_dir = data_dir
 
-    @classmethod
-    def from_data_dir(cls, data_dir: str) -> DefaultDatasetResolver:
-        from .dataset_cache import get_default_dataset_cache
-        return cls(datasets=get_default_dataset_cache().load_dir(data_dir))
+    def load(self) -> Dataset:
+        from fbf.core.datasets import load_canonical_dataset
 
-    def resolve(self, dataset_identifier: str) -> Dataset:
-        # Step 1: Canonical identifier lookup
-        dataset = self._datasets.get(dataset_identifier)
-        if dataset is not None:
-            return dataset
-        for d in self._datasets.values():
-            if d.identifier == dataset_identifier:
-                return d
-
-        # Step 2: Legacy version fallback lookup
-        matching_by_version = [
-            d for d in self._datasets.values() if d.version == dataset_identifier
-        ]
-        if len(matching_by_version) == 1:
-            return matching_by_version[0]
-        if len(matching_by_version) > 1:
-            matching_ids = sorted(d.identifier or "unknown" for d in matching_by_version)
-            raise StudyNotFoundError(
-                f"Ambiguous legacy dataset version '{dataset_identifier}': "
-                f"matched multiple datasets ({', '.join(matching_ids)})"
-            )
-
-        # Step 3: No matches found
-        raise StudyNotFoundError(
-            f"Dataset not found: '{dataset_identifier}'"
-        )
+        return load_canonical_dataset(Path(self._data_dir))
 
 
 class _ConcreteAllocationPolicy(AllocationPolicy):

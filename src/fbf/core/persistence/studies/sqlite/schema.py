@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     name TEXT NOT NULL,
     revision TEXT NOT NULL,
     description TEXT NOT NULL,
-    dataset_identifier TEXT NOT NULL,
+    dataset_identifier TEXT,
     horizon_months INTEGER NOT NULL CHECK(horizon_months > 0),
     initial_wealth TEXT NOT NULL,
     initial_wealth_currency TEXT NOT NULL,

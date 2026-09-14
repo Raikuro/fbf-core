@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.policies import AllocationPolicyType, WithdrawalPolicyType
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
 from fbf.core.errors import CoreError
@@ -63,6 +64,7 @@ __all__ = [
     "ResearchExecutionResult",
     "optimize_study_swr",
     "optimize_part52",
+    "load_canonical_dataset",
     "StudyRepository",
     "create_study_repository",
     "CoreError",

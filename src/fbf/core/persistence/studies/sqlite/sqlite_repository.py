@@ -160,7 +160,6 @@ _DETERMINISTIC_EXPERIMENT_FIELDS = (
     "name",
     "revision",
     "description",
-    "dataset_identifier",
     "horizon_months",
     "initial_wealth",
     "initial_wealth_currency",
@@ -209,7 +208,6 @@ def _experiment_snapshot_from_object(
         "name": identity.name,
         "revision": identity.revision,
         "description": experiment.description,
-        "dataset_identifier": experiment.dataset.identifier or experiment.dataset.version,
         "horizon_months": experiment.horizon_months,
         "initial_wealth": serialize_decimal(experiment.initial_wealth.amount),
         "initial_wealth_currency": experiment.initial_wealth.currency.value,
@@ -243,7 +241,6 @@ def _experiment_snapshot_from_rows(
         "name": identity.name,
         "revision": identity.revision,
         "description": description,
-        "dataset_identifier": dataset_identifier,
         "horizon_months": horizon_months,
         "initial_wealth": initial_wealth,
         "initial_wealth_currency": initial_wealth_currency,
@@ -303,9 +300,9 @@ class ExperimentIdentity:
     revision: str
 
 
-class DatasetResolver(Protocol):
-    """Protocol for resolving dataset identifiers to Dataset objects."""
-    def resolve(self, dataset_identifier: str) -> Dataset: ...
+class DatasetLoader(Protocol):
+    """Protocol for loading the canonical dataset."""
+    def load(self) -> Dataset: ...
 
 
 class PolicyCodec(Protocol):
@@ -337,15 +334,15 @@ class SimulationResultCodec(Protocol):
 @dataclass(frozen=True)
 class PersistenceReconstructionContext:
     """Context providing reconstruction capabilities for persistence."""
-    dataset_resolver: DatasetResolver
+    dataset_loader: DatasetLoader
     policy_codecs: Mapping[tuple[str, str], PolicyCodec]
     simulation_result_codec: SimulationResultCodec
 
 
 def validate_context(context: PersistenceReconstructionContext) -> None:
     """Validate context has all required reconstruction capabilities."""
-    if not context.dataset_resolver:
-        raise ReconstructionContextError("Dataset resolver is required")
+    if not context.dataset_loader:
+        raise ReconstructionContextError("Dataset loader is required")
 
     if not context.policy_codecs:
         raise ReconstructionContextError("Policy codecs are required")
@@ -522,7 +519,7 @@ class SQLiteRepository:
                         identity.name,
                         identity.revision,
                         experiment.description,
-                        experiment.dataset.identifier or experiment.dataset.version,
+                        None,
                         experiment.horizon_months,
                         serialize_decimal(experiment.initial_wealth.amount),
                         experiment.initial_wealth.currency.value,
@@ -713,13 +710,13 @@ class SQLiteRepository:
                 name,
                 revision,
                 description,
-                dataset_identifier,
+                _dataset_identifier,
                 horizon_months,
                 initial_wealth,
                 initial_wealth_currency,
             ) = row
 
-            dataset = context.dataset_resolver.resolve(dataset_identifier)
+            dataset = context.dataset_loader.load()
 
             allocation_policies = self._load_policies(
                 conn, experiment_id, PolicyKind.ALLOCATION, context

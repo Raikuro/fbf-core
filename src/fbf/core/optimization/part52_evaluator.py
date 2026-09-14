@@ -48,8 +48,6 @@ class Part52EvaluatorConfig:
         Maximum loan-to-value ratio (e.g. 0.50 for 50%).
     ltv_enforcement:
         Whether the engine enforces LTV limits via margin calls.
-    ffr_dataset_identifier:
-        FFR dataset identifier for floating-rate interest (None for fixed).
     ffr_spread:
         Spread over FFR for floating-rate interest (None for fixed).
     borrow_pcts:
@@ -68,7 +66,6 @@ class Part52EvaluatorConfig:
     debt_interest_rate: Decimal
     ltv_limit: Decimal = Decimal("0.50")
     ltv_enforcement: bool = True
-    ffr_dataset_identifier: str | None = None
     ffr_spread: Decimal | None = None
     borrow_pcts: tuple[Decimal, ...] = DEFAULT_BORROW_PCTS
     horizon_years: int = 30
@@ -161,7 +158,6 @@ class Part52Evaluator:
             name=f"part52_opt_wr={wr}_b={b_pct}",
             description="Part 52 SWR optimization evaluation",
             version="1.0",
-            dataset_identifier="ern_swr_h720",
             allocation_policy_type="ConstantAllocationPolicy",
             allocation_policy_values=(Decimal("0.75"),),
             withdrawal_policy_type="Part52WithdrawalPolicy",
@@ -173,7 +169,6 @@ class Part52Evaluator:
             debt_ltv_enforcement=config.ltv_enforcement,
             debt_borrow_pct=b_pct,
             debt_drawdown_threshold=config.drawdown_threshold,
-            ffr_dataset_identifier=config.ffr_dataset_identifier,
             ffr_spread=config.ffr_spread,
         )
 

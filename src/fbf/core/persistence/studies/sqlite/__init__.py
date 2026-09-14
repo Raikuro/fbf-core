@@ -5,16 +5,11 @@ Public API for the SQLite persistence layer.
 
 from .codecs import (
     AllocationPolicyCodec,
-    DefaultDatasetResolver,
+    CanonicalDatasetLoader,
     SimulationResultCodec,
     WithdrawalPolicyCodec,
 )
 from .context import create_persistence_context
-from .dataset_cache import (
-    DatasetCache,
-    clear_default_dataset_cache,
-    get_default_dataset_cache,
-)
 from .errors import (
     CorruptedDatabaseError,
     DuplicateStudyError,
@@ -34,14 +29,11 @@ from .sqlite_repository import (
 
 __all__ = [
     "AllocationPolicyCodec",
-    "clear_default_dataset_cache",
+    "CanonicalDatasetLoader",
     "CorruptedDatabaseError",
     "create_persistence_context",
-    "DatasetCache",
-    "DefaultDatasetResolver",
     "DuplicateStudyError",
     "ExperimentIdentity",
-    "get_default_dataset_cache",
     "PersistenceError",
     "PersistenceReconstructionContext",
     "PlanNotFoundError",

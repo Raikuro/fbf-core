@@ -52,7 +52,6 @@ def optimize_part52(
     debt_interest_rate: Decimal,
     ltv_limit: Decimal = Decimal("0.50"),
     ltv_enforcement: bool = True,
-    ffr_dataset_identifier: str | None = None,
     ffr_spread: Decimal | None = None,
     borrow_pcts: tuple[Decimal, ...] | None = None,
     domain_min: Decimal = Decimal("0.030"),
@@ -81,8 +80,6 @@ def optimize_part52(
         Maximum loan-to-value ratio (default 50%).
     ltv_enforcement:
         Whether the engine enforces LTV limits via margin calls.
-    ffr_dataset_identifier:
-        FFR dataset identifier for floating-rate interest (None for fixed).
     ffr_spread:
         Spread over FFR for floating-rate interest (None for fixed).
     borrow_pcts:
@@ -113,7 +110,6 @@ def optimize_part52(
         debt_interest_rate=debt_interest_rate,
         ltv_limit=ltv_limit,
         ltv_enforcement=ltv_enforcement,
-        ffr_dataset_identifier=ffr_dataset_identifier,
         ffr_spread=ffr_spread,
         borrow_pcts=borrow_pcts if borrow_pcts is not None else DEFAULT_BORROW_PCTS,
         workers=workers,

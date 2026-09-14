@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Money
@@ -29,7 +30,6 @@ from fbf.core.domain.policies import (
 )
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
-from fbf.core.persistence.studies.sqlite.codecs import DefaultDatasetResolver
 from fbf.core.study.internal.cohort.generator import CohortGenerator
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
@@ -59,19 +59,11 @@ def load_yaml(path: Path) -> dict[str, Any]:
         raise yaml.YAMLError(msg)
     return data
 
-def resolve_dataset(identifier: str, data_dir: str | None) -> Dataset:
-    """Resolve a dataset identifier using DefaultDatasetResolver."""
-    if data_dir:
-        resolver = DefaultDatasetResolver.from_data_dir(data_dir)
-    else:
-        resolver = DefaultDatasetResolver()
-    return resolver.resolve(identifier)
-
 
 def load_ffr_rates(
-    ffr_dataset_identifier: str, data_dir: str | None
+    data_dir: str,
 ) -> tuple[tuple[date, Decimal], ...]:
-    """Load an FFR (Federal Funds Rate) dataset from a JSON file.
+    """Load an FFR (Federal Funds Rate) dataset from a canonical CSV file.
 
     The FFR dataset is a rate-only time series (not a ``MarketSnapshot``).
     It is loaded directly from the data directory, bypassing the standard
@@ -79,10 +71,8 @@ def load_ffr_rates(
 
     Parameters
     ----------
-    ffr_dataset_identifier:
-        Filename stem of the FFR JSON file (e.g. ``"ffr_monthly"``).
     data_dir:
-        Directory containing the FFR JSON file. Must be provided explicitly.
+        Directory containing the FFR CSV file.
 
     Returns
     -------
@@ -96,33 +86,22 @@ def load_ffr_rates(
     ValueError
         If the file format is invalid.
     """
-    if data_dir is None:
-        raise ValueError(
-            "data_dir is required for FFR dataset resolution"
-        )
-    ffr_path = Path(data_dir) / f"{ffr_dataset_identifier}.json"
+    ffr_path = Path(data_dir) / "ffr.csv"
     if not ffr_path.exists():
         raise FileNotFoundError(
             f"FFR dataset not found: {ffr_path}"
         )
 
-    import json
-
-    raw = json.loads(ffr_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or "rates" not in raw:
-        raise ValueError(
-            f"FFR dataset {ffr_path} must contain a 'rates' key"
-        )
-    if not isinstance(raw["rates"], list):
-        raise ValueError(
-            f"FFR dataset {ffr_path} 'rates' must be a list"
-        )
+    import csv
 
     rates: list[tuple[date, Decimal]] = []
-    for entry in raw["rates"]:
-        d = date.fromisoformat(entry["date"])
-        r = Decimal(str(entry["rate"]))
-        rates.append((d, r))
+    with open(ffr_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            dd, mm, yyyy = row["DD-MM-YYYY"].split("-")
+            d = date(int(yyyy), int(mm), int(dd))
+            r = Decimal(row["value"])
+            rates.append((d, r))
 
     if not rates:
         raise ValueError(f"FFR dataset {ffr_path} contains no rates")
@@ -477,8 +456,6 @@ class StudyConfiguration:
     ------
     name / description / version:
         Study metadata.
-    dataset_identifier:
-        The single canonical runtime dataset (``dataset.identifier``).
     allocation_policy_type / allocation_policy_values:
         The declared allocation policy and its ``equity_allocation`` array
         (Mode A only; empty tuple in Mode B).
@@ -495,7 +472,6 @@ class StudyConfiguration:
     name: str
     description: str
     version: str
-    dataset_identifier: str
     allocation_policy_type: str
     allocation_policy_values: tuple[Decimal, ...]
     withdrawal_policy_type: str
@@ -531,7 +507,6 @@ class StudyConfiguration:
     debt_drawdown_threshold: Decimal | None = None
     debt_drawdown_threshold_values: tuple[Decimal, ...] | None = None
     # S6.2 FFR integration parameters
-    ffr_dataset_identifier: str | None = None
     ffr_spread: Decimal | None = None
     ffr_inflation_adjustment: Decimal | None = None
     # ERN Part 52 expense ratio (annual). None means no expense deduction.
@@ -553,12 +528,8 @@ class StudyConfiguration:
         if not isinstance(metadata, dict):
             raise ValueError("metadata must be a mapping")
 
-        dataset = data.get("dataset")
-        if not isinstance(dataset, dict):
-            raise ValueError("dataset must be a mapping")
-        dataset_identifier = dataset.get("identifier")
-        if not isinstance(dataset_identifier, str) or not dataset_identifier.strip():
-            raise ValueError("dataset.identifier must be a non-empty string")
+        # dataset block is optional — canonical data is resolved from --data-dir
+        data.get("dataset")
 
         if "parameters" in data:
             raise ValueError(
@@ -724,7 +695,6 @@ class StudyConfiguration:
         debt_drawdown_threshold: Decimal | None = None
         debt_drawdown_threshold_values: tuple[Decimal, ...] | None = None
         # S6.2 FFR integration parameters
-        ffr_dataset_identifier: str | None = None
         ffr_spread: Decimal | None = None
         ffr_inflation_adjustment: Decimal | None = None
         if debt_data is not None:
@@ -784,9 +754,6 @@ class StudyConfiguration:
             # Parse S6.2 FFR integration parameters
             raw_ffr = debt_data.get("ffr")
             if isinstance(raw_ffr, dict):
-                ffr_dataset_identifier = raw_ffr.get("dataset_identifier")
-                if ffr_dataset_identifier is not None:
-                    ffr_dataset_identifier = str(ffr_dataset_identifier)
                 raw_spread = raw_ffr.get("spread")
                 if raw_spread is not None:
                     ffr_spread = Decimal(str(raw_spread))
@@ -798,7 +765,6 @@ class StudyConfiguration:
             name=str(metadata.get("name", "Unnamed Study")),
             description=str(metadata.get("description", "")),
             version=str(metadata.get("version", "")),
-            dataset_identifier=dataset_identifier,
             allocation_policy_type=allocation_policy_type,
             allocation_policy_values=allocation_policy_values,
             withdrawal_policy_type=withdrawal_policy_type,
@@ -823,7 +789,6 @@ class StudyConfiguration:
             debt_borrow_pct_values=debt_borrow_pct_values,
             debt_drawdown_threshold=debt_drawdown_threshold,
             debt_drawdown_threshold_values=debt_drawdown_threshold_values,
-            ffr_dataset_identifier=ffr_dataset_identifier,
             ffr_spread=ffr_spread,
             ffr_inflation_adjustment=ffr_inflation_adjustment,
             expense_ratio=expense_ratio,
@@ -1232,7 +1197,7 @@ class BuiltStudy:
 
 def build_study_plan(
     config: StudyConfiguration,
-    data_dir: str | None,
+    data_dir: str,
     initial_wealth: Money,
     *,
     withdrawal_frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
@@ -1243,7 +1208,7 @@ def build_study_plan(
     horizons and policies come from the study's declared value arrays.  This
     is the only plan construction path for every CLI consumer.
     """
-    dataset = resolve_dataset(config.dataset_identifier, data_dir)
+    dataset = load_canonical_dataset(Path(data_dir))
     # Cohort horizon: use cohort_horizon_years if set, otherwise longest horizon.
     # ERN uses a fixed cohort set determined by the longest horizon (60y) across
     # ALL studies for comparability. When cohort_horizon_years is set, cohorts
@@ -1256,7 +1221,7 @@ def build_study_plan(
     cohorts = build_cohort_specs(dataset, cohort_horizon_months)
     if not cohorts:
         raise ValueError(
-            f"Dataset {config.dataset_identifier!r} is too small for a "
+            f"Dataset is too small for a "
             f"{config.cohort_horizon_years or _longest_horizon_years(config)}-year "
             f"({cohort_horizon_months}-observation) horizon"
         )
@@ -1269,26 +1234,9 @@ def build_study_plan(
     # in build_interest_rate_schedule handles periods beyond FFR dataset end.
     ffr_rates: tuple[tuple[date, Decimal], ...] | None = None
     ffr_spread: Decimal | None = None
-    if config.ffr_dataset_identifier is not None:
-        ffr_rates = load_ffr_rates(config.ffr_dataset_identifier, data_dir)
-        ffr_spread = config.ffr_spread if config.ffr_spread is not None else Decimal("0")
-        ffr_rate_map = dict(ffr_rates)
-        earliest_ffr = min(ffr_rate_map.keys())
-        lag_months = 1  # ERN Part 52 convention
-        filtered: list[CohortSpecification] = []
-        from calendar import monthrange
-        for cohort in cohorts:
-            # Check earliest bound: lagged date must have FFR data
-            total = cohort.start_date.year * 12 + cohort.start_date.month - 1 - lag_months
-            lag_year = total // 12
-            lag_month = total % 12 + 1
-            lag_day = min(cohort.start_date.day, monthrange(lag_year, lag_month)[1])
-            lagged_date = date(lag_year, lag_month, lag_day)
-            if lagged_date < earliest_ffr:
-                continue
-            filtered.append(cohort)
-        if filtered:
-            cohorts = tuple(filtered)
+    if config.ffr_spread is not None:
+        ffr_rates = load_ffr_rates(data_dir)
+        ffr_spread = config.ffr_spread
 
     param_configs = _build_unified_parameter_configs(config)
 
@@ -1389,7 +1337,7 @@ def _make_omy_horizon_resolver(
 
 def build_omy_study_plan(
     config: OmyStudyConfiguration,
-    data_dir: str | None,
+    data_dir: str,
 ) -> BuiltStudy:
     """Build a research plan with accumulation pre-processing.
 
@@ -1406,7 +1354,7 @@ def build_omy_study_plan(
     equity_asset = AssetClass(id="equity", name="", description="")
     bond_asset = AssetClass(id="bond", name="", description="")
 
-    dataset = resolve_dataset(config.base_config.dataset_identifier, data_dir)
+    dataset = load_canonical_dataset(Path(data_dir))
 
     # For OMY: the full horizon is accumulation (12) + retirement (30y).
     # The dataset must contain enough snapshots for the full horizon.
@@ -1416,7 +1364,7 @@ def build_omy_study_plan(
     cohorts = build_cohort_specs(dataset, total_horizon_months)
     if not cohorts:
         raise ValueError(
-            f"Dataset {config.base_config.dataset_identifier!r} is too small "
+            f"Dataset is too small "
             f"for {retirement_horizon_years + 1}-year OMY horizon"
         )
 
