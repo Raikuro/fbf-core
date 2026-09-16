@@ -1,0 +1,51 @@
+{
+  "source": "ERN SWR Toolbox Google Sheet",
+  "source_url": "https://docs.google.com/spreadsheets/d/1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8/edit?gid=1084562995#gid=1084562995",
+  "tab": "Asset Returns",
+  "gid": 1084562995,
+  "extraction_date": "2026-09-15",
+  "raw_csv_sha256": "b5901caa626920b4772e0fa48970a5e20f5eb0b7457fec0fda25cb2a55822c86",
+  "raw_csv_lines": 2507,
+  "data_range": {
+    "historical_start": "1871-01",
+    "historical_end": "2026-06",
+    "extrapolation_start": "2026-07",
+    "extrapolation_end": "2076-12"
+  },
+  "columns": {
+    "Month": "Column 0 (1-indexed)",
+    "Year": "Column 1",
+    "Fractional Date": "Column 2",
+    "Excel Date": "Column 3",
+    "CPI": "Column 4",
+    "SPX-TR cumulative nominal": "Column 5",
+    "10Y BM cumulative nominal": "Column 6",
+    "CAPE (Shiller)": "Column 14",
+    "SPX-TR real return (MoM)": "Column 16",
+    "10Y BM real return (MoM)": "Column 17"
+  },
+  "extrapolation_rules": {
+    "zone_1": {
+      "range": "2026-07 to 2036-06",
+      "spx_tr_monthly": 0.0033,
+      "spx_tr_annual": 0.0403,
+      "y10_bm_monthly": 0.0021,
+      "y10_bm_annual": 0.0255
+    },
+    "zone_2": {
+      "range": "2036-07 to 2076-12",
+      "spx_tr_monthly": 0.0045,
+      "spx_tr_annual": 0.0554,
+      "y10_bm_monthly": 0.0019,
+      "y10_bm_annual": 0.023
+    }
+  },
+  "notes": [
+    "Historical data through June 2026 (updated since 2017 article)",
+    "Forward extrapolation uses two zones with different rates",
+    "CPI data available through 2026-06",
+    "Cumulative returns stop at extrapolation boundary",
+    "FBF dataset ends at 2016-09 (outdated by ~10 years)",
+    "spx_tr_real and y10_bm_real columns are mathematically derivable from cumulative index + CPI but are retained as source-provided canonical outputs (runtime rounding prevents safe derivation — see data/ern/*.provenance.json)"
+  ]
+}

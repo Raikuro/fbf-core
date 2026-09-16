@@ -147,21 +147,39 @@ repeat this mapping.
 
 ```
 --data-dir/
-  ├── sp500_tr_real_return.csv   → equity asset
-  ├── bond_10y_tr_real_return.csv → bond / fixed-income asset
+  ├── spx_tr_real.csv            → equity asset
+  ├── bond_10y_tr_real.csv       → bond / fixed-income asset
   └── ffr.csv                    → Federal Funds Rate (rate-only time series)
 ```
 
 | Canonical filename | Semantic role | Loader |
 |---|---|---|
-| `sp500_tr_real_return.csv` | S&P 500 total-return real returns | `fbf.core.datasets.ern` → `AssetClass(id="equity")` |
-| `bond_10y_tr_real_return.csv` | 10-Year Bond Market real returns | `fbf.core.datasets.ern` → `AssetClass(id="bond")` |
+| `spx_tr_real.csv` | S&P 500 total-return real returns | `fbf.core.datasets.ern` → `AssetClass(id="equity")` |
+| `bond_10y_tr_real.csv` | 10-Year Bond Market real returns | `fbf.core.datasets.ern` → `AssetClass(id="bond")` |
 | `ffr.csv` | Federal Funds Rate (annual, nominal) | `fbf.core.study.builder.load_ffr_rates` → `tuple[date, Decimal]` |
 
 The equity and bond CSVs are loaded by the canonical ERN dataset loader and
 materialised as `MarketSnapshot.index_levels` entries. The FFR CSV is a
 rate-only time series loaded separately by `load_ffr_rates` for Part 52
 floating-rate interest schedules; it does not produce `MarketSnapshot` entries.
+
+### Real-return provenance note
+
+`spx_tr_real.csv` and `bond_10y_tr_real.csv` are source-provided canonical
+outputs extracted directly from the ERN Google Sheet (`spx_tr_real` and
+`y10_bm_real` columns). Both series are mathematically derivable from the
+cumulative index and CPI series:
+
+- `spx_tr_real ← spx_tr_cum + cpi`
+- `bond_10y_tr_real ← y10_bm_cum + cpi`
+
+However, the runtime cumulative-index and CPI representations are rounded
+(`spx_tr.csv` / `bm10.csv` to 2 decimals, `cpi.csv` to 3 decimals). The
+resulting tiny monthly differences (max ~1.4 bp) compound over the 1748-month
+historical period and produce measurable index-level differences (~0.067%
+equity, ~0.054% bonds at 2016-09) that would break pinned oracle matrix
+comparisons. These files are therefore retained as exact source extractions
+and must not be replaced by runtime derivation.
 
 The canonical loader is the **single source of truth** for CSV → `AssetClass`
 mapping. No second mapping (e.g. in study YAML) is needed or desirable.

@@ -1,0 +1,17 @@
+{
+  "source_file": "canonical/ern_asset_returns.csv",
+  "source_field": "y10_bm_real",
+  "source_date_format": "year,month (integer columns)",
+  "source_numeric_type": "string (preserved exactly)",
+  "extraction_method": "Direct column extraction. date = YYYY-MM-01 mapped to DD-MM-YYYY. Value preserved as source string (no rounding, no normalization).",
+  "observation_count": 2471,
+  "date_range": "01-02-1871 to 01-12-2076",
+  "validation_result": "PASS",
+  "notes": [
+    "10-Year Bond Market real returns (monthly)",
+    "Mathematically derivable from y10_bm_cum + cpi via: real_return_t = (y10_bm_cum[t] / y10_bm_cum[t-1]) / (cpi[t] / cpi[t-1]) - 1",
+    "Max derivation difference vs source: 0.00015 (1.5 bp), explained by CPI rounding to 3 decimal places",
+    "NOT replaced by runtime derivation: cumulative-index and CPI runtime representations are rounded, so compounding over the historical period produces measurable index-level differences (0.054% bonds at 2016-09) that would break pinned oracle matrix comparisons",
+    "Retained as source-provided canonical output from ERN Google Sheet for exact replication"
+  ]
+}
