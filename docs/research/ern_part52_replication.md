@@ -1374,7 +1374,7 @@ The loan balance increases by this amount.
 
 ```text
 WORKBOOK — explicit
-Formula (from canonical_market_data.json):
+Formula (from historical `canonical_market_data.json` — one-off extraction subsequently removed during data-layer cleanup):
   margin_rate = (1 + FFR_prev/12 + Spread/12) * (CPI_prev / CPI_curr) - 1
 
 Where:

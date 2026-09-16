@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10
 **Scope:** FBF-core simulation engine vs. canonical ERN Part 52 (Timing Leverage in Retirement)
-**Cohort analyzed:** 1965-11 (primary), cross-referenced with canonical trajectory_1965_11_canonical.json
+**Cohort analyzed:** 1965-11 (primary), cross-referenced with canonical trajectory_1965_11_canonical.json (historical one-off extraction, subsequently removed during data-layer cleanup)
 **Quality gates:** `ruff check .` — All checks passed; `mypy --strict .` — Success (272 files, 0 issues)
 
 ---
@@ -168,7 +168,7 @@ FBF's real equity returns match the canonical's real equity returns exactly:
 
 ### Dataset Differences (expected, not defects)
 - **FBF `ern_swr_h720.json`:** Real (inflation-adjusted) index levels, `inflation=0`, `inflation_cumulative` = CPI values
-- **Canonical `canonical_market_data.json`:** Nominal SPX-TR and BM10 index levels, CPI, FFR
+- **Canonical `canonical_market_data.json`:** Nominal SPX-TR and BM10 index levels, CPI, FFR (historical one-off extraction; subsequently removed during data-layer cleanup; nominal data now lives in `data/ern/` CSVs)
 - Both contain the same underlying economic data; the real/nominal transformation is applied correctly
 
 ### Canonical Trajectory Semantics
@@ -206,8 +206,8 @@ FBF's real equity returns match the canonical's real equity returns exactly:
 | `src/fbf/core/execution/pipeline/steps/monthly_result_builder_step.py` | Result recording |
 | `src/fbf/core/study/builder.py` | Horizon resolver, initial portfolio, FFR schedule |
 | `src/fbf/core/execution/pipeline/default_pipeline.py` | Step ordering |
-| `data/ern/part52/trajectory_1965_11_canonical.json` | Canonical reference trajectory |
-| `data/ern/part52/canonical_market_data.json` | Canonical market data (nominal) |
+| `data/ern/part52/trajectory_1965_11_canonical.json` | Canonical reference trajectory (historical one-off extraction; subsequently removed during data-layer cleanup) |
+| `data/ern/part52/canonical_market_data.json` | Canonical market data — nominal (historical one-off extraction; subsequently removed during data-layer cleanup) |
 | `data/ern/ern_swr_h720.json` | FBF dataset (real, 2459 snapshots) |
 | `examples/studies/ern_part52.yaml` | Study configuration |
 

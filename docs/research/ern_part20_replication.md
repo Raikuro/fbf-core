@@ -373,7 +373,7 @@ The FBF implementation establishes what FBF does, not what ERN necessarily did.
 |------|----------|--------|
 | `spx_tr_real.csv` | 1871-01 through 2016-09 | FBF — verified |
 | `bond_10y_tr_real.csv` | 1871-01 through 2016-09 | FBF — verified |
-| `ern_cape_1871_2016.json` | 1881-01 through 2023-09 | FBF — verified |
+| `cape_shiller.csv` | 1881-01 through 2023-09 | FBF — verified |
 
 **FBF dataset loader** (`src/fbf/core/datasets/ern.py`):
 - Loads market return CSVs and constructs `MarketSnapshot` objects

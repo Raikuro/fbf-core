@@ -41,13 +41,13 @@ execute_study_plan(built_study, options)
 ### FFR Path (S6.4B.2)
 
 ```
-data/ern/ffr_monthly.json (75.5 KB, 1,181 observations)
+data/ern/ffr.csv (runtime canonical FFR; upstream source: ffr_monthly.json)
          |
          v
-load_ffr_rates("ffr_monthly", data_dir)     [IO: json.loads — once per call, NOT cached]
+load_ffr_rates(data_dir)                       [IO: csv.DictReader — once per call, NOT cached]
          |
          v
-tuple[tuple[date, Decimal], ...]            [in-memory rate pairs]
+tuple[tuple[date, Decimal], ...]                [in-memory rate pairs]
          |
          v
 (Only used when ffr_dataset_identifier is configured — NOT in ern_grid.yaml)
@@ -60,11 +60,11 @@ tuple[tuple[date, Decimal], ...]            [in-memory rate pairs]
 | Dataset JSON read | `path.read_text()` | `_load_datasets_from_dir()` | Once per process | 559 KB | Raw string | **Yes** — `DatasetCache` singleton |
 | Dataset JSON parse | `json.loads()` | `_load_datasets_from_dir()` | Once per process | 559 KB → dict | Parsed dict | **Yes** — `DatasetCache` singleton |
 | Dataset domain conversion | `_dict_to_dataset()` | `_load_datasets_from_dir()` | Once per process | dict → `Dataset` | Domain objects (AssetClass, Decimal, MarketSnapshot) | **Yes** — `DatasetCache` singleton |
-| FFR JSON read+parse | `json.loads(path.read_text())` | `load_ffr_rates()` | Once per call (no cache) | 75.5 KB | `tuple[(date, Decimal), ...]` | **No** — re-reads every call |
+| FFR CSV read+parse | `csv.DictReader` | `load_ffr_rates()` | Once per call (no cache) | ~3 KB | `tuple[(date, Decimal), ...]` | **No** — re-reads every call |
 | Dataset slice | `canonical_trajectory.slice()` | `materialize_research_plan()` | 313,020 calls, 6,956 unique | Per cohort × horizon | `Dataset` (shared snapshot refs) | **Yes** — `dataset_cache` dict within materialize |
 | Portfolio build | `build_initial_portfolio()` | `materialize_research_plan()` | 313,020 calls (all unique inputs) | Per unit | `Portfolio` | **No** — new object every call |
-| File opens (total) | | | 2 files | `ern_swr_h720.json` + `ffr_monthly.json` | | |
-| Total bytes read | | | 636 KB | 559 KB dataset + 75.5 KB FFR | | |
+| File opens (total) | | | 2 files | `ern_swr_h720.json` + `ffr.csv` | | |
+| Total bytes read | | | ~562 KB | 559 KB dataset + ~3 KB FFR | | |
 | JSON deserializations | | | 2 | One per file | | |
 
 ### IO Cost Summary

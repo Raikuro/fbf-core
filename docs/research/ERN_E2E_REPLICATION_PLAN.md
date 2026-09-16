@@ -52,7 +52,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 - **Research question:** How does the Shiller CAPE ratio at retirement start affect SWR success?
 - **Methodology:** Rolling-cohort simulation stratified by CAPE regime at retirement start.
-- **Dataset:** `ern_cape_1871_2016.json` (Shiller CAPE data, 1881–2023) plus `ern_swr_h720.json` for simulation.
+- **Dataset:** `cape_shiller.csv` (Shiller CAPE data, 1881–2023) plus `ern_swr_h720.json` for simulation.
 - **Cohort definition:** 851 unique retirement start dates with CAPE data (1881-01 through 2023-09).
 - **Horizons:** 30 and 60 years.
 - **Policies:** Same as Part 1, with CAPE regime classification.
@@ -107,7 +107,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 - **Research question:** How does drawdown-triggered leverage timing improve SWR?
 - **Methodology:** Rolling-cohort simulation with conditional leverage activation, FFR-based floating rates, repayment at fresh ATH.
-- **Dataset:** Same as Part 1 plus `ffr_monthly.json` (Fed Funds Rate data).
+- **Dataset:** Same as Part 1 plus `ffr.csv` (Federal Funds Rate data; upstream source: `ffr_monthly.json`).
 - **Cohort definition:** 1,739 rolling monthly cohorts.
 - **Horizons:** 30 years.
 - **Policies:** Part52WithdrawalPolicy with drawdown thresholds (20%, 25%, 30%, 35%), FFR+spread rates, LTV 50% enforced, repayment at fresh ATH.
@@ -150,7 +150,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **Classification:** METHODOLOGY COMPLETE — E2E SPEC PENDING
 - **Methodology status:** COMPLETE — all 3 Part 3-specific methodology questions resolved:
   1. CAPE observation timing — RESOLVED: use actual date of canonical CAPE observation
-  2. Pre-1881 cohort handling — RESOLVED: include pre-1881 cohorts; CAPE series to be extracted to canonical CSV
+  2. Pre-1881 cohort handling — RESOLVED: include pre-1881 cohorts; CAPE series extracted to canonical CSV (`cape_shiller.csv`)
   3. CAPE-conditioned filtering — RESOLVED: use article graph definitions as source of truth
 - **Data status:** Canonical asset-return data is available in `canonical/ern_asset_returns`. Data availability is NOT the blocking issue.
 - **Implementation status:** Part 3 pipeline exists but produces 0% success due to dataset representation issues (not data availability).
@@ -284,7 +284,7 @@ A research E2E is redundant only when another E2E is a **strict superset** of th
 
 | Dimension | Part 1/2 | Part 3 | Match? |
 |-----------|----------|--------|--------|
-| Data source | `spx_tr_real.csv`, `bond_10y_tr_real.csv` | `ern_cape_1871_2016.json` + `ern_swr_h720.json` | Different |
+| Data source | `spx_tr_real.csv`, `bond_10y_tr_real.csv` | `cape_shiller.csv` + `ern_swr_h720.json` | Different |
 | Cohorts | 1,739 rolling monthly | 851 CAPE-available starts | Different |
 | Stratification | None | By CAPE regime | Different |
 | Research question | Baseline SWR | CAPE-conditional SWR | Different |
@@ -665,14 +665,14 @@ Markers and environment variables have distinct roles:
 | Dataset | File | Source | Type | Consumers | Redundant? |
 |---------|------|--------|------|-----------|-----------|
 | ERN real returns | `spx_tr_real.csv`, `bond_10y_tr_real.csv` | ERN SWR Toolbox Google Sheet | Source | `ern_swr_h*.json` generation | No (canonical source) |
-| ERN h360 | `ern_swr_h360.json` | Derived from h720 | Derived | Shorter-horizon slicing | Potentially — h720 can generate 30y views |
-| ERN h480 | `ern_swr_h480.json` | Derived from h720 | Derived | 40y horizon | Potentially — h720 can generate 40y views |
-| ERN h600 | `ern_swr_h600.json` | Derived from h720 | Derived | 50y horizon | Potentially — h720 can generate 50y views |
+| ERN h360 | `ern_swr_h360.json` | Derived from h720 | Derived | Shorter-horizon slicing | **DELETED** — redundant slice, removed during data-layer cleanup |
+| ERN h480 | `ern_swr_h480.json` | Derived from h720 | Derived | 40y horizon | **DELETED** — redundant slice, removed during data-layer cleanup |
+| ERN h600 | `ern_swr_h600.json` | Derived from h720 | Derived | 50y horizon | **DELETED** — redundant slice, removed during data-layer cleanup |
 | ERN h720 | `ern_swr_h720.json` | Derived from real returns | Primary | All E2E tests, all studies | No (primary dataset) |
-| CAPE data | `ern_cape_1871_2016.json` | Shiller ie_data.xls | Source | Part 3 research | No (canonical source) |
-| FFR data | `ffr_monthly.json` | Federal Reserve | Source | Part 52 FFR scenarios | No (canonical source) |
+| CAPE data | `cape_shiller.csv` | Shiller ie_data.xls | Source | Part 3 research | No (canonical source) |
+| FFR data | `ffr.csv` (runtime; upstream: `ffr_monthly.json`) | Federal Reserve | Source | Part 52 FFR scenarios | No (canonical source) |
 | Oracle table | `p49_oracle_table.csv` | Reference oracle tool | Derived | Oracle validation tests | No (canonical reference) |
-| Part 3 chart data | `ern_chart_*.csv`, `ern_part3_*.csv` | ERN article extraction | Source | Part 3 validation | No (article-specific) |
+| Part 3 chart data | `ern_chart_*.csv`, `ern_part3_*.csv` | ERN article extraction | Source | Part 3 validation | **DELETED** — unreferenced data artifacts, removed during data-layer cleanup |
 | Raw data | `data/ern/raw/*` | Original sources | Source | Dataset generation | No (canonical source) |
 
 ### J.2 Shorter-Horizon Dataset Analysis
@@ -687,7 +687,7 @@ The `ern_swr_h720.json` dataset contains 2,459 monthly snapshots (1871-01 to 207
 - Tests reference specific dataset identifiers (e.g., `ern_swr_h720`), not the shorter ones.
 - The `ern_grid.yaml` uses `ern_swr_h720` and lets the framework handle horizon slicing.
 
-**Decision:** The shorter datasets are **derived artifacts for performance**, not redundant. They may be removable if runtime slicing overhead is acceptable, but this is an optimization question, not a redundancy question. **Retain all datasets.**
+**Decision:** The shorter datasets were originally classified as **derived artifacts for performance**, not redundant. They were subsequently deleted during the canonical data-layer cleanup (commit `71f9f9f`), confirming that runtime slicing overhead via `Dataset.slice()` was acceptable.
 
 ---
 
@@ -843,17 +843,17 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 |---------|---------------|-----------|-------------------|-------------|
 | `spx_tr_real.csv` | Canonical source | `tools/ern/prepend_base_snapshot.py`, `tools/ern/reference_oracle.py`, `tests/oracle/ern/constants.py`, `tests/oracle/ern/test_ern_timeline_regression.py`, `tests/unit/research/test_shiller_parser.py` | Monthly real equity returns (1871–present). Upstream for all derived SWR datasets. | **RETAIN** — canonical source |
 | `bond_10y_tr_real.csv` | Canonical source | Same consumers as `spx_tr_real.csv` | Monthly real bond returns (1871–present). Upstream for all derived SWR datasets. | **RETAIN** — canonical source |
-| `ern_real_returns_1871_2016.provenance.json` | Provenance metadata | `tests/infrastructure/test_dataset_cache.py` (asserted excluded from loading) | Documents derivation chain for the source CSV. | **RETAIN** — provenance metadata |
+| `ern_real_returns_1871_2016.provenance.json` | Provenance metadata | `tests/infrastructure/test_dataset_cache.py` (asserted excluded from loading) | Documents derivation chain for the source CSV. | **DELETED** — removed during data-layer cleanup; no code consumers remained |
 | `ern_swr_h720.json` | Primary derived dataset | All E2E tests, all YAML study configs, `tests/infrastructure/test_dataset_cache.py` | 60-year horizon SWR dataset. Contains all data needed for any shorter horizon via `Dataset.slice()`. | **RETAIN** — primary derived dataset |
-| `ern_swr_h360.json` | Redundant derived artifact | `tools/ern/prepend_base_snapshot.py` (processes all 4), `tests/infrastructure/test_dataset_cache.py` (proves derivability) | 30-year horizon prefix of h720. Provenance explicitly labels it "Prefix of h720 (redundant)". No YAML study config uses it. No production code uses it. | **DELETE** — redundant derived artifact, no independent consumers |
-| `ern_swr_h480.json` | Redundant derived artifact | Same as h360 | 40-year horizon prefix of h720. Same redundancy status as h360. | **DELETE** — redundant derived artifact, no independent consumers |
-| `ern_swr_h600.json` | Redundant derived artifact | Same as h360 | 50-year horizon prefix of h720. Same redundancy status as h360. | **DELETE** — redundant derived artifact, no independent consumers |
-| `ern_cape_1871_2016.json` | Canonical source | Part 3 research pipeline (`part3_planner.py`, `part3_aggregation.py`) | CAPE ratios for Part 3 regime classification. | **RETAIN** — canonical source |
+| `ern_swr_h360.json` | Redundant derived artifact | `tools/ern/prepend_base_snapshot.py` (processes all 4), `tests/infrastructure/test_dataset_cache.py` (proves derivability) | 30-year horizon prefix of h720. Provenance explicitly labels it "Prefix of h720 (redundant)". No YAML study config uses it. No production code uses it. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
+| `ern_swr_h480.json` | Redundant derived artifact | Same as h360 | 40-year horizon prefix of h720. Same redundancy status as h360. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
+| `ern_swr_h600.json` | Redundant derived artifact | Same as h360 | 50-year horizon prefix of h720. Same redundancy status as h360. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
+| `ern_cape_1871_2016.json` | Canonical source | Part 3 research pipeline (`part3_planner.py`, `part3_aggregation.py`) | CAPE ratios for Part 3 regime classification. | **SUPERSEDED** by `cape_shiller.csv` — removed during data-layer cleanup; CAPE values are identical |
 | `ffr_monthly.json` | Canonical source | Part 52 evaluator | Federal Funds Rate monthly data (1928–present). | **RETAIN** — canonical source |
 | `p49_oracle_table.csv` | Canonical reference | `tests/oracle/ern/test_oracle_matrix.py`, `tests/oracle/ern/test_ern_swr_replication.py` | Independent oracle matrix for Part 49 validation. | **RETAIN** — canonical reference |
 | `cohort_manifest_part3.json` | Research metadata | `tests/unit/research/test_part3_planner.py`, `tests/unit/research/test_part20_cape.py`, `tests/infrastructure/test_dataset_cache.py` | Part 3 cohort eligibility manifest. | **RETAIN** — active test consumer |
-| `ern_chart_30Y_A.csv` through `ern_chart_60Y_D.csv` (8 files) | Unreferenced data | **ZERO** consumers in code or tests. Only mentioned once as wildcard in documentation. | ERN article chart data extracted for Part 3 validation. No code reads these files. | **DELETE** — unreferenced data artifacts |
-| `ern_part3_30Y_A.csv` through `ern_part3_60Y_D.csv` (8 files) | Unreferenced data | **ZERO** consumers in code or tests. Only mentioned once as wildcard in documentation. | ERN article data extracted for Part 3 validation. No code reads these files. | **DELETE** — unreferenced data artifacts |
+| `ern_chart_30Y_A.csv` through `ern_chart_60Y_D.csv` (8 files) | Unreferenced data | **ZERO** consumers in code or tests. Only mentioned once as wildcard in documentation. | ERN article chart data extracted for Part 3 validation. No code reads these files. | **DELETED** — unreferenced data artifacts, removed during data-layer cleanup |
+| `ern_part3_30Y_A.csv` through `ern_part3_60Y_D.csv` (8 files) | Unreferenced data | **ZERO** consumers in code or tests. Only mentioned once as wildcard in documentation. | ERN article data extracted for Part 3 validation. No code reads these files. | **DELETED** — unreferenced data artifacts, removed during data-layer cleanup |
 | `data/ern/raw/*` (7 files) | Canonical raw sources | `tools/ern/prepend_base_snapshot.py` (ie_data.csv), provenance chains | Original source data (Shiller, Fed Funds, etc.). | **RETAIN** — canonical raw sources |
 
 #### h360/h480/h600 Deletion Rationale
@@ -939,19 +939,21 @@ None. All artifacts have been classified with complete information.
 
 ### P.8 Dataset Inventory (Post-Cleanup)
 
-**Top-level artifacts:** 8 files + `raw/` directory
+**Top-level artifacts:** 11 files + `raw/` directory
 
 | File | Type |
 |------|------|
-| `spx_tr_real.csv` | Canonical source |
-| `bond_10y_tr_real.csv` | Canonical source |
+| `spx_tr_real.csv` | Canonical source (real equity returns) |
+| `bond_10y_tr_real.csv` | Canonical source (real bond returns) |
 | `spx_tr_real.provenance.json` | Provenance metadata |
 | `bond_10y_tr_real.provenance.json` | Provenance metadata |
 | `ern_swr_h720.json` | Primary derived dataset |
-| `ern_cape_1871_2016.json` | Canonical source |
-| `ffr_monthly.json` | Canonical source |
+| `cape_shiller.csv` | Canonical runtime CAPE (supersedes deleted `ern_cape_1871_2016.json`) |
+| `ffr.csv` | Canonical runtime FFR (extracted from `ffr_monthly.json`) |
+| `ffr_monthly.json` | Upstream FFR source (used by `extract_canonical_series.py`) |
 | `p49_oracle_table.csv` | Canonical reference |
 | `cohort_manifest_part3.json` | Research metadata |
+| `cpi.csv`, `spx_tr.csv`, `bm10.csv` | Runtime canonical datasets (cumulative indices, CPI) |
 
 **Nested canonical raw files:** 7 files
 
@@ -965,7 +967,7 @@ None. All artifacts have been classified with complete information.
 | `raw/FFWSJHIGH.csv` | Federal Reserve |
 | `raw/FFWSJLOW.csv` | Federal Reserve |
 
-**Total ERN files:** 16 (9 top-level + 7 nested in `raw/`)
+**Total ERN files:** 18 (11 top-level + 7 nested in `raw/`)
 
 ### P.9 Cascading Changes Required
 
@@ -976,7 +978,7 @@ The following files required updates when h360/h480/h600 and chart/part3 CSVs we
 | `tools/ern/prepend_base_snapshot.py` | Removed h360/h480/h600 from DATASETS tuple |
 | `tests/infrastructure/test_dataset_cache.py` | Deleted `TestErnPrefixIdentity` class; updated `TestErnArtifactBoundary` to remove h360/h480/h600 from `known_datasets`; deleted `test_ern_h360_resolves_after_boundary_fix`; updated docstring |
 | `tests/oracle/ern/constants.py` | Updated docstring to remove h360/h480/h600 mention |
-| `data/ern/ern_real_returns_1871_2016.provenance.json` | Removed h360/h480/h600 from downstream section |
+| `data/ern/ern_real_returns_1871_2016.provenance.json` | Removed h360/h480/h600 from downstream section; subsequently deleted during data-layer cleanup |
 | `AGENTS.md` | Updated invocation hierarchy and code block to remove `RUN_ERN_E2E_FULL` references |
 | `docs/research/ERN_E2E_REPLICATION_PLAN.md` | Updated dataset audit, added final disposition section |
 

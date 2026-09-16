@@ -414,7 +414,7 @@ class MonthlyResult:
 | Dataset | On-disk size | Snapshots | Deep memory | Range |
 |---------|-------------|-----------|-------------|-------|
 | `ern_swr_h720.json` | 558 KB | 2,459 | ~2.2 MB | 1871-01 to 2075-11 |
-| `ern_cape_1871_2016.json` | 462 KB | 1,571 | ~1.6 MB | 1881-01 to 2023-09 |
+| `cape_shiller.csv` | ~40 KB | 1,485 | ~0.1 MB | 1881-01 to 2023-09 |
 
 ---
 

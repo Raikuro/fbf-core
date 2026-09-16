@@ -243,26 +243,18 @@ NOT SWR acceptance anchors)
 - Content: Monthly real total returns for 10Y Treasury bonds
 - **Status:** Available in canonical form
 
-**CAPE data (`ern_cape_1871_2016.json`):**
-- Format: JSON with monthly snapshots
-- Period: 1881-01-01 through 2023-09-01 (1,571 unique snapshots)
+**CAPE data (`cape_shiller.csv`):**
+- Format: `YYYY-MM-DD,value` (decimal CAPE values)
+- Period: 1881-01 through 2023-09 (1,485 observations with data)
 - Content: CAPE values (Shiller P/E10 ratio)
-- Note: `index_levels` in this file are placeholder values (1.0) — this file is
-  a CAPE lookup source, not a simulation input
-- **Filename explanation:** The filename `ern_cape_1871_2016.json` is potentially
-  misleading. Despite the name suggesting coverage through 2016, the file actually
-  contains CAPE observations from 1881-01-01 through 2023-09-01. The "1871" in
-  the name refers to the underlying Shiller dataset start year (1871), not the
-  CAPE observation start year (1881, after 10-year rolling average warmup).
-- **Status:** Available in canonical form
-- **Data-contract question (open):** If CAPE is treated as a reusable dated
-  numerical time series, its representation should be evaluated against the
-  canonical `YYYY-MM-DD,value` contract. The question is whether the current JSON
-  is: (1) a reusable dated numerical time series, (2) a research-specific derived
-  artifact, or (3) cohort metadata used for classification. That distinction must
-  be established before any future canonical-data migration. Do NOT migrate or
-  modify it now; the purpose is to document the question, not resolve it by
-  assumption.
+- **Status:** Available in canonical CSV form
+
+> **Historical note:** The original `ern_cape_1871_2016.json` was a JSON-formatted
+> CAPE lookup source with placeholder index levels. It was superseded by
+> `cape_shiller.csv` during the canonical data-layer cleanup. The CSV conforms to the
+> standard `YYYY-MM-DD,value` contract used by other runtime datasets. The open
+> data-contract question about JSON representation is resolved: CAPE is now a
+> standard dated numerical time series in CSV form.
 
 **Cohort manifest (`cohort_manifest_part3.json`):**
 - Format: JSON with per-cohort metadata
@@ -284,7 +276,7 @@ The Part 3 pipeline requires two independent data streams:
 
 Both are present in the canonical dataset:
 - Market returns are available in `canonical/ern_asset_returns`
-- CAPE values are in `ern_cape_1871_2016.json`
+- CAPE values are in `cape_shiller.csv`
 - The cohort manifest joins these two sources deterministically
 
 **Data availability is not the blocking issue.** The three Part 3-specific
@@ -526,7 +518,7 @@ The implementation correctly separates simulation data from classification metad
 1. **Market returns** (`spx_tr_real.csv`, `bond_10y_tr_real.csv`)
    are loaded by `load_ern_dataset()` and used for actual portfolio simulation.
 
-2. **CAPE values** (`ern_cape_1871_2016.json`) are pre-joined into the cohort
+2. **CAPE values** (`cape_shiller.csv`) are pre-joined into the cohort
    manifest (`cohort_manifest_part3.json`) as metadata.
 
 3. **CAPE never enters the simulation engine.** The engine receives only market
@@ -805,7 +797,7 @@ dataset format. This assumption is plausible but not verified.
 
 | Data | File | Status |
 |------|------|--------|
-| CAPE values | `ern_cape_1871_2016.json` | ✅ Available |
+| CAPE values | `cape_shiller.csv` | ✅ Available |
 | S&P 500 returns | `spx_tr_real.csv` | ✅ Available |
 | 10Y Treasury returns | `bond_10y_tr_real.csv` | ✅ Available |
 | Cohort manifest | `cohort_manifest_part3.json` | ✅ Available |
@@ -819,9 +811,8 @@ dataset format. This assumption is plausible but not verified.
 - [x] CAPE source traced to Shiller `ie_data.xls`
 - [x] No synthetic CAPE values used
 - [x] Market return data available in canonical CSVs
-- [x] CAPE data available in canonical JSON
+- [x] CAPE data available in canonical CSV (`cape_shiller.csv`)
 - [x] Cohort manifest available with deterministic join
-- [x] Filename explanation for `ern_cape_1871_2016.json` documented
 
 ### 10.2 Methodology Fidelity
 

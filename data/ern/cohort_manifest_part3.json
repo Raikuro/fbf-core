@@ -7,7 +7,7 @@
     "total": 1739
   },
   "market_source": "ern_swr_h720.json",
-  "cape_source": "ern_cape_1871_2016.json",
+  "cape_source": "cape_shiller.csv",
   "horizon_note": "h720 dataset provides 2459 snapshots (1871-01-31 to 2075-11-01). All 1739 cohorts can reach 720 months. Horizon is an execution parameter.",
   "fee": 0.0005,
   "forward_projection": {
