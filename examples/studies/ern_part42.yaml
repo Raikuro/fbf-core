@@ -7,8 +7,8 @@
 # Each cell runs over rolling cohorts from the ERN dataset.
 #
 # Canonical data required (in --data-dir):
-#   sp500_tr_real_return.csv   S&P 500 total-return real returns (monthly)
-#   bond_10y_tr_real_return.csv  10-Year Bond Market real returns (monthly)
+#   spx_tr_real.csv   S&P 500 total-return real returns (monthly)
+#   bond_10y_tr_real.csv  10-Year Bond Market real returns (monthly)
 #
 # Run example:
 #   sim-retire --data-dir data/ern run examples/studies/ern_part42.yaml \

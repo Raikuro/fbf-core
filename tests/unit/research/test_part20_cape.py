@@ -163,12 +163,15 @@ class TestCapeBinaryCohortStart:
         assert first["start_month_index"] == 119
 
     def test_cape_at_start_is_correct(self) -> None:
-        """The CAPE value at cohort start is the correct snapshot."""
+        """The CAPE value at cohort start matches the canonical runtime CSV."""
+        import csv
         import json
         from pathlib import Path
 
-        with open(Path("data/ern/ern_cape_1871_2016.json")) as f:
-            cape_data = json.load(f)
+        with open(Path("data/ern/cape_shiller.csv"), newline="") as f:
+            reader = csv.reader(f)
+            next(reader)
+            cape_map = {row[0]: float(row[1]) for row in reader}
 
         with open(Path("data/ern/cohort_manifest_part3.json")) as f:
             manifest = json.load(f)
@@ -178,7 +181,5 @@ class TestCapeBinaryCohortStart:
         first = cape_cohorts[0]
         assert first["cape_value"] == 18.47
 
-        # Verify against CAPE dataset
-        cape_snap = cape_data["snapshots"][0]
-        assert cape_snap["date"] == "1881-01-01"
-        assert float(cape_snap["cape"]) == 18.47
+        # Verify against canonical runtime CAPE CSV
+        assert cape_map["1881-01-01"] == 18.47

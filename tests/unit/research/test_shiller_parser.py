@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 _RAW_CSV = Path("data/ern/raw/ie_data.csv")
-_EXISTING_CAPE_JSON = Path("data/ern/ern_cape_1871_2016.json")
+_CANONICAL_CAPE_CSV = Path("data/ern/cape_shiller.csv")
 _EXISTING_RETURNS_CSV = Path("data/ern/spx_tr_real.csv")
 
 
@@ -219,12 +219,14 @@ class TestDeterminism:
 
 
 class TestCapeReconciliation:
-    """Compare extracted CAPE against existing ern_cape_1871_2016.json.
+    """Compare extracted Shiller CAPE against the canonical runtime CSV.
 
-    The existing JSON matches the raw Shiller source exactly when
-    annual summary rows (non-padded YYYY,M) are excluded. The previous
-    142 January mismatches were caused by annual summary rows overwriting
-    monthly January data — resolved in C2.
+    The canonical CAPE CSV (data/ern/cape_shiller.csv) is a union:
+    - 1881-01 to 2023-09: values from the legacy Shiller JSON
+    - Outside that range: values from the ERN canonical master.
+
+    The Shiller extraction must match the union CSV for the overlapping
+    period (1881-01 to 2023-09).
     """
 
     @pytest.fixture(scope="class")
@@ -235,24 +237,29 @@ class TestCapeReconciliation:
         )
 
     @pytest.fixture(scope="class")
-    def existing_cape(self) -> OrderedDict[str, float]:
-        with open(_EXISTING_CAPE_JSON) as f:
-            data = json.load(f)
-        return OrderedDict((s["date"], float(s["cape"])) for s in data["snapshots"])
+    def canonical_cape(self) -> OrderedDict[str, float]:
+        result: OrderedDict[str, float] = OrderedDict()
+        with open(_CANONICAL_CAPE_CSV, newline="") as f:
+            reader = csv.reader(f)
+            next(reader)  # skip header
+            for row in reader:
+                result[row[0]] = float(row[1])
+        return result
 
     def test_same_observation_count(
-        self, extracted_cape: OrderedDict[str, float], existing_cape: OrderedDict[str, float]
+        self, extracted_cape: OrderedDict[str, float], canonical_cape: OrderedDict[str, float]
     ) -> None:
-        """Both sources have 1571 CAPE observations."""
-        assert len(extracted_cape) == len(existing_cape)
+        """Shiller extraction has 1571 CAPE observations (1881-01 to 2023-09)."""
+        # Shiller extraction has 1571; canonical CSV has 1866 (wider range)
+        assert len(extracted_cape) == 1571
 
     def test_all_months_exact_match(
-        self, extracted_cape: OrderedDict[str, float], existing_cape: OrderedDict[str, float]
+        self, extracted_cape: OrderedDict[str, float], canonical_cape: OrderedDict[str, float]
     ) -> None:
-        """All CAPE values match within 0.001 (annual mystery resolved)."""
+        """Shiller extraction matches canonical CSV for overlapping dates."""
         mismatches = 0
         for d in extracted_cape:
-            if d in existing_cape and abs(extracted_cape[d] - existing_cape[d]) >= 0.001:
+            if d in canonical_cape and abs(extracted_cape[d] - canonical_cape[d]) >= 0.001:
                 mismatches += 1
         assert mismatches == 0
 

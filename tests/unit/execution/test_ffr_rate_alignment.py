@@ -16,7 +16,15 @@ from fbf.core.study.builder import (
 
 
 def _write_ffr_csv(path: Path, rows: list[tuple[str, str]]) -> None:
-    """Write a canonical DD-MM-YYYY,value FFR CSV file."""
+    """Write a canonical date,value FFR CSV file (YYYY-MM-DD format)."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("date,value\n")
+        for date_str, value in rows:
+            f.write(f"{date_str},{value}\n")
+
+
+def _write_ffr_csv_legacy(path: Path, rows: list[tuple[str, str]]) -> None:
+    """Write a legacy DD-MM-YYYY,value FFR CSV file."""
     with open(path, "w", encoding="utf-8") as f:
         f.write("DD-MM-YYYY,value\n")
         for date_str, value in rows:
@@ -26,6 +34,24 @@ def _write_ffr_csv(path: Path, rows: list[tuple[str, str]]) -> None:
 def test_load_ffr_rates_from_file(tmp_path: Path) -> None:
     """Verify FFR dataset loading from a canonical CSV file."""
     _write_ffr_csv(
+        tmp_path / "ffr.csv",
+        [
+            ("2020-01-01", "0.0155"),
+            ("2020-02-01", "0.0155"),
+            ("2020-03-01", "0.0065"),
+            ("2020-04-01", "0.0005"),
+        ],
+    )
+
+    rates = load_ffr_rates(str(tmp_path))
+    assert len(rates) == 4
+    assert rates[0] == (date(2020, 1, 1), Decimal("0.0155"))
+    assert rates[2] == (date(2020, 3, 1), Decimal("0.0065"))
+
+
+def test_load_ffr_rates_legacy_dd_mm_yyyy(tmp_path: Path) -> None:
+    """Verify FFR loading accepts DD-MM-YYYY format (backward compat)."""
+    _write_ffr_csv_legacy(
         tmp_path / "ffr.csv",
         [
             ("01-01-2020", "0.0155"),
@@ -41,6 +67,26 @@ def test_load_ffr_rates_from_file(tmp_path: Path) -> None:
     assert rates[2] == (date(2020, 3, 1), Decimal("0.0065"))
 
 
+def test_load_ffr_rates_both_formats_equal(tmp_path: Path) -> None:
+    """Verify both date formats produce identical results."""
+    # Canonical YYYY-MM-DD
+    canon_dir = tmp_path / "canon"
+    canon_dir.mkdir()
+    _write_ffr_csv(canon_dir / "ffr.csv", [("2020-06-01", "0.0025")])
+
+    # Legacy DD-MM-YYYY
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    _write_ffr_csv_legacy(legacy_dir / "ffr.csv", [("01-06-2020", "0.0025")])
+
+    rates_canonical = load_ffr_rates(str(canon_dir))
+    rates_legacy = load_ffr_rates(str(legacy_dir))
+
+    # Both should produce the same date and value
+    assert rates_canonical[0][0] == rates_legacy[0][0]
+    assert rates_canonical[0][1] == rates_legacy[0][1]
+
+
 def test_load_ffr_rates_missing_file(tmp_path: Path) -> None:
     """Verify FileNotFoundError for missing FFR dataset."""
     import pytest
@@ -54,7 +100,7 @@ def test_load_ffr_rates_invalid_format(tmp_path: Path) -> None:
     import pytest
 
     bad_path = tmp_path / "ffr.csv"
-    bad_path.write_text("DD-MM-YYYY,rate\n01-01-2020,0.01\n", encoding="utf-8")
+    bad_path.write_text("date,rate\n2020-01-01,0.01\n", encoding="utf-8")
 
     with pytest.raises(KeyError):
         load_ffr_rates(str(tmp_path))
@@ -173,7 +219,7 @@ def test_load_ffr_rates_empty_dataset(tmp_path: Path) -> None:
     import pytest
 
     empty_path = tmp_path / "ffr.csv"
-    empty_path.write_text("DD-MM-YYYY,value\n", encoding="utf-8")
+    empty_path.write_text("date,value\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="contains no rates"):
         load_ffr_rates(str(tmp_path))

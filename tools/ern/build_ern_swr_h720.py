@@ -77,7 +77,8 @@ _PROJECTION_END = datetime(2075, 11, 1)
 def _load_csv(path: Path) -> list[tuple[str, float]]:
     """Load a canonical date,value CSV, return [(date_str, value)].
 
-    Accepts both YYYY-MM-DD and DD-MM-YYYY formats.
+    Accepts both YYYY-MM-DD and DD-MM-YYYY formats. Dates are normalised
+    to YYYY-MM-DD on load.
     """
     rows: list[tuple[str, float]] = []
     with open(path) as f:
@@ -89,13 +90,19 @@ def _load_csv(path: Path) -> list[tuple[str, float]]:
         ), f"Unexpected header: {header}"
         for row in reader:
             if len(row) >= 2 and row[1].strip():
-                rows.append((row[0].strip(), float(row[1].strip())))
+                raw_date = row[0].strip()
+                # Normalise DD-MM-YYYY → YYYY-MM-DD
+                if len(raw_date) == 10 and raw_date[2] == "-" and raw_date[5] == "-":
+                    parts = raw_date.split("-")
+                    if len(parts[0]) == 2 and len(parts[2]) == 4:
+                        raw_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+                rows.append((raw_date, float(row[1].strip())))
     return rows
 
 
 def _parse_date(d: str) -> datetime:
-    """Parse DD-MM-YYYY to datetime."""
-    return datetime.strptime(d, "%d-%m-%Y")
+    """Parse YYYY-MM-DD to datetime."""
+    return datetime.strptime(d, "%Y-%m-%d")
 
 
 def _date_to_month_end(d: datetime) -> str:

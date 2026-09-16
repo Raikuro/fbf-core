@@ -3,8 +3,8 @@
 Source data lives in the repository under ``data/ern/`` (see the P4.9
 investigation report, docs/continuity/P4_9_E2E_REPLICATION_INVESTIGATION.md):
 
-- ``sp500_tr_real_return.csv``          canonical S&P 500 real returns (DD-MM-YYYY,value).
-- ``bond_10y_tr_real_return.csv``       canonical 10Y bond real returns (DD-MM-YYYY,value).
+- ``spx_tr_real.csv``                   canonical S&P 500 real returns (YYYY-MM-DD,value).
+- ``bond_10y_tr_real.csv``              canonical 10Y bond real returns (YYYY-MM-DD,value).
 - ``ern_swr_h720.json``                 primary 60-year horizon dataset (derived).
 - ``p49_oracle_table.csv``              pinned ERN oracle matrix (derived).
 

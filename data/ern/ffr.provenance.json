@@ -1,11 +1,11 @@
 {
-  "source_file": "hybrid merge",
-  "source_field": "ffr_spliced (1871-01 to 2021-12) + ffr_monthly.json (2022-01 to 2026-08)",
-  "source_date_format": "DD-MM-YYYY",
-  "source_numeric_type": "decimal string",
-  "extraction_method": "Hybrid merge: ffr_spliced.csv for historical period, ffr_monthly.json for modern period",
-  "observation_count": 1868,
-  "date_range": "01-01-1871 to 01-08-2026",
+  "source_file": "data/ern/ffr_monthly.json",
+  "source_field": "rates[].rate",
+  "source_date_format": "YYYY-MM-DD (ISO)",
+  "source_numeric_type": "string (decimal)",
+  "extraction_method": "Direct mapping: date.fromisoformat() -> YYYY-MM-DD, rate string preserved exactly",
+  "observation_count": 1181,
+  "date_range": "1929-01-01 to 2025-12-01",
   "validation_result": "PASS",
-  "notes": "Canonical FFR series. 1871-01 to 2021-12 from ffr_spliced.csv (ERN Timing-Leverage-Calc.xlsx, historical reconstruction + official FEDFUNDS). 2022-01 to 2026-08 from ffr_monthly.json (FRED FEDFUNDS)."
+  "notes": "Monthly Federal Funds Rate / borrowing rate. Sources: reconstructed FFR (1928-04 to 1954-06) and official FEDFUNDS (1954-07 to present)."
 }

@@ -98,8 +98,13 @@ def load_ffr_rates(
     with open(ffr_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            dd, mm, yyyy = row["DD-MM-YYYY"].split("-")
-            d = date(int(yyyy), int(mm), int(dd))
+            raw_date = row["date"] if "date" in row else row["DD-MM-YYYY"]
+            # Normalise DD-MM-YYYY → YYYY-MM-DD
+            if len(raw_date) == 10 and raw_date[2] == "-" and raw_date[5] == "-":
+                parts = raw_date.split("-")
+                if len(parts[0]) == 2 and len(parts[2]) == 4:
+                    raw_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            d = date.fromisoformat(raw_date)
             r = Decimal(row["value"])
             rates.append((d, r))
 

@@ -261,3 +261,45 @@ class TestDatasetStructure:
     def test_end_date_unchanged(self, dataset: Dataset) -> None:
         """Last snapshot is 2075-11-01."""
         assert str(dataset.snapshots[-1].date) == "2075-11-01"
+
+
+# ---------------------------------------------------------------------------
+# Dual-format date loading
+# ---------------------------------------------------------------------------
+
+
+class TestCsvDualFormat:
+    """Verify _load_csv accepts both YYYY-MM-DD and DD-MM-YYYY."""
+
+    def test_load_csv_yyyy_mm_dd(self, tmp_path: Path) -> None:
+        """Canonical YYYY-MM-DD format loads correctly."""
+        from fbf.core.datasets.ern import _load_csv
+
+        csv_path = tmp_path / "test.csv"
+        csv_path.write_text("date,value\n2020-06-01,0.5\n", encoding="utf-8")
+        rows = _load_csv(csv_path)
+        assert len(rows) == 1
+        assert rows[0] == ("2020-06-01", 0.5)
+
+    def test_load_csv_dd_mm_yyyy(self, tmp_path: Path) -> None:
+        """Legacy DD-MM-YYYY format loads correctly."""
+        from fbf.core.datasets.ern import _load_csv
+
+        csv_path = tmp_path / "test.csv"
+        csv_path.write_text("DD-MM-YYYY,value\n01-06-2020,0.5\n", encoding="utf-8")
+        rows = _load_csv(csv_path)
+        assert len(rows) == 1
+        assert rows[0] == ("2020-06-01", 0.5)
+
+    def test_load_csv_both_formats_identical(self, tmp_path: Path) -> None:
+        """Both formats produce the same normalised result."""
+        from fbf.core.datasets.ern import _load_csv
+
+        canon = tmp_path / "canon.csv"
+        canon.write_text("date,value\n2020-06-01,0.5\n", encoding="utf-8")
+        legacy = tmp_path / "legacy.csv"
+        legacy.write_text("DD-MM-YYYY,value\n01-06-2020,0.5\n", encoding="utf-8")
+
+        rows_canon = _load_csv(canon)
+        rows_legacy = _load_csv(legacy)
+        assert rows_canon == rows_legacy
