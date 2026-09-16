@@ -2,7 +2,7 @@
 
 This aggregator reconstructs the MarketSnapshot[] sequence that the
 production ERN SWR harness consumes, using only the canonical
-DD-MM-YYYY,value time-series CSVs.
+YYYY-MM-DD,value time-series CSVs.
 
 The h720 artifact was originally produced by the ERN Google Sheet / SWR
 Toolbox.  Key construction details (reverse-engineered from the committed
@@ -22,6 +22,9 @@ JSON):
 * **CPI**: all zero (CPI was never injected into the h720 artifact).
 * **Derived fields**: ``is_ath``, ``is_underwater``, ``running_ath`` are
   computed from the running maximum of the equity index level.
+
+Source: ERN SWR Toolbox Google Sheet, Asset Returns tab.
+  https://docs.google.com/spreadsheets/d/1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8
 """
 
 from __future__ import annotations
@@ -72,12 +75,18 @@ _PROJECTION_END = datetime(2075, 11, 1)
 
 
 def _load_csv(path: Path) -> list[tuple[str, float]]:
-    """Load a canonical DD-MM-YYYY,value CSV, return [(date_str, value)]."""
+    """Load a canonical date,value CSV, return [(date_str, value)].
+
+    Accepts both YYYY-MM-DD and DD-MM-YYYY formats.
+    """
     rows: list[tuple[str, float]] = []
     with open(path) as f:
         reader = csv.reader(f)
         header = next(reader)
-        assert header == ["DD-MM-YYYY", "value"], f"Unexpected header: {header}"
+        assert header in (
+            ["date", "value"],
+            ["DD-MM-YYYY", "value"],
+        ), f"Unexpected header: {header}"
         for row in reader:
             if len(row) >= 2 and row[1].strip():
                 rows.append((row[0].strip(), float(row[1].strip())))
@@ -113,8 +122,8 @@ def build_h720(data_dir: Path) -> dict[str, Any]:
         The complete h720 JSON structure.
     """
     # Load canonical real returns
-    equity_returns = _load_csv(data_dir / "sp500_tr_real_return.csv")
-    bond_returns = _load_csv(data_dir / "bond_10y_tr_real_return.csv")
+    equity_returns = _load_csv(data_dir / "spx_tr_real.csv")
+    bond_returns = _load_csv(data_dir / "bond_10y_tr_real.csv")
 
     # Build a date→return lookup (all rows from _load_csv already have values)
     eq_return_map: dict[str, float] = {}

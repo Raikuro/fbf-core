@@ -8,9 +8,9 @@ NEVER called by the E2E test.  The E2E asserts against the pinned oracle matrix
 
 Inputs (source, from ERN's public SWR Toolbox Google Sheet "Asset Returns" tab,
     spreadsheet id 1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8):
-    data/ern/sp500_tr_real_return.csv   (canonical DD-MM-YYYY,value)
+    data/ern/spx_tr_real.csv           (canonical YYYY-MM-DD,value)
         S&P 500 total-return monthly REAL return
-    data/ern/bond_10y_tr_real_return.csv (canonical DD-MM-YYYY,value)
+    data/ern/bond_10y_tr_real.csv      (canonical YYYY-MM-DD,value)
         10Y Treasury total-return monthly REAL return
 
 Methodology (ERN "Safe Withdrawal Rates"):
@@ -49,8 +49,9 @@ R_BD_FWD0 = 0.0
 R_BD_FWD = (1.026) ** (1 / 12) - 1.0
 START_FIRST = 1
 START_LAST = 1739
-REALIZED_N = 1749
-MAX_INDEX = 1739 + 720 - 1
+REALIZED_N = 2471  # historical + extrapolated months in canonical dataset
+# N must cover all cohorts (1..1739) + max horizon (720 months)
+MAX_INDEX = max(REALIZED_N, 1739 + 720 - 1)
 N = MAX_INDEX + 1
 
 RATES = [0.030, 0.0325, 0.035, 0.0375, 0.040, 0.0425, 0.045, 0.0475, 0.050]
@@ -59,13 +60,13 @@ WEIGHTS = [1.0, 0.75, 0.5, 0.25, 0.0]
 
 
 def load_real_returns(data_dir: Path) -> tuple[list[float], list[float]]:
-    """Load real equity and bond returns from canonical DD-MM-YYYY,value CSVs.
+    """Load real equity and bond returns from canonical YYYY-MM-DD,value CSVs.
 
     Parameters
     ----------
     data_dir:
-        Directory containing ``sp500_tr_real_return.csv`` and
-        ``bond_10y_tr_real_return.csv``.
+        Directory containing ``spx_tr_real.csv`` and
+        ``bond_10y_tr_real.csv``.
     """
 
     def _load_canonical(csv_path: Path) -> list[float]:
@@ -73,10 +74,10 @@ def load_real_returns(data_dir: Path) -> tuple[list[float], list[float]]:
             reader = csv.DictReader(f)
             return [float(row["value"]) if row["value"] else 0.0 for row in reader]
 
-    r_eq = _load_canonical(data_dir / "sp500_tr_real_return.csv")
-    r_bd = _load_canonical(data_dir / "bond_10y_tr_real_return.csv")
-    assert len(r_eq) == 1749, len(r_eq)
-    assert len(r_bd) == 1749, len(r_bd)
+    r_eq = _load_canonical(data_dir / "spx_tr_real.csv")
+    r_bd = _load_canonical(data_dir / "bond_10y_tr_real.csv")
+    assert len(r_eq) == REALIZED_N, len(r_eq)
+    assert len(r_bd) == REALIZED_N, len(r_bd)
     r_eq[0] = r_eq[1]
     r_bd[0] = r_bd[1]
     return r_eq, r_bd

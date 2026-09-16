@@ -2,8 +2,11 @@
 
 Reconstructs the runtime Dataset from canonical CSV sources:
 
-- ``sp500_tr_real_return.csv`` — S&P 500 TR real returns
-- ``bond_10y_tr_real_return.csv`` — 10-Year Bond Market real returns
+- ``spx_tr_real.csv`` — S&P 500 TR real returns (ISO date format)
+- ``bond_10y_tr_real.csv`` — 10-Year Bond Market real returns (ISO date format)
+
+Source: ERN SWR Toolbox Google Sheet, Asset Returns tab.
+  https://docs.google.com/spreadsheets/d/1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8
 
 The loader owns all CSV-specific details: filenames, fee rules,
 forward-projection rules, and derived market state (ATH, underwater).
@@ -23,8 +26,8 @@ from fbf.core.domain.model.dataset import Dataset
 # Canonical CSV filenames
 # ---------------------------------------------------------------------------
 
-_EQUITY_CSV = "sp500_tr_real_return.csv"
-_BOND_CSV = "bond_10y_tr_real_return.csv"
+_EQUITY_CSV = "spx_tr_real.csv"
+_BOND_CSV = "bond_10y_tr_real.csv"
 
 # ---------------------------------------------------------------------------
 # Fee constants
@@ -65,15 +68,29 @@ _PROJECTION_END = datetime(2075, 11, 1)
 
 
 def _load_csv(path: Path) -> list[tuple[str, float]]:
-    """Load a canonical DD-MM-YYYY,value CSV."""
+    """Load a canonical date,value CSV.
+
+    Accepts both YYYY-MM-DD and DD-MM-YYYY formats for backward
+    compatibility.  Dates are normalised to ``YYYY-MM-DD`` on load.
+    """
     rows: list[tuple[str, float]] = []
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader)
-        assert header == ["DD-MM-YYYY", "value"], f"Unexpected header: {header}"
+        # Accept either header format
+        assert header in (
+            ["date", "value"],
+            ["DD-MM-YYYY", "value"],
+        ), f"Unexpected header: {header}"
         for row in reader:
             if len(row) >= 2 and row[1].strip():
-                rows.append((row[0].strip(), float(row[1].strip())))
+                raw_date = row[0].strip()
+                # Normalise DD-MM-YYYY → YYYY-MM-DD
+                if len(raw_date) == 10 and raw_date[2] == "-" and raw_date[5] == "-":
+                    parts = raw_date.split("-")
+                    if len(parts[0]) == 2 and len(parts[2]) == 4:
+                        raw_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+                rows.append((raw_date, float(row[1].strip())))
     return rows
 
 
@@ -91,8 +108,8 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     Parameters
     ----------
     data_dir:
-        Directory containing ``sp500_tr_real_return.csv`` and
-        ``bond_10y_tr_real_return.csv``.
+        Directory containing ``spx_tr_real.csv`` and
+        ``bond_10y_tr_real.csv``.
 
     Returns
     -------
@@ -159,7 +176,7 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
         ret_year = (
             current_date.year if current_date.month > 1 else current_date.year - 1
         )
-        date_key = f"01-{ret_month:02d}-{ret_year}"
+        date_key = f"{ret_year:04d}-{ret_month:02d}-01"
         r_eq = eq_return_map.get(date_key, 0.0)
         r_bond = bond_return_map.get(date_key, 0.0)
 

@@ -363,6 +363,177 @@ def extract_part52_series() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# 4. Direct extraction from canonical/ern_asset_returns.csv
+# ---------------------------------------------------------------------------
+
+MASTER_CSV = Path(__file__).resolve().parent.parent.parent / "canonical" / "ern_asset_returns.csv"
+
+# Columns to extract: (master_column, runtime_filename, description)
+MASTER_SERIES = [
+    ("spx_tr_real", "spx_tr_real.csv", "S&P 500 TR real returns (monthly)"),
+    ("y10_bm_real", "bond_10y_tr_real.csv", "10-Year Bond Market real returns (monthly)"),
+    ("cpi", "cpi.csv", "CPI index level"),
+    ("spx_tr_cum", "spx_tr.csv", "S&P 500 TR cumulative nominal return index"),
+    ("y10_bm_cum", "bm10.csv", "10-Year Bond Market cumulative nominal return index"),
+]
+
+
+def extract_from_master() -> list[str]:
+    """Extract runtime CSVs directly from canonical/ern_asset_returns.csv.
+
+    Direct column extraction: no reconstruction, no renormalization, no
+    financial calculations.  Values are preserved exactly as they appear
+    in the master dataset.
+    """
+    results = []
+
+    # Read master CSV
+    master_rows = []
+    with open(MASTER_CSV, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            master_rows.append(row)
+
+    print(f"  Master: {len(master_rows)} rows"
+          f" ({master_rows[0]['year']}-{master_rows[0]['month']}"
+          f" to {master_rows[-1]['year']}-{master_rows[-1]['month']})")
+
+    for column, csv_name, description in MASTER_SERIES:
+        dst = DATA_DIR / csv_name
+        prov = DATA_DIR / csv_name.replace(".csv", ".provenance.json")
+
+        # Extract rows: preserve exact values from master
+        extracted_rows = []
+        for row in master_rows:
+            year = row["year"].strip()
+            month = row["month"].strip()
+            if not year or not month:
+                continue
+            d = date(int(year), int(month), 1)
+            value = row[column].strip() if row.get(column) else ""
+            extracted_rows.append((_date_to_dd_mm_yyyy(d), value))
+
+        # Filter out empty values (e.g., 1871-01 has no real returns)
+        extracted_rows = [(d, v) for d, v in extracted_rows if v]
+
+        # Write runtime CSV
+        _write_canonical_csv(dst, extracted_rows)
+
+        # Validate: exact match against master column
+        errors = []
+        with open(dst, newline="", encoding="utf-8") as f:
+            canonical_rows = list(csv.DictReader(f))
+
+        if len(canonical_rows) != len(extracted_rows):
+            errors.append(
+                f"Row count mismatch: canonical={len(canonical_rows)}"
+                f" expected={len(extracted_rows)}"
+            )
+
+        for i, (exp_date, exp_val) in enumerate(extracted_rows):
+            cr = canonical_rows[i]
+            if cr["DD-MM-YYYY"] != exp_date:
+                errors.append(f"Row {i}: date mismatch")
+            if cr["value"] != exp_val:
+                errors.append(
+                    f"Row {i}: value mismatch canonical={cr['value']}"
+                    f" expected={exp_val}"
+                )
+
+        validation = "PASS" if not errors else "FAIL: " + "; ".join(errors[:5])
+        results.append(f"{csv_name}: {validation}")
+
+        # Write provenance
+        _write_provenance(
+            prov,
+            source_file="canonical/ern_asset_returns.csv",
+            source_field=column,
+            source_date_format="year,month (integer columns)",
+            source_numeric_type="string (preserved exactly)",
+            extraction_method=(
+                "Direct column extraction. date = YYYY-MM-01 mapped to"
+                " DD-MM-YYYY. Value preserved as source string (no"
+                " rounding, no normalization)."
+            ),
+            observation_count=len(extracted_rows),
+            date_range=f"{extracted_rows[0][0]} to {extracted_rows[-1][0]}",
+            validation_result=validation,
+            notes=description,
+        )
+
+    return results
+
+
+def compare_with_part52() -> list[str]:
+    """Compare master-derived runtime CSVs against Part52 historical files.
+
+    Discrepancies are diagnostic information only.
+    """
+    results = []
+
+    # Part52 files to compare (if they exist)
+    part52_map = {
+        "cpi.csv": "part52/cpi.csv",
+        "spx_tr.csv": "part52/spx_tr.csv",
+        "bm10.csv": "part52/bm10.csv",
+    }
+
+    for runtime_name, part52_rel in part52_map.items():
+        runtime_path = DATA_DIR / runtime_name
+        part52_path = DATA_DIR / part52_rel
+
+        if not runtime_path.exists():
+            results.append(f"{runtime_name}: SKIP (runtime file not found)")
+            continue
+        if not part52_path.exists():
+            results.append(f"{runtime_name}: SKIP (Part52 file not found)")
+            continue
+
+        # Load both files
+        runtime_data = {}
+        with open(runtime_path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                d = row["DD-MM-YYYY"]
+                v = row["value"]
+                runtime_data[d] = v
+
+        part52_data = {}
+        with open(part52_path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                d = row["DD-MM-YYYY"]
+                v = row["value"]
+                part52_data[d] = v
+
+        # Compare
+        common_dates = sorted(set(runtime_data.keys()) & set(part52_data.keys()))
+        only_runtime = sorted(set(runtime_data.keys()) - set(part52_data.keys()))
+        only_part52 = sorted(set(part52_data.keys()) - set(runtime_data.keys()))
+
+        mismatches = []
+        for d in common_dates:
+            rv = runtime_data[d]
+            pv = part52_data[d]
+            if rv != pv:
+                mismatches.append((d, rv, pv))
+
+        lines = []
+        lines.append(f"{runtime_name} vs {part52_rel}:")
+        lines.append(f"  Common dates: {len(common_dates)}")
+        lines.append(f"  Only in master: {len(only_runtime)}")
+        lines.append(f"  Only in Part52: {len(only_part52)}")
+        lines.append(f"  Value mismatches: {len(mismatches)}")
+
+        if mismatches:
+            lines.append("  First 5 mismatches:")
+            for d, rv, pv in mismatches[:5]:
+                lines.append(f"    {d}: master={rv} part52={pv}")
+
+        results.append("\n".join(lines))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -381,18 +552,18 @@ def main() -> None:
         print(f"  ffr.csv: {line}")
     print()
 
-    print("--- 2. Real Returns (from ern_real_returns_1871_2016.csv) ---")
-    r = extract_real_returns()
-    all_results.extend(r)
-    print(f"  sp500_tr_real_return.csv: {r[0]}")
-    print(f"  bond_10y_tr_real_return.csv: {r[1]}")
-    print()
-
-    print("--- 3. Part 52 Series (from canonical_market_data.json) ---")
-    r = extract_part52_series()
+    print("--- 2. Direct Extraction from Master (canonical/ern_asset_returns.csv) ---")
+    r = extract_from_master()
     all_results.extend(r)
     for line in r:
         print(f"  {line}")
+    print()
+
+    print("--- 3. Comparison: Master vs Part52 Historical ---")
+    comparisons = compare_with_part52()
+    for block in comparisons:
+        for line in block.split("\n"):
+            print(f"  {line}")
     print()
 
     print("=" * 70)
@@ -400,8 +571,6 @@ def main() -> None:
     print("=" * 70)
     all_pass = all("PASS" in res for res in all_results)
     print(f"Overall: {'ALL PASS' if all_pass else 'FAILURES DETECTED'}")
-    print("Files created: 8 canonical CSV + 8 provenance JSON = 16 new files")
-    print("Files modified: 0 (all existing files preserved unchanged)")
     print()
     for line in all_results:
         status = "OK" if "PASS" in line else "FAIL"

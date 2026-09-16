@@ -28,26 +28,26 @@ from pathlib import Path
 FEE = 0.0005
 BASE_DATE = "1871-01-31"
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "ern"
-EQUITY_CSV = DATA_DIR / "sp500_tr_real_return.csv"
-BOND_CSV = DATA_DIR / "bond_10y_tr_real_return.csv"
+EQUITY_CSV = DATA_DIR / "spx_tr_real.csv"
+BOND_CSV = DATA_DIR / "bond_10y_tr_real.csv"
 DATASETS = (
     "ern_swr_h720.json",
 )
 
 
 def load_february_returns() -> tuple[float, float]:
-    """Feb-1871 gross real returns (equity, bond) from canonical DD-MM-YYYY CSVs."""
+    """Feb-1871 gross real returns (equity, bond) from canonical YYYY-MM-DD CSVs."""
 
     def _load_value(csv_path: Path, target_date: str) -> float:
         with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                if row["DD-MM-YYYY"] == target_date:
+                if row["date"] == target_date:
                     return float(row["value"])
         raise ValueError(f"Date {target_date} not found in {csv_path}")
 
-    r_eq = _load_value(EQUITY_CSV, "01-02-1871")
-    r_bd = _load_value(BOND_CSV, "01-02-1871")
+    r_eq = _load_value(EQUITY_CSV, "1871-02-01")
+    r_bd = _load_value(BOND_CSV, "1871-02-01")
     return r_eq, r_bd
 
 

@@ -17,7 +17,7 @@ import pytest
 
 _RAW_CSV = Path("data/ern/raw/ie_data.csv")
 _EXISTING_CAPE_JSON = Path("data/ern/ern_cape_1871_2016.json")
-_EXISTING_RETURNS_CSV = Path("data/ern/ern_real_returns_1871_2016.csv")
+_EXISTING_RETURNS_CSV = Path("data/ern/spx_tr_real.csv")
 
 
 def _parse_shiller_raw(path: Path) -> OrderedDict[str, dict[str, Any]]:
@@ -261,23 +261,23 @@ class TestCapeReconciliation:
 
 
 class TestMarketReturnsLineage:
-    """Verify the existing returns CSV is externally sourced (not from Shiller)."""
+    """Verify the canonical returns CSV is externally sourced (not from Shiller)."""
 
     def test_existing_csv_has_october_dates(self) -> None:
-        """The existing CSV contains October dates not present in Shiller."""
+        """The canonical CSV contains October dates not present in Shiller."""
         oct_dates = []
         with open(_EXISTING_RETURNS_CSV) as f:
-            reader = csv.reader(f)
-            next(reader)  # Skip header
+            reader = csv.DictReader(f)
             for row in reader:
-                if len(row) >= 2 and int(row[1]) == 10:
-                    oct_dates.append(f"{int(row[0]):04d}-10")
-        assert len(oct_dates) == 145
+                date_str = row["date"]
+                if date_str.endswith("-10-01"):
+                    oct_dates.append(date_str[:7])
+        # Historical (1871-2026) has 156 Octobers; extrapolation adds 50 more
+        assert len(oct_dates) == 206
 
     def test_existing_csv_row_count(self) -> None:
-        """The existing CSV has 1749 rows (including October dates)."""
+        """The canonical CSV has 2471 rows (historical + extrapolated)."""
         with open(_EXISTING_RETURNS_CSV) as f:
-            reader = csv.reader(f)
-            next(reader)  # Skip header
+            reader = csv.DictReader(f)
             rows = list(reader)
-        assert len(rows) == 1749
+        assert len(rows) == 2471
