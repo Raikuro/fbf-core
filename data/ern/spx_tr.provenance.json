@@ -1,0 +1,11 @@
+{
+  "source_file": "canonical/ern_asset_returns.csv",
+  "source_field": "spx_tr_cum",
+  "source_date_format": "year,month (integer columns)",
+  "source_numeric_type": "string (preserved exactly)",
+  "extraction_method": "Direct column extraction. date = YYYY-MM-01 mapped to DD-MM-YYYY. Value preserved as source string (no rounding, no normalization).",
+  "observation_count": 1866,
+  "date_range": "01-01-1871 to 01-06-2026",
+  "validation_result": "PASS",
+  "notes": "S&P 500 TR cumulative nominal return index"
+}
