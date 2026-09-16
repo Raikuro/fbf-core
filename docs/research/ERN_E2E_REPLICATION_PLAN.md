@@ -30,7 +30,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 - **Research question:** What is the maximum safe withdrawal rate for a given retirement horizon and equity allocation?
 - **Methodology:** Rolling-cohort historical simulation using US market data 1871–2015.
-- **Dataset:** `ern_real_returns_1871_2016.csv` (monthly real equity and bond returns).
+- **Dataset:** `spx_tr_real.csv`, `bond_10y_tr_real.csv` (monthly real equity and bond returns).
 - **Cohort definition:** 1,739+ rolling monthly cohorts from 1871-01 through 2015-12.
 - **Horizons:** 30, 40, 50, 60 years.
 - **Policies:** Constant equity/bond allocation, fixed real withdrawal rate.
@@ -147,93 +147,71 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 #### Part 3 — CANONICAL: NO
 
-- **Classification:** NON-CANONICAL
-- **Blocking dependency:** The dataset (`ern_swr_h720.json`) does not contain historical market return series. Index levels are normalized to 1.0. Without real equity/bond returns, success rate computation is a simplified constant-real-withdrawal model that produces 0% success rates for all scenarios.
-- **Required for canonical replication:** Historical equity price levels, 10Y Treasury return series, and inflation data to compute real portfolio trajectories.
+- **Classification:** METHODOLOGY COMPLETE — E2E SPEC PENDING
+- **Methodology status:** COMPLETE — all 3 Part 3-specific methodology questions resolved:
+  1. CAPE observation timing — RESOLVED: use actual date of canonical CAPE observation
+  2. Pre-1881 cohort handling — RESOLVED: include pre-1881 cohorts; CAPE series to be extracted to canonical CSV
+  3. CAPE-conditioned filtering — RESOLVED: use article graph definitions as source of truth
+- **Data status:** Canonical asset-return data is available in `canonical/ern_asset_returns`. Data availability is NOT the blocking issue.
+- **Implementation status:** Part 3 pipeline exists but produces 0% success due to dataset representation issues (not data availability).
 - **Existing tests useful as:** Non-canonical framework validation (CAPE regime classification, cohort generation, aggregation logic).
 - **Test files:** `tests/unit/research/test_part3_*.py`, `tests/integration/` (CAPE-related).
 - **YAML files:** `ern_part3_replication.yaml` (retained; individual experiment files `ern_part3_expA/B/C/D.yaml` removed as strict subsets — see Section K).
-- **Documentation:** `docs/research/ern_part3_replication.md` (explicitly documents the limitation).
+- **Documentation:** `docs/research/ern_part3_replication.md` (methodology questions resolved).
 
-##### Missing Requirement — Part 3 Market Return Data
-
-- **Exact missing data/information:** Historical monthly equity returns (S&P 500 total return) and bond returns (10-Year US Treasury) for the period 1871–2016, aligned to the same cohort structure used by the ERN SWR dataset.
-- **Why it is required:** ERN Part 3 computes success rates by simulating portfolio trajectories with actual historical returns. The current dataset has `index_levels` normalized to 1.0, which means the simulation engine cannot compute portfolio growth or depletion — it can only apply fixed withdrawals against a constant portfolio.
-- **Which ERN article/scenarios are affected:** Part 3, all 4 experiments (A–D), all 851 cohorts, both 30-year and 60-year horizons.
-- **Why the currently available data is insufficient:** `ern_swr_h720.json` contains derived return ratios (used for portfolio evolution) but the research pipeline (`part3_pipeline.py`) needs the raw return series to compute trajectories from the initial portfolio value. The normalized index_levels prevent meaningful success rate computation.
-- **Whether an approximation currently exists:** The Part 3 research pipeline runs with normalized data and produces 0% success rates for all scenarios. This is not an approximation — it is a known incomplete computation.
-- **Why that approximation is non-canonical:** 0% success rates do not match any ERN published result. The computation is structurally incomplete, not approximately correct.
-- **Exact data/information required to unblock canonical replication:** Monthly S&P 500 total return index and 10-Year US Treasury total return index, covering 1871–2016, in a format compatible with the FBF dataset schema (monthly `MarketSnapshot` with `index_levels` per `AssetClass`).
-- **Intended future source/status:** USER TO PROVIDE — the source data (Shiller `ie_data.xls`) is available in `data/ern/raw/ie_data.csv` but has not been transformed into the per-asset-class return format needed by the simulation engine.
-
-#### Part 19 — CANONICAL: YES
+#### Part 19 — CANONICAL METHODOLOGY — IMPLEMENTATION ALIGNMENT PENDING
 
 - **Grid:** Part of `ern_part20.yaml` (24 glidepaths from Part 19, combined with Part 20).
 - **Dataset:** `ern_swr_h720.json`
-- **Status:** Fully implemented via `GlidepathAllocationPolicy`.
-- **E2E test:** `test_glidepath_trajectory.py` (integration-level glidepath validation).
-- **Note:** Strict subset of Part 20 (see Section D).
+- **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established.
+- **Implementation status:** FBF execution order does not yet align with the established sequencing rule. The corrected sequence is: return → ATH evaluation → cash-flow → rebalance. Implementation alignment pending.
+- **E2E status:** NOT YET VALIDATED as canonical ERN replication. Integration tests exist (`test_glidepath_trajectory.py`) but execution order alignment is required before canonical validation.
+- **Note:** Part 20 ⊃ Part 19 for glidepath definitions (see Section D). Part 19 Experiment A remains an independent E2E target — Part 20 does not reproduce it as a complete experiment (see Section D.2).
 
-#### Part 20 — CANONICAL: YES
+#### Part 20 — CANONICAL METHODOLOGY — IMPLEMENTATION ALIGNMENT PENDING
 
 - **Grid:** `ern_part20.yaml` (32 glidepaths × 5 SWR × 2 horizons = 320 cells)
 - **Dataset:** `ern_swr_h720.json`
-- **Status:** Fully implemented. Includes all Part 19 glidepaths plus 8 additional.
-- **E2E test:** `test_glidepath_trajectory.py`.
-- **Note:** Strict superset of Part 19 (see Section D).
+- **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established.
+- **Implementation status:** FBF execution order does not yet align with the established sequencing rule. The corrected sequence is: return → ATH evaluation → cash-flow → rebalance. Implementation alignment pending.
+- **E2E status:** NOT YET VALIDATED as canonical ERN replication. Integration tests exist (`test_glidepath_trajectory.py`) but execution order alignment is required before canonical validation.
+- **Note:** Part 19 Experiment A remains an independent E2E target — Part 20 does not reproduce it as a complete experiment (see Section D.2).
 
-#### Part 42 — CANONICAL: NO (E2E not implemented)
+#### Part 42 — E2E/IMPLEMENTATION VALIDATION DEFERRED
 
-- **Classification:** NON-CANONICAL (E2E test not implemented)
-- **Reason:** The full grid E2E test (`test_full_grid_execution`) is not implemented. The test file (`test_part42_replication.py`) contains only structural constant validation (grid dimensions, anchor values). No test currently executes the 78,255-unit Part 42 grid through the production path and validates research-level results.
+- **Classification:** E2E/IMPLEMENTATION VALIDATION DEFERRED
+- **Methodology status:** COMPLETE / FROZEN (see `ern_part42_replication.md` §17).
+- **E2E specification:** INCOMPLETE — no per-cell ERN oracle table; directional-only validation. OMY contribution sequencing resolved (Q4): contributions are cash-flow operations within the established global monthly sequence.
+- **Implementation status:** OMY accumulation phase implemented. OMY contribution sequencing resolved (Q4): contributions are cash-flow operations within the established global monthly sequence.
 - **What exists:** Grid structure constants validated. OMY accumulation phase implemented (`run_accumulation_phase`). Integration tests pass (`test_part42.py`) with synthetic data. Oracle validation tests pass (`test_part42_oracle.py`) and validate accumulation semantics against independent implementation.
-- **What is missing:** A test that materializes the full 45-cell Part 42 grid via `build_study_plan()`, executes all 78,255 units through `execute_study_plan()`, and compares success rates against published ERN anchors (baseline ~3.6%, OMY improvement +7.8%).
-- **Blocking dependency:** Implementation of the full grid execution test.
+- **What is deferred:** Full E2E replication validation, per-cell oracle creation, Tables 01–05 transcription.
 - **Existing tests useful as:** Non-canonical validation of OMY mechanics and accumulation semantics.
 - **YAML file:** `ern_part42.yaml` (retained; study configuration is complete).
 - **Documentation:** `docs/roadmap/MULTI_STUDY_REPLICATION_ROADMAP.md` §A.3.
 
-##### Missing Requirement — Part 42 E2E Implementation
-
-- **Exact missing data/information:** A test function that executes the full Part 42 grid through the production execution path.
-- **Why it is required:** Without grid execution, we cannot validate that the Part 42 OMY replication produces results consistent with ERN published anchors. Current tests validate components in isolation but not the complete research configuration.
-- **Which ERN article/scenarios are affected:** Part 42, all 45 grid cells (5 equity × 9 SWR × 1 horizon), 1,739 cohorts per cell.
-- **Why the currently available data is insufficient:** Data is available (`ern_swr_h720.json`, `ern_part42.yaml`). The YAML study configuration is complete. The OMY accumulation logic is implemented. The gap is test implementation, not data.
-- **Whether an approximation currently exists:** No approximation. The test is simply not written.
-- **Why that approximation is non-canonical:** N/A — no approximation exists.
-- **Exact data/information required to unblock canonical replication:** Implementation of a test that: (1) builds the Part 42 study plan from `ern_part42.yaml`, (2) executes all units through `execute_study_plan()`, (3) computes per-cell success rates, (4) compares against ERN published anchors.
-- **Intended future source/status:** EXTERNAL SOURCE TO BE VERIFIED — the ERN Part 42 article (§A.3) publishes the baseline failsafe (~3.6%) and OMY improvement (+7.8%). These anchors are already defined in `constants.py`.
-
-#### Part 49 — CANONICAL: YES (with documented differences)
+#### Part 49 — SUBSET — TWO DEVIATIONS
 
 - **Grid:** `ern_part49.yaml` (2E × 9R × 3I = 54 cells) and canonical 6-cell grid.
 - **Dataset:** `ern_swr_h720.json`
-- **Status:** Fully implemented. All 10,434 canonical units execute successfully.
-- **Documented difference:** LTV enforcement is intentionally OFF (observation only). This is a deliberate architectural decision (`DECISIONS.md` S4-LTV). The 1929 depletion anchor depends on LTV enforcement and is NOT validated by the canonical workload.
-- **E2E test:** `test_part49_canonical_execution.py` (10,434 units, passes).
+- **Methodology status:** COMPLETE (see `ern_part49_replication.md` §24).
+- **Implementation status:** PARTIALLY PRESENT — two deviations from ERN methodology:
+  1. **LTV enforcement currently OFF** — implementation limitation, not methodology. The 1929 depletion anchor depends on LTV enforcement and is NOT validated.
+  2. **Monthly rebalancing instead of buy-and-hold** — ERN Part 49 specifies buy-and-hold portfolio mechanics (§11.1). FBF has no buy-and-hold capability. This is a genuine FBF capability gap. The correct future approach is to implement buy-and-hold and build the Part 49 E2E against it.
+- **E2E status:** NOT VALIDATED as canonical ERN replication. Current E2E executes a modified FBF interpretation of the Part 49 experiment.
+- **Existing tests useful as:** Non-canonical validation of leverage mechanics and debt lifecycle.
+- **E2E test:** `test_part49_canonical_execution.py` (10,434 units, runs with deviations).
 - **Supporting tests:** `test_part49_smoke_execution.py`, `test_part49_grid_materialization.py`, `test_part49_multi_cohort.py`, `test_part49_grid_audit.py`.
 - **Oracle tests:** `test_debt_oracle.py` (independent first-principles implementation).
 
-#### Part 52 — CANONICAL: NO
+#### Part 52 — NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
 
-- **Classification:** NON-CANONICAL
-- **Blocking dependency:** The FFR scenarios (A2–A8, A10–A11, 9 of 11 scenarios) use fixed-rate approximations instead of actual historical Fed Funds Rate data. The FFR dataset (`ffr_monthly.json`) begins in 1928, but all 1,739 cohorts begin before 1928, meaning FFR coverage is incomplete for every cohort.
-- **Non-FFR scenarios (A1, A9):** These use no FFR and could potentially be canonical, but they represent only 2 of 11 scenarios. They are not classified as canonical because the complete Part 52 replication requires all 11 scenarios.
-- **Required for canonical replication:** Complete FFR dataset covering 1871–present, or a demonstrated mathematically equivalent methodology for partial FFR coverage.
-- **Existing tests useful as:** Non-canonical validation (Part 52 mechanics, numerical trace, debt lifecycle).
+- **Classification:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
+- **Methodology status:** COMPLETE — all methodology questions resolved. ATH semantics (nominal, total return, inclusive >=) resolved globally. Running ATH initialization resolved. Loan repayment boundary behavior resolved.
+- **FFR dataset coverage:** RESOLVED. `ffr_spliced` is the canonical FFR source covering the full 1871–present period. All 1,739 cohorts have FFR data available.
+- **E2E specification:** CAN PROCEED. Full E2E validation can proceed against the complete FFR series.
+- **Existing tests useful as:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment, LTV enforcement).
 - **Test files:** `test_part52_canonical_ern_replication.py` (runs by default, >15 min), `test_part52_numerical_trace.py`.
 - **Documentation:** `TODO.md` items S6.6B (FFR integration limitation, canonical replication deferred).
-
-##### Missing Requirement — Part 52 FFR Dataset Coverage
-
-- **Exact missing data/information:** Monthly Federal Funds Rate (FFR) data covering the full cohort period 1871–present. The current `ffr_monthly.json` begins in 1928.
-- **Why it is required:** ERN Part 52 scenarios A2–A8 and A10–A11 use FFR + spread as the floating interest rate for margin loans. Without FFR data for the early portion of each cohort (1871–1928), the interest rate is approximated as a fixed rate, which materially differs from the actual ERN methodology.
-- **Which ERN article/scenarios are affected:** Part 52, scenarios A2–A8, A10–A11 (9 of 11 scenarios). Only A1 (baseline, no leverage) and A9 (1929 baseline, no leverage) are unaffected.
-- **Why the currently available data is insufficient:** The FFR dataset starts in 1928. All 1,739 cohorts begin between 1871 and 2015. For cohorts beginning before 1928, the first 1–67 years of the 30-year horizon have no FFR data. The current implementation substitutes a fixed rate for these periods, which is not equivalent to ERN's methodology.
-- **Whether an approximation currently exists:** Yes — the current implementation uses a fixed-rate approximation for FFR scenarios. The `Part52Evaluator` accepts `interest_rate_schedule=None` which falls back to a scalar interest rate.
-- **Why that approximation is non-canonical:** Fixed rates do not capture the time-varying nature of FFR. During periods like the Great Depression (1930s) and post-WWII era, FFR was near zero, which would significantly affect the leverage cost and therefore the WR optimization. The approximation may produce different optimal WR and Borrow% values than ERN's actual FFR-based calculation.
-- **Exact data/information required to unblock canonical replication:** Monthly FFR observations from 1871 to present, or a documented methodology for extending the FFR series backward (e.g., using commercial paper rates as a proxy for pre-1928 periods).
-- **Intended future source/status:** USER TO PROVIDE — the source FFR data is available in `data/ern/raw/FEDFUNDS.csv` but only from 1928 onward. Extending backward requires either additional historical data sources or a documented proxy methodology.
 
 ### C.3 Canonical Status Summary
 
@@ -241,12 +219,12 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 |---------|--------------|----------------|---------------------|
 | Part 1 | YES | Canonical | None (redundant with Part 2) |
 | Part 2 | YES | Canonical | None |
-| Part 3 | NO | Non-canonical | Missing market return data in dataset |
-| Part 19 | YES | Canonical | None (redundant with Part 20) |
-| Part 20 | YES | Canonical | None |
-| Part 42 | YES | Canonical with caveats | E2E test placeholder needs implementation |
-| Part 49 | YES | Canonical with differences | LTV enforcement intentionally OFF |
-| Part 52 | NO | Non-canonical | Incomplete FFR dataset coverage |
+| Part 3 | NO | Methodology complete — E2E spec pending | None (methodology complete; E2E validation pending) |
+| Part 19 | NO | Canonical methodology — implementation alignment pending | FBF execution order not yet aligned to established sequencing rule |
+| Part 20 | NO | Canonical methodology — implementation alignment pending | FBF execution order not yet aligned to established sequencing rule |
+| Part 42 | NO | E2E/implementation validation deferred | Methodology frozen; E2E validation deferred |
+| Part 49 | NO | Subset — two deviations | (1) LTV OFF, (2) no buy-and-hold capability |
+| Part 52 | NO | Non-canonical research validation — partially validated | Implementation/capability: FFR dataset resolved; full E2E validation pending |
 
 ---
 
@@ -270,7 +248,7 @@ A research E2E is redundant only when another E2E is a **strict superset** of th
 
 | Dimension | Part 1 | Part 2 | Match? |
 |-----------|--------|--------|--------|
-| Data source | `ern_real_returns_1871_2016.csv` | Same | Yes |
+| Data source | `spx_tr_real.csv`, `bond_10y_tr_real.csv` | Same | Yes |
 | Cohorts | 1,739 rolling monthly | Same | Yes |
 | Horizons | 30, 40, 50, 60 years | Same | Yes |
 | Allocation | 5 weights: [0.0, 0.25, 0.5, 0.75, 1.0] | Same | Yes |
@@ -284,11 +262,11 @@ A research E2E is redundant only when another E2E is a **strict superset** of th
 
 **Retention rationale:** The Part 1 baseline SWR grid IS the foundational computation. Part 2 extends it with terminal value targets. The `ern_grid.yaml` file covers both. No separate Part 1 E2E is needed.
 
-#### Part 19 ⊂ Part 20 — VERIFIED STRICT SUBSET
+#### Part 19 ⊂ Part 20 — VERIFIED STRICT SUBSET (with deferred question)
 
 | Dimension | Part 19 | Part 20 | Match? |
 |-----------|---------|---------|--------|
-| Data source | `ern_real_returns_1871_2016.csv` | Same | Yes |
+| Data source | `spx_tr_real.csv`, `bond_10y_tr_real.csv` | Same | Yes |
 | Cohorts | 1,739 rolling monthly | Same | Yes |
 | Horizons | 60 years only | 30 AND 60 years | Part 20 is superset |
 | Glidepaths | 24 (6 combos × 2 slopes × 2 modes) | 32 (24 + 8 new) | Part 20 is superset |
@@ -296,16 +274,17 @@ A research E2E is redundant only when another E2E is a **strict superset** of th
 | Terminal value | 0% (depletion) | Same | Yes |
 | Research calculation | Glidepath vs static comparison | Extended with more variants | Part 20 subsumes Part 19 |
 | Grid file | Part of `ern_part20.yaml` | `ern_part20.yaml` | Same file |
+| Experiment A (fixed 3.5% SWR failure analysis) | 162 cells | **DEFERRED** — not confirmed in Part 20 | **UNRESOLVED** |
 
-**Decision:** Part 19 is a strict subset of Part 20. All 24 Part 19 glidepaths are included in the Part 20 grid. **Part 19 is redundant as a separate E2E.**
+**Decision:** Part 19's glidepath definitions are a strict subset of Part 20. All 24 Part 19 glidepaths are included in the Part 20 grid. **However, Part 20 does not reproduce Part 19 Experiment A (fixed 3.5% SWR failure-rate analysis across 162 strategy × target × CAPE cells).** Part 19 Experiment A remains an independent E2E validation target.
 
-**Retention rationale:** The `ern_part20.yaml` file contains all Part 19 glidepaths. No separate Part 19 E2E is needed.
+**Retention rationale:** The `ern_part20.yaml` file contains all Part 19 glidepaths. No separate Part 19 E2E is needed for glidepath definitions. Part 19 Experiment A remains an independent E2E target.
 
 #### Part 1/2 vs Part 3 — NOT REDUNDANT
 
 | Dimension | Part 1/2 | Part 3 | Match? |
 |-----------|----------|--------|--------|
-| Data source | `ern_real_returns_1871_2016.csv` | `ern_cape_1871_2016.json` + `ern_swr_h720.json` | Different |
+| Data source | `spx_tr_real.csv`, `bond_10y_tr_real.csv` | `ern_cape_1871_2016.json` + `ern_swr_h720.json` | Different |
 | Cohorts | 1,739 rolling monthly | 851 CAPE-available starts | Different |
 | Stratification | None | By CAPE regime | Different |
 | Research question | Baseline SWR | CAPE-conditional SWR | Different |
@@ -333,7 +312,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | Candidate | Superset | Exact shared methodology | Additional dimensions | Strict subset? | Decision |
 |-----------|----------|------------------------|---------------------|---------------|----------|
 | Part 1 | Part 2 | Same grid, data, cohorts, horizons, allocation, rates | Part 2 adds FV targets | YES | Part 1 is redundant; `ern_grid.yaml` covers both |
-| Part 19 | Part 20 | Same glidepath mechanics, data, cohorts, rates | Part 20 adds 8 glidepaths + 30y horizon | YES | Part 19 is redundant; `ern_part20.yaml` covers both |
+| Part 19 | Part 20 | Same glidepath mechanics, data, cohorts, rates | Part 20 adds 8 glidepaths + 30y horizon | YES (glidepaths) | Part 19 glidepath definitions are redundant; Part 19 Experiment A remains independent |
 | Part 3 | Part 1/2 | Different cohort definition, different data source | — | NO | Not redundant (different research question) |
 | Part 42 | Part 1/2 | Different policy (accumulation phase) | — | NO | Not redundant (different research question) |
 | Part 49 | Part 1/2 | Different policy (leverage) | — | NO | Not redundant (different research question) |
@@ -343,36 +322,46 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ## E. Canonical E2E Coverage Matrix
 
-### E.1 Implemented Canonical E2Es
+### E.1 Implemented E2Es
 
 | E2E ID | ERN Article(s) | YAML | Test file | Units | Status |
 |--------|----------------|------|-----------|-------|--------|
-| E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | 313,020 | **IMPLEMENTED** |
-| E2E-Part20 | Part 20 (includes Part 19) | `ern_part20.yaml` | `test_part20_replication.py::test_part20_full_grid_structure` | 556,480 | **IMPLEMENTED** |
-| E2E-Part49 | Part 49 | (Python API) | `test_part49_replication.py::test_part49_canonical_replication` | 10,434 | **IMPLEMENTED** |
-| E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **IMPLEMENTED** |
+| E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | 313,020 | **CANONICAL — VALIDATED** |
+| E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_replication.py::test_part20_full_grid_structure` | 556,480 | **CANONICAL METHODOLOGY — IMPLEMENTATION ALIGNMENT PENDING** |
+| E2E-Part49 | Part 49 | (Python API) | `test_part49_replication.py::test_part49_canonical_replication` | 10,434 | **SUBSET — TWO DEVIATIONS** |
+| E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **E2E/IMPLEMENTATION VALIDATION DEFERRED** |
+| E2E-Part52 | Part 52 | (Python API) | `test_part52_canonical_ern_replication.py` | 19,129 | **NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED** |
 
-### E.2 Canonical Replication Implemented, E2E Missing
+### E.2 Canonical E2E Grids Not Yet Validated
 
-| Article | Canonical grid | Units | Implementation status | E2E gap |
-|---------|---------------|-------|----------------------|---------|
-| (none remaining) | | | | |
+| Article | Canonical grid | Units | Methodology status | Validation status |
+|---------|---------------|-------|-------------------|-------------------|
+| Part 19 | 24 glidepaths × 5 SWR × 1H × 1,739 = 208,680 | COMPLETE | Implementation alignment pending |
+| Part 20 | 32 glidepaths × 5 SWR × 2H × 1,739 = 556,480 | COMPLETE | Implementation alignment pending |
 
-### E.3 Non-Canonical / Blocked
+### E.3 Non-Canonical / Blocked / Deferred
 
-| Article | Reason | Blocking dependency |
-|---------|--------|-------------------|
-| Part 3 (CAPE) | Missing market return data | Historical equity/bond return series |
-| Part 52 (Timing Leverage) | FFR scenarios use fixed-rate approximation | Complete FFR dataset or demonstrated equivalence |
+| Article | Classification | Blocking dependency |
+|---------|---------------|-------------------|
+| Part 3 (CAPE) | Methodology complete — E2E spec pending | None (methodology complete) |
+| Part 19 (Glidepaths) | Canonical methodology — implementation alignment pending | FBF execution order not yet aligned |
+| Part 20 (Glidepaths) | Canonical methodology — implementation alignment pending | FBF execution order not yet aligned |
+| Part 42 (OMY) | E2E/implementation validation deferred | Deferred to implementation work |
+| Part 49 (Leverage) | Subset — two deviations | (1) LTV OFF, (2) no buy-and-hold |
+| Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | FFR resolved; full E2E validation pending |
 
 ### E.4 Strict-Superset Relationships
 
-| Superset | Subset | Relationship verified? |
-|----------|--------|----------------------|
-| Part 2 (SWR with terminal value) | Part 1 (SWR depletion) | Yes — Part 2 adds `final_value_target` dimension |
-| Part 20 (32 glidepaths) | Part 19 (24 glidepaths) | Yes — Part 20 = Part 19 + 8 additional passive glidepaths |
+| Superset | Subset | Relationship verified? | Notes |
+|----------|--------|----------------------|-------|
+| Part 2 (SWR with terminal value) | Part 1 (SWR depletion) | Yes — Part 2 adds `final_value_target` dimension | Part 1 redundant |
+| Part 20 (32 glidepaths) | Part 19 (24 glidepaths) | Partially — glidepath definitions are subset; Experiment A is independent | Part 19 Experiment A remains independent E2E target |
 
-**Total canonical E2E tests: 4** (Parts 1/2 SWR grid, Part 20 glidepath grid, Part 49 leverage, Part 42 OMY)
+**Total canonical E2E tests: 2** (Parts 1/2 SWR grid only)
+**Total canonical methodology — implementation alignment pending: 2** (Parts 19/20)
+**Total deferred: 1** (Part 42)
+**Total subset with deviations: 1** (Part 49)
+**Total non-canonical: 2** (Parts 3, 52)
 
 ---
 
@@ -380,33 +369,32 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.1 Part 3 — CAPE-Conditional SWR
 
-**Status:** NON-CANONICAL (blocked)
-**Reason:** Dataset lacks historical market return series. Index levels normalized to 1.0.
-**Blocking dependency:** Real equity/bond return data for portfolio trajectory computation.
+**Status:** METHODOLOGY COMPLETE — E2E SPEC PENDING
+**Methodology:** COMPLETE — all 3 Part 3-specific methodology questions resolved (CAPE observation timing, pre-1881 cohort handling, CAPE-conditioned cohort filtering). Canonical asset-return data is available in `canonical/ern_asset_returns`.
+**E2E specification:** CAN PROCEED. Full E2E validation can proceed.
 **Existing value:** Non-canonical framework validation (CAPE regime classification, cohort generation, aggregation logic).
 **Test classification:** Unit tests and research-layer tests (retain as implementation validation).
 **YAML files:** `ern_part3_replication.yaml` (retain as study configuration).
-**What would make it canonical:** Adding real historical return series to the dataset.
 
 ### F.2 Part 42 — One More Year Syndrome
 
-**Status:** CANONICAL REPLICATION VALIDATED
-**Reason:** The accumulation phase is fully implemented and validated (31 tests pass). The canonical grid (45 cells × 2,087 cohorts = 93,915 units) is fully reproducible through the Core Python API. The E2E test executes the full canonical workload via `build_omy_study_plan()` → `execute_study_plan()` and validates at three levels: structural coverage, computational execution, and canonical replication (directional invariants against published ERN Part 42 anchors).
-**E2E test:** `test_part42_replication.py::test_part42_canonical_replication` (gated by `RUN_ERN_E2E=1`, ~67s runtime).
-**Documented limitations:**
-- No per-cell ERN oracle table exists for Part 42.
-- Validation uses aggregate anchors and directional invariants only.
-- The OMY horizon (373 months) produces 2,087 cohorts per cell (not 1,739).
-**Existing value:** Oracle validation tests pass and validate accumulation semantics. Integration tests validate OMY mechanics.
+**Status:** E2E/IMPLEMENTATION VALIDATION DEFERRED
+**Reason:** Methodology is COMPLETE / FROZEN. E2E replication validation and implementation sequencing verification are deferred to be addressed together with actual implementation work.
+**Methodology:** COMPLETE / FROZEN (see `ern_part42_replication.md` §17).
+**Existing implementation:** OMY accumulation phase implemented. Integration tests pass. Oracle validation tests validate accumulation semantics.
+**What is deferred:** Full E2E replication, per-cell oracle creation, Tables 01–05 transcription.
 **Test classification:** Structural/oracle tests (retain). Integration tests (retain).
 
 ### F.3 Part 49 — Using Leverage in Retirement
 
-**Status:** CANONICAL REPLICATION VALIDATED
-**Reason:** The full production path works (verified by standalone `s57_performance_benchmark.py`). The canonical 6-cell grid (2 equity × 3 IR × 1,739 cohorts = 10,434 units) is fully reproducible. The E2E test executes the full canonical workload via Python API and validates at three levels: structural coverage, computational execution, and canonical replication (non-leverage cells against pinned oracle table; leverage cells with directional assertions).
-**E2E test:** `test_part49_replication.py::test_part49_canonical_replication` (gated by `RUN_ERN_E2E=1`, ~7.5m runtime).
+**Status:** SUBSET — TWO DEVIATIONS
+**Reason:** The current FBF implementation deviates from ERN methodology in two ways:
+1. LTV enforcement is currently OFF — implementation limitation, not methodology.
+2. Portfolio uses monthly rebalancing instead of the required buy-and-hold capability.
+**Methodology:** COMPLETE (see `ern_part49_replication.md` §24).
+**Implementation:** PARTIALLY PRESENT. The correct future approach is to implement buy-and-hold capability and build the Part 49 E2E replication against it.
+**E2E status:** NOT VALIDATED as canonical ERN replication. Current E2E executes a modified FBF interpretation.
 **Documented limitations:**
-- LTV enforcement intentionally OFF (`DECISIONS.md` S4-LTV).
 - 1929 depletion anchor NOT validated (depends on LTV enforcement).
 - Leverage cells (interest_rate > 0) have no published ERN oracle table; validation is directional only.
 **Existing value:** Integration tests with reduced fixtures (18 units) validate execution correctness. Materialization tests validate 54-cell grid structure.
@@ -414,11 +402,13 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.4 Part 19/20 — Equity Glidepaths
 
-**Status:** CANONICAL REPLICATION VALIDATED
-**Reason:** The YAML grid exists (`ern_part20.yaml`, 320 cells × 1,739 cohorts = 556,480 units). The glidepath allocation policy is implemented. Part 20 ⊃ Part 19 (confirmed: 24 + 8 = 32 glidepaths). The E2E test (`test_part20_replication.py`) executes the full grid and validates at three levels: structural coverage, computational execution (real outcomes), and canonical replication (traceable ERN anchors). Determinism is verified via independent CLI invocation.
-**E2E test:** `test_part20_replication.py::test_part20_full_grid_replication` (gated by `RUN_ERN_E2E=1`).
-**Determinism test:** `test_part20_replication.py::test_part20_determinism` (gated by `RUN_ERN_E2E=1`).
-**Existing value:** `test_glidepath_trajectory.py` validates glidepath control logic with small fixtures.
+**Status:** CANONICAL METHODOLOGY — IMPLEMENTATION ALIGNMENT PENDING
+**Reason:** The methodology is COMPLETE — global monthly sequencing and ATH rules are established. The FBF implementation currently uses a different execution order than the established sequencing rule. Implementation alignment is required before canonical validation.
+**Methodology:** COMPLETE (global sequencing and ATH rules resolved).
+**Implementation:** Glidepath allocation policy implemented. FBF execution order not yet aligned to established rule.
+**E2E status:** NOT YET VALIDATED as canonical ERN replication. Integration tests exist (`test_glidepath_trajectory.py`, `test_part20_replication.py`) but execution order alignment is required.
+**YAML grid:** `ern_part20.yaml` (320 cells × 1,739 cohorts = 556,480 units).
+**Resolved:** Part 20 does not reproduce Part 19 Experiment A (fixed 3.5% SWR failure-rate analysis). Part 19 Experiment A remains an independent E2E validation target.
 **Test classification:** Integration tests with small fixtures (retain).
 
 #### F.4.1 Part 20 Methodology Investigation — CLOSED
@@ -448,13 +438,20 @@ canonical E2E.
 
 ### F.5 Part 52 — Timing Leverage
 
-**Status:** NON-CANONICAL RESEARCH VALIDATION
-**Reason:** 9 of 11 scenarios use fixed-rate approximation instead of actual FFR. FFR dataset begins in 1928; all 1,739 cohorts begin before 1928.
-**Blocking dependency:** Complete FFR dataset covering 1871–present, or demonstrated mathematical equivalence of fixed-rate approximation.
+**Status:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
+**Methodology:** COMPLETE — all methodology questions resolved. ATH semantics (nominal, total return, inclusive >=) resolved globally. Running ATH initialization resolved. Loan repayment boundary behavior resolved.
+**E2E specification:** CAN PROCEED. Full E2E validation can proceed against the complete FFR series.
+**FFR dataset coverage:** RESOLVED. `ffr_spliced` provides complete FFR series 1871–present.
+**Validation scope:** Full E2E validation can proceed.
 **Existing value:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment, LTV enforcement).
 **Test classification:** `@pytest.mark.research_validation` (gated by `RUN_ERN_E2E=1`).
 **Test files:** `test_part52_canonical_ern_replication.py` (11 scenarios, >20 min), `test_part52_deterministic_validation.py` (3 redundant scenarios, 3 min).
-**What would make it canonical:** Complete FFR dataset or demonstrated equivalence.
+**What would make it canonical:** Full E2E validation against the complete FFR series.
+**Validation scope:** Current E2E validates only the currently resolved methodology subset.
+**Existing value:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment, LTV enforcement).
+**Test classification:** `@pytest.mark.research_validation` (gated by `RUN_ERN_E2E=1`).
+**Test files:** `test_part52_canonical_ern_replication.py` (11 scenarios, >20 min), `test_part52_deterministic_validation.py` (3 redundant scenarios, 3 min).
+**What would make it canonical:** Full E2E validation against the complete FFR series.
 
 ---
 
@@ -667,7 +664,7 @@ Markers and environment variables have distinct roles:
 
 | Dataset | File | Source | Type | Consumers | Redundant? |
 |---------|------|--------|------|-----------|-----------|
-| ERN real returns | `ern_real_returns_1871_2016.csv` | Shiller data extraction | Source | `ern_swr_h*.json` generation | No (canonical source) |
+| ERN real returns | `spx_tr_real.csv`, `bond_10y_tr_real.csv` | ERN SWR Toolbox Google Sheet | Source | `ern_swr_h*.json` generation | No (canonical source) |
 | ERN h360 | `ern_swr_h360.json` | Derived from h720 | Derived | Shorter-horizon slicing | Potentially — h720 can generate 30y views |
 | ERN h480 | `ern_swr_h480.json` | Derived from h720 | Derived | 40y horizon | Potentially — h720 can generate 40y views |
 | ERN h600 | `ern_swr_h600.json` | Derived from h720 | Derived | 50y horizon | Potentially — h720 can generate 50y views |
@@ -844,7 +841,8 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 
 | Dataset | Classification | Consumers | Independent Purpose | Disposition |
 |---------|---------------|-----------|-------------------|-------------|
-| `ern_real_returns_1871_2016.csv` | Canonical source | `tools/ern/prepend_base_snapshot.py`, `tools/ern/reference_oracle.py`, `tests/oracle/ern/constants.py`, `tests/oracle/ern/test_ern_timeline_regression.py`, `tests/unit/research/test_shiller_parser.py` | Monthly real equity/bond returns (1871–2016). Upstream for all derived SWR datasets. | **RETAIN** — canonical source |
+| `spx_tr_real.csv` | Canonical source | `tools/ern/prepend_base_snapshot.py`, `tools/ern/reference_oracle.py`, `tests/oracle/ern/constants.py`, `tests/oracle/ern/test_ern_timeline_regression.py`, `tests/unit/research/test_shiller_parser.py` | Monthly real equity returns (1871–present). Upstream for all derived SWR datasets. | **RETAIN** — canonical source |
+| `bond_10y_tr_real.csv` | Canonical source | Same consumers as `spx_tr_real.csv` | Monthly real bond returns (1871–present). Upstream for all derived SWR datasets. | **RETAIN** — canonical source |
 | `ern_real_returns_1871_2016.provenance.json` | Provenance metadata | `tests/infrastructure/test_dataset_cache.py` (asserted excluded from loading) | Documents derivation chain for the source CSV. | **RETAIN** — provenance metadata |
 | `ern_swr_h720.json` | Primary derived dataset | All E2E tests, all YAML study configs, `tests/infrastructure/test_dataset_cache.py` | 60-year horizon SWR dataset. Contains all data needed for any shorter horizon via `Dataset.slice()`. | **RETAIN** — primary derived dataset |
 | `ern_swr_h360.json` | Redundant derived artifact | `tools/ern/prepend_base_snapshot.py` (processes all 4), `tests/infrastructure/test_dataset_cache.py` (proves derivability) | 30-year horizon prefix of h720. Provenance explicitly labels it "Prefix of h720 (redundant)". No YAML study config uses it. No production code uses it. | **DELETE** — redundant derived artifact, no independent consumers |
@@ -881,7 +879,7 @@ The 16 CSV files (`ern_chart_30Y_*.csv`, `ern_part3_30Y_*.csv`, `ern_part3_60Y_*
 - **Zero consumers** in any YAML configuration
 - **One documentation reference** as a wildcard pattern in the dataset audit table
 
-These files were **never wired into any validation pipeline**. They were intermediate outputs from an extraction process that was never completed into an automated workflow. No code reads, opens, or references them. They are not canonical source data (the canonical source is `ern_real_returns_1871_2016.csv`). They are not reproducibility artifacts (the extraction methodology is not documented or automated). They are dead files.
+These files were **never wired into any validation pipeline**. They were intermediate outputs from an extraction process that was never completed into an automated workflow. No code reads, opens, or references them. They are not canonical source data (the canonical source is `spx_tr_real.csv`). They are not reproducibility artifacts (the extraction methodology is not documented or automated). They are dead files.
 
 Deletion is correct. No independent information was lost.
 
@@ -941,12 +939,14 @@ None. All artifacts have been classified with complete information.
 
 ### P.8 Dataset Inventory (Post-Cleanup)
 
-**Top-level artifacts:** 7 files + `raw/` directory
+**Top-level artifacts:** 8 files + `raw/` directory
 
 | File | Type |
 |------|------|
-| `ern_real_returns_1871_2016.csv` | Canonical source |
-| `ern_real_returns_1871_2016.provenance.json` | Provenance metadata |
+| `spx_tr_real.csv` | Canonical source |
+| `bond_10y_tr_real.csv` | Canonical source |
+| `spx_tr_real.provenance.json` | Provenance metadata |
+| `bond_10y_tr_real.provenance.json` | Provenance metadata |
 | `ern_swr_h720.json` | Primary derived dataset |
 | `ern_cape_1871_2016.json` | Canonical source |
 | `ffr_monthly.json` | Canonical source |
@@ -965,7 +965,7 @@ None. All artifacts have been classified with complete information.
 | `raw/FFWSJHIGH.csv` | Federal Reserve |
 | `raw/FFWSJLOW.csv` | Federal Reserve |
 
-**Total ERN files:** 14 (7 top-level + 7 nested in `raw/`)
+**Total ERN files:** 16 (9 top-level + 7 nested in `raw/`)
 
 ### P.9 Cascading Changes Required
 
