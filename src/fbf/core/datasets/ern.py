@@ -51,14 +51,32 @@ _EQUITY_BASE = 100.0
 _BOND_BASE = 100.0
 
 # ---------------------------------------------------------------------------
-# Forward projection constants
+# Forward projection constants (ERN canonical — Part 1 §4, Dec 7 2016)
 # ---------------------------------------------------------------------------
+# Source: ERN Part 1 article "The Ultimate Guide to Safe Withdrawal Rates –
+# Part 1: Introduction" (https://earlyretirementnow.com/2016/12/07/
+# the-ultimate-guide-to-safe-withdrawal-rates-part-1-intro), §4:
+#
+#   "We extrapolate past the current history and append equity and bond
+#   returns after September 2016.  To this end, we assume long-term
+#   average returns for equities going forward (about 6.6% real p.a.).
+#   For bonds, we assume a low real return over the first 10 years:
+#   only 0% real p.a. [...] After the initial 10 years, bonds too will
+#   return their long-term average of 2.6% real per year."
+#
+# Historical data ends September 2016; forward projection begins October 2016.
+# Bond zero-rate period: months 1–120 (Oct 2016 – Sep 2026 inclusive).
+# Bond long-term rate: month 121 onward (Oct 2026+).
+#
+# Supersedes the legacy h720.json reverse-engineered constants
+# (6.5467%/2.5487%/121 months).  That artifact is retained in the
+# provenance record for lineage.
 
-_EQUITY_FORWARD_ANNUAL = 0.065467
-_BOND_FORWARD_ANNUAL = 0.0
-_BOND_FORWARD_ANNUAL_AFTER = 0.025487
-_BOND_FORWARD_DELAY_MONTHS = 121
-_HISTORICAL_END = datetime(2016, 10, 1)
+_EQUITY_FORWARD_ANNUAL = 0.066  # 6.6% real p.a. — ERN Part 1 §4
+_BOND_FORWARD_ANNUAL = 0.0  # 0% real p.a. for first 120 months
+_BOND_FORWARD_ANNUAL_AFTER = 0.026  # 2.6% real p.a. after month 120
+_BOND_FORWARD_DELAY_MONTHS = 120  # 10 years = 120 months
+_HISTORICAL_END = datetime(2016, 10, 1)  # first forward month
 _PROJECTION_END = datetime(2075, 11, 1)
 
 
@@ -202,23 +220,20 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
             current_date = current_date.replace(month=current_date.month + 1)
 
     # Forward projection (2016-10 through 2075-11)
+    # All forward months use the canonical constant-return rates from
+    # Part 1 §4.  October 2016 is month 1 of the projection; September
+    # 2016's historical return is NOT reused for October.
     eq_monthly_forward = (1 + _EQUITY_FORWARD_ANNUAL) ** (1 / 12) - 1
     bond_monthly_forward = -float(_FEE_MONTHLY)
     bond_monthly_forward_after = (1 + _BOND_FORWARD_ANNUAL_AFTER) ** (1 / 12) - 1
 
     months_into_projection = 0
     while current_date <= _PROJECTION_END:
-        if months_into_projection == 0:
-            r_eq = eq_return_map.get("01-09-2016", 0.0)
-            r_bond = bond_return_map.get("01-09-2016", 0.0)
-            eq_level *= (1 + r_eq) * (1 - float(_FEE_MONTHLY))
-            bond_level *= (1 + r_bond) * (1 - float(_FEE_MONTHLY))
+        eq_level *= (1 + eq_monthly_forward)
+        if months_into_projection < _BOND_FORWARD_DELAY_MONTHS:
+            bond_level *= (1 + bond_monthly_forward)
         else:
-            eq_level *= (1 + eq_monthly_forward)
-            if months_into_projection < _BOND_FORWARD_DELAY_MONTHS:
-                bond_level *= (1 + bond_monthly_forward)
-            else:
-                bond_level *= (1 + bond_monthly_forward_after)
+            bond_level *= (1 + bond_monthly_forward_after)
 
         running_ath = max(running_ath, eq_level)
         is_ath = eq_level >= running_ath
