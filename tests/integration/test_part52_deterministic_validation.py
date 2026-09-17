@@ -4,7 +4,7 @@ Validates that Part 52 mechanics (drawdown-triggered borrowing, repayment at
 ATH, FFR-based interest, LTV enforcement) are correctly implemented and
 executable through the production study-building path.
 
-This file tests MECHANISM CORRECTNESS and the ResearchExecutor internal path.
+This file tests MECHANISM CORRECTNESS only.
 Full ERN replication scenarios (A1/A2/A3) are owned by
 ``test_part52_canonical_ern_replication.py`` and are not duplicated here.
 
@@ -12,66 +12,30 @@ Scope:
     - PART52 policy type registration
     - Policy construction through StudyConfiguration
     - borrow_pct / drawdown_threshold propagation
-    - ResearchExecutor internal execution path (single scenario)
-    - Unit count and success-rate structure
 
 Not in scope (owned by canonical replication):
     - Full 3-scenario ERN replication (A1/A2/A3)
     - Success-rate assertion at published WR anchors
     - Grid-sweep optimizer path
+    - ResearchExecutor execution (redundant with canonical E2E A1)
 """
 
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass
 from decimal import Decimal
-from pathlib import Path
-from typing import Any
 
 import pytest
 
-from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies.types import WithdrawalPolicyType
-from fbf.core.execution.executor import ResearchExecutor
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.executor import SimulationExecutor
-from fbf.core.execution.pipeline.runner import SimulationRunner
-from fbf.core.study import StudyConfiguration, build_study_plan
+from fbf.core.study import StudyConfiguration
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
-INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 LTV_LIMIT = Decimal("0.50")
 HORIZON_YEARS = 30
 FIXED_INTEREST_RATE = Decimal("0.015")
-EXPECTED_UNITS = 1739
-
-# Baseline anchor (no leverage) — used for the ResearchExecutor path test.
-# Full 3-scenario replication is owned by test_part52_canonical_ern_replication.
-BASELINE_ANCHOR = ("baseline_no_leverage", 1965, None, Decimal("0.0358"), Decimal("0"))
-
-
-# ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class ScenarioResult:
-    """Result of executing one deterministic scenario."""
-    scenario_name: str
-    cohort_year: int
-    anchor_wr: Decimal
-    borrow_pct: Decimal
-    threshold: Decimal | None
-    total_units: int
-    successful_units: int
-    success_rate: Decimal
-    execution_time_s: float
-    anomalies: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -102,68 +66,6 @@ def _build_study_config(
         debt_borrow_pct=borrow_pct,
         debt_drawdown_threshold=drawdown_threshold,
     )
-
-
-# ---------------------------------------------------------------------------
-# Execution via ResearchExecutor (internal path — not execute_study_plan)
-# ---------------------------------------------------------------------------
-
-def _execute_study(config: StudyConfiguration) -> tuple[Any, float]:
-    """Execute a study via ResearchExecutor and return (result, wall_time_seconds)."""
-    built = build_study_plan(config, str(DATA_DIR), INITIAL_WEALTH)
-    executor = ResearchExecutor(
-        simulation_executor=SimulationExecutor(
-            simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-        )
-    )
-    t_start = time.perf_counter()
-    result = executor.execute(built.plan)
-    t_end = time.perf_counter()
-    return result, t_end - t_start
-
-
-def _count_successes(result: Any) -> tuple[int, int]:
-    """Return (successful, total) from a ResearchExecutionResult."""
-    sim_results = result.experiment_result.simulation_results
-    total = len(sim_results)
-    successful = sum(1 for r in sim_results if r.statistics.success)
-    return successful, total
-
-
-def _execute_baseline_scenario() -> ScenarioResult:
-    """Execute the baseline (no leverage) scenario via ResearchExecutor."""
-    scenario_name, cohort_year, threshold, anchor_wr, borrow_pct = BASELINE_ANCHOR
-    config = _build_study_config(
-        withdrawal_rate=anchor_wr,
-        borrow_pct=borrow_pct,
-        drawdown_threshold=threshold,
-    )
-    result, t_elapsed = _execute_study(config)
-    succ, total = _count_successes(result)
-    rate = Decimal(str(succ)) / Decimal(str(total)) if total > 0 else Decimal("0")
-
-    return ScenarioResult(
-        scenario_name=scenario_name,
-        cohort_year=cohort_year,
-        anchor_wr=anchor_wr,
-        borrow_pct=borrow_pct,
-        threshold=threshold,
-        total_units=total,
-        successful_units=succ,
-        success_rate=rate,
-        execution_time_s=t_elapsed,
-        anomalies=[],
-    )
-
-
-# ---------------------------------------------------------------------------
-# Fixture: single-scenario ResearchExecutor execution
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="module")
-def baseline_result() -> ScenarioResult:
-    """Execute the baseline scenario once via ResearchExecutor and return result."""
-    return _execute_baseline_scenario()
 
 
 # ===========================================================================
@@ -213,65 +115,3 @@ class TestMechanismConstruction:
         )
         assert config.debt_borrow_pct == Decimal("0.4108")
         assert config.debt_drawdown_threshold == Decimal("0.20")
-
-
-# ===========================================================================
-# SECTION 2: RESEARCH EXECUTOR PATH
-# Validates that the internal ResearchExecutor execution path works correctly.
-# Full ERN scenario replication is owned by test_part52_canonical_ern_replication.
-# ===========================================================================
-
-class TestResearchExecutorPath:
-    """Verify the ResearchExecutor internal path executes Part 52 correctly."""
-
-    def test_baseline_produces_correct_unit_count(
-        self, baseline_result: ScenarioResult
-    ) -> None:
-        """Baseline scenario must produce exactly 1,739 simulation units."""
-        assert baseline_result.total_units == EXPECTED_UNITS, (
-            f"expected {EXPECTED_UNITS} units, got {baseline_result.total_units}"
-        )
-
-    def test_baseline_executes_successfully(
-        self, baseline_result: ScenarioResult
-    ) -> None:
-        """Baseline scenario must execute and produce valid results."""
-        assert baseline_result.success_rate >= Decimal("0"), (
-            f"Baseline produced invalid success rate: {baseline_result.success_rate}"
-        )
-
-    def test_baseline_no_anomalies(self, baseline_result: ScenarioResult) -> None:
-        """Baseline scenario must have no critical anomalies."""
-        assert baseline_result.anomalies == []
-
-    def test_baseline_completes_within_time_limit(
-        self, baseline_result: ScenarioResult
-    ) -> None:
-        """Baseline scenario must complete within 60 minutes."""
-        assert baseline_result.execution_time_s < 3600, (
-            f"took {baseline_result.execution_time_s:.0f}s (> 60 min)"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Standalone execution for report generation
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("=" * 80)
-    print("S6.3 — Part 52 Deterministic Scenario Validation")
-    print("=" * 80)
-    print("Scenario: baseline (no leverage)")
-    print(f"Total units: {EXPECTED_UNITS:,}")
-    print()
-
-    r = _execute_baseline_scenario()
-    print(f"Result: {r.successful_units}/{r.total_units} "
-          f"({r.success_rate}), {r.execution_time_s:.1f}s")
-    if r.anomalies:
-        for a in r.anomalies:
-            print(f"  NOTE: {a}")
-    else:
-        print("  OK")
-    print()
-    print("=" * 80)
