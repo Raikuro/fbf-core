@@ -148,6 +148,8 @@ def build_interest_rate_schedule(
     lag_months:
         Number of months to lag the FFR observation (default 0).
         ERN Part 52 uses lag_months=1: month T uses FFR from month T-1.
+        At T=0, the rate at the cohort's start date is used as a filler
+        (never consumed: loan_balance=0 at initialization).
     inflation_adjustment:
         Expected annual inflation to subtract from nominal FFR to obtain
         the real rate. Required for real-terms datasets where CPI=0.
@@ -161,7 +163,8 @@ def build_interest_rate_schedule(
     Raises
     ------
     ValueError
-        If the FFR dataset does not cover the required period.
+        If the FFR dataset does not cover the required period (except at
+        T=0 when lag_months>0, where the start-date rate is used as filler).
     """
     # Build date -> rate lookup
     rate_map: dict[date, Decimal] = dict(ffr_rates)
@@ -189,9 +192,16 @@ def build_interest_rate_schedule(
             lagged_date = date(lagged_year, lagged_month, lagged_day)
             rate = rate_map.get(lagged_date)
             if rate is None:
-                # Forward-fill: use last known FFR for periods beyond dataset end
                 if latest is not None and lagged_date > latest:
+                    # Forward-fill: use last known FFR for periods beyond dataset end
                     rate = rate_map[latest]
+                elif month_idx == 0 and earliest is not None:
+                    # T=0 boundary: the ERN workbook never accrues interest at T=0
+                    # (loan_balance=0), so the rate at index 0 is never consumed.
+                    # When lag_months>0, the lagged date for T=0 may fall before the
+                    # dataset start. Use the cohort's own start-date rate as a
+                    # semantically correct filler.
+                    rate = rate_map.get(period_date, rate_map[earliest])
                 else:
                     raise ValueError(
                         f"No FFR rate available for lagged date {lagged_date} "

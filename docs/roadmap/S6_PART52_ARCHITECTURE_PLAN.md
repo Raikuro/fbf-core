@@ -1104,21 +1104,31 @@ occurs immediately.
 
 ### 10.7 Interest Rate Timing (RESOLVED)
 
-**Interest accrues at end-of-period (step 65), using the FFR from
-the current period's dataset entry.**
+**ERN Part 52 uses a one-month FFR lag for interest accrual.**
 
-No lag or lead: the FFR for month M is the rate observed in month M.
-Interest accrual formula:
+The margin rate for period T uses the FFR observed at period T-1, proven
+by the workbook formula:
 ```
-annual_rate = FFR[period_index] + spread
+M41 = (1 + I40/12 + B20/12) / D41 * D40 - 1
+```
+where I40 is the FFR from the previous row (T-1). The ERN article itself
+is silent on this exact timing and defers to the workbook as the
+authoritative source.
+
+Interest accrual formula (with one-month lag):
+```
+annual_rate = FFR[period_index - 1] + spread  # FFR from previous month
 monthly_rate = annual_rate / 12
 interest = loan_balance × monthly_rate
 loan_balance += interest
 ```
 
 **FFR dataset alignment:**
-- Dataset entry for month M provides the FFR for month M
-- `interest_rate_schedule[period_index]` = FFR + spread for that month
+- `interest_rate_schedule[T]` = FFR from T-1 + spread (for T >= 1)
+- `interest_rate_schedule[0]` = construction filler (never consumed:
+  loan_balance=0 at initialization). When lag_months=1 and the lagged
+  date falls before the dataset start, the builder uses the cohort's
+  own start-date rate as the filler.
 - Interest accrues on the loan_balance at the start of the period
 
 ### 10.8 Failure Semantics Under Leveraged Repayment (RESOLVED)
