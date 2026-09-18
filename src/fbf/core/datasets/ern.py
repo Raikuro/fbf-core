@@ -4,13 +4,15 @@ Reconstructs the runtime Dataset from canonical CSV sources:
 
 - ``spx_tr_real.csv`` — S&P 500 TR real returns (ISO date format)
 - ``bond_10y_tr_real.csv`` — 10-Year Bond Market real returns (ISO date format)
+- ``cpi.csv`` — CPI levels (ISO date format, used for interest-rate inflation adjustment)
 
 Source: ERN SWR Toolbox Google Sheet, Asset Returns tab.
   https://docs.google.com/spreadsheets/d/1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8
 
-The loader owns all CSV-specific details: filenames, fee rules,
-forward-projection rules, and derived market state (ATH, underwater).
-The study builder does not know these details.
+The loader owns all CSV-specific details: filenames, forward-projection
+rules, and derived market state (ATH, underwater).  The dataset contains
+raw ERN market/index data with no fee embedding; the 0.05% p.a. ERN
+portfolio fee is applied at the portfolio/study level (expense_ratio).
 """
 
 from __future__ import annotations
@@ -28,13 +30,7 @@ from fbf.core.domain.model.dataset import Dataset
 
 _EQUITY_CSV = "spx_tr_real.csv"
 _BOND_CSV = "bond_10y_tr_real.csv"
-
-# ---------------------------------------------------------------------------
-# Fee constants
-# ---------------------------------------------------------------------------
-
-_FEE_ANNUAL = Decimal("0.0005")
-_FEE_MONTHLY = _FEE_ANNUAL / Decimal("12")
+_CPI_CSV = "cpi.csv"
 
 # ---------------------------------------------------------------------------
 # Base snapshot constants (index 0, 1871-01-31)
@@ -121,7 +117,9 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     """Load the ERN dataset from canonical CSV sources.
 
     Reconstructs the runtime Dataset from equity and bond real-return CSVs,
-    applying fee deductions, forward projections, and ATH/underwater state.
+    applying forward projections and ATH/underwater state.  The resulting
+    index_levels are raw ERN market data with no fee embedding; the 0.05%
+    p.a. ERN portfolio fee is applied at the portfolio/study level.
 
     Parameters
     ----------
@@ -139,9 +137,11 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
 
     equity_returns = _load_csv(data_dir / _EQUITY_CSV)
     bond_returns = _load_csv(data_dir / _BOND_CSV)
+    cpi_returns = _load_csv(data_dir / _CPI_CSV)
 
     eq_return_map: dict[str, float] = dict(equity_returns)
     bond_return_map: dict[str, float] = dict(bond_returns)
+    cpi_map: dict[str, float] = dict(cpi_returns)
 
     eq_asset = AssetClass(id="equity", name="", description="")
     bond_asset = AssetClass(id="bond", name="", description="")
@@ -156,11 +156,12 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
         is_ath_val: bool,
         is_uw_val: bool,
     ) -> None:
+        cpi_value = cpi_map.get(date_str, 0.0)
         snapshots.append(
             MarketSnapshot(
                 date=date.fromisoformat(date_str),
                 inflation=Decimal("0"),
-                inflation_cumulative=Decimal("0"),
+                inflation_cumulative=Decimal(str(cpi_value)),
                 is_ath=is_ath_val,
                 is_underwater=is_uw_val,
                 running_ath=Decimal(str(running_ath_val)),
@@ -198,8 +199,8 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
         r_eq = eq_return_map.get(date_key, 0.0)
         r_bond = bond_return_map.get(date_key, 0.0)
 
-        eq_level *= (1 + r_eq) * (1 - float(_FEE_MONTHLY))
-        bond_level *= (1 + r_bond) * (1 - float(_FEE_MONTHLY))
+        eq_level *= (1 + r_eq)
+        bond_level *= (1 + r_bond)
 
         running_ath = max(running_ath, eq_level)
         is_ath = eq_level >= running_ath
@@ -224,7 +225,7 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     # Part 1 §4.  October 2016 is month 1 of the projection; September
     # 2016's historical return is NOT reused for October.
     eq_monthly_forward = (1 + _EQUITY_FORWARD_ANNUAL) ** (1 / 12) - 1
-    bond_monthly_forward = -float(_FEE_MONTHLY)
+    bond_monthly_forward = 0.0  # 0% real p.a. for first 120 months — ERN Part 1 §4
     bond_monthly_forward_after = (1 + _BOND_FORWARD_ANNUAL_AFTER) ** (1 / 12) - 1
 
     months_into_projection = 0

@@ -192,8 +192,9 @@ class TestPart52WithdrawalPolicy:
         decision = policy.decide(context)
         budget = Decimal("100000") * Decimal("0.04") / Decimal("12")
         assert decision.loan_draw_amount == budget * Decimal("0.25")
-        # BORROW: nominal = C + D_t - D_{t-1} = budget + D_t (D_{t-1}=0)
-        assert decision.nominal_amount.amount == budget + budget * Decimal("0.25")
+        # BORROW: nominal = C (full budget; WithdrawalExecution consumes loan_draw
+        # from cash first, selling C - X from portfolio = ERN W = V - X)
+        assert decision.nominal_amount.amount == budget
         assert decision.is_repayment is False
 
     def test_repay_when_cdd_zero_with_loan(
@@ -255,7 +256,7 @@ class TestPart52WithdrawalPolicy:
     def test_borrow_pct_split(
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
-        """Verify BORROW mode: nominal = C + D_t, loan_draw = D_t."""
+        """Verify BORROW mode: nominal = C (full budget), loan_draw = X."""
         mock_sim_ctx = MockSimulationContext(
             dataset=dataset,
             initial_portfolio=initial_portfolio,
@@ -275,8 +276,8 @@ class TestPart52WithdrawalPolicy:
         )
         decision = policy.decide(context)
         budget = Decimal("100000") * Decimal("0.0391") / Decimal("12")
-        # BORROW: nominal = C + D_t - D_{t-1} = budget + D_t (D_{t-1}=0)
-        assert decision.nominal_amount.amount == budget + budget * borrow_pct
+        # BORROW: nominal = C (WithdrawalExecution sells C - X from portfolio)
+        assert decision.nominal_amount.amount == budget
         assert decision.loan_draw_amount == budget * borrow_pct
 
     def test_repayment_withdrawal_amount(
@@ -362,9 +363,8 @@ class TestMonthlyLoanDrawSemantics:
         )
         decision = policy.decide(context)
         assert decision.loan_draw_amount == budget * Decimal("0.25")
-        # BORROW: nominal = C + D_t - D_{t-1} = C (when D_t == D_{t-1})
-        expected_nominal = budget + budget * Decimal("0.25") - budget * Decimal("0.25")
-        assert decision.nominal_amount.amount == expected_nominal
+        # BORROW: nominal = C (full budget; WithdrawalExecution sells C - X)
+        assert decision.nominal_amount.amount == budget
         assert decision.is_repayment is False
 
     def test_consecutive_draws_have_consistent_amount(
@@ -401,8 +401,8 @@ class TestMonthlyLoanDrawSemantics:
             assert decision.loan_draw_amount == expected_draw, (
                 f"Month {month}: expected draw {expected_draw}, got {decision.loan_draw_amount}"
             )
-            # BORROW: nominal = C + D_t - D_{t-1}
-            assert decision.nominal_amount.amount == budget + expected_draw - prev_draw
+            # BORROW: nominal = C (full budget; WithdrawalExecution sells C - X)
+            assert decision.nominal_amount.amount == budget
 
     def test_drawdown_recovery_stops_borrowing(
         self, initial_portfolio: Portfolio, dataset: Dataset

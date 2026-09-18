@@ -148,14 +148,13 @@ class TestBondZeroRateBoundary:
         return float(snapshot.index_levels[keys[1]])
 
     def test_bond_zero_rate_sep_2026(self, dataset: Dataset) -> None:
-        """Sep 2026 bond growth from Aug 2026 must be ≈ 0% (fee drag only)."""
+        """Bond level at Sep 2026 must equal Aug 2026 (0% return, no fee drag)."""
         aug = self._snapshot_by_date(dataset, 2026, 8)
         sep = self._snapshot_by_date(dataset, 2026, 9)
         aug_bond = self._bond_level(aug)
         sep_bond = self._bond_level(sep)
-        # With 0% return and 0.05%/12 fee, monthly factor = (1 - 0.0005/12)
-        expected_sep = aug_bond * (1 - 0.0005 / 12)
-        assert sep_bond == pytest.approx(expected_sep, rel=1e-9)
+        # 0% real return for months 1-120; dataset is raw (no fee embedding)
+        assert sep_bond == aug_bond
 
     def test_bond_switches_at_oct_2026(self, dataset: Dataset) -> None:
         """Oct 2026 bond growth from Sep 2026 must be ≈ 2.6% p.a. monthly."""
@@ -188,8 +187,8 @@ class TestBondZeroRateBoundary:
         sep_2026 = self._snapshot_by_date(dataset, 2026, 9)
         oct_2026 = self._snapshot_by_date(dataset, 2026, 10)
 
-        # Bond at Sep 2026 should be less than at Oct 2016 (fee drag only)
-        assert self._bond_level(sep_2026) < self._bond_level(oct_2016)
+        # Bond level is constant during zero-rate period (raw dataset, no fee drag)
+        assert self._bond_level(sep_2026) == self._bond_level(oct_2016)
 
         # Bond at Oct 2026 should be GREATER than at Sep 2026 (2.6% kicks in)
         assert self._bond_level(oct_2026) > self._bond_level(sep_2026)

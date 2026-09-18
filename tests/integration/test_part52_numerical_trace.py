@@ -187,10 +187,11 @@ def test_complete_numerical_trace() -> None:
     result_month1 = state.monthly_results[-1]
 
     # Verify Month 1
-    # nominal_amount = budget + D_t - D_{t-1} = C + D_t (first borrow, D_{t-1}=0)
+    # BORROW: nominal = C (full budget; WithdrawalExecution consumes loan_draw
+    # from cash first, selling C - X from portfolio = ERN W = V - X)
     assert result_month1.withdrawal_decision is not None
     expected_loan_draw = BUDGET * BORROW_PCT
-    expected_nominal_m1 = BUDGET + expected_loan_draw  # C + D_t
+    expected_nominal_m1 = BUDGET
     assert result_month1.withdrawal_decision.loan_draw_amount == expected_loan_draw
     assert result_month1.withdrawal_decision.nominal_amount.amount == expected_nominal_m1
     assert result_month1.withdrawal_decision.is_repayment is False
@@ -210,10 +211,10 @@ def test_complete_numerical_trace() -> None:
     result_month2 = state.monthly_results[-1]
 
     # Verify Month 2 — new draw on top of existing loan
-    # nominal_amount = budget + D_t - D_{t-1} = C + D_t - D_t = C (steady borrow)
+    # BORROW: nominal = C (full budget; WithdrawalExecution handles loan_draw)
     assert result_month2.withdrawal_decision is not None
     expected_loan_draw_m2 = BUDGET * BORROW_PCT
-    expected_nominal_m2 = BUDGET  # C (D_t cancels D_{t-1})
+    expected_nominal_m2 = BUDGET
     assert result_month2.withdrawal_decision.loan_draw_amount == expected_loan_draw_m2
     assert (
         result_month2.withdrawal_decision.nominal_amount.amount

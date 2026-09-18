@@ -115,9 +115,12 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
         # Borrow when compound drawdown <= -threshold (more negative = deeper drawdown).
         if compound_dd <= -self.drawdown_threshold:
             # BORROW: activate leverage
-            # nominal = C + D_t - D_{t-1} → portfolio_sale = C - D_{t-1}
+            # ERN workbook: W = V - X (portfolio withdrawal = budget - loan_draw)
+            # The full budget V is passed as nominal_amount; WithdrawalExecutionStep
+            # consumes the loan_draw X from cash first, selling the remainder V - X
+            # from the portfolio — matching ERN's W = V - X.
             loan_draw = budget * self.borrow_pct
-            nominal_amount = budget + loan_draw - d_prev
+            nominal_amount = budget
             is_repayment = False
         elif compound_dd == Decimal("0") and loan_balance > 0:
             # REPAY: no loan draw, repay outstanding balance
@@ -135,7 +138,7 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
         # spending_budget = C - D_{t-1}: what's available for spending after
         # accounting for the prior period's debt.  LoanRepaymentStep computes
         # excess = nominal_amount - spending_budget:
-        #   BORROW: (C + D_t - D_{t-1}) - (C - D_{t-1}) = D_t
+        #   BORROW: C - (C - D_{t-1}) = D_{t-1} (positive but is_repayment=False)
         #   REPAY:  C - (C - D_{t-1}) = D_{t-1}
         #   NORMAL: C - C = 0
         spending_budget = budget - d_prev

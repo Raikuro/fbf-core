@@ -521,8 +521,8 @@ class TestPart52WithdrawalFrequency:
         decision = policy.decide(context)
         annual_budget = Decimal("100000") * Decimal("0.04")
         assert decision.loan_draw_amount == annual_budget * Decimal("0.25")
-        # BORROW: nominal = C + D_t - D_{t-1} = budget + D_t (D_{t-1}=0)
-        assert decision.nominal_amount.amount == annual_budget + annual_budget * Decimal("0.25")
+        # BORROW: nominal = C (full budget; WithdrawalExecution sells C - X)
+        assert decision.nominal_amount.amount == annual_budget
         assert decision.is_repayment is False
 
     def test_annual_repay_mode(

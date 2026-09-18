@@ -190,7 +190,9 @@ def build_interest_rate_schedule(
             lagged_month = lagged_total % 12 + 1
             lagged_day = min(start_date.day, calendar.monthrange(lagged_year, lagged_month)[1])
             lagged_date = date(lagged_year, lagged_month, lagged_day)
-            rate = rate_map.get(lagged_date)
+            # Normalize to month-start for FFR dataset lookup (dataset uses day=1)
+            lagged_date_ms = date(lagged_year, lagged_month, 1)
+            rate = rate_map.get(lagged_date_ms)
             if rate is None:
                 if latest is not None and lagged_date > latest:
                     # Forward-fill: use last known FFR for periods beyond dataset end
@@ -209,7 +211,9 @@ def build_interest_rate_schedule(
                         f"Available range: {earliest} to {latest}."
                     )
         else:
-            rate = rate_map.get(period_date)
+            # Normalize to month-start for FFR dataset lookup (dataset uses day=1)
+            period_date_ms = date(year, month, 1)
+            rate = rate_map.get(period_date_ms)
             if rate is None:
                 # Forward-fill: use last known FFR for periods beyond dataset end
                 if latest is not None and period_date > latest:
