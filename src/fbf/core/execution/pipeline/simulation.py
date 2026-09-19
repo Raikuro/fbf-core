@@ -68,6 +68,11 @@ class SimulationState:
     # the ERN-precise expense and timing correction.
     previous_portfolio_value: Decimal = Decimal("0")
 
+    # Cached canonical monthly withdrawal C = rate * initial_wealth / 12.
+    # Computed once per simulation by SimulationRunner to avoid repeated
+    # extraction from the withdrawal policy in ExpenseDeductionStep.
+    canonical_c: Decimal | None = None
+
     # Pre-computed C * r_t timing correction for the current period.
     # Set by ExpenseDeductionStep after computing r_t from the snapshot change.
     timing_correction: Decimal = Decimal("0")

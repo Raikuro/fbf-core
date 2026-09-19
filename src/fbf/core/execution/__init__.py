@@ -6,7 +6,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fbf.core.execution.profiling import (
     CompositeProfiler,
@@ -22,6 +22,9 @@ from fbf.core.execution.profiling import (
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.execution.strategies.fast_path import FastPathValidationError
 from fbf.core.study.builder import BuiltStudy, StudyPlanResult
+
+if TYPE_CHECKING:
+    from fbf.core.execution.pipeline.simulation_context import SimulationContext
 
 
 def sequential_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
@@ -228,6 +231,44 @@ class ExecutionOptions:
         return ExecutionOptions(profiler=ExecutionProfiler(), **kwargs)
 
 
+def _extract_simulation_contexts(
+    plan: Any,
+) -> tuple[SimulationContext, ...]:
+    """Extract SimulationContext objects from a plan for eligibility checking.
+
+    This is a lightweight check that creates minimal contexts to test
+    eligibility without running the full execution pipeline.
+    """
+    from fbf.core.execution.pipeline.simulation_context import (
+        SimulationContext,
+    )
+
+    if hasattr(plan, "units"):
+        contexts = []
+        for unit in plan.units:
+            ctx = SimulationContext(
+                experiment_name="eligibility_check",
+                cohort=str(unit.cohort.start_date),
+                start_date=unit.cohort.start_date,
+                horizon_months=unit.horizon_months or 360,
+                initial_wealth=plan.experiment_definition.initial_wealth,
+                initial_portfolio=unit.initial_portfolio,
+                dataset=unit.dataset,
+                allocation_policy=unit.allocation_policy,
+                withdrawal_policy=unit.withdrawal_policy,
+                final_value_target=unit.final_value_target,
+                loan_draw_rate=unit.loan_draw_rate,
+                interest_rate=unit.interest_rate,
+                interest_rate_schedule=unit.interest_rate_schedule,
+                ltv_limit=unit.ltv_limit,
+                ltv_enforcement=unit.ltv_enforcement,
+                expense_ratio=unit.expense_ratio,
+            )
+            contexts.append(ctx)
+        return tuple(contexts)
+    return ()
+
+
 def execute_study_plan(
     plan: StudyPlanResult | BuiltStudy,
     options: ExecutionOptions | None = None,
@@ -267,23 +308,35 @@ def execute_study_plan(
     sim_executor: Any = None
     if backend == ExecutionBackend.FAST:
         try:
-            from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
-        except ModuleNotFoundError as exc:
-            raise ModuleNotFoundError(
-                "FAST backend requires the optional Numba dependency. "
-                "Install it with: pip install fbf-core[numba]"
-            ) from exc
-        # Verify numba is actually importable (the executor imports it lazily
-        # inside execute(); fail early with a clear message rather than a
-        # confusing error deep in the execution path).
-        try:
             import numba as _numba_mod  # noqa: F401
         except ModuleNotFoundError as exc:
             raise ModuleNotFoundError(
                 "FAST backend requires the optional Numba dependency. "
                 "Install it with: pip install fbf-core[numba]"
             ) from exc
-        sim_executor = NumbaSimulationExecutor(profiler=profiler)
+
+        # Check if the workload is Part52-eligible for the dedicated kernel
+        from fbf.core.execution.strategies.part52_numba_executor import (
+            is_part52_eligible,
+        )
+
+        all_part52 = all(
+            is_part52_eligible(ctx)
+            for ctx in _extract_simulation_contexts(built.plan)
+        )
+
+        if all_part52:
+            from fbf.core.execution.strategies.part52_numba_executor import (
+                Part52NumbaExecutor,
+            )
+
+            sim_executor = Part52NumbaExecutor(profiler=profiler)
+        else:
+            from fbf.core.execution.strategies.numba_executor import (
+                NumbaSimulationExecutor,
+            )
+
+            sim_executor = NumbaSimulationExecutor(profiler=profiler)
     elif backend == ExecutionBackend.DEFAULT:
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
 

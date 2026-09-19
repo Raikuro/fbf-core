@@ -101,6 +101,13 @@ class SimulationRunner:
         ltv_limit = context.ltv_limit if context.ltv_limit is not None else Decimal("0")
         ltv_enforcement = context.ltv_enforcement
 
+        # Cache canonical C = rate * initial_wealth / 12 (constant for all periods)
+        canonical_c = None
+        if context.withdrawal_policy is not None and context.initial_wealth is not None:
+            rate = getattr(context.withdrawal_policy, "withdrawal_rate", None)
+            if rate is not None and isinstance(rate, Decimal):
+                canonical_c = rate * context.initial_wealth.amount / Decimal("12")
+
         # The simulation clock starts at the first dataset snapshot date
         # (the pre-retirement baseline d_{c-1}).
         initial_date = market_snapshot.date if market_snapshot is not None else context.start_date
@@ -118,6 +125,7 @@ class SimulationRunner:
             interest_rate=interest_rate,
             ltv_limit=ltv_limit,
             ltv_enforcement=ltv_enforcement,
+            canonical_c=canonical_c,
         )
 
     def _build_result(self, state: SimulationState) -> SimulationResult:

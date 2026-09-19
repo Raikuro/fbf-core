@@ -29,7 +29,6 @@ class FailureDetectionStep(PipelineStep):
     def execute(self, state: SimulationState) -> SimulationState:
         self._validate_state(state)
 
-        # Calculate current portfolio value
         portfolio_value = self._calculate_portfolio_value(state)
 
         # Check failure conditions

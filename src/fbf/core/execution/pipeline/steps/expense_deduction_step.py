@@ -109,7 +109,10 @@ class ExpenseDeductionStep(PipelineStep):
         return state
 
     def _get_canonical_c(self, state: SimulationState) -> Decimal:
-        """Extract the constant monthly withdrawal C from the withdrawal policy."""
+        """Return the cached canonical monthly withdrawal C."""
+        if state.canonical_c is not None:
+            return state.canonical_c
+
         ctx = state.context
         if ctx.withdrawal_policy is None:
             return Decimal("0")

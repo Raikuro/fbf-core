@@ -25,6 +25,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
+from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.execution.pipeline.pipeline import PipelineStep
 from fbf.core.execution.pipeline.simulation import SimulationState
@@ -52,7 +53,8 @@ class LTVEvaluationStep(PipelineStep):
         if state.loan_balance <= 0:
             return state
 
-        # Calculate current portfolio value
+        # Always compute portfolio value from current holdings and snapshot
+        # (critical for correctness: LTV enforcement modifies the portfolio)
         portfolio_value = self._calculate_portfolio_value(state)
 
         # If portfolio is zero, liquidation is not possible
@@ -87,6 +89,9 @@ class LTVEvaluationStep(PipelineStep):
                 state.portfolio, portfolio_value, state.market_snapshot
             )
             state.loan_balance -= portfolio_value
+            # Update current_wealth after liquidation for downstream steps
+            if state.current_wealth is not None:
+                state.current_wealth = Money(Decimal("0"), state.current_wealth.currency)
             # FailureDetectionStep will detect this as unsatisfiable margin call
             return state
 
@@ -97,6 +102,11 @@ class LTVEvaluationStep(PipelineStep):
 
         # Reduce loan balance by liquidation amount (proceeds repay loan)
         state.loan_balance -= liquidation_amount
+
+        # Update current_wealth after liquidation for downstream steps
+        if state.current_wealth is not None:
+            remaining = portfolio_value - liquidation_amount
+            state.current_wealth = Money(remaining, state.current_wealth.currency)
 
         return state
 

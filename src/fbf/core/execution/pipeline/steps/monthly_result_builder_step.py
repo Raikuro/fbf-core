@@ -18,12 +18,16 @@ class MonthlyResultBuilderStep(PipelineStep):
         # Build debt snapshot if debt state exists (loan balance or interest rate)
         debt_snapshot = None
         if state.loan_balance > 0 or state.interest_rate > 0:
-            # Compute LTV
-            portfolio_value = Decimal("0")
-            for holding in state.portfolio.holdings:
-                price = state.market_snapshot.index_levels.get(holding.asset_class)
-                if price is not None:
-                    portfolio_value += holding.units * price
+            # Use cached portfolio value when available,
+            # otherwise compute from portfolio + snapshot (direct pipeline callers).
+            if state.current_wealth is not None:
+                portfolio_value = state.current_wealth.amount
+            else:
+                portfolio_value = Decimal("0")
+                for holding in state.portfolio.holdings:
+                    price = state.market_snapshot.index_levels.get(holding.asset_class)
+                    if price is not None:
+                        portfolio_value += holding.units * price
 
             ltv = Decimal("0")
             if portfolio_value > 0 and state.loan_balance > 0:

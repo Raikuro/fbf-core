@@ -29,6 +29,8 @@ class PortfolioWithdrawalService:
         portfolio: Portfolio,
         requested_withdrawal: WithdrawalDecision,
         market_snapshot: MarketSnapshot,
+        *,
+        portfolio_value: Money | None = None,
     ) -> WithdrawalExecutionResult:
         if portfolio is None:
             raise ValueError("Portfolio is required")
@@ -39,7 +41,8 @@ class PortfolioWithdrawalService:
         if requested_withdrawal.nominal_amount.amount < Decimal("0"):
             raise ValueError("Requested withdrawal must not be negative")
 
-        portfolio_value = self._calculate_portfolio_value(portfolio, market_snapshot)
+        if portfolio_value is None:
+            portfolio_value = self._calculate_portfolio_value(portfolio, market_snapshot)
         if requested_withdrawal.nominal_amount == Money.ZERO:
             return WithdrawalExecutionResult(
                 requested_withdrawal=requested_withdrawal,
