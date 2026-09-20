@@ -332,6 +332,7 @@ class Part52NumbaExecutor(SimulationExecutor):
             threshold = float(withdrawal_policy.drawdown_threshold)
             borrow_pct = float(withdrawal_policy.borrow_pct)
             ltv_limit = float(sample_ctx.ltv_limit) if sample_ctx.ltv_limit else 0.5
+            ltv_enforcement = sample_ctx.ltv_enforcement
 
             gf_key = _gf_cache_key(sample_ctx)
             growth_factors_full = self._gf_cache[gf_key]
@@ -353,6 +354,7 @@ class Part52NumbaExecutor(SimulationExecutor):
                 _final_val, _kernel_success, fail_month, _final_loan = _simulate_part52(
                     growth_factors_arr, mr_arr, eq_prices,
                     v0, c, threshold, borrow_pct, ltv_limit, horizon,
+                    ltv_enforcement,
                 )
 
                 for ctx in h_contexts:

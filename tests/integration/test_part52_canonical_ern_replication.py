@@ -234,7 +234,7 @@ def _build_study_config(
             cohort_horizon_years=COHORT_HORIZON_YEARS,
             ffr_spread=scenario.ffr_spread,
             debt_ltv_limit=LTV_LIMIT,
-            debt_ltv_enforcement=True,
+            debt_ltv_enforcement=False,
             debt_borrow_pct=borrow_pct,
             debt_drawdown_threshold=scenario.threshold,
         )
@@ -251,7 +251,7 @@ def _build_study_config(
         cohort_horizon_years=COHORT_HORIZON_YEARS,
         debt_interest_rate=Decimal("0.015"),
         debt_ltv_limit=LTV_LIMIT,
-        debt_ltv_enforcement=True,
+        debt_ltv_enforcement=False,
         debt_borrow_pct=borrow_pct,
         debt_drawdown_threshold=scenario.threshold,
     )
@@ -337,7 +337,7 @@ def _find_compatible_borrow_pct(
             ),
             debt_interest_rate=Decimal("0"),  # Not used when FFR is configured
             ltv_limit=LTV_LIMIT,
-            ltv_enforcement=True,
+            ltv_enforcement=False,
             ffr_spread=scenario.ffr_spread,
             borrow_pcts=borrow_grid,
             horizon_years=HORIZON_YEARS,
@@ -354,7 +354,7 @@ def _find_compatible_borrow_pct(
             ),
             debt_interest_rate=Decimal("0.015"),
             ltv_limit=LTV_LIMIT,
-            ltv_enforcement=True,
+            ltv_enforcement=False,
             ffr_spread=None,
             borrow_pcts=borrow_grid,
             horizon_years=HORIZON_YEARS,

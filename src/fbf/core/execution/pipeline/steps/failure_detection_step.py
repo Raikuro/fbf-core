@@ -35,8 +35,14 @@ class FailureDetectionStep(PipelineStep):
         if portfolio_value <= 0:
             # Portfolio depleted (this includes both clean depletion and insolvency)
             state.failure_state = "depleted"
-        elif state.loan_balance > portfolio_value and state.loan_balance > 0:
-            # Unsatisfiable margin call
+        elif (
+            state.ltv_enforcement
+            and state.loan_balance > portfolio_value
+            and state.loan_balance > 0
+        ):
+            # Unsatisfiable margin call — only when LTV enforcement is active.
+            # With enforcement OFF (ERN canonical), loan may exceed portfolio
+            # without triggering failure.
             state.failure_state = "margin_call_impossible"
 
         return state

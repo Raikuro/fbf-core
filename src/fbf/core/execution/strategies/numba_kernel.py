@@ -439,6 +439,7 @@ def _simulate_part52(
     borrow_pct: float,
     ltv_limit: float,
     horizon: int,
+    ltv_enforcement: bool = True,
 ) -> tuple[float, bool, int, float]:
     """Simulate one Part52 trajectory using the scalar recurrence.
 
@@ -476,6 +477,10 @@ def _simulate_part52(
         Loan-to-value limit (e.g. 0.50).
     horizon:
         Number of months to simulate.
+    ltv_enforcement:
+        When True, enforce LTV limit with forced liquidation and fail on
+        unsatisfiable margin calls.  When False, observe LTV only (ERN
+        canonical replication mode).
 
     Returns
     -------
@@ -552,7 +557,7 @@ def _simulate_part52(
         # use the same valuation as the pipeline's LTV check.  Applying gf[m]
         # first would understate the portfolio during a market decline and trigger
         # premature liquidation that the pipeline would not trigger yet.
-        if Y > 0.0 and V > 0.0:
+        if ltv_enforcement and Y > 0.0 and V > 0.0:
             ltv = Y / V
             if ltv > ltv_limit:
                 # Margin call: liquidate to restore LTV to limit
@@ -568,7 +573,7 @@ def _simulate_part52(
         # --- Failure detection (step 75) ---
         if V <= 0.0:
             return 0.0, False, m, Y
-        if Y > V and Y > 0.0:
+        if ltv_enforcement and Y > V and Y > 0.0:
             return V, False, m, Y
 
         # --- Growth (implicit in price change) ---
@@ -602,6 +607,7 @@ def _simulate_part52_batch(
     ltv_limits: NDArray[np.float64],
     horizons: NDArray[np.int32],
     offsets: NDArray[np.int32],
+    ltv_enforcements: NDArray[np.bool_],
     n_trajectories: int,
 ) -> tuple[
     NDArray[np.float64],
@@ -612,7 +618,7 @@ def _simulate_part52_batch(
     """Simulate a batch of Part52 trajectories in parallel using numba.prange.
 
     All trajectories share the same growth_factors (same equity allocation and
-    market trajectory), but may differ in monthly_rates, equity_prices offsets,
+    trajectory), but may differ in monthly_rates, equity_prices offsets,
     parameters, and horizons.
 
     Parameters
@@ -637,6 +643,8 @@ def _simulate_part52_batch(
         Horizon in months per trajectory.
     offsets:
         Starting offset into monthly_rates_all and equity_prices_all per trajectory.
+    ltv_enforcements:
+        Per-trajectory LTV enforcement flags.
     n_trajectories:
         Total number of trajectories.
     """
@@ -657,6 +665,7 @@ def _simulate_part52_batch(
             growth_factors, mr, ep,
             initial_values[i], withdrawals_monthly[i],
             thresholds[i], borrow_pcts[i], ltv_limits[i], h,
+            ltv_enforcements[i],
         )
         final_values[i] = fv
         successes[i] = ok

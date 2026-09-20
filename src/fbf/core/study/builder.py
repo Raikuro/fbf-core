@@ -426,7 +426,11 @@ def build_withdrawal_policy(
         return build_part52_withdrawal_policy(
             withdrawal_rate=scalar,
             borrow_pct=borrow_pct or Decimal("0"),
-            drawdown_threshold=drawdown_threshold or Decimal("0.20"),
+            drawdown_threshold=(
+                drawdown_threshold
+                if drawdown_threshold is not None
+                else Decimal("0")
+            ),
             frequency=frequency,
         )
     raise ValueError(f"Unsupported withdrawal policy type: {policy_type!r}")
