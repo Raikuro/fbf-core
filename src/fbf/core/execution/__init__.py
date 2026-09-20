@@ -114,16 +114,21 @@ class ProgressEvent:
 class ExecutionBackend(StrEnum):
     """Public execution backend selection.
 
-    ``DEFAULT`` executes with exact Decimal semantics.  It automatically uses
-    the optimized fast path when the workload is eligible and falls back to
-    the legacy Decimal reference for ineligible contexts.
-
     ``FAST`` executes with float64 numerical semantics for maximum throughput.
     Currently implemented with Numba; the implementation may evolve without
     changing the public name.
+
+    ``REFERENCE`` executes with exact Decimal semantics.  It is the
+    authoritative reference implementation against which optimized backends
+    are validated.  Used for validation, debugging, oracle comparisons,
+    and regression testing.
+
+    When no backend is specified (the default ``None``), the AUTO dispatch
+    selects the best validated backend for the workload: FAST when all units
+    are eligible, REFERENCE otherwise.
     """
 
-    DEFAULT = "default"
+    REFERENCE = "reference"
     FAST = "fast"
 
 
@@ -145,14 +150,14 @@ class ExecutionStrategy(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# AUTO routing policy for DEFAULT backend
+# AUTO routing policy for REFERENCE backend
 # ---------------------------------------------------------------------------
-# The DEFAULT backend benefits from parallelism at meaningful workloads but
+# The REFERENCE backend benefits from parallelism at meaningful workloads but
 # incurs measurable overhead (process creation, IPC, result aggregation) for
 # small plans.
 #
 # The threshold below is the minimum unit count at which the AUTO strategy
-# selects parallel execution for the DEFAULT backend, provided that multiple
+# selects parallel execution for the REFERENCE backend, provided that multiple
 # workers are available.
 #
 # Measured crossover on the reference development host (4 workers, 120-month
@@ -181,9 +186,12 @@ class ExecutionOptions:
     Attributes
     ----------
     backend:
-        Execution backend selection.  ``DEFAULT`` uses exact Decimal semantics
-        (fast-path with legacy fallback).  ``FAST`` uses float64 semantics
-        (currently Numba).  Default is ``DEFAULT``.
+        Execution backend selection.  ``None`` (the default) enables AUTO
+        dispatch: the system selects the best validated backend for the
+        workload (FAST when all units are eligible, REFERENCE otherwise).
+        ``REFERENCE`` explicitly requests the authoritative Decimal reference
+        implementation.  ``FAST`` explicitly requests the optimized float64
+        backend (currently Numba).  Default is ``None``.
     strategy:
         Execution strategy (``AUTO``, ``SEQUENTIAL``, or ``PARALLEL``).
         ``PARALLEL`` is not supported by the ``FAST`` backend.
@@ -211,7 +219,7 @@ class ExecutionOptions:
         behaviour for callers that require full timeline data.
     """
 
-    backend: ExecutionBackend = ExecutionBackend.DEFAULT
+    backend: ExecutionBackend | None = None
     strategy: ExecutionStrategy = ExecutionStrategy.AUTO
     workers: int | None = None
     batch_size: int | None = None
@@ -269,6 +277,54 @@ def _extract_simulation_contexts(
     return ()
 
 
+def _auto_select_backend(
+    built: Any,
+    profiler: Any,
+) -> Any:
+    """AUTO dispatch: select the best validated backend for the workload.
+
+    Returns the SimulationExecutor for the selected backend.  When numba is
+    available and all units are FAST-eligible (Part52 or FixedReal), the
+    optimized Numba executor is used.  Otherwise the Decimal fast-path
+    (REFERENCE fallback) is used.
+    """
+    try:
+        import numba as _numba_mod  # noqa: F401
+    except ModuleNotFoundError:
+        from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
+
+        return FastPathSimulationExecutor(profiler=profiler)
+
+    from fbf.core.execution.strategies.part52_numba_executor import (
+        is_part52_eligible,
+    )
+
+    contexts = _extract_simulation_contexts(built.plan)
+    all_part52 = all(is_part52_eligible(ctx) for ctx in contexts)
+
+    if all_part52:
+        from fbf.core.execution.strategies.part52_numba_executor import (
+            Part52NumbaExecutor,
+        )
+
+        return Part52NumbaExecutor(profiler=profiler)
+
+    from fbf.core.execution.strategies.fast_path import is_fast_path_eligible
+
+    all_fixed_real = all(is_fast_path_eligible(ctx) for ctx in contexts)
+
+    if all_fixed_real:
+        from fbf.core.execution.strategies.numba_executor import (
+            NumbaSimulationExecutor,
+        )
+
+        return NumbaSimulationExecutor(profiler=profiler)
+
+    from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
+
+    return FastPathSimulationExecutor(profiler=profiler)
+
+
 def execute_study_plan(
     plan: StudyPlanResult | BuiltStudy,
     options: ExecutionOptions | None = None,
@@ -281,18 +337,26 @@ def execute_study_plan(
     When an ``ExecutionProfiler`` is provided, phase timings and metrics
     are recorded and accessible via ``options.profiler.get_report()``.
 
-    Backend and strategy are read directly from ``options.backend`` and
+    Backend and strategy are read from ``options.backend`` and
     ``options.strategy``.  Unsupported combinations (``FAST`` + ``PARALLEL``)
     raise ``ValueError``.
 
-    When ``strategy=AUTO``:
+    Backend selection (``options.backend``):
 
-    - ``FAST`` always resolves to sequential (parallel was measured as
-      counterproductive at all scales).
-    - ``DEFAULT`` selects parallel when the plan has at least
-      ``_DEFAULT_PARALLEL_UNIT_THRESHOLD`` units *and* more than one worker
-      is available; otherwise sequential.  The ``workers`` option acts as an
-      optional resource hint / upper bound, not a directive to parallelize.
+    - ``None`` (default): AUTO dispatch selects the best validated backend.
+      FAST when all units are Part52-eligible or FixedReal-eligible,
+      REFERENCE otherwise.
+    - ``FAST``: explicitly request the optimized Numba backend.
+    - ``REFERENCE``: explicitly request the authoritative Decimal reference.
+
+    Strategy selection (``options.strategy``):
+
+    - ``AUTO``: ``FAST`` always resolves to sequential.  ``REFERENCE`` selects
+      parallel when the plan has at least ``_DEFAULT_PARALLEL_UNIT_THRESHOLD``
+      units *and* more than one worker is available; otherwise sequential.
+    - ``SEQUENTIAL``: force single-process execution.
+    - ``PARALLEL``: explicitly request multiprocessing.  Not supported by
+      ``FAST``; raises ``ValueError``.
     """
     opt = options or ExecutionOptions()
     built = plan if isinstance(plan, BuiltStudy) else plan.built_study
@@ -306,7 +370,10 @@ def execute_study_plan(
     # --- Backend selection ---
     profiler.start("backend_selection")
     sim_executor: Any = None
-    if backend == ExecutionBackend.FAST:
+    if backend is None:
+        # AUTO dispatch: capability-driven routing
+        sim_executor = _auto_select_backend(built, profiler)
+    elif backend == ExecutionBackend.FAST:
         try:
             import numba as _numba_mod  # noqa: F401
         except ModuleNotFoundError as exc:
@@ -337,7 +404,7 @@ def execute_study_plan(
             )
 
             sim_executor = NumbaSimulationExecutor(profiler=profiler)
-    elif backend == ExecutionBackend.DEFAULT:
+    elif backend == ExecutionBackend.REFERENCE:
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
 
         sim_executor = FastPathSimulationExecutor(profiler=profiler)
@@ -352,7 +419,16 @@ def execute_study_plan(
     if strategy == ExecutionStrategy.SEQUENTIAL:
         use_parallel = False
     elif strategy == ExecutionStrategy.PARALLEL:
-        if backend == ExecutionBackend.FAST:
+        from fbf.core.execution.strategies.numba_executor import (
+            NumbaSimulationExecutor,
+        )
+        from fbf.core.execution.strategies.part52_numba_executor import (
+            Part52NumbaExecutor,
+        )
+
+        if backend == ExecutionBackend.FAST or isinstance(
+            sim_executor, (Part52NumbaExecutor, NumbaSimulationExecutor)
+        ):
             raise ValueError(
                 "FAST backend does not support parallel execution. "
                 "Use strategy=ExecutionStrategy.AUTO or "
@@ -363,8 +439,27 @@ def execute_study_plan(
         if backend == ExecutionBackend.FAST:
             # Parallel was measured as counterproductive for Numba at all scales.
             use_parallel = False
+        elif backend is None:
+            # AUTO dispatch selected a backend; FAST always sequential.
+            from fbf.core.execution.strategies.numba_executor import (
+                NumbaSimulationExecutor,
+            )
+            from fbf.core.execution.strategies.part52_numba_executor import (
+                Part52NumbaExecutor,
+            )
+
+            if isinstance(sim_executor, (Part52NumbaExecutor, NumbaSimulationExecutor)):
+                use_parallel = False
+            else:
+                # REFERENCE path: workload-aware routing.
+                total_units = len(built.plan.units)
+                available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
+                use_parallel = (
+                    total_units >= _DEFAULT_PARALLEL_UNIT_THRESHOLD
+                    and available_workers > 1
+                )
         else:
-            # DEFAULT: workload-aware routing.
+            # REFERENCE: workload-aware routing.
             total_units = len(built.plan.units)
             available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
             use_parallel = (

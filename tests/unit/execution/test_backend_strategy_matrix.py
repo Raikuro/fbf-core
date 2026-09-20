@@ -7,6 +7,8 @@ unsupported combinations fail explicitly.
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -35,15 +37,15 @@ def _make_built_study(cohorts: int = 1, horizons: list[int] | None = None) -> Bu
     )
 
 
-class TestDefaultBackendStrategy:
-    """DEFAULT backend × strategy combinations."""
+class TestReferenceBackendStrategy:
+    """REFERENCE backend × strategy combinations."""
 
-    def test_default_auto_small_workload_selects_sequential(self) -> None:
-        """DEFAULT + AUTO with a small plan resolves to sequential."""
+    def test_reference_auto_small_workload_selects_sequential(self) -> None:
+        """REFERENCE + AUTO with a small plan resolves to sequential."""
         built = _make_built_study(cohorts=1, horizons=[720])
         # Fewer units than threshold → sequential
         options = ExecutionOptions(
-            backend=ExecutionBackend.DEFAULT,
+            backend=ExecutionBackend.REFERENCE,
             strategy=ExecutionStrategy.AUTO,
             workers=8,
             summary_only=True,
@@ -53,17 +55,17 @@ class TestDefaultBackendStrategy:
         assert result.experiment_result is not None
         assert all(r.timeline.monthly_results == () for r in result.results)
 
-    def test_default_auto_large_workload_selects_parallel(
+    def test_reference_auto_large_workload_selects_parallel(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """DEFAULT + AUTO with a large plan resolves to parallel when workers available."""
+        """REFERENCE + AUTO with a large plan resolves to parallel when workers available."""
         built = _make_built_study(cohorts=1, horizons=[720])
         # Patch the threshold to 0 so the small test plan triggers parallel
         monkeypatch.setattr(
             "fbf.core.execution._DEFAULT_PARALLEL_UNIT_THRESHOLD", 0
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.DEFAULT,
+            backend=ExecutionBackend.REFERENCE,
             strategy=ExecutionStrategy.AUTO,
             workers=2,
             summary_only=True,
@@ -72,11 +74,11 @@ class TestDefaultBackendStrategy:
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
 
-    def test_default_auto_workers_none_uses_host_default(self) -> None:
-        """DEFAULT + AUTO with workers=None inspects host capabilities."""
+    def test_reference_auto_workers_none_uses_host_default(self) -> None:
+        """REFERENCE + AUTO with workers=None inspects host capabilities."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.DEFAULT,
+            backend=ExecutionBackend.REFERENCE,
             strategy=ExecutionStrategy.AUTO,
             workers=None,
             summary_only=True,
@@ -85,11 +87,11 @@ class TestDefaultBackendStrategy:
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
 
-    def test_default_sequential_forces_sequential(self) -> None:
-        """DEFAULT + SEQUENTIAL always executes sequentially."""
+    def test_reference_sequential_forces_sequential(self) -> None:
+        """REFERENCE + SEQUENTIAL always executes sequentially."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.DEFAULT,
+            backend=ExecutionBackend.REFERENCE,
             strategy=ExecutionStrategy.SEQUENTIAL,
             workers=8,
             summary_only=True,
@@ -97,11 +99,11 @@ class TestDefaultBackendStrategy:
         result = execute_study_plan(built, options)
         assert result.experiment_result is not None
 
-    def test_default_parallel_forces_parallel(self) -> None:
-        """DEFAULT + PARALLEL always executes in parallel."""
+    def test_reference_parallel_forces_parallel(self) -> None:
+        """REFERENCE + PARALLEL always executes in parallel."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.DEFAULT,
+            backend=ExecutionBackend.REFERENCE,
             strategy=ExecutionStrategy.PARALLEL,
             workers=2,
             summary_only=True,
@@ -186,7 +188,7 @@ class TestAutoRoutingPolicy:
             "fbf.core.execution._DEFAULT_PARALLEL_UNIT_THRESHOLD", 100_000
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.DEFAULT,
+            backend=ExecutionBackend.REFERENCE,
             strategy=ExecutionStrategy.AUTO,
             workers=64,
             summary_only=True,
@@ -199,7 +201,7 @@ class TestAutoRoutingPolicy:
         """Explicit SEQUENTIAL prevents parallel even for large plans."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.DEFAULT,
+            backend=ExecutionBackend.REFERENCE,
             strategy=ExecutionStrategy.SEQUENTIAL,
             workers=64,
             summary_only=True,
@@ -216,7 +218,7 @@ class TestAutoRoutingPolicy:
             "fbf.core.execution._DEFAULT_PARALLEL_UNIT_THRESHOLD", 100_000
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.DEFAULT,
+            backend=ExecutionBackend.REFERENCE,
             strategy=ExecutionStrategy.PARALLEL,
             workers=2,
             summary_only=True,
@@ -228,9 +230,9 @@ class TestAutoRoutingPolicy:
 class TestExecutionOptionsDefaults:
     """Verify ExecutionOptions default values."""
 
-    def test_default_backend_is_default(self) -> None:
+    def test_default_backend_is_none(self) -> None:
         opts = ExecutionOptions()
-        assert opts.backend == ExecutionBackend.DEFAULT
+        assert opts.backend is None
 
     def test_default_strategy_is_auto(self) -> None:
         opts = ExecutionOptions()
@@ -245,6 +247,119 @@ class TestExecutionOptionsDefaults:
         assert opts.summary_only is False
 
 
+class TestAutoBackendDispatch:
+    """AUTO dispatch: capability-driven backend selection."""
+
+    def test_auto_dispatch_selects_numba_for_fixed_real(self) -> None:
+        """backend=None + AUTO dispatches to Numba for FixedReal-eligible workloads."""
+        built = _make_built_study(cohorts=1, horizons=[720])
+        options = ExecutionOptions(
+            strategy=ExecutionStrategy.AUTO,
+            workers=None,
+            summary_only=True,
+        )
+        result = execute_study_plan(built, options)
+        assert result.experiment_result is not None
+
+    def test_auto_dispatch_falls_back_to_default_for_unsupported(self) -> None:
+        """backend=None + AUTO falls back to REFERENCE for unsupported policies."""
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.domain.policies import (
+            ConstantAllocationPolicy,
+            ConstantWithdrawalPolicy,
+        )
+        from fbf.core.study.builder import build_initial_portfolio
+        from fbf.core.study.internal.cohort.specification import CohortSpecification
+        from fbf.core.study.internal.experiment.definition import ExperimentDefinition
+        from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
+        from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
+        from tests.unit.execution.conftest import make_dataset
+
+        dataset = make_dataset(730)
+        start = date(1900, 1, 1)
+        portfolio = build_initial_portfolio(
+            Money(Decimal("1000000"), Currency.EUR), dataset
+        )
+        cohort = CohortSpecification(start_date=start)
+        const_wd = ConstantWithdrawalPolicy(withdrawal_rate=Decimal("0.04"))
+        experiment = ExperimentDefinition(
+            name="test", description="test", dataset=dataset,
+            horizon_months=720,
+            initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+            cohorts=(cohort,),
+            allocation_policies=(
+                ConstantAllocationPolicy(Decimal("0.75")),
+            ),
+            withdrawal_policies=(const_wd,),
+        )
+        unit = PlannedSimulationUnit(
+            cohort=cohort,
+            parameter_config=ParameterConfiguration({
+                "equity_allocation": 0.75,
+                "withdrawal_rate": 0.04,
+                "horizon_years": 60,
+            }),
+            allocation_policy=ConstantAllocationPolicy(Decimal("0.75")),
+            withdrawal_policy=const_wd,
+            initial_portfolio=portfolio,
+            dataset=dataset.slice(start, 720),
+        )
+        plan = ResearchPlan(
+            experiment_definition=experiment, units=(unit,),
+        )
+        built = BuiltStudy(
+            plan=plan, experiment_definition=experiment,
+            cohorts=(cohort,), param_configs=(),
+        )
+        options = ExecutionOptions(
+            strategy=ExecutionStrategy.AUTO, summary_only=True,
+        )
+        result = execute_study_plan(built, options)
+        assert result.experiment_result is not None
+
+    def test_explicit_reference_bypasses_auto_dispatch(self) -> None:
+        """backend=REFERENCE always uses Decimal reference, even for eligible workloads."""
+        built = _make_built_study(cohorts=1, horizons=[720])
+        options = ExecutionOptions(
+            backend=ExecutionBackend.REFERENCE,
+            strategy=ExecutionStrategy.AUTO,
+            summary_only=True,
+        )
+        result = execute_study_plan(built, options)
+        assert result.experiment_result is not None
+
+    def test_explicit_fast_bypasses_auto_dispatch(self) -> None:
+        """backend=FAST always uses Numba, even if AUTO would choose differently."""
+        built = _make_built_study(cohorts=1, horizons=[720])
+        options = ExecutionOptions(
+            backend=ExecutionBackend.FAST,
+            strategy=ExecutionStrategy.AUTO,
+            summary_only=True,
+        )
+        result = execute_study_plan(built, options)
+        assert result.experiment_result is not None
+
+    def test_auto_dispatch_parallel_raises_for_numba(self) -> None:
+        """backend=None + PARALLEL raises ValueError when AUTO selects Numba."""
+        built = _make_built_study(cohorts=1, horizons=[720])
+        options = ExecutionOptions(
+            strategy=ExecutionStrategy.PARALLEL,
+            workers=2,
+        )
+        with pytest.raises(ValueError, match="FAST backend does not support parallel"):
+            execute_study_plan(built, options)
+
+    def test_auto_dispatch_sequential_for_numba(self) -> None:
+        """backend=None + SEQUENTIAL forces sequential even when AUTO selects Numba."""
+        built = _make_built_study(cohorts=1, horizons=[720])
+        options = ExecutionOptions(
+            strategy=ExecutionStrategy.SEQUENTIAL,
+            summary_only=True,
+        )
+        result = execute_study_plan(built, options)
+        assert result.experiment_result is not None
+
+
 class TestSummaryOnlyEquivalence:
     """summary_only=True must produce identical statistics but empty timelines.
 
@@ -252,7 +367,7 @@ class TestSummaryOnlyEquivalence:
     returned ``SimulationResult`` objects.  All other semantic content —
     aggregate statistics, plan, experiment definition — must be unchanged.
 
-    The DEFAULT and FAST backends always produce empty timelines (they use
+    The REFERENCE and FAST backends always produce empty timelines (they use
     closed-form / Numba kernels that don't build monthly results).  To test
     the stripping behaviour we must use the reference SimulationExecutor
     directly via ``sequential_execute``.
