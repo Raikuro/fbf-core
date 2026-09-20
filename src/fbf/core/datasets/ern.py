@@ -36,41 +36,22 @@ _CPI_CSV = "cpi.csv"
 # Base snapshot constants (index 0, 1871-01-31)
 # ---------------------------------------------------------------------------
 
-_EQUITY_BASE_SNAPSHOT = 101.169089694984
-_BOND_BASE_SNAPSHOT = 100.747178470726
+_EQUITY_BASE_SNAPSHOT = Decimal("101.169089694984")
+_BOND_BASE_SNAPSHOT = Decimal("100.747178470726")
 
 # ---------------------------------------------------------------------------
 # First data point constants (index 1, 1871-02-01)
 # ---------------------------------------------------------------------------
 
-_EQUITY_BASE = 100.0
-_BOND_BASE = 100.0
+_EQUITY_BASE = Decimal("100")
+_BOND_BASE = Decimal("100")
 
 # ---------------------------------------------------------------------------
 # Forward projection constants (ERN canonical — Part 1 §4, Dec 7 2016)
 # ---------------------------------------------------------------------------
-# Source: ERN Part 1 article "The Ultimate Guide to Safe Withdrawal Rates –
-# Part 1: Introduction" (https://earlyretirementnow.com/2016/12/07/
-# the-ultimate-guide-to-safe-withdrawal-rates-part-1-intro), §4:
-#
-#   "We extrapolate past the current history and append equity and bond
-#   returns after September 2016.  To this end, we assume long-term
-#   average returns for equities going forward (about 6.6% real p.a.).
-#   For bonds, we assume a low real return over the first 10 years:
-#   only 0% real p.a. [...] After the initial 10 years, bonds too will
-#   return their long-term average of 2.6% real per year."
-#
-# Historical data ends September 2016; forward projection begins October 2016.
-# Bond zero-rate period: months 1–120 (Oct 2016 – Sep 2026 inclusive).
-# Bond long-term rate: month 121 onward (Oct 2026+).
-#
-# Supersedes the legacy h720.json reverse-engineered constants
-# (6.5467%/2.5487%/121 months).  That artifact is retained in the
-# provenance record for lineage.
-
-_EQUITY_FORWARD_ANNUAL = 0.066  # 6.6% real p.a. — ERN Part 1 §4
-_BOND_FORWARD_ANNUAL = 0.0  # 0% real p.a. for first 120 months
-_BOND_FORWARD_ANNUAL_AFTER = 0.026  # 2.6% real p.a. after month 120
+_EQUITY_FORWARD_ANNUAL = Decimal("0.066")  # 6.6% real p.a.
+_BOND_FORWARD_ANNUAL = Decimal("0")  # 0% real p.a. for first 120 months
+_BOND_FORWARD_ANNUAL_AFTER = Decimal("0.026")  # 2.6% real p.a. after month 120
 _BOND_FORWARD_DELAY_MONTHS = 120  # 10 years = 120 months
 _HISTORICAL_END = datetime(2016, 10, 1)  # first forward month
 _PROJECTION_END = datetime(2075, 11, 1)
@@ -81,13 +62,13 @@ _PROJECTION_END = datetime(2075, 11, 1)
 # ---------------------------------------------------------------------------
 
 
-def _load_csv(path: Path) -> list[tuple[str, float]]:
+def _load_csv(path: Path) -> list[tuple[str, Decimal]]:
     """Load a canonical date,value CSV.
 
     Accepts both YYYY-MM-DD and DD-MM-YYYY formats for backward
     compatibility.  Dates are normalised to ``YYYY-MM-DD`` on load.
     """
-    rows: list[tuple[str, float]] = []
+    rows: list[tuple[str, Decimal]] = []
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader)
@@ -104,7 +85,7 @@ def _load_csv(path: Path) -> list[tuple[str, float]]:
                     parts = raw_date.split("-")
                     if len(parts[0]) == 2 and len(parts[2]) == 4:
                         raw_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
-                rows.append((raw_date, float(row[1].strip())))
+                rows.append((raw_date, Decimal(row[1].strip())))
     return rows
 
 
@@ -139,35 +120,37 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     bond_returns = _load_csv(data_dir / _BOND_CSV)
     cpi_returns = _load_csv(data_dir / _CPI_CSV)
 
-    eq_return_map: dict[str, float] = dict(equity_returns)
-    bond_return_map: dict[str, float] = dict(bond_returns)
-    cpi_map: dict[str, float] = dict(cpi_returns)
+    eq_return_map: dict[str, Decimal] = dict(equity_returns)
+    bond_return_map: dict[str, Decimal] = dict(bond_returns)
+    cpi_map: dict[str, Decimal] = dict(cpi_returns)
 
     eq_asset = AssetClass(id="equity", name="", description="")
     bond_asset = AssetClass(id="bond", name="", description="")
 
     snapshots: list[MarketSnapshot] = []
 
+    _ONE = Decimal("1")
+
     def _append(
         date_str: str,
-        eq: float,
-        bond: float,
-        running_ath_val: float,
+        eq: Decimal,
+        bond: Decimal,
+        running_ath_val: Decimal,
         is_ath_val: bool,
         is_uw_val: bool,
     ) -> None:
-        cpi_value = cpi_map.get(date_str, 0.0)
+        cpi_value = cpi_map.get(date_str, Decimal("0"))
         snapshots.append(
             MarketSnapshot(
                 date=date.fromisoformat(date_str),
                 inflation=Decimal("0"),
-                inflation_cumulative=Decimal(str(cpi_value)),
+                inflation_cumulative=cpi_value,
                 is_ath=is_ath_val,
                 is_underwater=is_uw_val,
-                running_ath=Decimal(str(running_ath_val)),
+                running_ath=running_ath_val,
                 index_levels={
-                    eq_asset: Decimal(str(eq)),
-                    bond_asset: Decimal(str(bond)),
+                    eq_asset: eq,
+                    bond_asset: bond,
                 },
             )
         )
@@ -196,11 +179,11 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
             current_date.year if current_date.month > 1 else current_date.year - 1
         )
         date_key = f"{ret_year:04d}-{ret_month:02d}-01"
-        r_eq = eq_return_map.get(date_key, 0.0)
-        r_bond = bond_return_map.get(date_key, 0.0)
+        r_eq = eq_return_map.get(date_key, Decimal("0"))
+        r_bond = bond_return_map.get(date_key, Decimal("0"))
 
-        eq_level *= (1 + r_eq)
-        bond_level *= (1 + r_bond)
+        eq_level *= (_ONE + r_eq)
+        bond_level *= (_ONE + r_bond)
 
         running_ath = max(running_ath, eq_level)
         is_ath = eq_level >= running_ath
@@ -221,20 +204,18 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
             current_date = current_date.replace(month=current_date.month + 1)
 
     # Forward projection (2016-10 through 2075-11)
-    # All forward months use the canonical constant-return rates from
-    # Part 1 §4.  October 2016 is month 1 of the projection; September
-    # 2016's historical return is NOT reused for October.
-    eq_monthly_forward = (1 + _EQUITY_FORWARD_ANNUAL) ** (1 / 12) - 1
-    bond_monthly_forward = 0.0  # 0% real p.a. for first 120 months — ERN Part 1 §4
-    bond_monthly_forward_after = (1 + _BOND_FORWARD_ANNUAL_AFTER) ** (1 / 12) - 1
+    eq_monthly_forward = (_ONE + _EQUITY_FORWARD_ANNUAL) ** (Decimal("1") / Decimal("12")) - _ONE
+    bond_monthly_forward = Decimal("0")
+    _bd_fwd_exp = (_ONE + _BOND_FORWARD_ANNUAL_AFTER) ** (Decimal("1") / Decimal("12"))
+    bond_monthly_forward_after = _bd_fwd_exp - _ONE
 
     months_into_projection = 0
     while current_date <= _PROJECTION_END:
-        eq_level *= (1 + eq_monthly_forward)
+        eq_level *= (_ONE + eq_monthly_forward)
         if months_into_projection < _BOND_FORWARD_DELAY_MONTHS:
-            bond_level *= (1 + bond_monthly_forward)
+            bond_level *= (_ONE + bond_monthly_forward)
         else:
-            bond_level *= (1 + bond_monthly_forward_after)
+            bond_level *= (_ONE + bond_monthly_forward_after)
 
         running_ath = max(running_ath, eq_level)
         is_ath = eq_level >= running_ath

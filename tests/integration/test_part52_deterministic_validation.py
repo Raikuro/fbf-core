@@ -24,8 +24,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import pytest
-
 from fbf.core.domain.policies.types import WithdrawalPolicyType
 from fbf.core.study import StudyConfiguration
 

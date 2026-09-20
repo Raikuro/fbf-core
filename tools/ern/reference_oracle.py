@@ -37,30 +37,44 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from decimal import Decimal, localcontext
 from pathlib import Path
 
 _TOOL_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOL_DIR.parents[1]
 _DATA_DIR = _REPO_ROOT / "data" / "ern"
 
-FEE = 0.0005
-R_EQ_FWD = (1.066) ** (1 / 12) - 1.0
-R_BD_FWD0 = 0.0
-R_BD_FWD = (1.026) ** (1 / 12) - 1.0
+FEE = Decimal("0.0005")
+_R_EQ_FWD_ANNUAL = Decimal("1.066")
+_R_BD_FWD_ANNUAL = Decimal("1.026")
+_R_BD_FWD0 = Decimal("0")
 START_FIRST = 1
 START_LAST = 1739
-REALIZED_N = 2471  # historical + extrapolated months in canonical dataset
+# Historical returns end Sep 2016; only the historical portion of the canonical
+# CSV is loaded.  Forward projections use the constant ERN Part 1 §4 rates.
+_HISTORICAL_END = "2016-10-01"
 # N must cover all cohorts (1..1739) + max horizon (720 months)
-MAX_INDEX = max(REALIZED_N, 1739 + 720 - 1)
+MAX_INDEX = max(1739 + 720 - 1, 0)
 N = MAX_INDEX + 1
 
-RATES = [0.030, 0.0325, 0.035, 0.0375, 0.040, 0.0425, 0.045, 0.0475, 0.050]
+RATES = [
+    Decimal("0.030"), Decimal("0.0325"), Decimal("0.035"), Decimal("0.0375"),
+    Decimal("0.040"), Decimal("0.0425"), Decimal("0.045"), Decimal("0.0475"),
+    Decimal("0.050"),
+]
 HORIZONS = {30: 360, 40: 480, 50: 600, 60: 720}
-WEIGHTS = [1.0, 0.75, 0.5, 0.25, 0.0]
+WEIGHTS = [Decimal("1.0"), Decimal("0.75"), Decimal("0.5"), Decimal("0.25"), Decimal("0.0")]
+
+_ONE = Decimal("1")
+_ZERO = Decimal("0")
+_TWELVE = Decimal("12")
 
 
-def load_real_returns(data_dir: Path) -> tuple[list[float], list[float]]:
-    """Load real equity and bond returns from canonical YYYY-MM-DD,value CSVs.
+def load_real_returns(data_dir: Path) -> tuple[list[Decimal], list[Decimal]]:
+    """Load historical real equity and bond returns from canonical CSVs.
+
+    Only rows with dates before the historical cutoff (Oct 2016) are loaded.
+    Forward projections are appended separately by :func:`build_extended`.
 
     Parameters
     ----------
@@ -69,46 +83,64 @@ def load_real_returns(data_dir: Path) -> tuple[list[float], list[float]]:
         ``bond_10y_tr_real.csv``.
     """
 
-    def _load_canonical(csv_path: Path) -> list[float]:
+    def _load_canonical(csv_path: Path) -> list[Decimal]:
         with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            return [float(row["value"]) if row["value"] else 0.0 for row in reader]
+            return [
+                Decimal(row["value"])
+                for row in reader
+                if row["date"] < _HISTORICAL_END
+            ]
 
     r_eq = _load_canonical(data_dir / "spx_tr_real.csv")
     r_bd = _load_canonical(data_dir / "bond_10y_tr_real.csv")
-    assert len(r_eq) == REALIZED_N, len(r_eq)
-    assert len(r_bd) == REALIZED_N, len(r_bd)
-    r_eq[0] = r_eq[1]
-    r_bd[0] = r_bd[1]
     return r_eq, r_bd
 
 
-def build_extended(r_eq: list[float], r_bd: list[float]) -> tuple[list[float], list[float]]:
-    eq = r_eq + [R_EQ_FWD] * (N - REALIZED_N)
-    bd = r_bd + [R_BD_FWD0 if k < REALIZED_N + 120 else R_BD_FWD for k in range(REALIZED_N, N)]
+def build_extended(
+    r_eq: list[Decimal], r_bd: list[Decimal]
+) -> tuple[list[Decimal], list[Decimal]]:
+    with localcontext() as ctx:
+        ctx.prec = 50
+        realized_n = len(r_eq)
+        r_eq_fwd = _R_EQ_FWD_ANNUAL ** (_ONE / _TWELVE) - _ONE
+        r_bd_fwd = _R_BD_FWD_ANNUAL ** (_ONE / _TWELVE) - _ONE
+    eq = r_eq + [r_eq_fwd] * (N - realized_n)
+    bd = r_bd + [
+        _R_BD_FWD0 if k < realized_n + 120 else r_bd_fwd
+        for k in range(realized_n, N)
+    ]
     return eq, bd
 
 
-def prefix_tables(eq: list[float], bd: list[float], w_eq: float) -> tuple[list[float], list[float]]:
-    net = [
-        (1.0 + w_eq * e + (1.0 - w_eq) * b) * (1.0 - FEE / 12.0) - 1.0
-        for e, b in zip(eq, bd, strict=True)
-    ]
-    P = [1.0] * (N + 1)
-    for k in range(N):
-        P[k + 1] = P[k] * (1.0 + net[k])
-    inv = [1.0 / P[k] for k in range(N + 1)]
-    pre = [0.0] * (N + 2)
-    for k in range(N + 1):
-        pre[k + 1] = pre[k] + inv[k]
+def prefix_tables(
+    eq: list[Decimal], bd: list[Decimal], w_eq: Decimal
+) -> tuple[list[Decimal], list[Decimal]]:
+    with localcontext() as ctx:
+        ctx.prec = 50
+        w_bd = _ONE - w_eq
+        fee_adj = _ONE - FEE / _TWELVE
+        net = [
+            (_ONE + w_eq * e + w_bd * b) * fee_adj - _ONE
+            for e, b in zip(eq, bd, strict=True)
+        ]
+        P = [_ONE] * (N + 1)
+        for k in range(N):
+            P[k + 1] = P[k] * (_ONE + net[k])
+        inv = [_ONE / P[k] for k in range(N + 1)]
+        pre = [_ZERO] * (N + 2)
+        for k in range(N + 1):
+            pre[k + 1] = pre[k] + inv[k]
     return P, pre
 
 
-def cohort_annual_swr(P: list[float], pre: list[float], start: int, T: int) -> float:
-    return 12.0 / (P[start - 1] * (pre[start + T] - pre[start - 1]))
+def cohort_annual_swr(P: list[Decimal], pre: list[Decimal], start: int, T: int) -> Decimal:
+    with localcontext() as ctx:
+        ctx.prec = 50
+        return _TWELVE / (P[start - 1] * (pre[start + T] - pre[start - 1]))
 
 
-def success_rate(P: list[float], pre: list[float], T: int, x: float) -> int:
+def success_rate(P: list[Decimal], pre: list[Decimal], T: int, x: Decimal) -> int:
     n = 0
     ok = 0
     for s in range(START_FIRST, START_LAST + 1):
@@ -124,13 +156,13 @@ def build_oracle_table(
     r_eq, r_bd = load_real_returns(csv_path)
     eq, bd = build_extended(r_eq, r_bd)
     rows: list[list[object]] = [
-        ["equity_weight", "horizon_years", *[f"{r:g}" for r in RATES]]
+        ["equity_weight", "horizon_years", *[f"{float(r):g}" for r in RATES]]
     ]
     for w in WEIGHTS:
         P, pre = prefix_tables(eq, bd, w)
         for h in (30, 40, 50, 60):
             vals = [success_rate(P, pre, HORIZONS[h], x) for x in RATES]
-            rows.append([w, h, *vals])
+            rows.append([float(w), h, *vals])
     return rows
 
 

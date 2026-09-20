@@ -645,7 +645,7 @@ def _simulate_part52_batch(
     failure_months = np.empty(n_trajectories, dtype=np.int32)
     final_loan_balances = np.empty(n_trajectories, dtype=np.float64)
 
-    for i in numba.prange(n_trajectories):
+    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
         h = int(horizons[i])
         off = int(offsets[i])
 

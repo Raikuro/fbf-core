@@ -164,13 +164,21 @@ def make_benchmark_repo(path: Path) -> SQLiteRepository:
 
 
 def make_persistence_context(dataset: Dataset) -> PersistenceReconstructionContext:
+    from fbf.core.persistence.studies.sqlite.codecs import (
+        AllocationPolicyCodec,
+        WithdrawalPolicyCodec,
+    )
+
     class _BenchmarkLoader:
         def load(self) -> Dataset:
             return dataset
 
     return PersistenceReconstructionContext(
         dataset_loader=_BenchmarkLoader(),
-        policy_codecs={},
+        policy_codecs={
+            ("allocation", "AllocationPolicy"): AllocationPolicyCodec(),
+            ("withdrawal", "WithdrawalPolicy"): WithdrawalPolicyCodec(),
+        },
         simulation_result_codec=SimulationResultCodec(),
     )
 

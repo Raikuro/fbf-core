@@ -409,10 +409,7 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
     # C: Known deferred discrepancy
     # D: Explainable methodology/data difference
     if success_rate == Decimal("1"):
-        if scenario.published_borrow_pct is not None:
-            classification = "A"  # Published B%, 100% success
-        else:
-            classification = "B"  # BF-discovered B%, 100% success
+        classification = "A" if scenario.published_borrow_pct is not None else "B"
     else:
         classification = "C"  # Known deferred discrepancy
 

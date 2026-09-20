@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import json
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any

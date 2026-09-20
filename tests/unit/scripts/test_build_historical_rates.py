@@ -386,7 +386,7 @@ class TestLoadFfrRatesCompat:
         data_dir = str(_ARTIFACT_PATH.parent)
         rates = load_ffr_rates(data_dir)
         assert len(rates) > 0
-        assert rates[0][0] == date(1928, 4, 1)
+        assert rates[0][0] == date(1871, 1, 1)
 
     def test_build_schedule_1929(self) -> None:
         """build_interest_rate_schedule() works for a 1929 cohort."""

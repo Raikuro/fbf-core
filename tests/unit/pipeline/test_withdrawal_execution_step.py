@@ -52,6 +52,8 @@ class DummyWithdrawalService(PortfolioWithdrawalService):
         portfolio: Portfolio,
         requested_withdrawal: WithdrawalDecision,
         market_snapshot: MarketSnapshot,
+        *,
+        portfolio_value: Money | None = None,
     ) -> WithdrawalExecutionResult:
         self.calls += 1
         return WithdrawalExecutionResult(

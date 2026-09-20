@@ -12,6 +12,7 @@ Verifies:
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,15 +45,15 @@ class TestForwardConstants:
 
     def test_equity_forward_is_6_6_percent(self) -> None:
         """Equity forward = 6.6% real p.a. (Part 1 §4)."""
-        assert pytest.approx(0.066, abs=1e-9) == _EQUITY_FORWARD_ANNUAL
+        assert Decimal("0.066") == _EQUITY_FORWARD_ANNUAL
 
     def test_bond_forward_is_zero(self) -> None:
         """Bond zero-rate = 0.0% real p.a. for first 120 months."""
-        assert _BOND_FORWARD_ANNUAL == 0.0
+        assert Decimal("0") == _BOND_FORWARD_ANNUAL
 
     def test_bond_forward_after_is_2_6_percent(self) -> None:
         """Bond long-term = 2.6% real p.a. after month 120."""
-        assert pytest.approx(0.026, abs=1e-9) == _BOND_FORWARD_ANNUAL_AFTER
+        assert Decimal("0.026") == _BOND_FORWARD_ANNUAL_AFTER
 
     def test_bond_delay_is_120_months(self) -> None:
         """Bond zero-rate period = 120 months (10 years)."""
@@ -278,7 +279,7 @@ class TestCsvDualFormat:
         csv_path.write_text("date,value\n2020-06-01,0.5\n", encoding="utf-8")
         rows = _load_csv(csv_path)
         assert len(rows) == 1
-        assert rows[0] == ("2020-06-01", 0.5)
+        assert rows[0] == ("2020-06-01", Decimal("0.5"))
 
     def test_load_csv_dd_mm_yyyy(self, tmp_path: Path) -> None:
         """Legacy DD-MM-YYYY format loads correctly."""
@@ -288,7 +289,7 @@ class TestCsvDualFormat:
         csv_path.write_text("DD-MM-YYYY,value\n01-06-2020,0.5\n", encoding="utf-8")
         rows = _load_csv(csv_path)
         assert len(rows) == 1
-        assert rows[0] == ("2020-06-01", 0.5)
+        assert rows[0] == ("2020-06-01", Decimal("0.5"))
 
     def test_load_csv_both_formats_identical(self, tmp_path: Path) -> None:
         """Both formats produce the same normalised result."""
