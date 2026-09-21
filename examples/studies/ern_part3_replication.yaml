@@ -1,8 +1,8 @@
 # ERN Part 3: Equity Valuation Using CAPE Regimes
 #
 # Four experiments: 4% SWR depletion, 4% SWR 50% TV, 3.5% SWR 50% TV, 3.25%
-# SWR 50% TV. 30-year and 6-year horizons. Equity allocations 10-100%.
-# Based on Shiller data from ie_data.xls.
+# SWR 50% TV. 30-year and 60-year horizons. Equity allocations 0-100% in 5%
+# increments (21 weights). Based on Shiller data from ie_data.xls.
 #
 # Canonical data required (in --data-dir):
 #   spx_tr_real.csv   S&P 500 total-return real returns (monthly)
@@ -17,8 +17,8 @@ metadata:
   version: '1.0'
   description: 'Early Retirement Now Part 3 replication: Equity valuation using CAPE
     regimes. Four experiments: 4% SWR depletion, 4% SWR 50% TV, 3.5% SWR 50% TV, 3.25%
-    SWR 50% TV. 30-year and 6-year horizons. Equity allocations 10-100% in 10%/25%/50%/75%/100%
-    grid. CAPE regimes <15, 15-20, 20-30, 30+. Based on Shiller data from ie_data.xls.'
+    SWR 50% TV. 30-year and 60-year horizons. Equity allocations 0-100% in 5% increments
+    (21 weights). CAPE regimes <15, 15-20, 20-30, 30+. Based on Shiller data from ie_data.xls.'
 cohorts:
   horizon_years:
   - 30
@@ -26,10 +26,26 @@ cohorts:
 allocation_policy:
   type: ConstantAllocationPolicy
   equity_allocation:
-  - 0.1
+  - 0.0
+  - 0.05
+  - 0.10
+  - 0.15
+  - 0.20
   - 0.25
-  - 0.5
+  - 0.30
+  - 0.35
+  - 0.40
+  - 0.45
+  - 0.50
+  - 0.55
+  - 0.60
+  - 0.65
+  - 0.70
   - 0.75
+  - 0.80
+  - 0.85
+  - 0.90
+  - 0.95
   - 1.0
 withdrawal_policy:
   type: FixedRealWithdrawalPolicy

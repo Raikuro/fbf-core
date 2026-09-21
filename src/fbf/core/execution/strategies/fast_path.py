@@ -290,13 +290,8 @@ def evaluate_path(
     context:
         A context validated by :func:`is_fast_path_eligible`.
     """
-    initial_snapshot = context.dataset[0]
-    total = Money.ZERO
-    for holding in context.initial_portfolio.holdings:
-        price = initial_snapshot.index_levels[holding.asset_class]
-        total += Money(holding.units * price, Currency.EUR)
     withdrawal_policy = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
-    withdrawal = total.amount * withdrawal_policy.withdrawal_rate / Decimal("12")
+    withdrawal = context.initial_wealth.amount * withdrawal_policy.withdrawal_rate / Decimal("12")
 
     weights = _weights_by_class(context)
     series = _index_series(context)

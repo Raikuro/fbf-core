@@ -64,10 +64,13 @@ def _make_flat_dataset(months: int, price: Decimal = Decimal("100")) -> Dataset:
     return Dataset(snapshots=tuple(snapshots), frequency="monthly")
 
 
+_FLAT_PRICE = Decimal("100")
+
+
 def _make_portfolio(initial_wealth: Money) -> Portfolio:
     equity = AssetClass(id="equity", name="", description="")
     bond = AssetClass(id="bond", name="", description="")
-    half_units = initial_wealth.amount / Decimal("2")
+    half_units = initial_wealth.amount / Decimal("2") / _FLAT_PRICE
     return Portfolio(
         holdings=(
             AssetHolding(asset_class=equity, units=half_units),

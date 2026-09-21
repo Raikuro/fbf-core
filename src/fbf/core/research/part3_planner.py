@@ -30,7 +30,7 @@ from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.parameter.axis import ParameterAxis
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
 from fbf.core.study.internal.parameter.engine import ParameterSweepEngine
-from fbf.core.study.plan import ResearchPlan
+from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
 # ---------------------------------------------------------------------------
 # Manifest loading
@@ -218,10 +218,7 @@ def materialize_part3_plan(
         )
     param_configs = ParameterSweepEngine.cartesian_product(axes)
 
-    # Step 5: Build the initial portfolio (shared across all units)
-    initial_portfolio = build_initial_portfolio(initial_wealth, canonical_trajectory)
-
-    # Step 6: Build resolvers
+    # Step 5: Build resolvers
     def horizon_resolver(param_config: ParameterConfiguration) -> int:
         return int(param_config.get("horizon_years")) * 12 + 1
 
@@ -277,7 +274,10 @@ def materialize_part3_plan(
                 dataset_cache[cache_key] = canonical_trajectory.slice(
                     cohort.start_date, effective_horizon
                 )
-            from fbf.core.study.plan import PlannedSimulationUnit
+            cohort_dataset = dataset_cache[cache_key]
+            # Build a per-cohort portfolio so that
+            # portfolio_value_at_snapshot[0] == initial_wealth for each cohort.
+            cohort_portfolio = build_initial_portfolio(initial_wealth, cohort_dataset)
 
             units.append(
                 PlannedSimulationUnit(
@@ -285,8 +285,8 @@ def materialize_part3_plan(
                     parameter_config=param_config,
                     allocation_policy=alloc_policy,
                     withdrawal_policy=withdrawal_policy,
-                    initial_portfolio=initial_portfolio,
-                    dataset=dataset_cache[cache_key],
+                    initial_portfolio=cohort_portfolio,
+                    dataset=cohort_dataset,
                     horizon_months=effective_horizon,
                     final_value_target=final_value_target,
                 )

@@ -525,3 +525,182 @@ class TestManifestIndexConvention:
         """h720 eligibility = 1739 (all cohorts have max_horizon >= 720)."""
         manifest = load_manifest(MANIFEST_PATH)
         assert manifest.statistics["horizon_eligibility"]["h720"] == 1739
+
+
+# ---------------------------------------------------------------------------
+# Per-cohort initial portfolio normalization
+# ---------------------------------------------------------------------------
+
+
+class TestPerCohortPortfolioNormalization:
+    """Verify that every cohort's initial portfolio is valued at initial_wealth
+    at that cohort's own first snapshot, not at the canonical trajectory's start.
+    """
+
+    TOLERANCE = Decimal("0.0001")
+
+    def test_late_cohort_portfolio_value_equals_initial_wealth(self) -> None:
+        """A late cohort (2015-12) must have portfolio value == initial_wealth
+        at its own start date, not at 1871 canonical prices."""
+        from fbf.core.datasets import load_canonical_dataset
+        from fbf.core.domain.model.money import Currency
+
+        manifest = load_manifest(MANIFEST_PATH)
+        trajectory = load_canonical_dataset(Path("data/ern"))
+        initial_wealth = Money(Decimal("1000000"), Currency.EUR)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("1.0"),),
+            withdrawal_rates=(Decimal("0.04"),),
+            horizon_years=(30,),
+            final_value_targets=(Decimal("0.0"),),
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        )
+        plan_result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=config,
+            initial_wealth=initial_wealth,
+        )
+        late_units = [
+            u for u in plan_result.plan.units
+            if u.cohort.start_date == date(2015, 12, 1)
+        ]
+        assert len(late_units) > 0, "No 2015-12-01 cohort found"
+        unit = late_units[0]
+
+        snap = unit.dataset[0]
+        total = sum(
+            h.units * snap.index_levels[h.asset_class]
+            for h in unit.initial_portfolio.holdings
+        )
+        assert abs(total - initial_wealth.amount) < self.TOLERANCE, (
+            f"2015-12-01 portfolio value at cohort start = {total}, "
+            f"expected {initial_wealth.amount}"
+        )
+
+    def test_early_cohort_portfolio_value_equals_initial_wealth(self) -> None:
+        """An early cohort (1871-02) must also have portfolio value == initial_wealth."""
+        from fbf.core.datasets import load_canonical_dataset
+        from fbf.core.domain.model.money import Currency
+
+        manifest = load_manifest(MANIFEST_PATH)
+        trajectory = load_canonical_dataset(Path("data/ern"))
+        initial_wealth = Money(Decimal("1000000"), Currency.EUR)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("1.0"),),
+            withdrawal_rates=(Decimal("0.04"),),
+            horizon_years=(30,),
+            final_value_targets=(Decimal("0.0"),),
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        )
+        plan_result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=config,
+            initial_wealth=initial_wealth,
+        )
+        early_units = [
+            u for u in plan_result.plan.units
+            if u.cohort.start_date == date(1871, 2, 1)
+        ]
+        assert len(early_units) > 0, "No 1871-02-01 cohort found"
+        unit = early_units[0]
+
+        snap = unit.dataset[0]
+        total = sum(
+            h.units * snap.index_levels[h.asset_class]
+            for h in unit.initial_portfolio.holdings
+        )
+        assert abs(total - initial_wealth.amount) < self.TOLERANCE
+
+    def test_two_cohorts_have_independent_portfolios(self) -> None:
+        """Different cohorts must have independent portfolio objects with
+        different holdings (based on their own starting prices)."""
+        from fbf.core.datasets import load_canonical_dataset
+        from fbf.core.domain.model.money import Currency
+
+        manifest = load_manifest(MANIFEST_PATH)
+        trajectory = load_canonical_dataset(Path("data/ern"))
+        initial_wealth = Money(Decimal("1000000"), Currency.EUR)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("1.0"),),
+            withdrawal_rates=(Decimal("0.04"),),
+            horizon_years=(30,),
+            final_value_targets=(Decimal("0.0"),),
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        )
+        plan_result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=config,
+            initial_wealth=initial_wealth,
+        )
+        early = [
+            u for u in plan_result.plan.units
+            if u.cohort.start_date == date(1871, 2, 1)
+        ][0]
+        late = [
+            u for u in plan_result.plan.units
+            if u.cohort.start_date == date(2015, 12, 1)
+        ][0]
+
+        # Portfolios must be different objects
+        assert early.initial_portfolio is not late.initial_portfolio
+
+        # Holdings must differ (different prices → different unit counts)
+        early_eq = early.initial_portfolio.holdings[0].units
+        late_eq = late.initial_portfolio.holdings[0].units
+        assert early_eq != late_eq, (
+            f"Early and late cohorts have same equity units: {early_eq}"
+        )
+
+        # Both must value to initial_wealth at their respective start dates
+        early_snap = early.dataset[0]
+        late_snap = late.dataset[0]
+        early_val = sum(
+            h.units * early_snap.index_levels[h.asset_class]
+            for h in early.initial_portfolio.holdings
+        )
+        late_val = sum(
+            h.units * late_snap.index_levels[h.asset_class]
+            for h in late.initial_portfolio.holdings
+        )
+        assert abs(early_val - initial_wealth.amount) < self.TOLERANCE
+        assert abs(late_val - initial_wealth.amount) < self.TOLERANCE
+
+    def test_all_cohorts_satisfy_invariant(self) -> None:
+        """Every unit in the plan must have portfolio value == initial_wealth
+        at its cohort's first snapshot."""
+        from fbf.core.datasets import load_canonical_dataset
+        from fbf.core.domain.model.money import Currency
+
+        manifest = load_manifest(MANIFEST_PATH)
+        trajectory = load_canonical_dataset(Path("data/ern"))
+        initial_wealth = Money(Decimal("1000000"), Currency.EUR)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("1.0"),),
+            withdrawal_rates=(Decimal("0.04"),),
+            horizon_years=(30,),
+            final_value_targets=(Decimal("0.0"),),
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        )
+        plan_result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=config,
+            initial_wealth=initial_wealth,
+        )
+        violations = 0
+        for unit in plan_result.plan.units:
+            snap = unit.dataset[0]
+            total = sum(
+                h.units * snap.index_levels[h.asset_class]
+                for h in unit.initial_portfolio.holdings
+            )
+            if abs(total - initial_wealth.amount) >= self.TOLERANCE:
+                violations += 1
+        assert violations == 0, f"{violations} cohorts violate the invariant"

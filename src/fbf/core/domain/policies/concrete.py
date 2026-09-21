@@ -89,9 +89,9 @@ class FixedRealWithdrawalPolicy(WithdrawalPolicy):
     YAML params: withdrawal_rate (Decimal, 0.0-1.0 annual)
 
     The monthly withdrawal is computed once at the cohort start as
-    ``initial_portfolio_value * withdrawal_rate / 12``, where
-    ``initial_portfolio_value`` prices the initial portfolio holdings at the
-    cohort's first dataset snapshot.  The amount stays constant in real
+    ``initial_wealth * withdrawal_rate / 12``, where ``initial_wealth``
+    is the experiment's fixed initial wealth (independent of cohort start
+    date or current market prices).  The amount stays constant in real
     (index-level) units for the entire horizon.
     """
 
@@ -106,23 +106,15 @@ class FixedRealWithdrawalPolicy(WithdrawalPolicy):
 
     def _decide_active(self, context: DecisionContext) -> WithdrawalDecision:
         sim_context: Any = getattr(context, "simulation_context", None)
-        if (
-            sim_context is None
-            or not hasattr(sim_context, "dataset")
-            or not hasattr(sim_context, "initial_portfolio")
-        ):
+        if sim_context is None or not hasattr(sim_context, "initial_wealth"):
             raise TypeError(
                 "FixedRealWithdrawalPolicy requires a DecisionContext with simulation_context"
             )
-        initial_snapshot = sim_context.dataset[0]
-        total = Money.ZERO
-        for holding in sim_context.initial_portfolio.holdings:
-            price = initial_snapshot.index_levels[holding.asset_class]
-            total += Money(holding.units * price, Currency.EUR)
+        initial_wealth: Money = sim_context.initial_wealth
         if self.frequency is WithdrawalFrequency.ANNUAL:
-            amount = total.amount * self.withdrawal_rate
+            amount = initial_wealth.amount * self.withdrawal_rate
         else:
-            amount = total.amount * self.withdrawal_rate / Decimal("12")
+            amount = initial_wealth.amount * self.withdrawal_rate / Decimal("12")
         return WithdrawalDecision(
             reason="FixedRealWithdrawalPolicy",
             nominal_amount=Money(amount, Currency.EUR),

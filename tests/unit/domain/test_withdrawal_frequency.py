@@ -24,7 +24,7 @@ from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.decision_context import DebtInfo, DecisionContext
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
-from fbf.core.domain.model.money import Money
+from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies.concrete import (
     ConstantWithdrawalPolicy,
@@ -87,6 +87,7 @@ def dataset(
 class MockSimulationContext:
     dataset: Dataset
     initial_portfolio: Portfolio
+    initial_wealth: Money = Money(Decimal("100000"), Currency.EUR)
     loan_draw_rate: Decimal | None = None
 
 
@@ -176,7 +177,8 @@ class TestFixedRealWithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = FixedRealWithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -196,7 +198,8 @@ class TestFixedRealWithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = FixedRealWithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -217,7 +220,8 @@ class TestFixedRealWithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = FixedRealWithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -238,7 +242,8 @@ class TestFixedRealWithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = FixedRealWithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -259,7 +264,8 @@ class TestFixedRealWithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = FixedRealWithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -278,8 +284,249 @@ class TestFixedRealWithdrawalFrequency:
 
 
 # ---------------------------------------------------------------------------
-# ConstantWithdrawalPolicy — frequency
+# FixedRealWithdrawalPolicy — withdrawal = initial_wealth * rate / 12
 # ---------------------------------------------------------------------------
+
+class TestFixedRealWithdrawalInvariant:
+    """Withdrawal depends only on initial_wealth and rate, not on portfolio
+    value, cohort start date, or market prices."""
+
+    def test_monthly_withdrawal_equals_wealth_times_rate_over_12(self) -> None:
+        equity_asset = AssetClass(id="equity", name="Equity", description="")
+        bond_asset = AssetClass(id="bond", name="Bond", description="")
+        portfolio = Portfolio(
+            holdings=(
+                AssetHolding(asset_class=equity_asset, units=Decimal("500")),
+                AssetHolding(asset_class=bond_asset, units=Decimal("500")),
+            )
+        )
+        dataset = Dataset(
+            snapshots=(
+                MarketSnapshot(
+                    date=date(1965, 11, 1),
+                    index_levels={
+                        equity_asset: Decimal("100"),
+                        bond_asset: Decimal("100"),
+                    },
+                    inflation=Decimal("0"),
+                    inflation_cumulative=Decimal("1"),
+                    is_ath=True,
+                    is_underwater=False,
+                    running_ath=Decimal("100"),
+                ),
+            ),
+            frequency="monthly",
+        )
+        initial_wealth = Money(Decimal("100000"), Currency.EUR)
+        mock_sim_ctx = MockSimulationContext(
+            dataset=dataset, initial_portfolio=portfolio,
+            initial_wealth=initial_wealth,
+        )
+        policy = FixedRealWithdrawalPolicy(
+            withdrawal_rate=Decimal("0.04"),
+            frequency=WithdrawalFrequency.MONTHLY,
+        )
+        context = _build_context(
+            mock_sim_ctx,
+            equity_index=Decimal("100"),
+            running_ath=Decimal("100"),
+            is_ath=True,
+        )
+        decision = policy.decide(context)
+        expected = initial_wealth.amount * Decimal("0.04") / Decimal("12")
+        assert decision.nominal_amount.amount == expected
+
+    def test_portfolio_value_100x_wealth_does_not_affect_withdrawal(self) -> None:
+        """When portfolio value at dataset[0] is 100x initial_wealth,
+        withdrawal still uses initial_wealth, not portfolio value."""
+        equity_asset = AssetClass(id="equity", name="Equity", description="")
+        bond_asset = AssetClass(id="bond", name="Bond", description="")
+        # Portfolio: 500 units each at price 100 = $100,000,000
+        portfolio = Portfolio(
+            holdings=(
+                AssetHolding(asset_class=equity_asset, units=Decimal("500000")),
+                AssetHolding(asset_class=bond_asset, units=Decimal("500000")),
+            )
+        )
+        dataset = Dataset(
+            snapshots=(
+                MarketSnapshot(
+                    date=date(2015, 12, 1),
+                    index_levels={
+                        equity_asset: Decimal("100"),
+                        bond_asset: Decimal("100"),
+                    },
+                    inflation=Decimal("0"),
+                    inflation_cumulative=Decimal("1"),
+                    is_ath=True,
+                    is_underwater=False,
+                    running_ath=Decimal("100"),
+                ),
+            ),
+            frequency="monthly",
+        )
+        initial_wealth = Money(Decimal("1000000"), Currency.EUR)
+        mock_sim_ctx = MockSimulationContext(
+            dataset=dataset, initial_portfolio=portfolio,
+            initial_wealth=initial_wealth,
+        )
+        policy = FixedRealWithdrawalPolicy(
+            withdrawal_rate=Decimal("0.04"),
+            frequency=WithdrawalFrequency.MONTHLY,
+        )
+        context = _build_context(
+            mock_sim_ctx,
+            equity_index=Decimal("100"),
+            running_ath=Decimal("100"),
+            is_ath=True,
+        )
+        decision = policy.decide(context)
+        # Must be based on initial_wealth ($1M), not portfolio value ($100M)
+        expected = initial_wealth.amount * Decimal("0.04") / Decimal("12")
+        assert decision.nominal_amount.amount == expected
+        # Old buggy behavior would have produced 100x this amount
+        old_buggy = Decimal("100000000") * Decimal("0.04") / Decimal("12")
+        assert decision.nominal_amount.amount != old_buggy
+
+    def test_different_market_prices_do_not_affect_withdrawal(self) -> None:
+        """Withdrawal is independent of current market snapshot prices."""
+        equity_asset = AssetClass(id="equity", name="Equity", description="")
+        bond_asset = AssetClass(id="bond", name="Bond", description="")
+        portfolio = Portfolio(
+            holdings=(
+                AssetHolding(asset_class=equity_asset, units=Decimal("500")),
+                AssetHolding(asset_class=bond_asset, units=Decimal("500")),
+            )
+        )
+        # Dataset with very high prices (portfolio value >> initial_wealth)
+        dataset = Dataset(
+            snapshots=(
+                MarketSnapshot(
+                    date=date(2020, 1, 1),
+                    index_levels={
+                        equity_asset: Decimal("5000"),
+                        bond_asset: Decimal("300"),
+                    },
+                    inflation=Decimal("0"),
+                    inflation_cumulative=Decimal("1"),
+                    is_ath=True,
+                    is_underwater=False,
+                    running_ath=Decimal("5000"),
+                ),
+            ),
+            frequency="monthly",
+        )
+        initial_wealth = Money(Decimal("100000"), Currency.EUR)
+        mock_sim_ctx = MockSimulationContext(
+            dataset=dataset, initial_portfolio=portfolio,
+            initial_wealth=initial_wealth,
+        )
+        policy = FixedRealWithdrawalPolicy(
+            withdrawal_rate=Decimal("0.04"),
+            frequency=WithdrawalFrequency.MONTHLY,
+        )
+        context = _build_context(
+            mock_sim_ctx,
+            equity_index=Decimal("5000"),
+            running_ath=Decimal("5000"),
+            is_ath=True,
+        )
+        decision = policy.decide(context)
+        expected = initial_wealth.amount * Decimal("0.04") / Decimal("12")
+        assert decision.nominal_amount.amount == expected
+
+    def test_different_allocation_does_not_affect_withdrawal(self) -> None:
+        """Withdrawal is independent of portfolio asset allocation."""
+        equity_asset = AssetClass(id="equity", name="Equity", description="")
+        bond_asset = AssetClass(id="bond", name="Bond", description="")
+        # 100% equity portfolio
+        portfolio = Portfolio(
+            holdings=(
+                AssetHolding(asset_class=equity_asset, units=Decimal("1000")),
+                AssetHolding(asset_class=bond_asset, units=Decimal("0")),
+            )
+        )
+        dataset = Dataset(
+            snapshots=(
+                MarketSnapshot(
+                    date=date(2020, 1, 1),
+                    index_levels={
+                        equity_asset: Decimal("100"),
+                        bond_asset: Decimal("100"),
+                    },
+                    inflation=Decimal("0"),
+                    inflation_cumulative=Decimal("1"),
+                    is_ath=True,
+                    is_underwater=False,
+                    running_ath=Decimal("100"),
+                ),
+            ),
+            frequency="monthly",
+        )
+        initial_wealth = Money(Decimal("100000"), Currency.EUR)
+        mock_sim_ctx = MockSimulationContext(
+            dataset=dataset, initial_portfolio=portfolio,
+            initial_wealth=initial_wealth,
+        )
+        policy = FixedRealWithdrawalPolicy(
+            withdrawal_rate=Decimal("0.04"),
+            frequency=WithdrawalFrequency.MONTHLY,
+        )
+        context = _build_context(
+            mock_sim_ctx,
+            equity_index=Decimal("100"),
+            running_ath=Decimal("100"),
+            is_ath=True,
+        )
+        decision = policy.decide(context)
+        expected = initial_wealth.amount * Decimal("0.04") / Decimal("12")
+        assert decision.nominal_amount.amount == expected
+
+    def test_annual_withdrawal_equals_wealth_times_rate(self) -> None:
+        equity_asset = AssetClass(id="equity", name="Equity", description="")
+        bond_asset = AssetClass(id="bond", name="Bond", description="")
+        portfolio = Portfolio(
+            holdings=(
+                AssetHolding(asset_class=equity_asset, units=Decimal("500")),
+                AssetHolding(asset_class=bond_asset, units=Decimal("500")),
+            )
+        )
+        dataset = Dataset(
+            snapshots=(
+                MarketSnapshot(
+                    date=date(1965, 11, 1),
+                    index_levels={
+                        equity_asset: Decimal("100"),
+                        bond_asset: Decimal("100"),
+                    },
+                    inflation=Decimal("0"),
+                    inflation_cumulative=Decimal("1"),
+                    is_ath=True,
+                    is_underwater=False,
+                    running_ath=Decimal("100"),
+                ),
+            ),
+            frequency="monthly",
+        )
+        initial_wealth = Money(Decimal("100000"), Currency.EUR)
+        mock_sim_ctx = MockSimulationContext(
+            dataset=dataset, initial_portfolio=portfolio,
+            initial_wealth=initial_wealth,
+        )
+        policy = FixedRealWithdrawalPolicy(
+            withdrawal_rate=Decimal("0.04"),
+            frequency=WithdrawalFrequency.ANNUAL,
+        )
+        context = _build_context(
+            mock_sim_ctx,
+            equity_index=Decimal("100"),
+            running_ath=Decimal("100"),
+            is_ath=True,
+            period_index=0,
+        )
+        decision = policy.decide(context)
+        expected = initial_wealth.amount * Decimal("0.04")
+        assert decision.nominal_amount.amount == expected
 
 class TestConstantWithdrawalFrequency:
     def _make_ctx(
@@ -457,7 +704,8 @@ class TestPart52WithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = Part52WithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -479,7 +727,8 @@ class TestPart52WithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = Part52WithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -502,7 +751,8 @@ class TestPart52WithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = Part52WithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -529,7 +779,8 @@ class TestPart52WithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = Part52WithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -557,7 +808,8 @@ class TestPart52WithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = Part52WithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -581,7 +833,8 @@ class TestPart52WithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         policy = Part52WithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),
@@ -605,7 +858,8 @@ class TestPart52WithdrawalFrequency:
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
         mock_sim_ctx = MockSimulationContext(
-            dataset=dataset, initial_portfolio=initial_portfolio
+            dataset=dataset, initial_portfolio=initial_portfolio,
+            initial_wealth=Money(Decimal("100000"), Currency.EUR),
         )
         monthly_policy = Part52WithdrawalPolicy(
             withdrawal_rate=Decimal("0.04"),

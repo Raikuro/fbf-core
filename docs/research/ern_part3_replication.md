@@ -135,20 +135,23 @@ conditioning (whether it is an overall result or CAPE-conditioned).
 
 | Experiment | Horizon | Equity | CAPE Condition | Result | Source |
 |------------|---------|--------|----------------|--------|--------|
-| A (4% SWR, 0% TV) | 30Y | 100% | Published overall result | 89% | Line 74: "89% success rate over 30 years" |
+| A (4% SWR, 0% TV) | 30Y | 100% | CAPE 20–30 | 89% | Line 74: "89% success rate over 30 years" (context: CAPE chart) |
 | A (4% SWR, 0% TV) | 60Y | 100% | CAPE 20–30 | 72% | Line 74: "72% success rate with 100% equities" (context: CAPE 27) |
 | B (4% SWR, 50% TV) | 60Y | 100% | CAPE 20–30 | 71% | Line 84: "lowers the success probability to 71%, from 72%" |
 | C (3.5% SWR, 50% TV) | 60Y | 100% | Published overall result | 96% | Line 88: "96% success probability preserving 50% of the final value" |
 | C (3.5% SWR, 50% TV) | 60Y | 100% | CAPE 20–30 | 88% | Line 88: "goes down to 88% when the CAPE ratio is between 20 and 30" |
 | D (3.25% SWR, 50% TV) | 60Y | 100% | Published overall result | 97% | Line 96: "97% success probability with 100% equities" |
 
-**Key distinction (inferred — not explicitly documented by ERN):** The 89%, 96%,
-and 97% figures are published overall results, with no CAPE-regime condition
-stated in the article. The available article evidence is consistent with the
-overall calculations covering the full retirement-start universe. The 72%, 71%,
+**Key distinction (inferred — not explicitly documented by ERN):** The 96% and
+97% figures are published overall results, with no CAPE-regime condition stated
+in the article. The available article evidence is consistent with the overall
+calculations covering the full retirement-start universe. The 89%, 72%, 71%,
 and 88% figures are CAPE-conditioned results reported for the specified CAPE
-regime. Use the graph definitions/results in Part 3 as the source of truth for
-the CAPE-conditioned filtering rather than inventing a different filtering rule.
+regime. The 89% is discussed in the CAPE-regime chart context (§1.7: "much
+lower than the 89% success rate over 30 years"), confirming it is the 30Y
+CAPE 20–30 line, not an overall result. Use the graph definitions/results in
+Part 3 as the source of truth for the CAPE-conditioned filtering rather than
+inventing a different filtering rule.
 
 **Evidence classification:** RESOLVED — user-directed resolution (article evidence as source of truth)
 

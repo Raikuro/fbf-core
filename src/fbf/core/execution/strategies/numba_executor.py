@@ -250,13 +250,13 @@ class NumbaSimulationExecutor(SimulationExecutor):
             # Compute initial portfolio value (same for all contexts in the group).
             sample_ctx = contexts[0]
             initial_snapshot = sample_ctx.dataset[0]
-            total = sum(
+            v0 = float(sum(
                 holding.units * initial_snapshot.index_levels[holding.asset_class]
                 for holding in sample_ctx.initial_portfolio.holdings
-            )
-            v0 = float(total)
+            ))
             withdrawal_policy = cast(FixedRealWithdrawalPolicy, sample_ctx.withdrawal_policy)
-            c = v0 * float(withdrawal_policy.withdrawal_rate) / 12.0
+            rate_f = float(withdrawal_policy.withdrawal_rate)
+            c = float(sample_ctx.initial_wealth.amount) * rate_f / 12.0
 
             gf_key = _gf_cache_key(sample_ctx)
             growth_factors_full = self._gf_cache[gf_key]
