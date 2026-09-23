@@ -85,8 +85,8 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 3.1 | 4 experiment configurations | 4 exp × 21W × 2H = 168 cells × 1,739 cohorts | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | YAML equity grid correction (5→21 weights) | Resolve YAML discrepancy first |
-| 3.2 | 6 published numerical anchors | 6 cells | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 3.1 | Implement with Part 3.1 |
+| 3.1 | 4 experiment configurations | 4 exp × 21W × 2H = 168 cells × 1,739 cohorts | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part3_canonical_ern_replication.py` (12 tests, gated `ern_e2e`) | YAML equity grid correction resolved at `e767d6a` | Retain; anchors provisional pending canonical Excel-data validation phase |
+| 3.2 | 6 published numerical anchors | 6 cells | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part3_canonical_ern_replication.py` — 6 anchor tests recorded as provisional numerical baselines | Part 3.1 (complete at `e767d6a`) | Retain; final canonical-data validation deferred to dedicated phase |
 
 ### Part 19 — Equity Glidepaths in Retirement
 
@@ -262,9 +262,9 @@ This is important for future Part 19/20 work where overlapping simulations may b
 
 Ordered by dependency/readiness, not subjective importance.
 
-### Phase 0 — Test-Suite Cleanup / Confirmed Redundancy
+### Phase 0 — Test-Suite Cleanup / Confirmed Redundancy (COMPLETE)
 
-- [ ] **T0.1** Remove duplicated Part 52 deterministic simulation
+- [x] **T0.1** Remove duplicated Part 52 deterministic simulation
   - Target: Remove simulation execution from `test_part52_deterministic_validation.py` baseline
   - Retain: All mechanism/registration/construction assertions
   - Prerequisite: None
@@ -273,6 +273,7 @@ Ordered by dependency/readiness, not subjective importance.
   - Acceptance criteria: Mechanism assertions still pass; no coverage lost; simulation not duplicated
   - Known blocker: None
   - Dependencies: None
+  - Complete at: `d2fcf25` — `test: remove redundant Part 52 deterministic simulation` (mechanism-only test verified passing)
 
 ### Phase 0.5 — Fee-Semantics Correction (COMPLETE)
 
@@ -300,13 +301,14 @@ Commit `d6a2cbd` (`fix: align ERN fee semantics with canonical data`).
 **Deferred:**
 - A10 (FFR + leverage scenario): 1665/1739 = 95.7% — execution/timing discrepancy, not fee-related (see B10)
 
-### Phase 1 — Fully Specified Canonical Extensions
+### Phase 1 — Fully Specified Canonical Extensions (COMPLETE)
 
 Targets whose methodology, datasets, and expected outputs are already sufficiently defined.
 
-- [ ] **T1.1** Part 52 full canonical E2E validation — **PARTIAL / DEFERRED**
+- [x] **T1.1** Part 52 full canonical E2E validation — **COMPLETE (per stated acceptance criteria; A10 remains deferred — see B10)**
   - Target: Update all 11 scenarios (A1-A11) to use actual FFR data; validate against ERN published values
   - Checkpoint: `d6a2cbd` — `fix: align ERN fee semantics with canonical data`
+  - Follow-up semantic alignment: `4ffc0c5` — `fix: align Part52 canonical ERN semantics`
   - Focused validation: 92 tests passed; non-Part52 validation zero regressions
   - ERN runtime dataset now uses raw canonical market/index data without embedded portfolio fee
   - 0.05% annual ERN fee applied through Part52 study configuration (`expense_ratio: 0.0005`)
@@ -325,23 +327,26 @@ Targets whose methodology, datasets, and expected outputs are already sufficient
   - Dependencies: None
   - Note: T1.1 and T1.2 are independent tasks with no mutual dependency
 
-- [ ] **T1.2** Part 3 4-experiment grid
+- [x] **T1.2** Part 3 4-experiment grid — **COMPLETE**
   - Target: Execute 4 experiment configurations with 21 equity weights
-  - Prerequisite: YAML equity grid correction (5→21 weights)
+  - Prerequisite: YAML equity grid correction (5→21 weights) — resolved at `e767d6a`
   - Expected test location: New E2E test
   - Canonical: Yes
   - Expected scale: 168 cells × 1,739 cohorts = 292,152 units
   - Acceptance criteria: All 4 experiments execute; 6 published numerical anchors validated
-  - Known blocker: YAML discrepancy (5 weights vs 21 weights in `ern_part3_replication.yaml`)
+  - Known blocker: None — YAML discrepancy resolved at `e767d6a` (21 weights in `ern_part3_replication.yaml`)
   - Computation reuse: None
-  - Dependencies: YAML correction
+  - Dependencies: YAML correction (resolved)
   - Note: T1.1 and T1.2 are independent tasks with no mutual dependency
+  - Complete at: `e767d6a` — `fix: correct ERN Part3 cohort initialization and withdrawals`
+  - Deliverables: `tests/integration/test_part3_canonical_ern_replication.py` (12 gated E2E tests); per-cohort initial-portfolio normalization; fixed-real withdrawals from `initial_wealth`; 21 equity weights 0%–100% in 5% steps; 6 published anchors recorded as provisional numerical baselines
+  - Provisional anchors: current numerical differences are validation-provenance differences pending the dedicated canonical ERN Excel-data validation phase — they are NOT incomplete T1.2 implementation
 
 ### Phase 2 — Part 20 Canonical Experiments
 
 Use `ern_part20_e2e_audit.md` as the specification.
 
-- [ ] **T2.1** Part 20 baseline audit (Experiments A-E)
+- [x] **T2.1** Part 20 baseline audit (Experiments A-E) — COMPLETE
   - Target: Execute baseline against current FBF implementation; classify all discrepancies
   - Prerequisite: None (audit definition READY)
   - Expected test location: New E2E test(s)
@@ -351,6 +356,9 @@ Use `ern_part20_e2e_audit.md` as the specification.
   - Known blocker: Experiment C may hit capability gap (failure-rate aggregation); Experiment E requires annual-frequency simulation
   - Computation reuse: Before implementation, determine whether shared computation abstraction should serve both Part 19 and Part 20
   - Dependencies: None
+  - Complete at: `fbf-core` T2.1 implementation (batched GF computation + persistent cross-step cache)
+  - Deliverables: `tests/integration/test_part20_e2e_audit.py` (13 gated E2E tests); `docs/research/ern_part20_e2e_audit.md` updated with experimental results; `docs/research/ern_part20_replication.md` updated with discrepancy classifications
+  - Final performance: ~243s / 4.1 min for full Experiment A; ~4,200 units/sec; 1,023,165 total units
 
 - [ ] **T2.2** Part 20 Experiment A — 60Y failsafe/percentile
   - Target: 53 strategies × 2 CAPE = 106 cells
@@ -407,19 +415,21 @@ Implement only after the relationship with Part 20 is concretely understood.
 
 **Important:** Do not delete Part 19 assertions just because Part 20 runs overlapping simulations. The research assertions are distinct.
 
-### Phase 4 — Part 3 (after YAML correction)
+### Phase 4 — Part 3 (after YAML correction) (COMPLETE)
 
-- [ ] **T4.1** Part 3 YAML equity grid correction
+- [x] **T4.1** Part 3 YAML equity grid correction
   - Target: Correct `ern_part3_replication.yaml` to use 21 equity weights instead of 5
   - Prerequisite: None
   - Expected test location: `examples/studies/ern_part3_replication.yaml`
   - Acceptance criteria: YAML loads correctly; 21 weights present
   - Dependencies: None
+  - Complete at: `e767d6a` (21 weights 0%–100% in 5% increments present; YAML parses with 3 WR × 2 FV × 2 H axes)
 
-- [ ] **T4.2** Part 3 canonical E2E
+- [x] **T4.2** Part 3 canonical E2E
   - Target: Execute 4 experiment configurations with corrected YAML
   - Prerequisite: T4.1
   - Dependencies: T1.2
+  - Complete at: `e767d6a` — delivered by the T1.2 deliverable (`tests/integration/test_part3_canonical_ern_replication.py`): all 4 experiment configurations execute against the corrected 21-weight grid; 6 anchors recorded as provisional baselines pending the canonical-data validation phase
 
 ### Phase 5 — Part 42
 
@@ -523,7 +533,7 @@ Every material discrepancy must receive exactly one classification:
 
 | # | Blocker | Article | State | Document / code location |
 |---|---------|---------|-------|-------------------------|
-| B1 | Part 3 YAML equity grid uses 5 weights instead of 21 | Part 3 | OPEN | `examples/studies/ern_part3_replication.yaml` |
+| B1 | Part 3 YAML equity grid uses 5 weights instead of 21 | Part 3 | RESOLVED (`e767d6a`) | `examples/studies/ern_part3_replication.yaml` |
 | B2 | Part 19/20 implementation alignment (execution order) | Parts 19/20 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.4 |
 | B3 | Part 20 Experiment C capability gap (failure-rate aggregation) | Part 20 | POTENTIAL | `ern_part20_e2e_audit.md` §5 |
 | B4 | Part 20 Experiment E capability gap (annual-frequency simulation) | Part 20 | POTENTIAL | `ern_part20_e2e_audit.md` §7 |

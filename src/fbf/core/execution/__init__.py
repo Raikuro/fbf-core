@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+from numpy.typing import NDArray
+
 from fbf.core.execution.profiling import (
     CompositeProfiler,
     CpuProfiler,
@@ -21,6 +24,7 @@ from fbf.core.execution.profiling import (
 )
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.execution.strategies.fast_path import FastPathValidationError
+from fbf.core.execution.strategies.numba_executor import GlidepathGFKey
 from fbf.core.study.builder import BuiltStudy, StudyPlanResult
 
 if TYPE_CHECKING:
@@ -226,6 +230,9 @@ class ExecutionOptions:
     progress_callback: ProgressCallback | None = None
     profiler: Profiler = field(default_factory=NoOpProfiler)
     summary_only: bool = False
+    # Optional shared glidepath growth-factor cache for persistent caching
+    # across multiple execute_study_plan invocations within a single bisection search.
+    glidepath_gf_cache: Any = field(default=None)
 
     @staticmethod
     def with_profiling(**kwargs: Any) -> ExecutionOptions:
@@ -280,12 +287,13 @@ def _extract_simulation_contexts(
 def _auto_select_backend(
     built: Any,
     profiler: Any,
+    glidepath_gf_cache: dict[GlidepathGFKey, NDArray[np.float64]] | None = None,
 ) -> Any:
     """AUTO dispatch: select the best validated backend for the workload.
 
     Returns the SimulationExecutor for the selected backend.  When numba is
-    available and all units are FAST-eligible (Part52 or FixedReal), the
-    optimized Numba executor is used.  Otherwise the Decimal fast-path
+    available and all units are FAST-eligible (Part52, FixedReal, or glidepath),
+    the optimized Numba executor is used.  Otherwise the Decimal fast-path
     (REFERENCE fallback) is used.
     """
     try:
@@ -310,6 +318,7 @@ def _auto_select_backend(
         return Part52NumbaExecutor(profiler=profiler)
 
     from fbf.core.execution.strategies.fast_path import is_fast_path_eligible
+    from fbf.core.execution.strategies.numba_executor import _is_glidepath_eligible
 
     all_fixed_real = all(is_fast_path_eligible(ctx) for ctx in contexts)
 
@@ -319,6 +328,18 @@ def _auto_select_backend(
         )
 
         return NumbaSimulationExecutor(profiler=profiler)
+
+    all_glidepath = all(_is_glidepath_eligible(ctx) for ctx in contexts)
+
+    if all_glidepath:
+        from fbf.core.execution.strategies.numba_executor import (
+            NumbaSimulationExecutor,
+        )
+
+        return NumbaSimulationExecutor(
+            profiler=profiler,
+            glidepath_gf_cache=glidepath_gf_cache,
+        )
 
     from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
 
@@ -372,7 +393,7 @@ def execute_study_plan(
     sim_executor: Any = None
     if backend is None:
         # AUTO dispatch: capability-driven routing
-        sim_executor = _auto_select_backend(built, profiler)
+        sim_executor = _auto_select_backend(built, profiler, opt.glidepath_gf_cache)
     elif backend == ExecutionBackend.FAST:
         try:
             import numba as _numba_mod  # noqa: F401
@@ -403,7 +424,10 @@ def execute_study_plan(
                 NumbaSimulationExecutor,
             )
 
-            sim_executor = NumbaSimulationExecutor(profiler=profiler)
+            sim_executor = NumbaSimulationExecutor(
+                profiler=profiler,
+                glidepath_gf_cache=opt.glidepath_gf_cache,
+            )
     elif backend == ExecutionBackend.REFERENCE:
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
 
@@ -451,21 +475,13 @@ def execute_study_plan(
             if isinstance(sim_executor, (Part52NumbaExecutor, NumbaSimulationExecutor)):
                 use_parallel = False
             else:
-                # REFERENCE path: workload-aware routing.
-                total_units = len(built.plan.units)
+                # REFERENCE path: use parallel when workers available.
                 available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
-                use_parallel = (
-                    total_units >= _DEFAULT_PARALLEL_UNIT_THRESHOLD
-                    and available_workers > 1
-                )
+                use_parallel = available_workers > 1
         else:
-            # REFERENCE: workload-aware routing.
-            total_units = len(built.plan.units)
+            # REFERENCE: use parallel when workers available.
             available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
-            use_parallel = (
-                total_units >= _DEFAULT_PARALLEL_UNIT_THRESHOLD
-                and available_workers > 1
-            )
+            use_parallel = available_workers > 1
 
     if use_parallel:
         profiler.stop("strategy_selection")

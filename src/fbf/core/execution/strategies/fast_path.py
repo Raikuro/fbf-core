@@ -866,19 +866,27 @@ class FastPathSimulationExecutor(SimulationExecutor):
 
         # Assemble results in original definition order.
         profiler.start("fast_path_assembly")
+
+        # Batch non-eligible contexts for efficient reference execution.
+        ineligible_indices = [index for index, group_id in order if group_id == -1]
+        ineligible_results: dict[int, SimulationResult] = {}
+        if ineligible_indices:
+            ineligible_contexts = [definition.simulation_contexts[i] for i in ineligible_indices]
+            batch_def = EngineExperimentDefinition(
+                name=definition.name,
+                description=definition.description,
+                simulation_contexts=tuple(ineligible_contexts),
+            )
+            batch_run = self._reference.execute(batch_def)
+            for idx, result in zip(ineligible_indices, batch_run.simulation_results, strict=True):
+                ineligible_results[idx] = result
+                independent_count += 1
+                month_work += definition.simulation_contexts[idx].horizon_months
+
         ordered_results: list[SimulationResult] = []
         for index, group_id in order:
             if group_id == -1:
-                context = definition.simulation_contexts[index]
-                single = EngineExperimentDefinition(
-                    name=definition.name,
-                    description=definition.description,
-                    simulation_contexts=(context,),
-                )
-                run = self._reference.execute(single)
-                ordered_results.append(run.simulation_results[0])
-                independent_count += 1
-                month_work += context.horizon_months
+                ordered_results.append(ineligible_results[index])
             else:
                 ordered_results.append(results[id(definition.simulation_contexts[index])])
         profiler.stop("fast_path_assembly")

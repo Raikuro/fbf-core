@@ -1,0 +1,193 @@
+# ERN Part 20 — T2.1 baseline E2E audit specification.
+#
+# Authoritative machine-readable audit matrix for
+# docs/research/ern_part20_e2e_audit.md Experiments A–E.
+#
+# Distinction (constraint: no matrix duplication):
+# - examples/studies/ern_part20.yaml remains the canonical CLI 320-cell
+#   grid study (32 glidepaths × 5 SWR × 2 horizons). It is intentionally
+#   NOT extended to Experiments A–E; this file is the audit matrix only.
+# - `anchors` below are external reference data transcribed from
+#   docs/research/ern_part20_replication.md §11.1–§11.6 and §15.4
+#   (published values at displayed precision). They are validation
+#   anchors, not a second experiment matrix (audit §11).
+#
+# All monetary and rate values are quoted strings so Decimal parsing is
+# exact. `unit` drives discrepancy classification quantum:
+#   percent     → 0.01  (2-decimal percent, Tables 02/03/06)
+#   percent_1dp → 0.1   (1-decimal percent, allocation checkpoints)
+#   usd         → 1     (exact dollar checkpoints, Tables 01/05)
+
+meta:
+  name: "ERN Part 20 T2.1 Baseline E2E Audit"
+  spec_version: "1.0"
+  notes: >
+    Frozen audit specification (ern_part20_e2e_audit.md §2–§7).
+    Strategy universe lives in fbf.core.research.part20_strategies
+    (production catalog: 21 static + 32 glidepath). Population
+    conditioning is derived from the canonical Part 3 cohort manifest.
+    Experiment E is declarative capability-gap only — never executed.
+
+structural_counts:
+  total_cohorts: 1739
+  cape_available: 1485
+  cape_high: 383
+  strategy_count: 53
+  cells_a: 106
+  cells_b: 106
+  cells_c: 530
+  cells_d: 159
+  cells_e_cases: 4
+
+experiments:
+  - id: A
+    kind: percentile_search
+    horizon_years: 60
+    populations: ["HIGH", "LOW"]
+    fv_targets: ["0"]
+    cells: 106
+
+  - id: B
+    kind: percentile_search
+    horizon_years: 30
+    populations: ["HIGH", "LOW"]
+    fv_targets: ["0"]
+    cells: 106
+
+  - id: C
+    kind: fixed_swr
+    horizons_years: [60, 30]
+    fixed_swrs: ["0.03", "0.0325", "0.035", "0.0375", "0.04"]
+    population: "HIGH"
+    final_value_target: "0"
+    cells: 530
+
+  - id: D
+    kind: percentile_search
+    horizon_years: 60
+    populations: ["HIGH"]
+    fv_targets: ["0", "0.5", "1"]
+    reuse_from: "A"
+    cells: 159
+
+  - id: E
+    kind: unsupported
+    cells: 4
+    capability_gaps:
+      - >-
+        annual rebalancing frequency not exposed as an execution frequency
+        (monthly portfolio rebalance only; domain has WithdrawalFrequency.ANNUAL
+        but no annual rebalance step schedule)
+      - >-
+        synthetic Bear→Bull / Bull→Bear return sequences are not a supported
+        canonical dataset configuration
+      - >-
+        case-study intermediate allocations/year-2 checkpoints require
+        annual-rebalance mechanics
+    cases:
+      - id: bear_bull_glidepath
+        strategy: "gp_070_090_annual"
+        sequence: "bear_bull"
+      - id: bear_bull_static_080
+        strategy: "static_080"
+        sequence: "bear_bull"
+      - id: bull_bear_glidepath
+        strategy: "gp_070_090_annual"
+        sequence: "bull_bear"
+      - id: bull_bear_static_080
+        strategy: "static_080"
+        sequence: "bull_bear"
+
+# ---------------------------------------------------------------------------
+# Published anchors — external reference data (replication §11/§15.4)
+# ---------------------------------------------------------------------------
+
+anchors:
+  # --- Experiment A: 60Y failsafe/percentile (Table 02, CAPE > 20) — §11.3 ---
+  - { experiment: A, strategy: "static_075", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.25", unit: percent }
+  - { experiment: A, strategy: "static_080", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.14", unit: percent }
+  - { experiment: A, strategy: "static_080", metric: "p05", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.47", unit: percent }
+  - { experiment: A, strategy: "gp_060_100_0.003_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.29", unit: percent }
+  - { experiment: A, strategy: "gp_060_100_0.004_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.42", unit: percent }
+  - { experiment: A, strategy: "gp_060_100_0.003_active", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.28", unit: percent }
+  - { experiment: A, strategy: "gp_060_100_0.004_active", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.34", unit: percent }
+  - { experiment: A, strategy: "static_100", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "2.58", unit: percent }
+  - { experiment: A, strategy: "gp_030_070_0.00111_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "2.83", unit: percent }
+  - { experiment: A, strategy: "gp_020_060_0.00111_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "2.67", unit: percent }
+
+  # --- Experiment B: 30Y failsafe/percentile (Table 03, CAPE > 20) — §11.4 ---
+  - { experiment: B, strategy: "static_075", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.82", unit: percent }
+  - { experiment: B, strategy: "static_080", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.65", unit: percent }
+  - { experiment: B, strategy: "gp_060_100_0.003_passive", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.91", unit: percent }
+  - { experiment: B, strategy: "gp_060_100_0.004_passive", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.86", unit: percent }
+  - { experiment: B, strategy: "gp_060_100_0.003_active", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.96", unit: percent }
+  - { experiment: B, strategy: "gp_060_100_0.004_active", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.94", unit: percent }
+  - { experiment: B, strategy: "gp_040_100_0.004_passive", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.95", unit: percent }
+  - { experiment: B, strategy: "gp_040_100_0.004_active", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.97", unit: percent }
+  - { experiment: B, strategy: "gp_040_100_0.005_passive", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.90", unit: percent }
+  - { experiment: B, strategy: "static_100", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "2.85", unit: percent }
+  - { experiment: B, strategy: "gp_030_070_0.00111_passive", metric: "failsafe", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "3.56", unit: percent }
+
+  # --- Experiment C: fixed-SWR failure rates (Table 04, CAPE > 20) — §11.5 ---
+  # 60-year horizon (22 non-dash cells)
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "5.8", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "5.5", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "1.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "4.1", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "11.6", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "23.4", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.04", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "33.5", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_060_100_0.003_passive", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_060_100_0.003_passive", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_060_100_0.003_passive", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_060_100_0.003_passive", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "14.0", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.1", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "8.4", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "27.0", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "31.1", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.04", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "32.5", unit: percent_1dp }
+  # 30-year horizon (20 non-dash cells)
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_075", metric: "failure_rate", withdrawal_rate: "0.04", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "5.8", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_080", metric: "failure_rate", withdrawal_rate: "0.04", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "5.5", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.5", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "1.0", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "1.7", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "4.6", unit: percent_1dp }
+  - { experiment: C, strategy: "static_100", metric: "failure_rate", withdrawal_rate: "0.04", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "13.7", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.03", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.0325", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.035", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "0.0", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.0375", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "2.7", unit: percent_1dp }
+  - { experiment: C, strategy: "gp_030_070_0.00111_passive", metric: "failure_rate", withdrawal_rate: "0.04", horizon_years: 30, final_value_target: "0", cape_regime: "HIGH", published: "18.3", unit: percent_1dp }
+
+  # --- Experiment D: failsafe at FV targets (Table 06, CAPE > 20, 60Y) — §11.6/§15.4 ---
+  - { experiment: D, strategy: "static_075", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.25", unit: percent }
+  - { experiment: D, strategy: "static_075", metric: "failsafe", horizon_years: 60, final_value_target: "0.5", cape_regime: "HIGH", published: "3.15", unit: percent }
+  - { experiment: D, strategy: "static_075", metric: "failsafe", horizon_years: 60, final_value_target: "1", cape_regime: "HIGH", published: "3.05", unit: percent }
+  - { experiment: D, strategy: "gp_060_100_0.004_active", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.47", unit: percent }
+  - { experiment: D, strategy: "gp_060_100_0.004_active", metric: "failsafe", horizon_years: 60, final_value_target: "0.5", cape_regime: "HIGH", published: "3.42", unit: percent }
+  - { experiment: D, strategy: "gp_060_100_0.004_active", metric: "failsafe", horizon_years: 60, final_value_target: "1", cape_regime: "HIGH", published: "3.34", unit: percent }
+
+  # --- Experiment E: deterministic case-study checkpoints (Tables 01/05) — §15.4 ---
+  - { experiment: E, strategy: "gp_070_090_annual", metric: "portfolio_y2", scenario: "bear_bull", horizon_years: 10, final_value_target: null, cape_regime: "N/A", published: "733314", unit: usd }
+  - { experiment: E, strategy: "static_080", metric: "portfolio_y2", scenario: "bear_bull", horizon_years: 10, final_value_target: null, cape_regime: "N/A", published: "691746", unit: usd }
+  - { experiment: E, strategy: "gp_070_090_annual", metric: "portfolio_y10", scenario: "bear_bull", horizon_years: 10, final_value_target: null, cape_regime: "N/A", published: "1074558", unit: usd }
+  - { experiment: E, strategy: "static_080", metric: "portfolio_y10", scenario: "bear_bull", horizon_years: 10, final_value_target: null, cape_regime: "N/A", published: "995378", unit: usd }
+  - { experiment: E, strategy: "gp_070_090_annual", metric: "portfolio_y10", scenario: "bull_bear", horizon_years: 10, final_value_target: null, cape_regime: "N/A", published: "1089990", unit: usd }
+  - { experiment: E, strategy: "static_080", metric: "portfolio_y10", scenario: "bull_bear", horizon_years: 10, final_value_target: null, cape_regime: "N/A", published: "1162099", unit: usd }
+  - { experiment: E, strategy: "gp_070_090_annual", metric: "stock_allocation", scenario: "bear_bull", horizon_years: 10, final_value_target: null, cape_regime: "N/A", published: "39.7", unit: percent_1dp }
+  - { experiment: E, strategy: "static_080", metric: "stock_allocation", scenario: "bear_bull", horizon_years: 10, final_value_target: null, cape_regime: "N/A", published: "85.5", unit: percent_1dp }

@@ -22,6 +22,13 @@ constant across all months because the portfolio is rebalanced to the same
 target each month.  The growth factor ``g_m`` varies by month because the
 price returns ``P_{j,m+1}/P_{j,m}`` change.
 
+For glidepath strategies, the target weights vary by month according to
+a precomputed equity-weight sequence:
+
+    g_m      = w_m * equity_return[m] + (1 - w_m) * bond_return[m]
+
+where ``w_m`` is the equity weight for month ``m`` (after rebalancing).
+
 The engine fails at month ``m`` when ``V_m < C`` (depletion at the
 withdrawal step).  On depletion, the remaining value is 0 (all holdings
 are sold), matching the reference engine's ``remaining_value = Money.ZERO``.
@@ -35,10 +42,10 @@ Performance
 Limitations
 -----------
 - Float64 precision (~1e-15 per step) — not bit-exact with Decimal reference
-- Constant allocation target only (same target weights every month)
+- FixedRealWithdrawalPolicy only
 - No additional cash flows, costs, or taxes
 - Portfolio state after rebalancing is completely determined by total value
-  and target weights
+  and target weights.
 """
 
 from __future__ import annotations
@@ -321,6 +328,271 @@ def _compute_growth_factors_numpy(
     growth_factors[:n_growth] = growth[:n_growth]
 
     return growth_factors
+
+
+def compute_growth_factors_varying_weights(
+    equity_weights: NDArray[np.float64],
+    equity_prices: NDArray[np.float64],
+    bond_prices: NDArray[np.float64],
+    horizon: int,
+) -> NDArray[np.float64]:
+    """Compute growth factors with time-varying equity weights.
+
+    For glidepath strategies, the equity weight changes each month.
+    The growth factor for month m is:
+
+        g_m = w_m * equity_return[m] + (1 - w_m) * bond_return[m]
+
+    where w_m is the equity weight after rebalancing at month m.
+
+    Parameters
+    ----------
+    equity_weights:
+        Float64 array of equity weights per month, length >= horizon.
+        equity_weights[m] is the weight AFTER rebalancing at month m.
+    equity_prices:
+        Float64 array of equity index levels, length >= horizon.
+    bond_prices:
+        Float64 array of bond index levels, length >= horizon.
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    NDArray of float64 growth factors, length = horizon.
+    """
+    n_prices = len(equity_prices)
+    n_growth = min(horizon - 1, n_prices - 1)
+
+    growth_factors = np.ones(horizon, dtype=np.float64)
+
+    for m in range(n_growth):
+        eq_ret = equity_prices[m + 1] / equity_prices[m]
+        bd_ret = bond_prices[m + 1] / bond_prices[m]
+        w = equity_weights[m]
+        growth_factors[m] = w * eq_ret + (1.0 - w) * bd_ret
+
+    return growth_factors
+
+
+@numba.njit(cache=True)
+def compute_growth_factors_varying_weights_batch(
+    equity_weights: NDArray[np.float64],
+    equity_prices: NDArray[np.float64],
+    bond_prices: NDArray[np.float64],
+    horizon: int,
+) -> NDArray[np.float64]:
+    """Batched version: compute growth factors for multiple sequences at once.
+
+    Parameters
+    ----------
+    equity_weights:
+        2D array of shape (batch, horizon) with equity weights per month.
+    equity_prices:
+        2D array of shape (batch, n_prices) with equity index levels.
+    bond_prices:
+        2D array of shape (batch, n_prices) with bond index levels.
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    2D array of shape (batch, horizon) with growth factors for each sequence.
+    """
+    batch_size, n_prices = equity_prices.shape
+    n_growth = min(horizon - 1, n_prices - 1)
+
+    # Compute returns for all sequences at once
+    equity_returns = equity_prices[:, 1:] / equity_prices[:, :-1]  # (batch, n_prices-1)
+    bond_returns = bond_prices[:, 1:] / bond_prices[:, :-1]  # (batch, n_prices-1)
+
+    # Equity weights for the growth months
+    weights = equity_weights[:, :n_growth]  # (batch, n_growth)
+
+    # Vectorized computation
+    eq_ret = equity_returns[:, :n_growth]  # (batch, n_growth)
+    bd_ret = bond_returns[:, :n_growth]    # (batch, n_growth)
+
+    growth_factors = np.ones((batch_size, horizon), dtype=np.float64)
+    growth_factors[:, :n_growth] = weights * eq_ret + (1.0 - weights) * bd_ret
+
+    return growth_factors
+
+
+@numba.njit(cache=True)
+def _simulate_trajectory_varying(
+    growth_factors: NDArray[np.float64],
+    initial_value: float,
+    withdrawal_monthly: float,
+    horizon: int,
+) -> tuple[float, bool, int, float]:
+    """Simulate one trajectory using precomputed growth factors.
+
+    Same recurrence as _simulate_trajectory but accepts precomputed
+    growth_factors array (which may be from varying weights).
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (length = horizon).  Only entries
+        0..horizon-2 are used; the last entry is ignored.
+    initial_value:
+        Portfolio value at month 0.
+    withdrawal_monthly:
+        Constant real monthly withdrawal ``C``.
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    tuple of (final_value, success, failure_month, post_withdrawal_value)
+
+    On depletion, final_value is 0.0 (matching the reference engine's
+    ``remaining_value = Money.ZERO``).  On success, failure_month is -1
+    (the wrapper converts this to None to match the reference engine's
+    ``SimulationStatistics.failure_month = None``).
+    """
+    value = initial_value
+
+    for m in range(horizon):
+        if value < withdrawal_monthly:
+            return 0.0, False, m, 0.0
+
+        value -= withdrawal_monthly
+
+        if m < horizon - 1:
+            value *= growth_factors[m]
+
+    return value, True, -1, value
+
+
+@numba.njit(cache=True)
+def _simulate_batch_varying(
+    growth_factors: NDArray[np.float64],
+    initial_values: NDArray[np.float64],
+    withdrawals_monthly: NDArray[np.float64],
+    horizons: NDArray[np.int32],
+    n_trajectories: int,
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.bool_],
+    NDArray[np.int32],
+    NDArray[np.float64],
+]:
+    """Simulate a batch of trajectories with precomputed growth factors (varying weights)."""
+    final_values = np.empty(n_trajectories, dtype=np.float64)
+    successes = np.empty(n_trajectories, dtype=np.bool_)
+    failure_months = np.empty(n_trajectories, dtype=np.int32)
+    post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
+
+    for i in range(n_trajectories):
+        fv, ok, fm, pwv = _simulate_trajectory_varying(
+            growth_factors,
+            initial_values[i],
+            withdrawals_monthly[i],
+            int(horizons[i]),
+        )
+        final_values[i] = fv
+        successes[i] = ok
+        failure_months[i] = fm
+        post_withdrawal_values[i] = pwv
+
+    return final_values, successes, failure_months, post_withdrawal_values
+
+
+@numba.njit(parallel=True, cache=True)
+def _simulate_batch_varying_parallel(
+    growth_factors: NDArray[np.float64],
+    initial_values: NDArray[np.float64],
+    withdrawals_monthly: NDArray[np.float64],
+    horizons: NDArray[np.int32],
+    n_trajectories: int,
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.bool_],
+    NDArray[np.int32],
+    NDArray[np.float64],
+]:
+    """Simulate a batch of trajectories in parallel using numba.prange (varying weights)."""
+    final_values = np.empty(n_trajectories, dtype=np.float64)
+    successes = np.empty(n_trajectories, dtype=np.bool_)
+    failure_months = np.empty(n_trajectories, dtype=np.int32)
+    post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
+
+    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+        fv, ok, fm, pwv = _simulate_trajectory_varying(
+            growth_factors,
+            initial_values[i],
+            withdrawals_monthly[i],
+            int(horizons[i]),
+        )
+        final_values[i] = fv
+        successes[i] = ok
+        failure_months[i] = fm
+        post_withdrawal_values[i] = pwv
+
+    return final_values, successes, failure_months, post_withdrawal_values
+
+
+def simulate_batch_varying(
+    growth_factors: NDArray[np.float64],
+    initial_values: list[Money],
+    withdrawal_rates: list[Decimal],
+    horizons: list[int],
+    *,
+    parallel: bool = True,
+) -> list[tuple[bool, int | None, Money, int]]:
+    """Simulate a batch of trajectories with precomputed growth factors.
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (shared across all trajectories).
+    initial_values:
+        Initial portfolio values for each trajectory.
+    withdrawal_rates:
+        Annual withdrawal rates for each trajectory.
+    horizons:
+        Horizon in months for each trajectory.
+    parallel:
+        If True, use Numba parallel execution (recommended for batch > 10).
+
+    Returns
+    -------
+    List of (success, failure_month, final_wealth, months_simulated) tuples.
+    """
+    n = len(initial_values)
+    if n == 0:
+        return []
+
+    v0 = np.array([float(m.amount) for m in initial_values], dtype=np.float64)
+    c = np.array(
+        [
+            float(v.amount) * float(r) / 12.0
+            for v, r in zip(initial_values, withdrawal_rates, strict=True)
+        ],
+        dtype=np.float64,
+    )
+    h = np.array(horizons, dtype=np.int32)
+
+    if parallel and n > 10:
+        final_vals, successes, fail_months, _ = _simulate_batch_varying_parallel(
+            growth_factors, v0, c, h, n
+        )
+    else:
+        final_vals, successes, fail_months, _ = _simulate_batch_varying(
+            growth_factors, v0, c, h, n
+        )
+
+    results: list[tuple[bool, int | None, Money, int]] = []
+    for i in range(n):
+        fv = Money(Decimal(str(final_vals[i])), Currency.EUR)
+        if successes[i]:
+            results.append((True, None, fv, int(h[i])))
+        else:
+            results.append((False, int(fail_months[i]), fv, int(fail_months[i])))
+
+    return results
 
 
 def simulate_single(
