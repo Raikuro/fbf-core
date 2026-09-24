@@ -300,8 +300,8 @@ def run_fixed_swr_grid(
     """Experiment C: fixed-SWR failure rates over the conditioned population."""
     if not withdrawal_rates:
         raise ValueError("withdrawal_rates must be non-empty (pass the audit grid)")
-    if population not in {"HIGH", "LOW"}:
-        raise ValueError(f"population must be HIGH|LOW, got {population!r}")
+    if population not in {"HIGH", "LOW", "ALL"}:
+        raise ValueError(f"population must be HIGH|LOW|ALL, got {population!r}")
     horizon_months = horizon_years * 12 + 1
     n_cohorts = len(cohort_dates)
     cells: list[FailureRateCell] = []
