@@ -456,8 +456,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
             # Group by max_h to avoid shape mismatches
             from collections import defaultdict
 
-            # Group by max_h to avoid shape mismatches
-            groups_by_max_h: dict[int, list[tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], GlidepathGFKey]]] = defaultdict(list)
+            GroupTuple = tuple[
+                NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], GlidepathGFKey
+            ]
+            groups_by_max_h: dict[int, list[GroupTuple]] = defaultdict(list)
             for _idx, (equity_w, eq_prices, bd_prices, max_h, glide_gf_k) in enumerate(
                 zip(
                     batch_equity_weights,
