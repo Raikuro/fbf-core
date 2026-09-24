@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from fbf.core.execution.pipeline.pipeline import SimulationPipeline
+from fbf.core.execution.pipeline.schedule import ExecutionSchedule
 from fbf.core.execution.pipeline.simulation import (
     ExecutionStatus,
     SimulationResult,
@@ -39,13 +40,23 @@ class SimulationRunner:
             else DefaultSimulationStatisticsBuilder()
         )
 
-    def run(self, context: SimulationContext) -> SimulationResult:
+    def run(
+        self,
+        context: SimulationContext,
+        schedule: ExecutionSchedule | None = None,
+    ) -> SimulationResult:
         self._validate_context(context)
         state = self._initialize_state(context)
 
         t_start = time.perf_counter()
         while state.status == ExecutionStatus.RUNNING:
+            period_index = state.period_index
             for step in self.pipeline.steps:
+                # Check schedule before executing step
+                if schedule is not None:
+                    step_type = type(step)
+                    if not schedule.should_execute(step_type, period_index):
+                        continue
                 state = step.execute(state)
                 if state.failure_state is not None:
                     state.status = ExecutionStatus.FAILED

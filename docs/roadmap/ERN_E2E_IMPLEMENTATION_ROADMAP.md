@@ -366,27 +366,44 @@ Use `ern_part20_e2e_audit.md` as the specification.
   - Acceptance criteria: FBF output compared against published results; complete per-cohort result set retained
   - Dependencies: T2.1
 
-- [ ] **T2.3** Part 20 Experiment B — 30Y failsafe/percentile
+- [x] **T2.3** Part 20 Experiment B — 30Y failsafe/percentile
   - Target: 53 strategies × 2 CAPE = 106 cells
   - Reference: ERN Part 20 Table 03
   - Dependencies: T2.1
+  - Complete at: `fbf-core` T2.2 implementation (Experiment B baseline execution)
+  - Deliverables: `tests/integration/test_part20_e2e_audit.py` Experiment B anchors test passed; `docs/research/ern_part20_e2e_audit.md` updated with Experiment B results; `docs/research/ern_part20_replication.md` updated with Experiment B discrepancy classifications
+  - Results: 4 EXPLAINED DIFFERENCE, 7 UNEXPLAINED DIFFERENCE (2–3 ULP), 0 REPRODUCED, 0 CAPABILITY GAP; 1,023,165 units executed in ~51s
 
-- [ ] **T2.4** Part 20 Experiment C — Fixed SWR failure rates
+- [x] **T2.4** Part 20 Experiment C — Fixed SWR failure rates
   - Target: 53 × 5 SWR × 2H = 530 cells
   - Reference: ERN Part 20 Table 04
   - Dependencies: T2.1
-  - Known blocker: May require failure-rate aggregation capability
+  - Complete at: `fbf-core` T2.3 implementation (Experiment C baseline execution)
+  - Deliverables: `tests/integration/test_part20_e2e_audit.py` Experiment C anchors test passed; `docs/research/ern_part20_e2e_audit.md` updated with Experiment C results; `docs/research/ern_part20_replication.md` updated with Experiment C discrepancy classifications
+  - Results: 16 REPRODUCED, 1 EXPLAINED DIFFERENCE, 25 UNEXPLAINED DIFFERENCE (2–180 ULP), 0 CAPABILITY GAP; 202,990 units executed in ~10s
 
-- [ ] **T2.5** Part 20 Experiment D — FV targets
+- [x] **T2.5** Part 20 Experiment D — FV targets
   - Target: 53 × 3 FV = 159 cells
   - Reference: ERN Part 20 Table 06
   - Dependencies: T2.1
+  - Complete at: `fbf-core` T2.5 implementation (Experiment D baseline execution)
+  - Deliverables: `tests/integration/test_part20_e2e_audit.py` Experiment D anchors test passed; `docs/research/ern_part20_e2e_audit.md` updated with Experiment D results; `docs/research/ern_part20_replication.md` updated with Experiment D discrepancy classifications
+  - Results: 1 REPRODUCED, 1 EXPLAINED DIFFERENCE, 4 UNEXPLAINED DIFFERENCE (2–3 ULP), 0 CAPABILITY GAP; 527,774 units executed in ~29s; FV=0 reuse from Experiment A verified (53 cells)
 
-- [ ] **T2.6** Part 20 Experiment E — Deterministic case study
+- [x] **T2.6** Part 20 Experiment E — Deterministic case study
   - Target: 4 cases
   - Reference: ERN Part 20 Tables 01/05
   - Dependencies: T2.1
-  - Known blocker: Requires annual-frequency simulation
+  - Status: **IMPLEMENTED AND FORENSICALLY VALIDATED** (Phases 1–5 complete)
+  - Phase 1: `ReturnSequence`, `build_prescribed_dataset()`, `EscalatingWithdrawalPolicy`
+  - Phase 2: `StepCadence`, `ExecutionSchedule`, `SimulationRunner.run(schedule=...)`
+  - Phase 3: `DeterministicTrajectory`, `execute_deterministic_trajectory()`
+  - Phase 4: `build_experiment_e_trajectories()`, `execute_experiment_e()`
+  - Phase 5: Forensic validation — zero production code changes
+  - Complete at: `fbf-core` T2.6 Phases 1–5 implementation
+  - Deliverables: `docs/research/ern_part20_e2e_audit.md` updated with Experiment E forensic results; `docs/research/ern_part20_replication.md` updated with Experiment E forensic results
+  - Results: 8 UNEXPLAINED DIFFERENCE anchors (6 portfolio, 2 allocation), 0 REPRODUCED, 0 EXPLAINED DIFFERENCE, 0 CAPABILITY GAP; implementation follows frozen design; zero production code changes in Phase 5
+  - Remaining research debt: 6 unexplained portfolio anchors, 2 allocation-anchor source ambiguities, untested pipeline-ordering hypothesis, USD/EUR metadata limitation, workbook divergence documented
 
 ### Phase 3 — Part 19
 

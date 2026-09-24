@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from fbf.core.datasets import load_canonical_dataset
+from fbf.core.datasets import build_prescribed_dataset, load_canonical_dataset
 from fbf.core.domain.policies import AllocationPolicyType, WithdrawalPolicyType
-from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
+from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy, GlidepathCadence
 from fbf.core.errors import CoreError
 from fbf.core.execution import (
     CompositeProfiler,
     CpuProfiler,
+    DeterministicResult,
+    DeterministicTrajectory,
     EnhancedProfileReport,
     ExecutionBackend,
     ExecutionOptions,
@@ -20,6 +22,7 @@ from fbf.core.execution import (
     Profiler,
     ProfileReport,
     ResearchExecutionResult,
+    execute_deterministic_trajectory,
     execute_study_plan,
 )
 from fbf.core.optimization import optimize_part52, optimize_study_swr
@@ -45,6 +48,7 @@ __all__ = [
     "AllocationPolicyType",
     "WithdrawalPolicyType",
     "GlidepathAllocationPolicy",
+    "GlidepathCadence",
     "StudyConfiguration",
     "StudyPlanResult",
     "build_study_plan",
@@ -61,14 +65,18 @@ __all__ = [
     "ExecutionStrategy",
     "ExecutionOptions",
     "execute_study_plan",
+    "execute_deterministic_trajectory",
     "ResearchExecutionResult",
     "optimize_study_swr",
     "optimize_part52",
     "load_canonical_dataset",
+    "build_prescribed_dataset",
     "StudyRepository",
     "create_study_repository",
     "CoreError",
     "__version__",
+    "DeterministicTrajectory",
+    "DeterministicResult",
     "Profiler",
     "NoOpProfiler",
     "ExecutionProfiler",

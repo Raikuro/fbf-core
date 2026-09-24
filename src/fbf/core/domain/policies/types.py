@@ -53,6 +53,7 @@ class WithdrawalPolicyType(Enum):
     CONSTANT = ("ConstantWithdrawalPolicy", "Constant", "withdrawal_rate")
     PART49 = ("Part49WithdrawalPolicy", "Part 49 Leverage", "withdrawal_rate")
     PART52 = ("Part52WithdrawalPolicy", "Part 52 Timing Leverage", "withdrawal_rate")
+    ESCALATING = ("EscalatingWithdrawalPolicy", "Escalating", "withdrawal_rate")
 
     def __init__(
         self, yaml_name: str, display_name: str, parameter_key: str

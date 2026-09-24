@@ -185,6 +185,7 @@ def test_public_facade_symbols() -> None:
         "AllocationPolicyType",
         "WithdrawalPolicyType",
         "GlidepathAllocationPolicy",
+        "GlidepathCadence",
         "StudyConfiguration",
         "StudyPlanResult",
         "build_study_plan",
@@ -192,10 +193,12 @@ def test_public_facade_symbols() -> None:
         "ExecutionStrategy",
         "ExecutionOptions",
         "execute_study_plan",
+        "execute_deterministic_trajectory",
         "ResearchExecutionResult",
         "optimize_study_swr",
         "optimize_part52",
         "load_canonical_dataset",
+        "build_prescribed_dataset",
         "StudyRepository",
         "create_study_repository",
         "CoreError",
@@ -218,6 +221,8 @@ def test_public_facade_symbols() -> None:
         "CpuProfiler",
         "MemoryProfiler",
         "CompositeProfiler",
+        "DeterministicTrajectory",
+        "DeterministicResult",
     }
     actual_symbols = set(fbf.core.__all__)
     assert expected_symbols == actual_symbols, (

@@ -10,6 +10,11 @@ from .decision_context import DecisionContext
 from .market_snapshot import MarketSnapshot
 from .money import Money
 from .portfolio import AssetHolding, Portfolio
+from .return_sequence import (
+    ReturnSequence,
+    annual_to_monthly,
+    expand_annual_to_monthly,
+)
 from .simulation import (
     ExperimentDefinition,
     ExperimentRun,
@@ -38,4 +43,7 @@ __all__ = [
     "SimulationTimeline",
     "MonthlyResult",
     "SimulationResult",
+    "ReturnSequence",
+    "annual_to_monthly",
+    "expand_annual_to_monthly",
 ]

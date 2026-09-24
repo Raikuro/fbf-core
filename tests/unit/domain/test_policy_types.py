@@ -60,11 +60,12 @@ class TestWithdrawalPolicyType:
 
     def test_all_members_exhaustive(self) -> None:
         members = list(WithdrawalPolicyType)
-        assert len(members) == 4
+        assert len(members) == 5
         yaml_names = {m.yaml_name for m in members}
         assert yaml_names == {
             "FixedRealWithdrawalPolicy",
             "ConstantWithdrawalPolicy",
             "Part49WithdrawalPolicy",
             "Part52WithdrawalPolicy",
+            "EscalatingWithdrawalPolicy",
         }

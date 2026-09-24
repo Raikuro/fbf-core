@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from numpy.typing import NDArray
 
+from fbf.core.execution.deterministic import (
+    DeterministicResult,
+    DeterministicTrajectory,
+    execute_deterministic_trajectory,
+)
 from fbf.core.execution.profiling import (
     CompositeProfiler,
     CpuProfiler,
@@ -514,6 +519,9 @@ def execute_study_plan(
 
 
 __all__ = [
+    "DeterministicTrajectory",
+    "DeterministicResult",
+    "execute_deterministic_trajectory",
     "ExecutionBackend",
     "ExecutionStrategy",
     "ExecutionOptions",

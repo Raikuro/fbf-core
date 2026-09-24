@@ -4,11 +4,14 @@ Implements both passive and active glidepath modes as described in
 ERN Part 19.  The policy is stateless: the equity weight at any period
 is a deterministic function of the period index and the historical
 market state available through the DecisionContext.
+
+Supports both monthly (legacy) and annual cadence for glidepath advancement.
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import Enum
 
 from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
@@ -17,15 +20,31 @@ from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.decisions import AllocationDecision
 
 
+class GlidepathCadence(Enum):
+    """Cadence at which the glidepath advances.
+
+    MONTHLY (default) — advances every month (existing behavior).
+    ANNUAL — advances once per year at period_index % 12 == 0 boundaries.
+    """
+
+    MONTHLY = "monthly"
+    ANNUAL = "annual"
+
+
 class GlidepathAllocationPolicy(AllocationPolicy):
     """Period-indexed glidepath allocation policy.
 
     The equity weight increases from *start_equity* toward *end_equity*
-    at a rate of *slope* percentage points per qualifying month.
+    at a rate of *slope* percentage points per qualifying period.
 
-    Passive mode: every month qualifies.
+    The cadence parameter controls whether advancement happens monthly
+    (existing behavior) or annually (new Experiment E behavior).
+
+    Passive mode with MONTHLY cadence: every month qualifies.
+    Passive mode with ANNUAL cadence: advances at period_index // 12.
     Active mode: only months where ``dataset[period_index].is_underwater``
-    qualifies.
+    qualifies (monthly cadence only; annual cadence with active mode
+    is not supported and will raise an error).
 
     Parameters
     ----------
@@ -34,13 +53,17 @@ class GlidepathAllocationPolicy(AllocationPolicy):
     end_equity:
         Target equity weight (0.0–1.0).  The weight never exceeds this value.
     slope:
-        Monthly increase as a **fraction** (e.g. ``Decimal("0.005")``
-        for 0.5 percentage points per qualifying month).  The YAML/builder
+        Increase as a **fraction** per qualifying period (e.g. ``Decimal("0.005")``
+        for 0.5 percentage points per qualifying period).  The YAML/builder
         layer converts percentage-point values to fractions.
     mode:
-        ``"passive"`` — advancement every month.
+        ``"passive"`` — advancement on every qualifying period.
         ``"active"`` — advancement only when the S&P 500 is below its
-        all-time high (``is_underwater == True``).
+        all-time high (``is_underwater == True``).  Only valid with
+        MONTHLY cadence.
+    cadence:
+        ``GlidepathCadence.MONTHLY`` (default) — advances monthly.
+        ``GlidepathCadence.ANNUAL`` — advances annually at period boundaries.
     """
 
     _EQUITY = AssetClass(id="equity", name="", description="")
@@ -52,6 +75,7 @@ class GlidepathAllocationPolicy(AllocationPolicy):
         end_equity: Decimal,
         slope: Decimal,
         mode: str,
+        cadence: GlidepathCadence = GlidepathCadence.MONTHLY,
     ) -> None:
         if mode not in ("passive", "active"):
             raise ValueError(
@@ -61,10 +85,14 @@ class GlidepathAllocationPolicy(AllocationPolicy):
             raise ValueError(
                 f"GlidepathAllocationPolicy slope must be non-negative, got {slope}"
             )
+        if mode == "active" and cadence is GlidepathCadence.ANNUAL:
+            raise ValueError("Active mode is not supported with ANNUAL cadence")
+
         self.start_equity = start_equity
         self.end_equity = end_equity
         self.slope = slope
         self.mode = mode
+        self.cadence = cadence
 
     def decide(self, context: DecisionContext) -> AllocationDecision:
         advancement_count = self._count_advancements(context)
@@ -79,6 +107,13 @@ class GlidepathAllocationPolicy(AllocationPolicy):
         )
 
     def _count_advancements(self, context: DecisionContext) -> int:
+        if self.cadence is GlidepathCadence.ANNUAL:
+            # Annual advancement: period_index // 12
+            # period_index 0 -> 0 advancements (initial target)
+            # period_index 11 -> 0 advancements (end of year 1)
+            # period_index 12 -> 1 advancement (start of year 2)
+            return context.period_index // 12
+
         if self.mode == "passive":
             return context.period_index
         return self._count_underwater_periods(context)

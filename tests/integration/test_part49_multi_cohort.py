@@ -26,6 +26,7 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
 from fbf.core.execution.executor import ResearchExecutor
+from fbf.core.execution.pipeline.schedule import ExecutionSchedule
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.parallel_executor import (
@@ -477,9 +478,11 @@ class TestStateIsolation:
         original_run = SimulationRunner.run
 
         def tracking_run(
-            self: SimulationRunner, context: SimulationContext
+            self: SimulationRunner,
+            context: SimulationContext,
+            schedule: ExecutionSchedule | None = None,
         ) -> SimulationResult:
-            result = original_run(self, context)
+            result = original_run(self, context, schedule)
             state_ids.append(id(result))
             return result
 
