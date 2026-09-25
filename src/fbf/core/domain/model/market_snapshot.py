@@ -20,6 +20,7 @@ class MarketSnapshot:
     index_levels: dict[AssetClass, Decimal]
     inflation: Decimal
     inflation_cumulative: Decimal
+    # ATH/underwater based on NOMINAL total-return equity index (ERN methodology)
     is_ath: bool
     is_underwater: bool
     running_ath: Decimal

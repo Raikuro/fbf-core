@@ -3,6 +3,7 @@
 Reconstructs the runtime Dataset from canonical CSV sources:
 
 - ``spx_tr_real.csv`` — S&P 500 TR real returns (ISO date format)
+- ``spx_tr.csv`` — S&P 500 TR nominal total-return cumulative index (ISO date format)
 - ``bond_10y_tr_real.csv`` — 10-Year Bond Market real returns (ISO date format)
 - ``cpi.csv`` — CPI levels (ISO date format, used for interest-rate inflation adjustment)
 
@@ -13,6 +14,10 @@ The loader owns all CSV-specific details: filenames, forward-projection
 rules, and derived market state (ATH, underwater).  The dataset contains
 raw ERN market/index data with no fee embedding; the 0.05% p.a. ERN
 portfolio fee is applied at the portfolio/study level (expense_ratio).
+
+The ATH/underwater state is computed from the NOMINAL total-return
+equity index (spx_tr.csv) per ERN methodology. The real-return equity
+levels are used for portfolio simulation returns.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from fbf.core.domain.model.dataset import Dataset
 # ---------------------------------------------------------------------------
 
 _EQUITY_CSV = "spx_tr_real.csv"
+_NOMINAL_EQUITY_CSV = "spx_tr.csv"
 _BOND_CSV = "bond_10y_tr_real.csv"
 _CPI_CSV = "cpi.csv"
 
@@ -49,13 +55,13 @@ _BOND_BASE = Decimal("100")
 # ---------------------------------------------------------------------------
 # Forward projection constants (ERN canonical — Part 1 §4, Dec 7 2016)
 # ---------------------------------------------------------------------------
+
 _EQUITY_FORWARD_ANNUAL = Decimal("0.066")  # 6.6% real p.a.
 _BOND_FORWARD_ANNUAL = Decimal("0")  # 0% real p.a. for first 120 months
 _BOND_FORWARD_ANNUAL_AFTER = Decimal("0.026")  # 2.6% real p.a. after month 120
 _BOND_FORWARD_DELAY_MONTHS = 120  # 10 years = 120 months
 _HISTORICAL_END = datetime(2016, 10, 1)  # first forward month
 _PROJECTION_END = datetime(2075, 11, 1)
-
 
 # ---------------------------------------------------------------------------
 # CSV loading
@@ -98,15 +104,19 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     """Load the ERN dataset from canonical CSV sources.
 
     Reconstructs the runtime Dataset from equity and bond real-return CSVs,
-    applying forward projections and ATH/underwater state.  The resulting
+    applying forward projections and ATH/underwater state. The resulting
     index_levels are raw ERN market data with no fee embedding; the 0.05%
     p.a. ERN portfolio fee is applied at the portfolio/study level.
+
+    The ATH/underwater state is computed from the NOMINAL total-return
+    equity index (spx_tr.csv) per ERN methodology. The real-return equity
+    levels are used for portfolio simulation returns.
 
     Parameters
     ----------
     data_dir:
-        Directory containing ``spx_tr_real.csv`` and
-        ``bond_10y_tr_real.csv``.
+        Directory containing ``spx_tr_real.csv``, ``spx_tr.csv``,
+        ``bond_10y_tr_real.csv``, and ``cpi.csv``.
 
     Returns
     -------
@@ -117,10 +127,12 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     from fbf.core.domain.model.market_snapshot import MarketSnapshot
 
     equity_returns = _load_csv(data_dir / _EQUITY_CSV)
+    nominal_equity_levels = _load_csv(data_dir / _NOMINAL_EQUITY_CSV)
     bond_returns = _load_csv(data_dir / _BOND_CSV)
     cpi_returns = _load_csv(data_dir / _CPI_CSV)
 
     eq_return_map: dict[str, Decimal] = dict(equity_returns)
+    nominal_equity_map: dict[str, Decimal] = dict(nominal_equity_levels)
     bond_return_map: dict[str, Decimal] = dict(bond_returns)
     cpi_map: dict[str, Decimal] = dict(cpi_returns)
 
@@ -156,6 +168,7 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
         )
 
     # Base snapshot (index 0, 1871-01-31)
+    # Use nominal base for ATH computation
     _append(
         "1871-01-31",
         _EQUITY_BASE_SNAPSHOT,
@@ -185,9 +198,20 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
         eq_level *= (_ONE + r_eq)
         bond_level *= (_ONE + r_bond)
 
+
         running_ath = max(running_ath, eq_level)
         is_ath = eq_level >= running_ath
-        is_underwater = eq_level < running_ath
+        _ = eq_level < running_ath
+
+        # Initialize nominal ATH tracking
+        nominal_running_ath = Decimal("0")
+        # Nominal equity level for ATH/underwater (ERN methodology: nominal total-return index)
+        nominal_date_key = current_date.strftime("%Y-%m-%d")
+        nominal_eq_level_opt = nominal_equity_map.get(nominal_date_key)
+        nominal_eq_level = nominal_eq_level_opt if nominal_eq_level_opt is not None else eq_level
+        nominal_running_ath = max(nominal_running_ath, nominal_eq_level)
+        is_ath = nominal_eq_level >= nominal_running_ath
+        is_underwater = nominal_eq_level < nominal_running_ath
 
         _append(
             current_date.strftime("%Y-%m-%d"),
