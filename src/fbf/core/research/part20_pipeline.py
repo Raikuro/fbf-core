@@ -214,8 +214,8 @@ def run_percentile_search(
         raise ValueError("strategies must be non-empty")
     if not cohort_dates:
         raise ValueError("cohort_dates must be non-empty")
-    if cape_regime not in {"HIGH", "LOW"}:
-        raise ValueError(f"cape_regime must be HIGH|LOW, got {cape_regime!r}")
+    if cape_regime not in {"HIGH", "LOW", "ALL"}:
+        raise ValueError(f"cape_regime must be HIGH|LOW|ALL, got {cape_regime!r}")
 
     cache_key: SearchCacheKey = (horizon_years, cape_regime, final_value_target)
     results: dict[str, SWRSearchResult] = {}

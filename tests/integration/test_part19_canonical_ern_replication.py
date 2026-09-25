@@ -50,10 +50,10 @@ MANIFEST_PATH = DATA_DIR / "cohort_manifest_part3.json"
 
 
 def _load_audit_spec() -> dict[str, Any]:
-    """Load the Part 19 audit spec YAML."""
+    """Load the Part 19 Experiment A audit spec YAML."""
     import yaml
 
-    spec_path = Path("tests/fixtures/ern_part19_e2e_audit.yaml")
+    spec_path = Path("tests/fixtures/ern_part19_experiment_a_e2e_audit.yaml")
     with open(spec_path) as f:
         return yaml.safe_load(f)  # type: ignore[no-any-return]
 

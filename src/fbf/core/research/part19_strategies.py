@@ -1,10 +1,10 @@
-"""Part 19 strategy universe — Experiment A (Fixed 3.5% SWR).
+"""Part 19 strategy universe — Experiments A and B.
 
-Selects the 27 strategies used in Part 19 Experiment A from the
+Selects the strategies used in Part 19 Experiments from the
 Part 20 strategy catalog:
 
-* 3 static allocations: 60%, 80%, 100% equity
-* 24 Part 19 glidepaths (6 start/end combos × 2 slopes × 2 modes)
+* Experiment A (Fixed 3.5% SWR): 27 strategies (3 static + 24 glidepaths)
+* Experiment B (Failsafe/Percentile SWR): 45 strategies (21 static + 24 glidepaths)
 
 No new strategy definitions; filters the existing Part 20 universe.
 """
@@ -15,9 +15,13 @@ from fbf.core.research.part20_strategies import Part20Strategy, part20_strategy_
 
 __all__ = [
     "part19_experiment_a_strategies",
+    "part19_experiment_b_strategies",
     "PART19_EXPERIMENT_A_STATIC_IDS",
     "PART19_EXPERIMENT_A_GLIDEPATH_IDS",
     "PART19_EXPERIMENT_A_STRATEGY_COUNT",
+    "PART19_EXPERIMENT_B_STATIC_IDS",
+    "PART19_EXPERIMENT_B_GLIDEPATH_IDS",
+    "PART19_EXPERIMENT_B_STRATEGY_COUNT",
 ]
 
 # The 3 static allocations used in Part 19 Experiment A (from the failure-rate charts)
@@ -85,6 +89,45 @@ def part19_experiment_a_strategies() -> tuple[Part20Strategy, ...]:
     if actual_ids != list(expected_order):
         raise AssertionError(
             f"Part 19 Experiment A strategy order mismatch: {actual_ids} != {list(expected_order)}"
+        )
+
+    return selected
+
+
+# --- Experiment B: Failsafe/Percentile SWR ---
+
+# The 21 static allocations used in Part 19 Experiment B (0% to 100% in 5% steps)
+PART19_EXPERIMENT_B_STATIC_IDS: tuple[str, ...] = tuple(
+    f"static_{pct:03d}" for pct in range(0, 105, 5)
+)
+
+# The 24 Part 19 glidepath IDs (same as Experiment A)
+PART19_EXPERIMENT_B_GLIDEPATH_IDS: tuple[str, ...] = PART19_EXPERIMENT_A_GLIDEPATH_IDS
+
+PART19_EXPERIMENT_B_STRATEGY_COUNT = 45
+
+
+def part19_experiment_b_strategies() -> tuple[Part20Strategy, ...]:
+    """Return the 45 strategies for Part 19 Experiment B.
+
+    Order: 21 static (0%–100% in 5% steps) followed by 24 Part 19 glidepaths
+    in the documented order from the article.
+    """
+    universe = part20_strategy_universe()
+    selected_ids = set(PART19_EXPERIMENT_B_STATIC_IDS) | set(PART19_EXPERIMENT_B_GLIDEPATH_IDS)
+    selected = tuple(s for s in universe if s.id in selected_ids)
+
+    if len(selected) != PART19_EXPERIMENT_B_STRATEGY_COUNT:
+        raise AssertionError(
+            "Part 19 Experiment B strategy count "
+            f"{len(selected)} != {PART19_EXPERIMENT_B_STRATEGY_COUNT}"
+        )
+
+    expected_order = PART19_EXPERIMENT_B_STATIC_IDS + PART19_EXPERIMENT_B_GLIDEPATH_IDS
+    actual_ids = [s.id for s in selected]
+    if actual_ids != list(expected_order):
+        raise AssertionError(
+            f"Part 19 Experiment B strategy order mismatch: {actual_ids} != {list(expected_order)}"
         )
 
     return selected

@@ -1,72 +1,111 @@
-# ERN Part 19 — T3.1 Experiment A E2E audit specification.
+# ERN Part 19 — T3.2 Experiment B E2E audit specification.
 #
 # Authoritative machine-readable audit matrix for
-# docs/research/ern_part19_replication.md Experiment A.
+# docs/research/ern_part19_replication.md Experiment B.
 #
 # Distinction:
-# - examples/studies/ern_part19.yaml remains the canonical CLI 162-cell
-#   grid study. This file is the audit matrix only.
-# - Part 19 Experiment A has no complete published numerical anchor table.
-#   Validation uses structural/computational checks + cross-validation
-#   against Part 20 Experiment C for the 27 overlapping cells.
+# - examples/studies/ern_part19.yaml remains the canonical CLI 90-cell
+#   study. This file is the audit matrix only.
+# - Part 19 Experiment B publishes explicit numerical values for failsafe
+#   and percentile SWRs (Table in §9.2 of replication doc).
+# - Validation uses structural/computational checks + published anchors
+#   + cross-validation against Part 20 Experiment A for the 45 overlapping cells.
 #
-# All monetary and rate values are quoted strings so Decimal parsing is exact.
+# All monetary and rate values are quoted strings so Decimal parsing is
+# exact. `unit` drives discrepancy classification quantum:
+#   percent     → 0.01  (2-decimal percent, Table 02/03/06)
+#   percent_1dp → 0.1   (1-decimal percent, allocation checkpoints)
+#   usd         → 1     (exact dollar checkpoints)
 
 meta:
-  name: "ERN Part 19 T3.1 Experiment A E2E Audit"
+  name: "ERN Part 19 T3.2 Experiment B E2E Audit"
   spec_version: "1.0"
   notes: >
-    Part 19 Experiment A: Fixed 3.5% SWR failure rates.
-    27 strategies (3 static + 24 glidepaths) × 3 FV targets × 2 CAPE conditions = 162 cells.
-    Horizon: 60 years. Cohorts: 1,739 canonical.
-    Primary validation: structural + computational + cross-validation vs Part 20 Experiment C.
+    Part 19 Experiment B: Failsafe/Percentile SWR analysis.
+    45 strategies (21 static + 24 glidepaths) × 2 CAPE conditions = 90 cells.
+    Horizon: 60 years. FV target: 0%. Cohorts: 1,739 canonical.
+    Primary validation: structural + computational + published anchors + cross-validation vs Part 20 Experiment A.
 
 structural_counts:
   total_cohorts: 1739
   cape_available: 1485
   cape_high: 383
-  strategy_count: 27
-  static_count: 3
+  strategy_count: 45
+  static_count: 21
   glidepath_count: 24
-  fv_targets: 3
+  fv_targets: 1
   cape_conditions: 2
   horizon_years: 60
-  swr: "0.035"
-  cells: 162
+  cells: 90
 
-experiment:
-  id: A
-  kind: fixed_swr_failure_rate
-  horizon_years: 60
-  fixed_swr: "0.035"
-  fv_targets: ["0", "0.5", "1"]
-  cape_conditions: ["ALL", "HIGH"]
-  cells: 162
+experiments:
+  - id: B
+    kind: percentile_search
+    horizon_years: 60
+    populations: ["ALL", "HIGH"]
+    fv_targets: ["0"]
+    cells: 90
 
-# Cross-validation anchors from Part 20 Experiment C (3.5% SWR, 60Y, FV=0, CAPE>20)
-# These 27 strategies overlap exactly with Part 19 Experiment A strategies at FV=0, CAPE>20
-# Part 20 Experiment C published values from ern_part20_e2e_audit.yaml
+# ---------------------------------------------------------------------------
+# Published anchors — external reference data (from docs/research/ern_part19_replication.md §9.2)
+# ---------------------------------------------------------------------------
+
+anchors:
+  # --- Anchor 1: CAPE > 20, static 75% equity failsafe = 3.25% (Table) ---
+  - { experiment: B, strategy: "static_075", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.25", unit: percent }
+
+  # --- Anchor 2: CAPE > 20, 60→100% glidepath failsafe range = 3.42%–3.47% (Table) ---
+  # Four glidepath variants: gp_060_100_0.003_passive, gp_060_100_0.004_passive,
+  # gp_060_100_0.003_active, gp_060_100_0.004_active
+  - { experiment: B, strategy: "gp_060_100_0.003_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.42", unit: percent, note: "range_min" }
+  - { experiment: B, strategy: "gp_060_100_0.004_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.47", unit: percent, note: "range_max" }
+  - { experiment: B, strategy: "gp_060_100_0.003_active", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.42", unit: percent, note: "range_min" }
+  - { experiment: B, strategy: "gp_060_100_0.004_active", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.47", unit: percent, note: "range_max" }
+
+  # --- Anchor 3: CAPE > 20, static 80% equity 5th percentile = 3.47% (Table) ---
+  - { experiment: B, strategy: "static_080", metric: "p05", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.47", unit: percent }
+
+  # --- Anchor 4: CAPE > 20, 60→100% glidepath 5th percentile range = 3.57%–3.63% (Table) ---
+  - { experiment: B, strategy: "gp_060_100_0.003_passive", metric: "p05", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.57", unit: percent, note: "range_min" }
+  - { experiment: B, strategy: "gp_060_100_0.004_passive", metric: "p05", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.63", unit: percent, note: "range_max" }
+  - { experiment: B, strategy: "gp_060_100_0.003_active", metric: "p05", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.57", unit: percent, note: "range_min" }
+  - { experiment: B, strategy: "gp_060_100_0.004_active", metric: "p05", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.63", unit: percent, note: "range_max" }
+
+# ---------------------------------------------------------------------------
+# Cross-validation anchors from Part 20 Experiment A (60Y, FV=0, CAPE>20)
+# These 45 strategies overlap exactly with Part 19 Experiment B strategies at FV=0, CAPE>20
+# Part 20 Experiment A published values from ern_part20_e2e_audit.yaml
+# ---------------------------------------------------------------------------
+
 cross_validation_anchors:
   # Static allocations
-  - { strategy: "static_060", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
-  - { strategy: "static_075", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
-  - { strategy: "static_080", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
-  - { strategy: "static_100", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "11.6", unit: "percent_1dp" }
-  # Part 19 glidepaths that have Part 20 Experiment C anchors
-  - { strategy: "gp_060_100_0.003_passive", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
-  - { strategy: "gp_030_070_0.00111_passive", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "27.0", unit: "percent_1dp" }
+  - { experiment: A, strategy: "static_075", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.25", unit: percent }
+  - { experiment: A, strategy: "static_080", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.14", unit: percent }
+  - { experiment: A, strategy: "static_080", metric: "p05", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.47", unit: percent }
+  - { experiment: A, strategy: "static_100", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "2.58", unit: percent }
+  # Part 19 glidepaths that have Part 20 Experiment A anchors
+  - { experiment: A, strategy: "gp_060_100_0.003_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.29", unit: percent }
+  - { experiment: A, strategy: "gp_060_100_0.004_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.42", unit: percent }
+  - { experiment: A, strategy: "gp_060_100_0.003_active", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.28", unit: percent }
+  - { experiment: A, strategy: "gp_060_100_0.004_active", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "3.34", unit: percent }
+  - { experiment: A, strategy: "gp_030_070_0.00111_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "2.83", unit: percent }
+  - { experiment: A, strategy: "gp_020_060_0.00111_passive", metric: "failsafe", horizon_years: 60, final_value_target: "0", cape_regime: "HIGH", published: "2.67", unit: percent }
 
+# ---------------------------------------------------------------------------
 # Qualitative validation expectations (from article conclusions, not hard gates)
+# Same as Experiment A since they apply to the same glidepath behaviors
+# ---------------------------------------------------------------------------
+
 qualitative_expectations:
   - description: "60→100% glidepaths consistently among best performers in CAPE > 20"
     condition: "CAPE > 20"
-    metric: "failure_rate"
+    metric: "failsafe"
     expectation: "lower than static_080 and static_100"
   - description: "Active glidepaths perform slightly better than passive variants"
     condition: "CAPE > 20"
-    metric: "failure_rate"
+    metric: "failsafe"
     expectation: "active <= passive for same start/end/slope"
   - description: "20→80% glidepaths consistently inferior to stronger glidepaths"
     condition: "CAPE > 20"
-    metric: "failure_rate"
+    metric: "failsafe"
     expectation: "higher than 60→100% variants"

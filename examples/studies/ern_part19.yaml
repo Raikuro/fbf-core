@@ -2,23 +2,27 @@
 #
 # Experiment A: Fixed 3.5% SWR failure rates
 # Grid: 27 strategies × 3 FV targets × 2 CAPE conditions × 1 horizon × 1 SWR = 162 cells
-# Each cell runs over 1,739 canonical cohorts
+#
+# Experiment B: Failsafe/Percentile SWR
+# Grid: 45 strategies × 2 CAPE conditions × 1 horizon × 1 FV = 90 cells
 #
 # Canonical data required (in --data-dir):
 #   spx_tr_real.csv   S&P 500 total-return real returns (monthly)
 #   bond_10y_tr_real.csv  10-Year Bond Market real returns (monthly)
 #
-# Run example:
+# Run Experiment A example:
 #   sim-retire --data-dir data/ern run examples/studies/ern_part19.yaml \
 #     --no-persist --summary-only
 
 metadata:
-  name: "ERN Part 19 — Equity Glidepaths in Retirement (Experiment A)"
+  name: "ERN Part 19 — Equity Glidepaths in Retirement"
   version: "1.0"
   description: >
-    Early Retirement Now Part 19 Experiment A replication:
-    Fixed 3.5% SWR failure-rate analysis across 27 strategies,
+    Early Retirement Now Part 19 replication:
+    Experiment A: Fixed 3.5% SWR failure-rate analysis across 27 strategies,
     3 final value targets, and 2 CAPE conditions at 60-year horizon.
+    Experiment B: Failsafe/Percentile SWR analysis across 45 strategies,
+    2 CAPE conditions at 60-year horizon with FV=0%.
 
 cohorts:
   horizon_years: [60]
@@ -26,9 +30,28 @@ cohorts:
 allocation_policy:
   type: "GlidepathAllocationPolicy"
   configurations:
-    # --- Part 19: 3 static allocations (from failure-rate charts) ---
+    # --- Part 19: 21 static allocations (0% to 100% in 5% steps) ---
+    # Covers both Experiment A (60%, 80%, 100%) and Experiment B (all 21)
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.0 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.05 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.1 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.15 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.2 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.25 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.3 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.35 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.4 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.45 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.5 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.55 }
     - { type: "ConstantAllocationPolicy", equity_allocation: 0.6 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.65 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.7 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.75 }
     - { type: "ConstantAllocationPolicy", equity_allocation: 0.8 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.85 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.9 }
+    - { type: "ConstantAllocationPolicy", equity_allocation: 0.95 }
     - { type: "ConstantAllocationPolicy", equity_allocation: 1.0 }
     # --- Part 19: 24 glidepaths (6 combos x 2 slopes x 2 modes) ---
     # 60% → 80%
@@ -67,3 +90,13 @@ withdrawal_policy:
   withdrawal_rate: [0.035]
 
 final_value_target: [0.0, 0.5, 1.0]
+
+# Experiment B: Failsafe/Percentile SWR configuration (for reference)
+# The Experiment B runner uses the Python API directly with run_percentile_search().
+# Configuration:
+#   allocation_policy: same 45 strategies above
+#   withdrawal_policy: FixedRealWithdrawalPolicy (percentile search, no fixed rates)
+#   final_value_target: [0.0]
+#   cohorts: ALL (1739) and HIGH (383) CAPE populations
+#   horizon: 60 years
+#   output metrics: failsafe, p01, p03, p05, p10, p25

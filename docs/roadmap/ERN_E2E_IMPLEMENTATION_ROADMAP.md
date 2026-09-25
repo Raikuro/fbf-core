@@ -409,7 +409,7 @@ Use `ern_part20_e2e_audit.md` as the specification.
 
 Implement only after the relationship with Part 20 is concretely understood.
 
-- [ ] **T3.1** Part 19 Experiment A — Fixed 3.5% SWR failure rates
+- [x] **T3.1** Part 19 Experiment A — Fixed 3.5% SWR failure rates
   - Target: 27 strategies × 3 FV × 2 CAPE = 162 cells × 1,739 cohorts
   - Prerequisite: Part 20 relationship concretely understood; shared computation design decided
   - Expected test location: New E2E test
