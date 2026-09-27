@@ -1,0 +1,825 @@
+# ERN Part 42 — T5.1 Published-Table Replication Audit Specification
+#
+# Authoritative machine-readable audit matrix for ERN Part 42 Tables 01–05.
+# This fixture contains the transcribed published table cells from
+# docs/research/ern_part42_replication.md §10.2.
+#
+# The E2E test will:
+# 1. Execute the experiment configurations corresponding to each scenario
+# 2. Aggregate cohort-level results into the same table cells (decade/conditioning)
+# 3. Compare against the published values below with documented precision
+# 4. Classify discrepancies per the roadmap taxonomy (REPRODUCED / EXPLAINED DIFFERENCE / UNEXPLAINED DIFFERENCE / CAPABILITY GAP)
+#
+# Distinction: examples/studies/ern_part42.yaml defines the 45-cell structural grid
+# (5 equity × 9 SWR × 1 horizon). This file is the published-anchor audit matrix.
+
+meta:
+  name: "ERN Part 42 T5.1 Published-Table Replication Audit"
+  spec_version: "1.0"
+  source_article: "https://earlyretirementnow.com/2021/01/13/one-more-year-swr-series-part-42/"
+  source_tables: "Tables 01–05"
+  transcription_source: "docs/research/ern_part42_replication.md §10.2"
+  notes: >
+    Frozen audit specification. All monetary values quoted as strings for exact Decimal parsing.
+    Precision is taken from the published table display (not invented).
+    unit field drives discrepancy classification quantum:
+      usd         → exact dollar (Tables 02–05)
+      percent     → 0.01 (2-decimal percent, Table 01)
+      percent_2dp → 0.01 (2-decimal percent, Rel-to-Base rows)
+      percent_1dp → 0.1  (1-decimal percent, not used in Part 42 but defined for consistency)
+
+structural_counts:
+  # Cohort universe for 30Y+OMY (12 accumulation + 360 retirement = 373 months)
+  # ern_swr_h720 has 2459 snapshots: 2459 - 373 + 1 = 2087 cohorts
+  cohorts_30y_omy: 2087
+  # Cohort universe for 50Y (no OMY, 600 months)
+  # 2459 - 600 + 1 = 1860 cohorts
+  cohorts_50y: 1860
+  # Cohort universe for 50Y+OMY (12 accumulation + 600 retirement = 613 months)
+  # 2459 - 613 + 1 = 1847 cohorts
+  cohorts_50y_omy: 1847
+  decades: 9  # 1920s through 2000s
+  scenarios_table01: 11
+  scenarios_tables_02_05: 7  # core scenarios; Table 05 adds 2-year delay = 10 total
+
+# ---------------------------------------------------------------------------
+# Experiment-to-Scenario Mapping
+# ---------------------------------------------------------------------------
+# These define the simulation configurations that produce each table column.
+# The E2E test uses these to construct the appropriate study plans.
+# OMY = One More Year (12-month accumulation phase before retirement)
+
+experiments:
+  # --- Failsafe Experiments (binary search for maximum sustainable withdrawal) ---
+  - id: A
+    name: "30Y Failsafe Baseline"
+    description: "30-year horizon, 75/25, FV=25%, no OMY"
+    horizon_years: 30
+    fv_target: "0.25"
+    omy: false
+    omy_contribution: 0
+    social_security: false
+    table_scenario: "Baseline"  # Maps to Table 01 row 1, Table 02 Baseline, Table 03 Baseline, Table 04 Baseline (30Y), Table 05 Baseline (30Y)
+
+  - id: B
+    name: "30Y OMY Delay Only"
+    description: "30-year horizon, 75/25, FV=25%, OMY 12 months no contributions"
+    horizon_years: 30
+    fv_target: "0.25"
+    omy: true
+    omy_contribution: 0
+    social_security: false
+    table_scenario: "Delay RE 1Y"  # Maps to Table 01 row 2, Table 03 Delay RE 1Y, Table 04 Delay RE 1Y (30Y), Table 05 Delay RE 1Y (30Y)
+
+  - id: C
+    name: "30Y OMY + Contributions"
+    description: "30-year horizon, 75/25, FV=25%, OMY 12 months + $5k/month"
+    horizon_years: 30
+    fv_target: "0.25"
+    omy: true
+    omy_contribution: 5000
+    social_security: false
+    table_scenario: "$5k/m contributions"  # Maps to Table 01 row 3, Table 03 $5k/m, Table 04 $5k/m (30Y), Table 05 $5k/m (30Y)
+
+  - id: D
+    name: "50Y Failsafe Baseline"
+    description: "50-year horizon, 75/25, FV=0%, no OMY"
+    horizon_years: 50
+    fv_target: "0.0"
+    omy: false
+    omy_contribution: 0
+    social_security: false
+    table_scenario: "50Y Baseline"  # Maps to Table 01 row 4, Table 04 50Y Baseline, Table 05 50Y Baseline
+
+  - id: E_delay
+    name: "50Y OMY Delay Only"
+    description: "50-year horizon, 75/25, FV=0%, OMY 12 months no contributions"
+    horizon_years: 50
+    fv_target: "0.0"
+    omy: true
+    omy_contribution: 0
+    social_security: false
+    table_scenario: "Delay RE 1Y (50Y)"  # Maps to Table 01 row 5, Table 04 Delay RE 1Y (50Y), Table 05 Delay RE 1Y (50Y)
+
+  - id: E_contrib
+    name: "50Y OMY + Contributions"
+    description: "50-year horizon, 75/25, FV=0%, OMY 12 months + $5k/month"
+    horizon_years: 50
+    fv_target: "0.0"
+    omy: true
+    omy_contribution: 5000
+    social_security: false
+    table_scenario: "$5k/m contributions (50Y)"  # Maps to Table 01 row 6, Table 04 $5k/m (50Y), Table 05 $5k/m (50Y)
+
+  - id: F_baseline
+    name: "50Y + Social Security Baseline"
+    description: "50-year horizon, 75/25, FV=0%, $3k/month SS years 31–50"
+    horizon_years: 50
+    fv_target: "0.0"
+    omy: false
+    omy_contribution: 0
+    social_security: true
+    ss_start_year: 31
+    ss_amount_monthly: 3000
+    table_scenario: "50Y Baseline + SocSec"  # Maps to Table 01 row 7, Table 05 50Y Base + SocSec
+
+  - id: F_delay
+    name: "50Y + Social Security OMY Delay Only"
+    description: "50-year horizon, 75/25, FV=0%, OMY 12 months no contributions, $3k/month SS years 31–50"
+    horizon_years: 50
+    fv_target: "0.0"
+    omy: true
+    omy_contribution: 0
+    social_security: true
+    ss_start_year: 31
+    ss_amount_monthly: 3000
+    table_scenario: "Delay RE 1Y (50Y+SocSec)"  # Maps to Table 01 row 8, Table 05 Delay RE 1Y (50Y+SocSec)
+
+  - id: F_contrib
+    name: "50Y + Social Security OMY + Contributions"
+    description: "50-year horizon, 75/25, FV=0%, OMY 12 months + $5k/month, $3k/month SS years 31–50"
+    horizon_years: 50
+    fv_target: "0.0"
+    omy: true
+    omy_contribution: 5000
+    social_security: true
+    ss_start_year: 31
+    ss_amount_monthly: 3000
+    table_scenario: "$5k/m contributions (50Y+SocSec)"  # Maps to Table 01 row 9, Table 05 $5k/m (50Y+SocSec)
+
+  - id: G_2yr
+    name: "2-Year Delay"
+    description: "50-year horizon, 75/25, FV=0%, 24-month OMY + $5k/month, $3k/month SS years 31–50"
+    horizon_years: 50
+    fv_target: "0.0"
+    omy: true
+    omy_duration_months: 24
+    omy_contribution: 5000
+    social_security: true
+    ss_start_year: 31
+    ss_amount_monthly: 3000
+    table_scenario: "2-year delay"  # Maps to Table 01 row 10, Table 05 2-year delay
+
+  # --- Fixed-4% Failure Rate Experiment (no binary search) ---
+  - id: G
+    name: "Fixed 4% Failure Rates"
+    description: "Fixed 4% × $2M = $80,000/year withdrawal, evaluate failure probability"
+    horizon_years: 30  # Primary horizon for Table 01 first 3 rows; 50Y for rows 4–10
+    fv_target: "0.25"  # 30Y uses 25%; 50Y uses 0%
+    withdrawal_rate: "0.04"
+    fixed_withdrawal: true
+    table_scenario: "Table01"  # Special marker: uses all 11 scenario rows with conditioning
+
+# ---------------------------------------------------------------------------
+# Published Anchors — Table 01: Failure Probabilities of the 4% Rule
+# ---------------------------------------------------------------------------
+# Fixed withdrawal: 4% × $2,000,000 = $80,000/year, adjusted for CPI.
+# 11 scenario rows × 11 conditioning columns = 121 cells
+# Precision: 1 decimal place (0.1%)
+
+table01_anchors:
+  # Columns (conditioning dimensions):
+  # All, Since 1926, Since 1950, CAPE ≤ 20, CAPE > 20, S&P500 High,
+  # Drdwn 0–10%, Drdwn 10–20%, Drdwn 20–30%, Drdwn > 30%
+
+  - scenario: "Baseline"
+    values:
+      All: "6.0"
+      Since_1926: "5.5"
+      Since_1950: "6.9"
+      CAPE_le_20: "2.0"
+      CAPE_gt_20: "18.8"
+      SP500_High: "11.4"
+      Drdwn_0_10: "10.7"
+      Drdwn_10_20: "0.3"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "A"
+    population: "all_30y_cohorts"  # 2087 cohorts
+
+  - scenario: "Delay RE 1Y"
+    values:
+      All: "3.3"
+      Since_1926: "3.3"
+      Since_1950: "4.3"
+      CAPE_le_20: "0.9"
+      CAPE_gt_20: "11.1"
+      SP500_High: "8.4"
+      Drdwn_0_10: "4.7"
+      Drdwn_10_20: "0.0"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "B"
+    population: "all_30y_cohorts"
+
+  - scenario: "$5k/m contributions"
+    values:
+      All: "1.0"
+      Since_1926: "1.3"
+      Since_1950: "1.6"
+      CAPE_le_20: "0.0"
+      CAPE_gt_20: "4.3"
+      SP500_High: "3.2"
+      Drdwn_0_10: "1.0"
+      Drdwn_10_20: "0.0"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "C"
+    population: "all_30y_cohorts"
+
+  - scenario: "50Y Baseline"
+    values:
+      All: "12.2"
+      Since_1926: "10.4"
+      Since_1950: "12.5"
+      CAPE_le_20: "6.1"
+      CAPE_gt_20: "31.8"
+      SP500_High: "20.3"
+      Drdwn_0_10: "21.6"
+      Drdwn_10_20: "4.5"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "D"
+    population: "all_50y_cohorts"  # 1860 cohorts
+
+  - scenario: "Delay RE 1Y (50Y)"
+    values:
+      All: "7.6"
+      Since_1926: "6.7"
+      Since_1950: "8.6"
+      CAPE_le_20: "2.9"
+      CAPE_gt_20: "22.4"
+      SP500_High: "15.1"
+      Drdwn_0_10: "12.6"
+      Drdwn_10_20: "1.0"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "E_delay"
+    population: "all_50y_cohorts"
+
+  - scenario: "$5k/m contributions (50Y)"
+    values:
+      All: "6.0"
+      Since_1926: "5.2"
+      Since_1950: "6.6"
+      CAPE_le_20: "2.1"
+      CAPE_gt_20: "18.3"
+      SP500_High: "11.6"
+      Drdwn_0_10: "10.3"
+      Drdwn_10_20: "0.3"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "E_contrib"
+    population: "all_50y_cohorts"
+
+  - scenario: "50Y Baseline + SocSec"
+    values:
+      All: "6.2"
+      Since_1926: "5.6"
+      Since_1950: "7.2"
+      CAPE_le_20: "2.2"
+      CAPE_gt_20: "19.0"
+      SP500_High: "11.9"
+      Drdwn_0_10: "11.0"
+      Drdwn_10_20: "0.0"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "F_baseline"
+    population: "all_50y_cohorts"
+
+  - scenario: "Delay RE 1Y (50Y+SocSec)"
+    values:
+      All: "3.6"
+      Since_1926: "3.5"
+      Since_1950: "4.5"
+      CAPE_le_20: "1.4"
+      CAPE_gt_20: "10.6"
+      SP500_High: "8.4"
+      Drdwn_0_10: "5.3"
+      Drdwn_10_20: "0.0"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "F_delay"
+    population: "all_50y_cohorts"
+
+  - scenario: "$5k/m contributions (50Y+SocSec)"
+    values:
+      All: "1.4"
+      Since_1926: "1.4"
+      Since_1950: "1.8"
+      CAPE_le_20: "0.6"
+      CAPE_gt_20: "4.1"
+      SP500_High: "4.9"
+      Drdwn_0_10: "1.2"
+      Drdwn_10_20: "0.0"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "F_contrib"
+    population: "all_50y_cohorts"
+
+  - scenario: "2-year delay"
+    values:
+      All: "0.0"
+      Since_1926: "0.0"
+      Since_1950: "0.0"
+      CAPE_le_20: "0.0"
+      CAPE_gt_20: "0.0"
+      SP500_High: "0.0"
+      Drdwn_0_10: "0.0"
+      Drdwn_10_20: "0.0"
+      Drdwn_20_30: "0.0"
+      Drdwn_gt_30: "0.0"
+    unit: percent
+    precision: "0.1"
+    experiment_ref: "G_2yr"
+    population: "all_50y_cohorts"
+
+# ---------------------------------------------------------------------------
+# Published Anchors — Table 02: Failsafe Consumption Amounts by Decade (30-Year Baseline)
+# ---------------------------------------------------------------------------
+# 9 decades + Min row = 10 cells
+# Precision: whole dollars
+
+table02_anchors:
+  - decade: "1920s"
+    Baseline: "72283"
+  - decade: "1930s"
+    Baseline: "82918"
+  - decade: "1940s"
+    Baseline: "113537"
+  - decade: "1950s"
+    Baseline: "91175"
+  - decade: "1960s"
+    Baseline: "71683"
+  - decade: "1970s"
+    Baseline: "81590"
+  - decade: "1980s"
+    Baseline: "138493"
+  - decade: "1990s"
+    Baseline: "83440"
+  - decade: "2000s"
+    Baseline: "80740"
+  - decade: "Min"
+    Baseline: "71683"
+
+# ---------------------------------------------------------------------------
+# Published Anchors — Table 03: OMYS Effect (30-Year Horizon)
+# ---------------------------------------------------------------------------
+# 9 decades + Min + Rel to Base = 11 rows × 3 scenarios = 33 cells
+# Precision: whole dollars (amounts), 2 decimal places (relative %)
+
+table03_anchors:
+  - decade: "1920s"
+    Baseline: "72283"
+    "Delay RE 1Y": "75719"
+    "$5k/m contributions": "78571"
+  - decade: "1930s"
+    Baseline: "82918"
+    "Delay RE 1Y": "87328"
+    "$5k/m contributions": "90518"
+  - decade: "1940s"
+    Baseline: "113537"
+    "Delay RE 1Y": "122030"
+    "$5k/m contributions": "126115"
+  - decade: "1950s"
+    Baseline: "91175"
+    "Delay RE 1Y": "96051"
+    "$5k/m contributions": "99260"
+  - decade: "1960s"
+    Baseline: "71683"
+    "Delay RE 1Y": "74716"
+    "$5k/m contributions": "77255"
+  - decade: "1970s"
+    Baseline: "81590"
+    "Delay RE 1Y": "85646"
+    "$5k/m contributions": "88628"
+  - decade: "1980s"
+    Baseline: "138493"
+    "Delay RE 1Y": "151059"
+    "$5k/m contributions": "156504"
+  - decade: "1990s"
+    Baseline: "83440"
+    "Delay RE 1Y": "87406"
+    "$5k/m contributions": "90257"
+  - decade: "2000s"
+    Baseline: "80740"
+    "Delay RE 1Y": "84857"
+    "$5k/m contributions": "87754"
+  - decade: "Min"
+    Baseline: "71683"
+    "Delay RE 1Y": "74716"
+    "$5k/m contributions": "77255"
+  - decade: "Rel to Base"
+    Baseline: "N/A"
+    "Delay RE 1Y": "4.23"
+    "$5k/m contributions": "7.77"
+
+# ---------------------------------------------------------------------------
+# Published Anchors — Table 04: OMYS Effect (30-Year vs 50-Year Horizon)
+# ---------------------------------------------------------------------------
+# 9 decades + Min + Rel to Base = 11 rows × 6 scenarios = 66 cells
+# Precision: whole dollars (amounts), 2 decimal places (relative %)
+
+table04_anchors:
+  - decade: "1920s"
+    "30Y Baseline": "72283"
+    "30Y Delay RE 1Y": "75719"
+    "30Y $5k/m contr.": "78571"
+    "50Y Baseline": "67874"
+    "50Y Delay RE 1Y": "70712"
+    "50Y $5k/m contr.": "73221"
+  - decade: "1930s"
+    "30Y Baseline": "82918"
+    "30Y Delay RE 1Y": "87328"
+    "30Y $5k/m contr.": "90518"
+    "50Y Baseline": "77425"
+    "50Y Delay RE 1Y": "81039"
+    "50Y $5k/m contr.": "83841"
+  - decade: "1940s"
+    "30Y Baseline": "113537"
+    "30Y Delay RE 1Y": "122030"
+    "30Y $5k/m contr.": "126115"
+    "50Y Baseline": "99685"
+    "50Y Delay RE 1Y": "105694"
+    "50Y $5k/m contr.": "109075"
+  - decade: "1950s"
+    "30Y Baseline": "91175"
+    "30Y Delay RE 1Y": "96051"
+    "30Y $5k/m contr.": "99260"
+    "50Y Baseline": "85620"
+    "50Y Delay RE 1Y": "89592"
+    "50Y $5k/m contr.": "92375"
+  - decade: "1960s"
+    "30Y Baseline": "71683"
+    "30Y Delay RE 1Y": "74716"
+    "30Y $5k/m contr.": "77255"
+    "50Y Baseline": "68689"
+    "50Y Delay RE 1Y": "71358"
+    "50Y $5k/m contr.": "73689"
+  - decade: "1970s"
+    "30Y Baseline": "81590"
+    "30Y Delay RE 1Y": "85646"
+    "30Y $5k/m contr.": "88628"
+    "50Y Baseline": "77534"
+    "50Y Delay RE 1Y": "80981"
+    "50Y $5k/m contr.": "83649"
+  - decade: "1980s"
+    "30Y Baseline": "138493"
+    "30Y Delay RE 1Y": "151059"
+    "30Y $5k/m contr.": "156504"
+    "50Y Baseline": "126231"
+    "50Y Delay RE 1Y": "136140"
+    "50Y $5k/m contr.": "140850"
+  - decade: "1990s"
+    "30Y Baseline": "83440"
+    "30Y Delay RE 1Y": "87406"
+    "30Y $5k/m contr.": "90257"
+    "50Y Baseline": "75561"
+    "50Y Delay RE 1Y": "78539"
+    "50Y $5k/m contr.": "80904"
+  - decade: "2000s"
+    "30Y Baseline": "80740"
+    "30Y Delay RE 1Y": "84857"
+    "30Y $5k/m contr.": "87754"
+    "50Y Baseline": "73445"
+    "50Y Delay RE 1Y": "76514"
+    "50Y $5k/m contr.": "78917"
+  - decade: "Min"
+    "30Y Baseline": "71683"
+    "30Y Delay RE 1Y": "74716"
+    "30Y $5k/m contr.": "77255"
+    "50Y Baseline": "67874"
+    "50Y Delay RE 1Y": "70712"
+    "50Y $5k/m contr.": "73221"
+  - decade: "Rel to Base"
+    "30Y Baseline": "N/A"
+    "30Y Delay RE 1Y": "4.23"
+    "30Y $5k/m contr.": "7.77"
+    "50Y Baseline": "N/A"
+    "50Y Delay RE 1Y": "4.18"
+    "50Y $5k/m contr.": "7.88"
+
+# ---------------------------------------------------------------------------
+# Published Anchors — Table 05: OMYS Effect (30Y vs 50Y vs 50Y+Social Security)
+# ---------------------------------------------------------------------------
+# 9 decades + Min + Rel to Base = 11 rows × 10 scenarios = 110 cells
+# Precision: whole dollars (amounts), 2 decimal places (relative %)
+
+table05_anchors:
+  - decade: "1920s"
+    "30Y Baseline": "72283"
+    "30Y Delay RE 1Y": "75719"
+    "30Y $5k/m contr.": "78571"
+    "50Y Baseline": "67874"
+    "50Y Delay RE 1Y": "70712"
+    "50Y $5k/m contr.": "73221"
+    "50Y+SS Baseline": "72031"
+    "50Y+SS Delay RE 1Y": "75043"
+    "50Y+SS $5k/m contr.": "77552"
+    "2-year delay": "84676"
+  - decade: "1930s"
+    "30Y Baseline": "82918"
+    "30Y Delay RE 1Y": "87328"
+    "30Y $5k/m contr.": "90518"
+    "50Y Baseline": "77425"
+    "50Y Delay RE 1Y": "81039"
+    "50Y $5k/m contr.": "83841"
+    "50Y+SS Baseline": "81622"
+    "50Y+SS Delay RE 1Y": "85433"
+    "50Y+SS $5k/m contr.": "88234"
+    "2-year delay": "97762"
+  - decade: "1940s"
+    "30Y Baseline": "113537"
+    "30Y Delay RE 1Y": "122030"
+    "30Y $5k/m contr.": "126115"
+    "50Y Baseline": "99685"
+    "50Y Delay RE 1Y": "105694"
+    "50Y $5k/m contr.": "109075"
+    "50Y+SS Baseline": "105939"
+    "50Y+SS Delay RE 1Y": "111908"
+    "50Y+SS $5k/m contr.": "115288"
+    "2-year delay": "126426"
+  - decade: "1950s"
+    "30Y Baseline": "91175"
+    "30Y Delay RE 1Y": "96051"
+    "30Y $5k/m contr.": "99260"
+    "50Y Baseline": "85620"
+    "50Y Delay RE 1Y": "89592"
+    "50Y $5k/m contr.": "92375"
+    "50Y+SS Baseline": "90185"
+    "50Y+SS Delay RE 1Y": "94368"
+    "50Y+SS $5k/m contr.": "97152"
+    "2-year delay": "104271"
+  - decade: "1960s"
+    "30Y Baseline": "71683"
+    "30Y Delay RE 1Y": "74716"
+    "30Y $5k/m contr.": "77255"
+    "50Y Baseline": "68689"
+    "50Y Delay RE 1Y": "71358"
+    "50Y $5k/m contr.": "73689"
+    "50Y+SS Baseline": "72312"
+    "50Y+SS Delay RE 1Y": "75121"
+    "50Y+SS $5k/m contr.": "77452"
+    "2-year delay": "82973"
+  - decade: "1970s"
+    "30Y Baseline": "81590"
+    "30Y Delay RE 1Y": "85646"
+    "30Y $5k/m contr.": "88628"
+    "50Y Baseline": "77534"
+    "50Y Delay RE 1Y": "80981"
+    "50Y $5k/m contr.": "83649"
+    "50Y+SS Baseline": "81170"
+    "50Y+SS Delay RE 1Y": "84779"
+    "50Y+SS $5k/m contr.": "87447"
+    "2-year delay": "95905"
+  - decade: "1980s"
+    "30Y Baseline": "138493"
+    "30Y Delay RE 1Y": "151059"
+    "30Y $5k/m contr.": "156504"
+    "50Y Baseline": "126231"
+    "50Y Delay RE 1Y": "136140"
+    "50Y $5k/m contr.": "140850"
+    "50Y+SS Baseline": "130732"
+    "50Y+SS Delay RE 1Y": "140995"
+    "50Y+SS $5k/m contr.": "145705"
+    "2-year delay": "161858"
+  - decade: "1990s"
+    "30Y Baseline": "83440"
+    "30Y Delay RE 1Y": "87406"
+    "30Y $5k/m contr.": "90257"
+    "50Y Baseline": "75561"
+    "50Y Delay RE 1Y": "78539"
+    "50Y $5k/m contr.": "80904"
+    "50Y+SS Baseline": "81474"
+    "50Y+SS Delay RE 1Y": "84685"
+    "50Y+SS $5k/m contr.": "87050"
+    "2-year delay": "93227"
+  - decade: "2000s"
+    "30Y Baseline": "80740"
+    "30Y Delay RE 1Y": "84857"
+    "30Y $5k/m contr.": "87754"
+    "50Y Baseline": "73445"
+    "50Y Delay RE 1Y": "76514"
+    "50Y $5k/m contr.": "78917"
+    "50Y+SS Baseline": "79319"
+    "50Y+SS Delay RE 1Y": "82639"
+    "50Y+SS $5k/m contr.": "85043"
+    "2-year delay": "91968"
+  - decade: "Min"
+    "30Y Baseline": "71683"
+    "30Y Delay RE 1Y": "74716"
+    "30Y $5k/m contr.": "77255"
+    "50Y Baseline": "67874"
+    "50Y Delay RE 1Y": "70712"
+    "50Y $5k/m contr.": "73221"
+    "50Y+SS Baseline": "72031"
+    "50Y+SS Delay RE 1Y": "75043"
+    "50Y+SS $5k/m contr.": "77452"
+    "2-year delay": "82973"
+  - decade: "Rel to Base"
+    "30Y Baseline": "N/A"
+    "30Y Delay RE 1Y": "4.23"
+    "30Y $5k/m contr.": "7.77"
+    "50Y Baseline": "N/A"
+    "50Y Delay RE 1Y": "4.18"
+    "50Y $5k/m contr.": "7.88"
+    "50Y+SS Baseline": "N/A"
+    "50Y+SS Delay RE 1Y": "4.18"
+    "50Y+SS $5k/m contr.": "7.53"
+    "2-year delay": "N/A"
+
+# ---------------------------------------------------------------------------
+# Aggregation Definitions
+# ---------------------------------------------------------------------------
+# These define how cohort-level results are aggregated into the published table cells.
+
+aggregation:
+  decade:
+    description: "Group cohorts by start decade (1920s = 1920-01 to 1929-12, etc.)"
+    method: "min"  # Published tables show minimum failsafe per decade
+    decade_mapping:
+      "1920s": [1920, 1929]
+      "1930s": [1930, 1939]
+      "1940s": [1940, 1949]
+      "1950s": [1950, 1959]
+      "1960s": [1960, 1969]
+      "1970s": [1970, 1979]
+      "1980s": [1980, 1989]
+      "1990s": [1990, 1999]
+      "2000s": [2000, 2009]
+
+  conditioning_table01:
+    description: "Filter cohorts by condition, compute failure rate = failed / total"
+    conditions:
+      All: "all cohorts"
+      Since_1926: "cohorts starting 1926-01 or later"
+      Since_1950: "cohorts starting 1950-01 or later"
+      CAPE_le_20: "CAPE ≤ 20 at cohort start (pre-OMY for OMY scenarios)"
+      CAPE_gt_20: "CAPE > 20 at cohort start (pre-OMY for OMY scenarios)"
+      SP500_High: "S&P 500 within 10% of all-time high at cohort start"
+      Drdwn_0_10: "S&P 500 drawdown 0–10% below ATH at cohort start"
+      Drdwn_10_20: "S&P 500 drawdown 10–20% below ATH at cohort start"
+      Drdwn_20_30: "S&P 500 drawdown 20–30% below ATH at cohort start"
+      Drdwn_gt_30: "S&P 500 drawdown >30% below ATH at cohort start"
+    method: "failure_rate"
+    precision: "0.1"  # percentage points
+
+  relative_improvement:
+    description: "(OMY_scenario / Baseline) - 1, expressed as percentage"
+    formula: "(value / baseline_value - 1) * 100"
+    precision: "0.01"  # percentage points (2 decimal places)
+
+# ---------------------------------------------------------------------------
+# Data Vintage Note
+# ---------------------------------------------------------------------------
+# The ERN Part 42 article was published January 2021.
+# The canonical FBF market data (data/ern/) was extracted from the ERN Google Sheet
+# on 2026-09-15 and includes historical data through 2026-06 with forward extrapolation.
+# The article's cohort universe ends December 2015 (for 30Y/50Y horizons).
+# The additional historical data (2016-2026) does not affect the cohort universe used
+# for the published tables but may affect forward extrapolation behavior.
+# Discrepancies should be evaluated against this known vintage difference.
+
+data_vintage:
+  article_date: "2021-01-13"
+  canonical_data_extraction_date: "2026-09-15"
+  canonical_historical_end: "2026-06"
+  article_cohort_end: "2015-12"
+  note: "Canonical data includes ~10.5 years of additional historical observations not available to the 2021 article. This is a known replication variable."
+# ---------------------------------------------------------------------------
+# Published Anchors — Table 01: Failure Probabilities of the 4% Rule
+# ---------------------------------------------------------------------------
+# Fixed withdrawal: 4% × $2,000,000 = $80,000/year, adjusted for CPI.
+# 10 scenario rows × 11 conditioning columns = 110 cells
+# Precision: 1 decimal place (0.1%)
+
+table01_anchors:
+  Baseline:
+    All: "6.0"
+    Since_1926: "5.5"
+    Since_1950: "6.9"
+    CAPE_le_20: "2.0"
+    CAPE_gt_20: "18.8"
+    SP500_High: "11.4"
+    Drdwn_0_10: "10.7"
+    Drdwn_10_20: "0.3"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "Delay RE 1Y":
+    All: "3.3"
+    Since_1926: "3.3"
+    Since_1950: "4.3"
+    CAPE_le_20: "0.9"
+    CAPE_gt_20: "11.1"
+    SP500_High: "8.4"
+    Drdwn_0_10: "4.7"
+    Drdwn_10_20: "0.0"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "$5k/m contributions":
+    All: "1.0"
+    Since_1926: "1.3"
+    Since_1950: "1.6"
+    CAPE_le_20: "0.0"
+    CAPE_gt_20: "4.3"
+    SP500_High: "3.2"
+    Drdwn_0_10: "1.0"
+    Drdwn_10_20: "0.0"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "50Y Baseline":
+    All: "12.2"
+    Since_1926: "10.4"
+    Since_1950: "12.5"
+    CAPE_le_20: "6.1"
+    CAPE_gt_20: "31.8"
+    SP500_High: "20.3"
+    Drdwn_0_10: "21.6"
+    Drdwn_10_20: "4.5"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "Delay RE 1Y (50Y)":
+    All: "7.6"
+    Since_1926: "6.7"
+    Since_1950: "8.6"
+    CAPE_le_20: "2.9"
+    CAPE_gt_20: "22.4"
+    SP500_High: "15.1"
+    Drdwn_0_10: "12.6"
+    Drdwn_10_20: "1.0"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "$5k/m contributions (50Y)":
+    All: "6.0"
+    Since_1926: "5.2"
+    Since_1950: "6.6"
+    CAPE_le_20: "2.1"
+    CAPE_gt_20: "18.3"
+    SP500_High: "11.6"
+    Drdwn_0_10: "10.3"
+    Drdwn_10_20: "0.3"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "50Y Baseline + SocSec":
+    All: "6.2"
+    Since_1926: "5.6"
+    Since_1950: "7.2"
+    CAPE_le_20: "2.2"
+    CAPE_gt_20: "19.0"
+    SP500_High: "11.9"
+    Drdwn_0_10: "11.0"
+    Drdwn_10_20: "0.0"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "Delay RE 1Y (50Y+SocSec)":
+    All: "3.6"
+    Since_1926: "3.5"
+    Since_1950: "4.5"
+    CAPE_le_20: "1.4"
+    CAPE_gt_20: "10.6"
+    SP500_High: "8.4"
+    Drdwn_0_10: "5.3"
+    Drdwn_10_20: "0.0"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "$5k/m contributions (50Y+SocSec)":
+    All: "1.4"
+    Since_1926: "1.4"
+    Since_1950: "1.8"
+    CAPE_le_20: "0.6"
+    CAPE_gt_20: "4.1"
+    SP500_High: "4.9"
+    Drdwn_0_10: "1.2"
+    Drdwn_10_20: "0.0"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+  "2-year delay":
+    All: "0.0"
+    Since_1926: "0.0"
+    Since_1950: "0.0"
+    CAPE_le_20: "0.0"
+    CAPE_gt_20: "0.0"
+    SP500_High: "0.0"
+    Drdwn_0_10: "0.0"
+    Drdwn_10_20: "0.0"
+    Drdwn_20_30: "0.0"
+    Drdwn_gt_30: "0.0"
+

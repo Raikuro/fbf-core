@@ -39,6 +39,9 @@ from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
 from fbf.core.execution.pipeline.steps.simulation_state_update_step import (
     SimulationStateUpdateStep,
 )
+from fbf.core.execution.pipeline.steps.supplemental_cash_flow_step import (
+    SupplementalCashFlowStep,
+)
 from fbf.core.execution.pipeline.steps.withdrawal_decision_step import (
     WithdrawalDecisionStep,
 )
@@ -87,6 +90,8 @@ def create_default_pipeline() -> SimulationPipeline:
             WithdrawalDecisionStep(),
             InterestAccrualStep(),  # BEFORE draw: interest on prior balance (ERN order)
             LoanDrawStep(),  # AFTER interest: new draw does not accrue interest same month
+            SupplementalCashFlowStep(ss_active=False),  # Supplemental cash flow (SS, etc.)
+            # inactive by default
             WithdrawalExecutionStep(),  # Consume cash first, then sell assets
             LoanRepaymentStep(),  # Part 52: repay at fresh ATH
             AllocationDecisionStep(),

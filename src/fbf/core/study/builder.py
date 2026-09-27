@@ -1411,6 +1411,7 @@ def build_omy_study_plan(
                 dataset=acc_dataset,
                 equity_asset=equity_asset,
                 bond_asset=bond_asset,
+                months=12,
             )
             accumulation_cache[start] = result.final_portfolio
             accumulation_month_by_month[start] = result.month_by_month
@@ -1454,7 +1455,7 @@ def _build_omy_retirement_plan(
         description=config.base_config.description or config.base_config.name,
         dataset=dataset,
         horizon_months=retirement_horizon_months,
-        initial_wealth=config.contribution_amount,  # placeholder; per-unit is set below
+        initial_wealth=config.original_initial_wealth,
         cohorts=cohorts,
         allocation_policies=(representative_allocation,),
         withdrawal_policies=(representative_withdrawal,),

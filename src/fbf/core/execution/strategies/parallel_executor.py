@@ -30,6 +30,7 @@ from fbf.core.execution.pipeline.steps.market_evolution_step import MarketEvolut
 from fbf.core.execution.pipeline.steps.monthly_result_builder_step import MonthlyResultBuilderStep
 from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import PortfolioRebalanceStep
 from fbf.core.execution.pipeline.steps.simulation_state_update_step import SimulationStateUpdateStep
+from fbf.core.execution.pipeline.steps.supplemental_cash_flow_step import SupplementalCashFlowStep
 from fbf.core.execution.pipeline.steps.withdrawal_decision_step import WithdrawalDecisionStep
 from fbf.core.execution.pipeline.steps.withdrawal_execution_step import WithdrawalExecutionStep
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
@@ -38,7 +39,9 @@ from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
 
-def _create_default_simulation_executor() -> SimulationExecutor:
+def _create_default_simulation_executor(
+    supplemental_cash_flow_step: SupplementalCashFlowStep | None = None,
+) -> SimulationExecutor:
     """Create a default engine SimulationExecutor with the debt-aware pipeline.
 
     The pipeline includes debt steps (loan draw, interest accrual, LTV evaluation)
@@ -59,6 +62,13 @@ def _create_default_simulation_executor() -> SimulationExecutor:
     from fbf.core.execution.pipeline.steps.loan_draw_step import LoanDrawStep
     from fbf.core.execution.pipeline.steps.loan_repayment_step import LoanRepaymentStep
     from fbf.core.execution.pipeline.steps.ltv_evaluation_step import LTVEvaluationStep
+    from fbf.core.execution.pipeline.steps.supplemental_cash_flow_step import (
+        SupplementalCashFlowStep,
+    )
+
+    # Use provided SS step or create a default inactive one
+    if supplemental_cash_flow_step is None:
+        supplemental_cash_flow_step = SupplementalCashFlowStep(ss_active=False)
 
     pipeline = SimulationPipeline(
         [
@@ -68,6 +78,8 @@ def _create_default_simulation_executor() -> SimulationExecutor:
             WithdrawalDecisionStep(),
             InterestAccrualStep(),  # BEFORE draw: interest on prior balance (ERN order)
             LoanDrawStep(),  # AFTER interest: new draw does not accrue interest same month
+            supplemental_cash_flow_step,  # Supplemental cash flow (SS, etc.)
+            # after loan draw, before withdrawal
             WithdrawalExecutionStep(),  # Consume cash first, then sell assets
             LoanRepaymentStep(),  # Part 52: repay at fresh ATH
             AllocationDecisionStep(),
