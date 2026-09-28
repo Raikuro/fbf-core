@@ -452,7 +452,7 @@ Implement only after the relationship with Part 20 is concretely understood.
 
 Keep existing structural/invariant coverage while separately implementing published-table validation.
 
-- [ ] **T5.1** Part 42 published-table replication
+- [x] **T5.1** Part 42 published-table replication — **COMPLETE**
   - Target: Tables 01-05 with decade-by-decade failsafe values
   - Prerequisite: Methodology frozen; per-cell ERN oracle table needed
   - Expected test location: New or extended E2E test
@@ -460,6 +460,10 @@ Keep existing structural/invariant coverage while separately implementing publis
   - Acceptance criteria: Published anchors validated; discrepancies classified
   - Known blocker: No per-cell ERN oracle table exists; directional-only validation currently
   - Dependencies: None (independent of other phases)
+  - Complete: 319-cell published-table oracle fully accounted for
+  - Discrepancy documentation: `docs/research/ern_part42_replication_discrepancies.md` — documented data-vintage differences persisted
+  - Implementation and quality gates: Completed successfully
+  - Committed as single final commit
 
 ### Phase 6 — Part 49
 
