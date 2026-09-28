@@ -15,7 +15,11 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.decision_context import DecisionContext
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
-from fbf.core.domain.policies import ConstantAllocationPolicy, ConstantWithdrawalPolicy
+from fbf.core.domain.policies import (
+    BuyAndHoldAllocationPolicy,
+    ConstantAllocationPolicy,
+    ConstantWithdrawalPolicy,
+)
 
 
 def _make_dataset() -> Dataset:
@@ -157,3 +161,76 @@ class TestConstantWithdrawalPolicy:
 
         assert decision.nominal_amount.amount > Decimal("0")
         assert decision.reason == "ConstantWithdrawalPolicy"
+
+
+class TestBuyAndHoldAllocationPolicy:
+    def test_equity_075_returns_same_target(self) -> None:
+        policy = BuyAndHoldAllocationPolicy(equity_allocation=Decimal("0.75"))
+        ctx = _make_context(_make_portfolio(Decimal("1000000")))
+
+        # First call
+        decision1 = policy.decide(ctx)
+        equity = AssetClass(id="equity", name="", description="")
+        bond = AssetClass(id="bond", name="", description="")
+
+        assert decision1.allocation_target.weights == {
+            equity: Decimal("0.75"),
+            bond: Decimal("0.25"),
+        }
+        assert decision1.reason == "BuyAndHoldAllocationPolicy"
+
+        # Second call should return the same cached target
+        decision2 = policy.decide(ctx)
+        assert decision2.allocation_target is decision1.allocation_target
+
+    def test_equity_100(self) -> None:
+        policy = BuyAndHoldAllocationPolicy(equity_allocation=Decimal("1.0"))
+        ctx = _make_context(_make_portfolio(Decimal("1000000")))
+        decision = policy.decide(ctx)
+
+        equity = AssetClass(id="equity", name="", description="")
+        bond = AssetClass(id="bond", name="", description="")
+
+        assert decision.allocation_target.weights == {
+            equity: Decimal("1.0"),
+            bond: Decimal("0.0"),
+        }
+
+    def test_equity_000(self) -> None:
+        policy = BuyAndHoldAllocationPolicy(equity_allocation=Decimal("0.0"))
+        ctx = _make_context(_make_portfolio(Decimal("1000000")))
+        decision = policy.decide(ctx)
+
+        equity = AssetClass(id="equity", name="", description="")
+        bond = AssetClass(id="bond", name="", description="")
+
+        assert decision.allocation_target.weights == {
+            equity: Decimal("0.0"),
+            bond: Decimal("1.0"),
+        }
+
+    def test_weights_sum_to_one(self) -> None:
+        for ratio in [
+            Decimal("0.0"),
+            Decimal("0.25"),
+            Decimal("0.5"),
+            Decimal("0.75"),
+            Decimal("1.0"),
+        ]:
+            policy = BuyAndHoldAllocationPolicy(equity_allocation=ratio)
+            ctx = _make_context(_make_portfolio(Decimal("1000000")))
+            decision = policy.decide(ctx)
+            total = sum(decision.allocation_target.weights.values())
+            assert total == Decimal("1.0"), f"Weights sum to {total} for ratio={ratio}"
+
+    def test_cached_target_persists_across_contexts(self) -> None:
+        """Verify the cached target is reused even with different contexts."""
+        policy = BuyAndHoldAllocationPolicy(equity_allocation=Decimal("0.60"))
+        ctx1 = _make_context(_make_portfolio(Decimal("1000000")))
+        ctx2 = _make_context(_make_portfolio(Decimal("2000000")))
+
+        decision1 = policy.decide(ctx1)
+        decision2 = policy.decide(ctx2)
+
+        # Same target object should be returned
+        assert decision2.allocation_target is decision1.allocation_target

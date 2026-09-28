@@ -46,6 +46,40 @@ class ConstantAllocationPolicy(AllocationPolicy):
         )
 
 
+class BuyAndHoldAllocationPolicy(AllocationPolicy):
+    """Buy-and-hold allocation policy.
+
+    YAML type: "BuyAndHoldAllocationPolicy"
+    YAML params: equity_allocation (Decimal, 0.0-1.0)
+
+    The initial equity/bond allocation is established once at simulation start.
+    There is no periodic portfolio rebalancing. Subsequent market movements
+    naturally change portfolio weights. Withdrawals may sell assets to obtain
+    cash, but this does not trigger rebalancing.
+
+    This policy returns the same initial allocation target on every call.
+    The buy-and-hold behavior is enforced by omitting the periodic
+    AllocationDecisionStep and PortfolioRebalanceStep from the pipeline.
+    """
+
+    def __init__(self, equity_allocation: Decimal) -> None:
+        self.equity_allocation = equity_allocation
+        self._initial_target: AllocationTarget | None = None
+
+    def decide(self, context: DecisionContext) -> AllocationDecision:
+        if self._initial_target is None:
+            equity = AssetClass(id="equity", name="", description="")
+            bond = AssetClass(id="bond", name="", description="")
+            self._initial_target = AllocationTarget(weights={
+                equity: self.equity_allocation,
+                bond: Decimal("1") - self.equity_allocation,
+            })
+        return AllocationDecision(
+            reason="BuyAndHoldAllocationPolicy",
+            allocation_target=self._initial_target,
+        )
+
+
 class ConstantWithdrawalPolicy(WithdrawalPolicy):
     """Fixed-rate withdrawal policy.
 

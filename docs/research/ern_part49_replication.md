@@ -626,12 +626,12 @@ Treat these as published evidence unless exact table/image provenance is establi
 | Forced liquidation | **Implemented** | `LTVEvaluationStep._execute_liquidation()` |
 | Loan balance tracking | **Implemented** | `SimulationState`, `DebtSnapshot` |
 | Monthly rebalanced portfolios | **Implemented** | `PortfolioRebalanceStep`, `ConstantAllocationPolicy` |
+| Buy-and-hold portfolios | **Implemented** | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` |
 
 ### 14.2 Missing Capabilities
 
 | Capability | Status | Notes |
 |------------|--------|-------|
-| Buy-and-hold portfolios | **NOT IMPLEMENTED — REPLICATION REQUIREMENT** | No `BuyAndHoldAllocationPolicy` or skip-rebalance mechanism. **Buy-and-hold is a Part 49 replication requirement.** |
 | Withdrawal scaling | **Implemented / available** | Inherited from ERN methodology |
 | Supplemental external cash flows | **Implemented / available** | Inherited from ERN methodology |
 

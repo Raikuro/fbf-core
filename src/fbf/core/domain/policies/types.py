@@ -22,6 +22,7 @@ class AllocationPolicyType(Enum):
 
     CONSTANT = ("ConstantAllocationPolicy", "Constant Allocation", "equity_allocation")
     GLIDEPATH = ("GlidepathAllocationPolicy", "Glidepath", "start_equity")
+    BUY_AND_HOLD = ("BuyAndHoldAllocationPolicy", "Buy and Hold", "equity_allocation")
 
     def __init__(
         self, yaml_name: str, display_name: str, parameter_key: str

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.concrete import (
+    BuyAndHoldAllocationPolicy,
     ConstantAllocationPolicy,
     ConstantWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
@@ -25,6 +26,7 @@ __all__ = [
     "GlidepathCadence",
     "AllocationDecision",
     "WithdrawalDecision",
+    "BuyAndHoldAllocationPolicy",
     "ConstantAllocationPolicy",
     "ConstantWithdrawalPolicy",
     "FixedRealWithdrawalPolicy",

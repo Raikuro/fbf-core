@@ -103,3 +103,53 @@ def create_default_pipeline() -> SimulationPipeline:
             SimulationStateUpdateStep(),
         ]
     )
+
+
+def create_buy_and_hold_pipeline() -> SimulationPipeline:
+    """Create a buy-and-hold pipeline for ERN Part 49 replication.
+
+    Buy-and-hold means:
+    - Initial allocation is established once (InitializeAllocationStep at seq 0)
+    - NO periodic AllocationDecisionStep (seq 40 omitted)
+    - NO periodic PortfolioRebalanceStep (seq 50 omitted)
+    - Market evolution naturally changes portfolio weights
+    - Withdrawals sell assets for cash without rebalancing the remainder
+    - Debt/leverage mechanics operate unchanged
+
+    Pipeline order (based on default pipeline with rebalance steps removed):
+    0: InitializeAllocation
+    5: ExpenseDeduction (ERN-precise expense + C-timing correction)
+    10: BuildDecisionContext
+    20: WithdrawalDecision
+    26: InterestAccrual (ERN: interest on prior balance BEFORE draw)
+    28: LoanDraw (ERN: new draw added AFTER interest accrual)
+    30: SupplementalCashFlow (inactive by default)
+    32: WithdrawalExecution (consume cash first, then sell assets)
+    32: LoanRepayment (Part 52: repay at fresh ATH)
+    60: MarketEvolution
+    66: LTVEvaluation
+    70: MonthlyResultBuilder
+    75: FailureDetection
+    80: SimulationStateUpdate
+    """
+    return SimulationPipeline(
+        steps=[
+            InitializeAllocationStep(),
+            ExpenseDeductionStep(),  # ERN-precise expense + C-timing correction
+            BuildDecisionContextStep(),
+            WithdrawalDecisionStep(),
+            InterestAccrualStep(),  # BEFORE draw: interest on prior balance (ERN order)
+            LoanDrawStep(),  # AFTER interest: new draw does not accrue interest same month
+            SupplementalCashFlowStep(ss_active=False),  # Supplemental cash flow (SS, etc.)
+            # inactive by default
+            WithdrawalExecutionStep(),  # Consume cash first, then sell assets
+            LoanRepaymentStep(),  # Part 52: repay at fresh ATH
+            # AllocationDecisionStep OMITTED (no periodic allocation decisions)
+            # PortfolioRebalanceStep OMITTED (no periodic rebalancing)
+            MarketEvolutionStep(),
+            LTVEvaluationStep(),
+            MonthlyResultBuilderStep(),
+            FailureDetectionStep(),
+            SimulationStateUpdateStep(),
+        ]
+    )

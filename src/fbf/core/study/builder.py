@@ -21,6 +21,7 @@ from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies import (
     AllocationPolicyType,
+    BuyAndHoldAllocationPolicy,
     ConstantAllocationPolicy,
     ConstantWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
@@ -387,6 +388,8 @@ def build_allocation_policy(policy_type: str, scalar: Decimal) -> AllocationPoli
     policy_enum = AllocationPolicyType.from_yaml_name(policy_type)
     if policy_enum is AllocationPolicyType.CONSTANT:
         return ConstantAllocationPolicy(equity_allocation=scalar)
+    if policy_enum is AllocationPolicyType.BUY_AND_HOLD:
+        return BuyAndHoldAllocationPolicy(equity_allocation=scalar)
     raise ValueError(f"Unsupported allocation policy type: {policy_type!r}")
 
 
