@@ -38,6 +38,7 @@ def build_part42_study_plan(
     data_dir: str,
     omy_config: Any,  # Part42ExperimentConfig
     ss_config: dict[str, Any] | None = None,
+    cohorts: tuple[CohortSpecification, ...] | None = None,
 ) -> BuiltStudy:
     """Build a Part 42 study plan with OMY accumulation and Social Security.
 
@@ -45,6 +46,10 @@ def build_part42_study_plan(
     1. Handle 24-month OMY (G_2yr experiment)
     2. Wire Social Security cash flow via SupplementalCashFlowStep
     3. Use the correct withdrawal policy with initial_wealth = $2M pre-OMY
+
+    If `cohorts` is provided, uses those specific cohorts instead of generating
+    all cohorts from the dataset. This is used by the bisection evaluate function
+    to run only specific cohort/rate pairs.
     """
     from fbf.core.study.builder import (
         _make_policy_resolver,
@@ -64,7 +69,8 @@ def build_part42_study_plan(
     )
     total_horizon_months = omy_months + retirement_horizon_years * 12 + 1
 
-    cohorts = build_cohort_specs(dataset, total_horizon_months)
+    if cohorts is None:
+        cohorts = build_cohort_specs(dataset, total_horizon_months)
     if not cohorts:
         raise ValueError(f"Dataset too small for {retirement_horizon_years + 1}-year OMY horizon")
 

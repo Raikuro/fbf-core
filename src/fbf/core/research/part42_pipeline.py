@@ -292,17 +292,20 @@ def _build_omy_evaluate(
         results: list[bool | None] = [None] * len(candidates)
 
         for rate, cand_list in rate_to_candidates.items():
-            rows = []
-            flat_indices = []
-            for flat_idx, (pair_idx, _mid) in cand_list:
+            # Extract the specific cohort dates needed for this rate's candidates
+            needed_cohort_dates = []
+            for _flat_idx, (pair_idx, _mid) in cand_list:
                 cohort_idx = pair_idx
                 if cohort_idx >= n_cohorts:
                     raise ValueError(f"cohort_idx {cohort_idx} >= n_cohorts {n_cohorts}")
                 cohort_date = cohort_dates[cohort_idx]
-                rows.append((cohort_date, rate))
-                flat_indices.append(flat_idx)
+                needed_cohort_dates.append(cohort_date)
 
-            # Build and execute plan for this rate
+            # Build and execute plan for this rate with only needed cohorts
+            from pathlib import Path
+
+            from fbf.core.datasets import load_canonical_dataset
+            from fbf.core.research.part42_plan import build_cohort_specs
             from fbf.core.study.builder import StudyConfiguration
 
             base_config = StudyConfiguration(
@@ -327,13 +330,30 @@ def _build_omy_evaluate(
 
             omy_config = experiment  # Part42ExperimentConfig has the needed fields
 
-            # Build OMY study plan with SS using the Part 42 plan builder
+            # Build cohort specs for only the needed cohorts
+            dataset = load_canonical_dataset(Path(DEFAULT_DATA_DIR))
+            retirement_horizon_years = base_config.horizon_years[0]
+            omy_months = (
+                omy_config.omy_duration_months
+                if hasattr(omy_config, 'omy_duration_months')
+                else 12
+            )
+            total_horizon_months = omy_months + retirement_horizon_years * 12 + 1
+            all_cohorts = build_cohort_specs(dataset, total_horizon_months)
+            # Filter to only the cohorts we need
+            needed_cohort_set = set(needed_cohort_dates)
+            filtered_cohorts = tuple(
+                c for c in all_cohorts
+                if c.start_date.isoformat() in needed_cohort_set
+            )
+
+            # Build OMY study plan with SS using the Part 42 plan builder (with filtered cohorts)
             built = build_part42_study_plan(
                 experiment_id=experiment.id,
                 base_config=base_config,
-                data_dir=DEFAULT_DATA_DIR,  # Default; callers should override
-                # via data_dir parameter
+                data_dir=DEFAULT_DATA_DIR,
                 omy_config=omy_config,
+                cohorts=filtered_cohorts,
             )
 
             from fbf.core.execution import execute_study_plan
