@@ -71,6 +71,7 @@ class PlannedSimulationUnit:
     ltv_enforcement: bool = True
     loan_draw_rate: Decimal | None = None
     expense_ratio: Decimal | None = None
+    debt_interest_rate_is_real: bool = False
 
     def __post_init__(self) -> None:
         if self.cohort is None:
@@ -184,6 +185,7 @@ def materialize_research_plan(
     ltv_enforcement: bool = True,
     loan_draw_rate: Decimal | None = None,
     expense_ratio: Decimal | None = None,
+    debt_interest_rate_is_real: bool = False,
 ) -> ResearchPlan:
     """Build a ResearchPlan whose units take horizon and policies per parameter config.
 
@@ -311,6 +313,7 @@ def materialize_research_plan(
                     ltv_enforcement=ltv_enforcement,
                     loan_draw_rate=loan_draw_rate,
                     expense_ratio=expense_ratio,
+                    debt_interest_rate_is_real=debt_interest_rate_is_real,
                 )
             )
     return ResearchPlan(experiment_definition=experiment_def, units=tuple(units))

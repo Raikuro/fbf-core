@@ -560,7 +560,7 @@ Every material discrepancy must receive exactly one classification:
 | B4 | Part 20 Experiment E capability gap (annual-frequency simulation) | Part 20 | POTENTIAL | `ern_part20_e2e_audit.md` §7 |
 | B5 | Part 42 published-table validation deferred | Part 42 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.2 |
 | B6 | Part 49 buy-and-hold capability gap | Part 49 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.3 |
-| B7 | Part 49 LTV enforcement currently OFF | Part 49 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.3 |
+| B7 | Part 49 LTV enforcement currently OFF | Part 49 | RESOLVED (2026-09-29) | `ERN_E2E_REPLICATION_PLAN.md` §F.3; `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)" |
 | B8 | Part 52 Part52Evaluator infeasible-search semantics | Part 52 | OPEN | `TODO.md` S6.6B |
 | B9 | Part 19/20 assertion/output ambiguity | Parts 19/20 | OPEN | No specific document — needs resolution during Phase 3 |
 | B10 | Part 52 A10 execution/timing recurrence discrepancy | Part 52 | DEFERRED | Production recurrence: `P_t = (P_{t-1} - C + X) * (1 + w_t - f)` (withdraw-at-start); ERN workbook: `S_t = Z_{t-1} * (1 + w_t - f)` with `Z_t = S_t - W_t` (grow-then-withdraw); creates second-order timing term `-(C-X)*(w-f)` ≈ $10-20/month; fee correction recovered only 4/74 failed cohorts; root cause is execution-level, not fee-semantics; deferred until optimization phase; oracle must remain untouched; no weakening of canonical expectations |

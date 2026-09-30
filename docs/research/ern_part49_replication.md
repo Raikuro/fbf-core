@@ -1,14 +1,14 @@
 # ERN Part 49 — Using Leverage in Retirement
 
-> **Status:** SUBSET — TWO DEVIATIONS
+> **Status:** SUBSET — ONE DEVIATION
 > **Article:** [Using Leverage in Retirement – SWR Series Part 49](https://earlyretirementnow.com/2021/11/16/leverage-in-retirement-swr-series-part-49/)
 >
 > **Implementation relationship:** Part 49 investigates whether margin loans can hedge sequence-of-returns risk by replacing part of the portfolio withdrawal with borrowing against the portfolio. The article finds that excessive leverage exacerbates sequence risk, but a modest supplemental loan (approximately 1% of portfolio) can improve outcomes.
 >
 > **Methodology status:** COMPLETE / FROZEN.
 >
-> **Implementation status:** PARTIALLY PRESENT — two deviations from ERN methodology:
-> 1. LTV enforcement currently OFF — implementation limitation.
+> **Implementation status:** PARTIALLY PRESENT — one deviation from ERN methodology:
+> 1. ~~LTV enforcement currently OFF — implementation limitation.~~ (RESOLVED: LTV enforcement is REQUIRED ON for canonical Part 49 replication. See `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)".)
 > 2. Monthly rebalancing instead of buy-and-hold — capability gap (§14.2).
 >
 > **E2E status:** NOT VALIDATED as canonical ERN replication.

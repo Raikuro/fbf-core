@@ -527,6 +527,7 @@ class StudyConfiguration:
     debt_ltv_limit: Decimal | None = None
     debt_ltv_enforcement: bool = True
     debt_loan_draw_rate: Decimal | None = None
+    debt_interest_rate_is_real: bool = False
     # Part 52 timing-leverage parameters
     debt_borrow_pct: Decimal | None = None
     debt_borrow_pct_values: tuple[Decimal, ...] | None = None
@@ -745,6 +746,9 @@ class StudyConfiguration:
             debt_loan_draw_rate = _parse_optional_decimal_scalar(
                 debt_data, "loan_draw_rate"
             )
+            debt_interest_rate_is_real = debt_data.get("interest_rate_is_real", False)
+            if not isinstance(debt_interest_rate_is_real, bool):
+                raise ValueError("debt.interest_rate_is_real must be a boolean")
             # Validate coherence: loan_draw_rate requires interest_rate
             has_interest = (
                 debt_interest_rate is not None
@@ -952,6 +956,37 @@ def _build_unified_parameter_configs(
                 values=(float(config.debt_drawdown_threshold),),
             )
         )
+
+    # Part 49 debt parameters: add as axes when configured
+    if config.debt_interest_rate_is_real is not None:
+        axes.append(
+            ParameterAxis(
+                name="debt_interest_rate_is_real",
+                values=(config.debt_interest_rate_is_real,),
+            )
+        )
+    if config.debt_ltv_limit is not None:
+        axes.append(
+            ParameterAxis(
+                name="ltv_limit",
+                values=(float(config.debt_ltv_limit),),
+            )
+        )
+    if config.debt_ltv_enforcement is not None:
+        axes.append(
+            ParameterAxis(
+                name="ltv_enforcement",
+                values=(config.debt_ltv_enforcement,),
+            )
+        )
+    if config.debt_loan_draw_rate is not None:
+        axes.append(
+            ParameterAxis(
+                name="loan_draw_rate",
+                values=(float(config.debt_loan_draw_rate),),
+            )
+        )
+
     return ParameterSweepEngine.cartesian_product(axes)
 
 
@@ -1302,6 +1337,7 @@ def build_study_plan(
         ltv_enforcement=config.debt_ltv_enforcement,
         loan_draw_rate=config.debt_loan_draw_rate,
         expense_ratio=config.expense_ratio,
+        debt_interest_rate_is_real=config.debt_interest_rate_is_real,
     )
     return BuiltStudy(
         plan=plan,

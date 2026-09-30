@@ -70,7 +70,14 @@ class InterestAccrualStep(PipelineStep):
 
         For real-terms datasets where CPI is zero, CPI_prev/CPI_curr = 1,
         so this simplifies to annual_rate / 12.
+
+        For Part 49 (debt_interest_rate_is_real=True), the rate is already
+        expressed in real terms and no CPI adjustment should be applied.
         """
+        # Part 49: rate is already real, no CPI adjustment needed
+        if state.context.debt_interest_rate_is_real:
+            return annual_rate / Decimal("12")
+
         snapshot = state.market_snapshot
         if snapshot is None:
             return annual_rate / Decimal("12")

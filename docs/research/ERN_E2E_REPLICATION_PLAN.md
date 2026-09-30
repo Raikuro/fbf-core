@@ -387,15 +387,16 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.3 Part 49 — Using Leverage in Retirement
 
-**Status:** SUBSET — TWO DEVIATIONS
-**Reason:** The current FBF implementation deviates from ERN methodology in two ways:
-1. LTV enforcement is currently OFF — implementation limitation, not methodology.
-2. Portfolio uses monthly rebalancing instead of the required buy-and-hold capability.
+**Status:** SUBSET — ONE DEVIATION (buy-and-hold)
+**Reason:** The current FBF implementation deviates from ERN methodology in one way:
+1. Portfolio uses monthly rebalancing instead of the required buy-and-hold capability.
+**Correction (2026-09-29):** LTV enforcement is NOT an implementation limitation for Part 49. The ERN Part 49 methodology requires LTV enforcement ON with terminal margin-call liquidation (see `ern_part49_replication.md` §9.3, §15.3 items 18–20, §18, §21.3; `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)"). The previous classification of LTV-OFF as an "implementation limitation" was incorrect.
+2. ~~LTV enforcement is currently OFF — implementation limitation, not methodology.~~ (RESOLVED: LTV enforcement is REQUIRED ON for canonical Part 49 replication.)
 **Methodology:** COMPLETE (see `ern_part49_replication.md` §24).
-**Implementation:** PARTIALLY PRESENT. The correct future approach is to implement buy-and-hold capability and build the Part 49 E2E replication against it.
-**E2E status:** NOT VALIDATED as canonical ERN replication. Current E2E executes a modified FBF interpretation.
+**Implementation:** PARTIALLY PRESENT. The correct future approach is to implement buy-and-hold capability and build the Part 49 E2E replication against it with LTV enforcement ON.
+**E2E status:** NOT VALIDATED as canonical ERN replication. Current E2E executes a modified FBF interpretation (LTV-OFF, rebalanced).
 **Documented limitations:**
-- 1929 depletion anchor NOT validated (depends on LTV enforcement).
+- 1929 depletion anchor NOT validated (requires LTV enforcement ON with terminal liquidation).
 - Leverage cells (interest_rate > 0) have no published ERN oracle table; validation is directional only.
 **Existing value:** Integration tests with reduced fixtures (18 units) validate execution correctness. Materialization tests validate 54-cell grid structure.
 **Test classification:** Integration tests with reduced fixtures (retain). Grid materialization tests (retain).

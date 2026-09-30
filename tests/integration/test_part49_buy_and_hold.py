@@ -68,6 +68,7 @@ def _make_part49_buy_and_hold_config() -> StudyConfiguration:
         debt_ltv_limit=LTV_LIMIT,
         debt_ltv_enforcement=LTV_ENFORCEMENT,
         debt_loan_draw_rate=LOAN_DRAW_RATE,
+        debt_interest_rate_is_real=True,
     )
 
 
@@ -89,6 +90,7 @@ def _make_part49_rebalanced_config() -> StudyConfiguration:
         debt_ltv_limit=LTV_LIMIT,
         debt_ltv_enforcement=LTV_ENFORCEMENT,
         debt_loan_draw_rate=LOAN_DRAW_RATE,
+        debt_interest_rate_is_real=True,
     )
 
 

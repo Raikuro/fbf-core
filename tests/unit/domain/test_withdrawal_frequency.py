@@ -643,7 +643,9 @@ class TestPart49WithdrawalFrequency:
         decision = policy.decide(context)
         expected_w = Decimal("100000") * Decimal("0.04") / Decimal("12")
         expected_l = Decimal("100000") * Decimal("0.10") / Decimal("12")
-        assert decision.nominal_amount.amount == expected_w
+        # GAP-1 fix: nominal_amount is now total spending (portfolio + loan)
+        expected_nominal = expected_w + expected_l
+        assert decision.nominal_amount.amount == expected_nominal
         assert decision.loan_draw_amount == expected_l
 
     def test_annual_amount(
@@ -668,7 +670,9 @@ class TestPart49WithdrawalFrequency:
         decision = policy.decide(context)
         expected_w = Decimal("100000") * Decimal("0.04")
         expected_l = Decimal("100000") * Decimal("0.10")
-        assert decision.nominal_amount.amount == expected_w
+        # GAP-1 fix: nominal_amount is now total spending (portfolio + loan)
+        expected_nominal = expected_w + expected_l
+        assert decision.nominal_amount.amount == expected_nominal
         assert decision.loan_draw_amount == expected_l
 
     def test_annual_zero_on_non_withdrawal_month(

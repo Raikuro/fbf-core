@@ -462,7 +462,10 @@ class TestPart49WithdrawalPolicy:
 
         # monthly_withdrawal = 1_000_000 * 0.04 / 12
         expected_withdrawal = Decimal("1000000") * Decimal("0.04") / Decimal("12")
-        assert decision.nominal_amount.amount == expected_withdrawal
+        # GAP-1 fix: nominal_amount is total spending (portfolio + loan)
+        expected_loan_draw = Decimal("1000000") * Decimal("0.01") / Decimal("12")
+        expected_nominal = expected_withdrawal + expected_loan_draw
+        assert decision.nominal_amount.amount == expected_nominal
         # monthly_loan = 1_000_000 * 0.01 / 12
         expected_loan = Decimal("1000000") * Decimal("0.01") / Decimal("12")
         assert decision.loan_draw_amount == expected_loan
@@ -488,6 +491,7 @@ class TestPart49WithdrawalPolicy:
         decision = policy.decide(decision_ctx)
 
         expected_withdrawal = Decimal("1000000") * Decimal("0.04") / Decimal("12")
+        # GAP-1 fix: nominal_amount is total spending (portfolio + loan)
         assert decision.nominal_amount.amount == expected_withdrawal
         assert decision.loan_draw_amount == Decimal("0")
 

@@ -33,3 +33,4 @@ class SimulationContext:
     ltv_limit: Decimal | None = None
     ltv_enforcement: bool = True
     expense_ratio: Decimal | None = None
+    debt_interest_rate_is_real: bool = False

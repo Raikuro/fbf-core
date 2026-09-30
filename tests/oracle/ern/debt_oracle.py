@@ -27,6 +27,7 @@ class FailureState(Enum):
     NONE = "none"
     DEPLETED = "depleted"
     MARGIN_CALL_IMPOSSIBLE = "margin_call_impossible"
+    MARGIN_CALL_TERMINAL = "margin_call_terminal"
 
 
 class ExecutionStatus(Enum):
@@ -316,6 +317,11 @@ def execute_month_transition(
         status = ExecutionStatus.FAILED
     elif loan_balance_final > portfolio_value_final and loan_balance_final > 0:
         failure_state = FailureState.MARGIN_CALL_IMPOSSIBLE
+        status = ExecutionStatus.FAILED
+    elif liquidation is not None:
+        # Margin-call liquidation is TERMINAL per ERN Part 49 methodology (§15.3 items 19-20).
+        # The trajectory must not continue after a margin-call liquidation.
+        failure_state = FailureState.MARGIN_CALL_TERMINAL
         status = ExecutionStatus.FAILED
 
     return MonthTransitionResult(

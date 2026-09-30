@@ -554,8 +554,10 @@ class TestInitialWealthReconciliation:
         # ERN Part 49: 3% portfolio withdrawal + 1% loan draw = 4% total
         expected_monthly = initial_wealth.amount * Decimal("0.03") / Decimal("12")
         expected_loan = initial_wealth.amount * Decimal("0.01") / Decimal("12")
+        # GAP-1 fix: nominal_amount is total spending (portfolio + loan)
+        expected_nominal = expected_monthly + expected_loan
 
-        assert decision.nominal_amount.amount == expected_monthly
+        assert decision.nominal_amount.amount == expected_nominal
         assert decision.loan_draw_amount == expected_loan
 
 

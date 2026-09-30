@@ -28,7 +28,7 @@ from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.execution.pipeline.pipeline import PipelineStep
-from fbf.core.execution.pipeline.simulation import SimulationState
+from fbf.core.execution.pipeline.simulation import ExecutionStatus, SimulationState
 
 
 class LTVEvaluationStep(PipelineStep):
@@ -107,6 +107,11 @@ class LTVEvaluationStep(PipelineStep):
         if state.current_wealth is not None:
             remaining = portfolio_value - liquidation_amount
             state.current_wealth = Money(remaining, state.current_wealth.currency)
+
+        # Margin-call liquidation is TERMINAL per ERN Part 49 methodology (§15.3 items 19-20).
+        # The trajectory must not continue after a margin-call liquidation.
+        state.failure_state = "margin_call_terminal"
+        state.status = ExecutionStatus.FAILED
 
         return state
 

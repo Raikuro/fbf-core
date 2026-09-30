@@ -75,9 +75,11 @@ class Part49WithdrawalPolicy(WithdrawalPolicy):
         else:
             loan_draw = total.amount * loan_draw_rate / Decimal("12")
 
+        total_spending = portfolio_withdrawal + loan_draw
+
         return WithdrawalDecision(
             reason="Part49WithdrawalPolicy",
-            nominal_amount=Money(portfolio_withdrawal, Currency.EUR),
-            real_amount=Money(portfolio_withdrawal, Currency.EUR),
+            nominal_amount=Money(total_spending, Currency.EUR),
+            real_amount=Money(total_spending, Currency.EUR),
             loan_draw_amount=loan_draw,
         )

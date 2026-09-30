@@ -703,77 +703,90 @@ The following invariants must be preserved by the engine implementation:
 
 ---
 
-## Part 49 LTV Enforcement Separation
+## Part 49 LTV Enforcement Separation (Superseded)
 
-**Decision:** For the ERN Part 49 replication, FBF must observe LTV
-without enforcing the 75% margin-call constraint. LTV observation and
-LTV enforcement are separate architectural concerns.
+**Previous Decision (Superseded):** For the ERN Part 49 replication, FBF
+must observe LTV without enforcing the 75% margin-call constraint. LTV
+observation and LTV enforcement are separate architectural concerns.
 
-**Why:** ERN Part 49 observes LTV as a diagnostic metric but does not
-enforce a margin-call threshold. The article reports LTV values of 84–93%
-for the 1965 cohort, which would be impossible under a 75% enforced limit.
-Introducing forced liquidation at 75% changes the financial model and
+**Why it was made:** The original interpretation was that ERN Part 49
+observes LTV as a diagnostic metric but does not enforce a margin-call
+threshold. The article reports LTV values of 84–93% for the 1965 cohort,
+which would be impossible under a 75% enforced limit. The decision was
+that introducing forced liquidation at 75% changes the financial model and
 makes the published anchors unreproducible.
 
-ERN's behavior:
+**Superseded by:** The forensic review for T6.2 (2026-09-29) determined
+that this interpretation was incorrect. The ERN Part 49 article explicitly
+requires terminal margin-call liquidation (§9.3, §15.3 items 18–20, §18,
+§21.3 of `ern_part49_replication.md`). The published LTV values of 84–93%
+for the 1965 cohort (Chart 04) are observed *at the point of margin-call
+failure*, not as a steady-state observation. The trajectory terminates at
+the margin call; the published LTV values are terminal measurements, not
+steady-state observations.
+
+**Superseding Decision:** For the ERN Part 49 canonical replication, FBF
+must enforce the 75% LTV margin-call constraint. LTV observation and LTV
+enforcement are both ON. A margin-call breach triggers terminal forced
+liquidation; the trajectory must not continue or recover after
+liquidation.
+
+ERN's behavior (corrected):
 ```
 LTV evolves over time
     ↓
 possibly exceeds 75%
     ↓
-continue simulation
-    ↓
-observe LTV / eventual portfolio failure
-```
-
-FBF's current behavior (wrong for Part 49):
-```
-LTV > 75%
+MARGIN CALL TRIGGERED
     ↓
 forced liquidation
     ↓
-portfolio/debt trajectory changes
+retirement trajectory fails (terminal)
+    ↓
+later hypothetical market returns are irrelevant
 ```
 
-**Architectural separation:**
+FBF's required behavior for Part 49 canonical replication:
 ```
-Debt mechanics
-    ├── loan balance
-    ├── interest
-    ├── cash
-    └── LTV observation
-             │
-             ▼
-Risk / constraint policy
-    └── optional LTV enforcement
+LTV > 75%
+    ↓
+forced liquidation (LTV restored to exactly 75% if possible)
+    ↓
+trajectory fails (terminal)
+    ↓
+simulation stops
 ```
 
-For ERN Part 49 replication:
+For ERN Part 49 canonical replication:
 - LTV observation = ON
-- LTV enforcement = OFF
+- LTV enforcement = ON (75% threshold)
+- Margin-call liquidation = TERMINAL
 
 A future FBF study could legitimately use:
 - LTV observation = ON
-- LTV enforcement = ON
-- threshold = 75%
+- LTV enforcement = OFF (observation-only mode)
 
-But that would be a different study/model, not the ERN Part 49 replication.
+But that would be a different study/model (observation-only), not the ERN
+Part 49 canonical replication.
 
-**Terminology:** The ERN behavior is "unconstrained with respect to the
-75% LTV margin-call rule." Other failure boundaries (portfolio depletion)
-still apply.
+**Terminology:** The ERN behavior is "constrained by the 75% LTV
+margin-call rule with terminal liquidation." Other failure boundaries
+(portfolio depletion) still apply.
 
 **Alternatives rejected:**
 - Deleting ltv_limit from the debt architecture — rejected because the
   framework should support both constrained and unconstrained LTV studies.
-- Keeping 75% enforcement for Part 49 — rejected because it changes the
-  mathematical model and prevents reproducing published anchors.
+- Keeping LTV enforcement OFF for Part 49 canonical replication — rejected
+  because it contradicts the article's explicit terminal margin-call
+  semantics and prevents reproducing the published failure dynamics.
 
-**Consequence:** The LTVEvaluationStep must support an enforcement mode
-flag. When enforcement is OFF, the step computes and records LTV but does
-not trigger forced liquidation. The DebtInfo snapshot must include the
-observed LTV regardless of enforcement mode. Failure detection for
-"margin_call_impossible" is only relevant when enforcement is ON.
+**Consequence:** The LTVEvaluationStep must enforce the LTV constraint
+when `ltv_enforcement=True`. When enforcement is ON and LTV exceeds the
+limit, forced liquidation occurs. If liquidation is unsatisfiable
+(`liquidation_amount > portfolio_value`), the entire portfolio is sold
+and the trajectory terminates with `failure_state = "margin_call_terminal"`.
+Failure detection for "margin_call_impossible" and "margin_call_terminal"
+is only relevant when enforcement is ON.
 
 ---
 
