@@ -184,6 +184,9 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     running_ath = eq_level
     _append("1871-02-01", eq_level, bond_level, running_ath, True, False)
 
+    # Initialize nominal ATH tracking (once, before the monthly loop)
+    nominal_running_ath = Decimal("0")
+
     # Historical period (1871-03 through 2016-09)
     current_date = datetime(1871, 3, 1)
     while current_date < _HISTORICAL_END:
@@ -198,13 +201,10 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
         eq_level *= (_ONE + r_eq)
         bond_level *= (_ONE + r_bond)
 
-
         running_ath = max(running_ath, eq_level)
         is_ath = eq_level >= running_ath
         _ = eq_level < running_ath
 
-        # Initialize nominal ATH tracking
-        nominal_running_ath = Decimal("0")
         # Nominal equity level for ATH/underwater (ERN methodology: nominal total-return index)
         nominal_date_key = current_date.strftime("%Y-%m-%d")
         nominal_eq_level_opt = nominal_equity_map.get(nominal_date_key)
@@ -242,8 +242,13 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
             bond_level *= (_ONE + bond_monthly_forward_after)
 
         running_ath = max(running_ath, eq_level)
-        is_ath = eq_level >= running_ath
-        is_underwater = eq_level < running_ath
+
+        # Forward projection: use real eq_level as proxy for nominal level
+        # (no separate nominal data available for forward months)
+        nominal_eq_level = eq_level
+        nominal_running_ath = max(nominal_running_ath, nominal_eq_level)
+        is_ath = nominal_eq_level >= nominal_running_ath
+        is_underwater = nominal_eq_level < nominal_running_ath
 
         _append(
             current_date.strftime("%Y-%m-%d"),
