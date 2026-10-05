@@ -60,7 +60,9 @@ _EQUITY_FORWARD_ANNUAL = Decimal("0.066")  # 6.6% real p.a.
 _BOND_FORWARD_ANNUAL = Decimal("0")  # 0% real p.a. for first 120 months
 _BOND_FORWARD_ANNUAL_AFTER = Decimal("0.026")  # 2.6% real p.a. after month 120
 _BOND_FORWARD_DELAY_MONTHS = 120  # 10 years = 120 months
-_HISTORICAL_END = datetime(2016, 10, 1)  # first forward month
+# Historical data boundary: actual observations through 2026-06 (per SWR Toolbox v2.0 workbook).
+# Projection begins at 2026-07.
+_HISTORICAL_END = datetime(2026, 7, 1)  # first forward month
 _PROJECTION_END = datetime(2075, 11, 1)
 
 # ---------------------------------------------------------------------------
@@ -187,7 +189,7 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     # Initialize nominal ATH tracking (once, before the monthly loop)
     nominal_running_ath = Decimal("0")
 
-    # Historical period (1871-03 through 2016-09)
+    # Historical period (1871-03 through 2026-06)
     current_date = datetime(1871, 3, 1)
     while current_date < _HISTORICAL_END:
         ret_month = current_date.month - 1 if current_date.month > 1 else 12
@@ -227,7 +229,7 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
         else:
             current_date = current_date.replace(month=current_date.month + 1)
 
-    # Forward projection (2016-10 through 2075-11)
+    # Forward projection (2026-07 through 2075-11)
     eq_monthly_forward = (_ONE + _EQUITY_FORWARD_ANNUAL) ** (Decimal("1") / Decimal("12")) - _ONE
     bond_monthly_forward = Decimal("0")
     _bd_fwd_exp = (_ONE + _BOND_FORWARD_ANNUAL_AFTER) ** (Decimal("1") / Decimal("12"))

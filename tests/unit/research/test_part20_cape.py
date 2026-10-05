@@ -115,15 +115,34 @@ class TestCapeBinaryFromManifest:
         # Must have both populations
         assert low_count > 0, "No LOW-CAPE cohorts found"
         assert high_count > 0, "No HIGH-CAPE cohorts found"
+        # Updated counts: ~416 HIGH (was 330), ~1323 LOW (was 1155)
+        assert high_count >= 400, f"Expected ~416 HIGH, got {high_count}"
+        assert low_count >= 1300, f"Expected ~1323 LOW, got {low_count}"
 
     def test_missing_cape_not_in_manifest(self) -> None:
-        """Cohorts without CAPE in manifest have cape_available=false."""
+        """Cohorts without CAPE in manifest have cape_available=false.
+        
+        With workbook Shiller CAPE, all 1739 cohorts now have CAPE available.
+        This test verifies the new state.
+        """
         manifest = self._load_manifest()
         no_cape = [c for c in manifest["cohorts"] if not c["cape_available"]]
-        assert len(no_cape) > 0, "Expected some cohorts without CAPE"
-        for entry in no_cape:
-            assert entry["cape_value"] is None
-            assert entry["cape_regime"] is None
+        # All cohorts now have CAPE from cape_shiller.csv
+        assert len(no_cape) == 0, f"Expected 0 cohorts without CAPE, got {len(no_cape)}"
+
+    def test_1997_2001_cohorts_are_high(self) -> None:
+        """1997-2001 cohorts should be HIGH under workbook Shiller CAPE.
+        
+        Previously these were LOW/MODERATE under FBF's Shiller CAPE.
+        Workbook Shiller CAPE for 1997-2001 ranges from ~27 to ~44.
+        """
+        manifest = self._load_manifest()
+        for entry in manifest["cohorts"]:
+            if "1997" <= entry["cohort_date"] <= "2001-12-01" and entry["cape_available"]:
+                cape = Decimal(str(entry["cape_value"]))
+                regime = classify_cape_binary(cape)
+                assert regime == CapeBinary.HIGH, \
+                    f"Cohort {entry['cohort_date']} CAPE={cape} should be HIGH"
 
 
 class TestCapeBinaryMissingCAPE:
@@ -155,12 +174,12 @@ class TestCapeBinaryCohortStart:
         with open(Path("data/ern/cohort_manifest_part3.json")) as f:
             manifest = json.load(f)
 
-        # First cohort with CAPE: 1881-01-01, start_month_index=119
+        # First cohort with CAPE: 1871-02-01 (now all cohorts have CAPE)
         cape_cohorts = [c for c in manifest["cohorts"] if c["cape_available"]]
         assert len(cape_cohorts) > 0
         first = cape_cohorts[0]
-        assert first["cohort_date"] == "1881-01-01"
-        assert first["start_month_index"] == 119
+        assert first["cohort_date"] == "1871-02-01"
+        assert first["start_month_index"] == 0
 
     def test_cape_at_start_is_correct(self) -> None:
         """The CAPE value at cohort start matches the canonical runtime CSV."""
@@ -176,10 +195,15 @@ class TestCapeBinaryCohortStart:
         with open(Path("data/ern/cohort_manifest_part3.json")) as f:
             manifest = json.load(f)
 
-        # 1881-01-01 cohort: CAPE should be 18.47
+        # 1871-02-01 cohort: CAPE should be 10.9193
         cape_cohorts = [c for c in manifest["cohorts"] if c["cape_available"]]
         first = cape_cohorts[0]
-        assert first["cape_value"] == 18.47
+        assert first["cape_value"] == 10.9193
 
         # Verify against canonical runtime CAPE CSV
-        assert cape_map["1881-01-01"] == 18.47
+        assert cape_map["1871-02-01"] == 10.9193
+
+        # Also verify workbook Shiller CAPE for 1998-07-01 (key cohort)
+        key_entry = next(c for c in manifest["cohorts"] if c["cohort_date"] == "1998-07-01")
+        assert key_entry["cape_value"] == 38.26
+        assert cape_map["1998-07-01"] == 38.26

@@ -1,12 +1,14 @@
 """ERN forward-projection constants and boundary behaviour.
 
 Source: ERN Part 1 §4 (Dec 7 2016) — first-party ERN evidence.
+Updated: SWR Toolbox v2.0 workbook contains actual historical data through 2026-06.
+Forward projection begins at 2026-07 per the authoritative workbook.
 
 Verifies:
 - Canonical constants (6.6% equity, 0% bond for 120 months, 2.6% bond after)
-- October 2016 uses forward projection (NOT September 2016's historical return)
-- Bond zero-rate period: Oct 2016 – Sep 2026 (months 1–120)
-- Bond long-term rate: Oct 2026 onward (month 121+)
+- June 2026 uses historical data; July 2026 uses forward projection
+- Bond zero-rate period: Jul 2026 – Jun 2036 (months 1–120)
+- Bond long-term rate: Jul 2036 onward (month 121+)
 - Equity forward rate applied consistently across the full projection
 """
 
@@ -59,10 +61,15 @@ class TestForwardConstants:
         """Bond zero-rate period = 120 months (10 years)."""
         assert _BOND_FORWARD_DELAY_MONTHS == 120
 
-    def test_historical_end_is_october_2016(self) -> None:
-        """Forward projection begins October 2016."""
-        assert _HISTORICAL_END.year == 2016
-        assert _HISTORICAL_END.month == 10
+    def test_historical_end_is_july_2026(self) -> None:
+        """Forward projection begins July 2026 (per SWR Toolbox v2.0 workbook).
+        
+        The workbook's Asset Returns sheet contains actual historical observations
+        through June 2026. Projection begins at the first month after historical
+        data ends. _HISTORICAL_END is the first forward month = July 2026.
+        """
+        assert _HISTORICAL_END.year == 2026
+        assert _HISTORICAL_END.month == 7
 
     def test_projection_end_is_november_2075(self) -> None:
         """Projection extends through November 2075."""
@@ -76,7 +83,7 @@ class TestForwardConstants:
 
 
 class TestFirstForwardMonth:
-    """October 2016 must use the forward projection, not Sep 2016's return."""
+    """July 2026 must use the forward projection, not June 2026's historical return."""
 
     @pytest.fixture(scope="class")
     def dataset(self) -> Dataset:
@@ -91,36 +98,32 @@ class TestFirstForwardMonth:
     def _eq_level(self, snapshot: MarketSnapshot) -> float:
         return float(snapshot.index_levels[list(snapshot.index_levels.keys())[0]])
 
-    def test_october_2016_uses_forward_rate(self, dataset: Dataset) -> None:
-        """Oct 2016 equity must differ from Sep 2016 equity × (1+sep_return).
-
-        The old bug reused September 2016's historical return for October.
-        The fix applies the forward rate (6.6% p.a.) to October directly.
-        """
-        sep = self._snapshot_by_date(dataset, 2016, 9)
-        oct_ = self._snapshot_by_date(dataset, 2016, 10)
-        sep_eq = self._eq_level(sep)
-        oct_eq = self._eq_level(oct_)
+    def test_july_2026_uses_forward_rate(self, dataset: Dataset) -> None:
+        """Jul 2026 equity must use forward rate, not Jun 2026's historical return."""
+        jun = self._snapshot_by_date(dataset, 2026, 6)
+        jul = self._snapshot_by_date(dataset, 2026, 7)
+        jun_eq = self._eq_level(jun)
+        jul_eq = self._eq_level(jul)
         # Forward rate monthly: (1.066)^(1/12) - 1
-        expected_oct_eq = sep_eq * (1 + (1.066) ** (1 / 12) - 1)
-        assert oct_eq == pytest.approx(expected_oct_eq, rel=1e-9), (
-            f"Oct 2016 equity {oct_eq} should be Sep equity "
-            f"{sep_eq} × forward monthly rate, not Sep historical return"
+        expected_jul_eq = jun_eq * (1 + (1.066) ** (1 / 12) - 1)
+        assert jul_eq == pytest.approx(expected_jul_eq, rel=1e-9), (
+            f"Jul 2026 equity {jul_eq} should be Jun equity "
+            f"{jun_eq} × forward monthly rate, not Jun historical return"
         )
 
-    def test_october_2016_equity_growth_is_forward_rate(self, dataset: Dataset) -> None:
-        """Oct 2016 / Sep 2016 equity ratio matches the forward monthly rate."""
-        sep = self._snapshot_by_date(dataset, 2016, 9)
-        oct_ = self._snapshot_by_date(dataset, 2016, 10)
-        ratio = self._eq_level(oct_) / self._eq_level(sep)
+    def test_july_2026_equity_growth_is_forward_rate(self, dataset: Dataset) -> None:
+        """Jul 2026 / Jun 2026 equity ratio matches the forward monthly rate."""
+        jun = self._snapshot_by_date(dataset, 2026, 6)
+        jul = self._snapshot_by_date(dataset, 2026, 7)
+        ratio = self._eq_level(jul) / self._eq_level(jun)
         expected_ratio = (1.066) ** (1 / 12)
         assert ratio == pytest.approx(expected_ratio, rel=1e-9)
 
-    def test_november_2016_also_uses_forward_rate(self, dataset: Dataset) -> None:
-        """Nov 2016 equity = Oct 2016 equity × forward monthly rate."""
-        oct_ = self._snapshot_by_date(dataset, 2016, 10)
-        nov = self._snapshot_by_date(dataset, 2016, 11)
-        ratio = self._eq_level(nov) / self._eq_level(oct_)
+    def test_august_2026_also_uses_forward_rate(self, dataset: Dataset) -> None:
+        """Aug 2026 equity = Jul 2026 equity × forward monthly rate."""
+        jul = self._snapshot_by_date(dataset, 2026, 7)
+        aug = self._snapshot_by_date(dataset, 2026, 8)
+        ratio = self._eq_level(aug) / self._eq_level(jul)
         expected_ratio = (1.066) ** (1 / 12)
         assert ratio == pytest.approx(expected_ratio, rel=1e-9)
 
@@ -131,8 +134,8 @@ class TestFirstForwardMonth:
 
 
 class TestBondZeroRateBoundary:
-    """Bond must be at 0% for months 1–120 (Oct 2016 – Sep 2026)
-    and switch to 2.6% at month 121 (Oct 2026)."""
+    """Bond must be at 0% for months 1–120 (Jul 2026 – Jun 2036)
+    and switch to 2.6% at month 121 (Jul 2036)."""
 
     @pytest.fixture(scope="class")
     def dataset(self) -> Dataset:
@@ -148,51 +151,51 @@ class TestBondZeroRateBoundary:
         keys = list(snapshot.index_levels.keys())
         return float(snapshot.index_levels[keys[1]])
 
-    def test_bond_zero_rate_sep_2026(self, dataset: Dataset) -> None:
-        """Bond level at Sep 2026 must equal Aug 2026 (0% return, no fee drag)."""
-        aug = self._snapshot_by_date(dataset, 2026, 8)
-        sep = self._snapshot_by_date(dataset, 2026, 9)
-        aug_bond = self._bond_level(aug)
-        sep_bond = self._bond_level(sep)
+    def test_bond_zero_rate_jun_2036(self, dataset: Dataset) -> None:
+        """Bond level at Jun 2036 must equal May 2036 (0% return, no fee drag)."""
+        may = self._snapshot_by_date(dataset, 2036, 5)
+        jun = self._snapshot_by_date(dataset, 2036, 6)
+        may_bond = self._bond_level(may)
+        jun_bond = self._bond_level(jun)
         # 0% real return for months 1-120; dataset is raw (no fee embedding)
-        assert sep_bond == aug_bond
+        assert jun_bond == may_bond
 
-    def test_bond_switches_at_oct_2026(self, dataset: Dataset) -> None:
-        """Oct 2026 bond growth from Sep 2026 must be ≈ 2.6% p.a. monthly."""
-        sep = self._snapshot_by_date(dataset, 2026, 9)
-        oct_ = self._snapshot_by_date(dataset, 2026, 10)
-        sep_bond = self._bond_level(sep)
-        oct_bond = self._bond_level(oct_)
-        ratio = oct_bond / sep_bond
+    def test_bond_switches_at_jul_2036(self, dataset: Dataset) -> None:
+        """Jul 2036 bond growth from Jun 2036 must be ≈ 2.6% p.a. monthly."""
+        jun = self._snapshot_by_date(dataset, 2036, 6)
+        jul = self._snapshot_by_date(dataset, 2036, 7)
+        jun_bond = self._bond_level(jun)
+        jul_bond = self._bond_level(jul)
+        ratio = jul_bond / jun_bond
         expected_ratio = (1.026) ** (1 / 12)
         assert ratio == pytest.approx(expected_ratio, rel=1e-9), (
-            f"Oct 2026 bond ratio {ratio} should match "
+            f"Jul 2036 bond ratio {ratio} should match "
             f"(1.026)^(1/12) = {expected_ratio}"
         )
 
-    def test_bond_stays_at_2_6_after_oct_2026(self, dataset: Dataset) -> None:
-        """Nov 2026 bond growth continues at 2.6% p.a. monthly."""
-        oct_ = self._snapshot_by_date(dataset, 2026, 10)
-        nov = self._snapshot_by_date(dataset, 2026, 11)
-        ratio = self._bond_level(nov) / self._bond_level(oct_)
+    def test_bond_stays_at_2_6_after_jul_2036(self, dataset: Dataset) -> None:
+        """Aug 2036 bond growth continues at 2.6% p.a. monthly."""
+        jul = self._snapshot_by_date(dataset, 2036, 7)
+        aug = self._snapshot_by_date(dataset, 2036, 8)
+        ratio = self._bond_level(aug) / self._bond_level(jul)
         expected_ratio = (1.026) ** (1 / 12)
         assert ratio == pytest.approx(expected_ratio, rel=1e-9)
 
     def test_bond_zero_rate_applies_for_120_months(self, dataset: Dataset) -> None:
-        """Bond at zero rate for exactly 120 months (Oct 2016 – Sep 2026).
+        """Bond at zero rate for exactly 120 months (Jul 2026 – Jun 2036).
 
-        Month 1 = Oct 2016, Month 120 = Sep 2026.
-        Month 121 = Oct 2026 switches to 2.6%.
+        Month 1 = Jul 2026, Month 120 = Jun 2036.
+        Month 121 = Jul 2036 switches to 2.6%.
         """
-        oct_2016 = self._snapshot_by_date(dataset, 2016, 10)
-        sep_2026 = self._snapshot_by_date(dataset, 2026, 9)
-        oct_2026 = self._snapshot_by_date(dataset, 2026, 10)
+        jul_2026 = self._snapshot_by_date(dataset, 2026, 7)
+        jun_2036 = self._snapshot_by_date(dataset, 2036, 6)
+        jul_2036 = self._snapshot_by_date(dataset, 2036, 7)
 
-        # Bond level is constant during zero-rate period (raw dataset, no fee drag)
-        assert self._bond_level(sep_2026) == self._bond_level(oct_2016)
+        # Bond level is constant during zero-rate period (raw dataset, no fee embedding)
+        assert self._bond_level(jun_2036) == self._bond_level(jul_2026)
 
-        # Bond at Oct 2026 should be GREATER than at Sep 2026 (2.6% kicks in)
-        assert self._bond_level(oct_2026) > self._bond_level(sep_2026)
+        # Bond at Jul 2036 should be GREATER than at Jun 2036 (2.6% kicks in)
+        assert self._bond_level(jul_2036) > self._bond_level(jun_2036)
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +221,9 @@ class TestEquityForwardConsistency:
 
     def test_equity_rate_at_start_of_projection(self, dataset: Dataset) -> None:
         """First two forward months: equity ratio matches (1.066)^(1/12)."""
-        oct_ = self._snapshot_by_date(dataset, 2016, 10)
-        nov = self._snapshot_by_date(dataset, 2016, 11)
-        ratio = self._eq_level(nov) / self._eq_level(oct_)
+        jul = self._snapshot_by_date(dataset, 2026, 7)
+        aug = self._snapshot_by_date(dataset, 2026, 8)
+        ratio = self._eq_level(aug) / self._eq_level(jul)
         assert ratio == pytest.approx((1.066) ** (1 / 12), rel=1e-9)
 
     def test_equity_rate_mid_projection(self, dataset: Dataset) -> None:
@@ -354,6 +357,14 @@ class TestNominalAthRegression:
                 f"Running ATH decreased at {snap.date}: {prev_ath} -> {snap.running_ath}"
             )
             prev_ath = snap.running_ath
+
+
+# ---------------------------------------------------------------------------
+# CSV loading utilities
+# ---------------------------------------------------------------------------
+
+
+class TestCSVLoading:
     """Verify _load_csv accepts both YYYY-MM-DD and DD-MM-YYYY."""
 
     def test_load_csv_yyyy_mm_dd(self, tmp_path: Path) -> None:

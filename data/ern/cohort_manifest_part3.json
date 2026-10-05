@@ -1,13 +1,13 @@
 {
   "version": "1.0",
-  "description": "Part 3 cohort manifest: deterministic join of market availability, CAPE availability, and horizon constraints",
+  "description": "Part 3 cohort manifest - Workbook Shiller CAPE semantics",
   "cohort_range": {
     "first": "1871-02-01",
     "last": "2015-12-01",
     "total": 1739
   },
   "market_source": "ern_swr_h720.json",
-  "cape_source": "cape_shiller.csv",
+  "cape_source": "cape_shiller.csv (workbook-aligned)",
   "horizon_note": "h720 dataset provides 2459 snapshots (1871-01-31 to 2075-11-01). All 1739 cohorts can reach 720 months. Horizon is an execution parameter.",
   "fee": 0.0005,
   "forward_projection": {
@@ -18,12 +18,13 @@
   "statistics": {
     "total_cohorts": 1739,
     "market_available": 1739,
-    "cape_available": 1485,
+    "cape_available": 1739,
     "cape_regimes": {
-      "MODERATE": 470,
-      "BELOW_15": 632,
-      "HIGH": 330,
-      "EXTREME": 53
+      "HIGH": 359,
+      "MODERATE": 524,
+      "LOW": 0,
+      "BELOW_15": 799,
+      "EXTREME": 57
     },
     "horizon_eligibility": {
       "h12": 1739,
@@ -34,1077 +35,1081 @@
       "h480": 1739,
       "h600": 1739,
       "h720": 1739
+    },
+    "binary_cape_regimes": {
+      "HIGH": 416,
+      "LOW": 1323
     }
   },
   "cohorts": [
     {
       "cohort_date": "1871-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.9193,
+      "cape_regime": "BELOW_15",
       "start_month_index": 0,
       "max_horizon_months": 2458
     },
     {
       "cohort_date": "1871-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.1932,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1,
       "max_horizon_months": 2457
     },
     {
       "cohort_date": "1871-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.0802,
+      "cape_regime": "BELOW_15",
       "start_month_index": 2,
       "max_horizon_months": 2456
     },
     {
       "cohort_date": "1871-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.5978,
+      "cape_regime": "BELOW_15",
       "start_month_index": 3,
       "max_horizon_months": 2455
     },
     {
       "cohort_date": "1871-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.606,
+      "cape_regime": "BELOW_15",
       "start_month_index": 4,
       "max_horizon_months": 2454
     },
     {
       "cohort_date": "1871-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2862,
+      "cape_regime": "BELOW_15",
       "start_month_index": 5,
       "max_horizon_months": 2453
     },
     {
       "cohort_date": "1871-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.5467,
+      "cape_regime": "BELOW_15",
       "start_month_index": 6,
       "max_horizon_months": 2452
     },
     {
       "cohort_date": "1871-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.3054,
+      "cape_regime": "BELOW_15",
       "start_month_index": 7,
       "max_horizon_months": 2451
     },
     {
       "cohort_date": "1871-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4707,
+      "cape_regime": "BELOW_15",
       "start_month_index": 8,
       "max_horizon_months": 2450
     },
     {
       "cohort_date": "1871-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.5951,
+      "cape_regime": "BELOW_15",
       "start_month_index": 9,
       "max_horizon_months": 2449
     },
     {
       "cohort_date": "1871-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.6069,
+      "cape_regime": "BELOW_15",
       "start_month_index": 10,
       "max_horizon_months": 2448
     },
     {
       "cohort_date": "1872-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.9027,
+      "cape_regime": "BELOW_15",
       "start_month_index": 11,
       "max_horizon_months": 2447
     },
     {
       "cohort_date": "1872-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.9771,
+      "cape_regime": "BELOW_15",
       "start_month_index": 12,
       "max_horizon_months": 2446
     },
     {
       "cohort_date": "1872-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.1664,
+      "cape_regime": "BELOW_15",
       "start_month_index": 13,
       "max_horizon_months": 2445
     },
     {
       "cohort_date": "1872-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2671,
+      "cape_regime": "BELOW_15",
       "start_month_index": 14,
       "max_horizon_months": 2444
     },
     {
       "cohort_date": "1872-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2902,
+      "cape_regime": "BELOW_15",
       "start_month_index": 15,
       "max_horizon_months": 2443
     },
     {
       "cohort_date": "1872-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.277,
+      "cape_regime": "BELOW_15",
       "start_month_index": 16,
       "max_horizon_months": 2442
     },
     {
       "cohort_date": "1872-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.3739,
+      "cape_regime": "BELOW_15",
       "start_month_index": 17,
       "max_horizon_months": 2441
     },
     {
       "cohort_date": "1872-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.1247,
+      "cape_regime": "BELOW_15",
       "start_month_index": 18,
       "max_horizon_months": 2440
     },
     {
       "cohort_date": "1872-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.8512,
+      "cape_regime": "BELOW_15",
       "start_month_index": 19,
       "max_horizon_months": 2439
     },
     {
       "cohort_date": "1872-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.1415,
+      "cape_regime": "BELOW_15",
       "start_month_index": 20,
       "max_horizon_months": 2438
     },
     {
       "cohort_date": "1872-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.7401,
+      "cape_regime": "BELOW_15",
       "start_month_index": 21,
       "max_horizon_months": 2437
     },
     {
       "cohort_date": "1872-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.1753,
+      "cape_regime": "BELOW_15",
       "start_month_index": 22,
       "max_horizon_months": 2436
     },
     {
       "cohort_date": "1873-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2485,
+      "cape_regime": "BELOW_15",
       "start_month_index": 23,
       "max_horizon_months": 2435
     },
     {
       "cohort_date": "1873-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.083,
+      "cape_regime": "BELOW_15",
       "start_month_index": 24,
       "max_horizon_months": 2434
     },
     {
       "cohort_date": "1873-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.9581,
+      "cape_regime": "BELOW_15",
       "start_month_index": 25,
       "max_horizon_months": 2433
     },
     {
       "cohort_date": "1873-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.7732,
+      "cape_regime": "BELOW_15",
       "start_month_index": 26,
       "max_horizon_months": 2432
     },
     {
       "cohort_date": "1873-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.0502,
+      "cape_regime": "BELOW_15",
       "start_month_index": 27,
       "max_horizon_months": 2431
     },
     {
       "cohort_date": "1873-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2386,
+      "cape_regime": "BELOW_15",
       "start_month_index": 28,
       "max_horizon_months": 2430
     },
     {
       "cohort_date": "1873-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.1707,
+      "cape_regime": "BELOW_15",
       "start_month_index": 29,
       "max_horizon_months": 2429
     },
     {
       "cohort_date": "1873-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.1335,
+      "cape_regime": "BELOW_15",
       "start_month_index": 30,
       "max_horizon_months": 2428
     },
     {
       "cohort_date": "1873-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.159,
+      "cape_regime": "BELOW_15",
       "start_month_index": 31,
       "max_horizon_months": 2427
     },
     {
       "cohort_date": "1873-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.3968,
+      "cape_regime": "BELOW_15",
       "start_month_index": 32,
       "max_horizon_months": 2426
     },
     {
       "cohort_date": "1873-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.3083,
+      "cape_regime": "BELOW_15",
       "start_month_index": 33,
       "max_horizon_months": 2425
     },
     {
       "cohort_date": "1873-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.9744,
+      "cape_regime": "BELOW_15",
       "start_month_index": 34,
       "max_horizon_months": 2424
     },
     {
       "cohort_date": "1874-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.338,
+      "cape_regime": "BELOW_15",
       "start_month_index": 35,
       "max_horizon_months": 2423
     },
     {
       "cohort_date": "1874-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.6334,
+      "cape_regime": "BELOW_15",
       "start_month_index": 36,
       "max_horizon_months": 2422
     },
     {
       "cohort_date": "1874-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4482,
+      "cape_regime": "BELOW_15",
       "start_month_index": 37,
       "max_horizon_months": 2421
     },
     {
       "cohort_date": "1874-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.2591,
+      "cape_regime": "BELOW_15",
       "start_month_index": 38,
       "max_horizon_months": 2420
     },
     {
       "cohort_date": "1874-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.037,
+      "cape_regime": "BELOW_15",
       "start_month_index": 39,
       "max_horizon_months": 2419
     },
     {
       "cohort_date": "1874-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.2055,
+      "cape_regime": "BELOW_15",
       "start_month_index": 40,
       "max_horizon_months": 2418
     },
     {
       "cohort_date": "1874-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.075,
+      "cape_regime": "BELOW_15",
       "start_month_index": 41,
       "max_horizon_months": 2417
     },
     {
       "cohort_date": "1874-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.1587,
+      "cape_regime": "BELOW_15",
       "start_month_index": 42,
       "max_horizon_months": 2416
     },
     {
       "cohort_date": "1874-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.307,
+      "cape_regime": "BELOW_15",
       "start_month_index": 43,
       "max_horizon_months": 2415
     },
     {
       "cohort_date": "1874-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4248,
+      "cape_regime": "BELOW_15",
       "start_month_index": 44,
       "max_horizon_months": 2414
     },
     {
       "cohort_date": "1874-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.5427,
+      "cape_regime": "BELOW_15",
       "start_month_index": 45,
       "max_horizon_months": 2413
     },
     {
       "cohort_date": "1874-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4712,
+      "cape_regime": "BELOW_15",
       "start_month_index": 46,
       "max_horizon_months": 2412
     },
     {
       "cohort_date": "1875-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4332,
+      "cape_regime": "BELOW_15",
       "start_month_index": 47,
       "max_horizon_months": 2411
     },
     {
       "cohort_date": "1875-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.3707,
+      "cape_regime": "BELOW_15",
       "start_month_index": 48,
       "max_horizon_months": 2410
     },
     {
       "cohort_date": "1875-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4699,
+      "cape_regime": "BELOW_15",
       "start_month_index": 49,
       "max_horizon_months": 2409
     },
     {
       "cohort_date": "1875-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.5104,
+      "cape_regime": "BELOW_15",
       "start_month_index": 50,
       "max_horizon_months": 2408
     },
     {
       "cohort_date": "1875-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.3465,
+      "cape_regime": "BELOW_15",
       "start_month_index": 51,
       "max_horizon_months": 2407
     },
     {
       "cohort_date": "1875-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.2713,
+      "cape_regime": "BELOW_15",
       "start_month_index": 52,
       "max_horizon_months": 2406
     },
     {
       "cohort_date": "1875-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.2916,
+      "cape_regime": "BELOW_15",
       "start_month_index": 53,
       "max_horizon_months": 2405
     },
     {
       "cohort_date": "1875-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.2526,
+      "cape_regime": "BELOW_15",
       "start_month_index": 54,
       "max_horizon_months": 2404
     },
     {
       "cohort_date": "1875-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.2202,
+      "cape_regime": "BELOW_15",
       "start_month_index": 55,
       "max_horizon_months": 2403
     },
     {
       "cohort_date": "1875-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.0625,
+      "cape_regime": "BELOW_15",
       "start_month_index": 56,
       "max_horizon_months": 2402
     },
     {
       "cohort_date": "1875-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.3251,
+      "cape_regime": "BELOW_15",
       "start_month_index": 57,
       "max_horizon_months": 2401
     },
     {
       "cohort_date": "1875-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4321,
+      "cape_regime": "BELOW_15",
       "start_month_index": 58,
       "max_horizon_months": 2400
     },
     {
       "cohort_date": "1876-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.8066,
+      "cape_regime": "BELOW_15",
       "start_month_index": 59,
       "max_horizon_months": 2399
     },
     {
       "cohort_date": "1876-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.984,
+      "cape_regime": "BELOW_15",
       "start_month_index": 60,
       "max_horizon_months": 2398
     },
     {
       "cohort_date": "1876-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.9667,
+      "cape_regime": "BELOW_15",
       "start_month_index": 61,
       "max_horizon_months": 2397
     },
     {
       "cohort_date": "1876-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.6253,
+      "cape_regime": "BELOW_15",
       "start_month_index": 62,
       "max_horizon_months": 2396
     },
     {
       "cohort_date": "1876-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.6223,
+      "cape_regime": "BELOW_15",
       "start_month_index": 63,
       "max_horizon_months": 2395
     },
     {
       "cohort_date": "1876-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.897,
+      "cape_regime": "BELOW_15",
       "start_month_index": 64,
       "max_horizon_months": 2394
     },
     {
       "cohort_date": "1876-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.7692,
+      "cape_regime": "BELOW_15",
       "start_month_index": 65,
       "max_horizon_months": 2393
     },
     {
       "cohort_date": "1876-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.1814,
+      "cape_regime": "BELOW_15",
       "start_month_index": 66,
       "max_horizon_months": 2392
     },
     {
       "cohort_date": "1876-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.4314,
+      "cape_regime": "BELOW_15",
       "start_month_index": 67,
       "max_horizon_months": 2391
     },
     {
       "cohort_date": "1876-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.1953,
+      "cape_regime": "BELOW_15",
       "start_month_index": 68,
       "max_horizon_months": 2390
     },
     {
       "cohort_date": "1876-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.9587,
+      "cape_regime": "BELOW_15",
       "start_month_index": 69,
       "max_horizon_months": 2389
     },
     {
       "cohort_date": "1876-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.7434,
+      "cape_regime": "BELOW_15",
       "start_month_index": 70,
       "max_horizon_months": 2388
     },
     {
       "cohort_date": "1877-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.539,
+      "cape_regime": "BELOW_15",
       "start_month_index": 71,
       "max_horizon_months": 2387
     },
     {
       "cohort_date": "1877-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.2434,
+      "cape_regime": "BELOW_15",
       "start_month_index": 72,
       "max_horizon_months": 2386
     },
     {
       "cohort_date": "1877-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.1987,
+      "cape_regime": "BELOW_15",
       "start_month_index": 73,
       "max_horizon_months": 2385
     },
     {
       "cohort_date": "1877-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.3356,
+      "cape_regime": "BELOW_15",
       "start_month_index": 74,
       "max_horizon_months": 2384
     },
     {
       "cohort_date": "1877-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.2071,
+      "cape_regime": "BELOW_15",
       "start_month_index": 75,
       "max_horizon_months": 2383
     },
     {
       "cohort_date": "1877-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.0703,
+      "cape_regime": "BELOW_15",
       "start_month_index": 76,
       "max_horizon_months": 2382
     },
     {
       "cohort_date": "1877-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.3373,
+      "cape_regime": "BELOW_15",
       "start_month_index": 77,
       "max_horizon_months": 2381
     },
     {
       "cohort_date": "1877-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.2832,
+      "cape_regime": "BELOW_15",
       "start_month_index": 78,
       "max_horizon_months": 2380
     },
     {
       "cohort_date": "1877-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.9614,
+      "cape_regime": "BELOW_15",
       "start_month_index": 79,
       "max_horizon_months": 2379
     },
     {
       "cohort_date": "1877-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.2027,
+      "cape_regime": "BELOW_15",
       "start_month_index": 80,
       "max_horizon_months": 2378
     },
     {
       "cohort_date": "1877-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.2609,
+      "cape_regime": "BELOW_15",
       "start_month_index": 81,
       "max_horizon_months": 2377
     },
     {
       "cohort_date": "1877-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.2293,
+      "cape_regime": "BELOW_15",
       "start_month_index": 82,
       "max_horizon_months": 2376
     },
     {
       "cohort_date": "1878-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.5526,
+      "cape_regime": "BELOW_15",
       "start_month_index": 83,
       "max_horizon_months": 2375
     },
     {
       "cohort_date": "1878-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.4608,
+      "cape_regime": "BELOW_15",
       "start_month_index": 84,
       "max_horizon_months": 2374
     },
     {
       "cohort_date": "1878-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.8513,
+      "cape_regime": "BELOW_15",
       "start_month_index": 85,
       "max_horizon_months": 2373
     },
     {
       "cohort_date": "1878-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.3036,
+      "cape_regime": "BELOW_15",
       "start_month_index": 86,
       "max_horizon_months": 2372
     },
     {
       "cohort_date": "1878-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.7203,
+      "cape_regime": "BELOW_15",
       "start_month_index": 87,
       "max_horizon_months": 2371
     },
     {
       "cohort_date": "1878-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2449,
+      "cape_regime": "BELOW_15",
       "start_month_index": 88,
       "max_horizon_months": 2370
     },
     {
       "cohort_date": "1878-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.3147,
+      "cape_regime": "BELOW_15",
       "start_month_index": 89,
       "max_horizon_months": 2369
     },
     {
       "cohort_date": "1878-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.0365,
+      "cape_regime": "BELOW_15",
       "start_month_index": 90,
       "max_horizon_months": 2368
     },
     {
       "cohort_date": "1878-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2876,
+      "cape_regime": "BELOW_15",
       "start_month_index": 91,
       "max_horizon_months": 2367
     },
     {
       "cohort_date": "1878-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2843,
+      "cape_regime": "BELOW_15",
       "start_month_index": 92,
       "max_horizon_months": 2366
     },
     {
       "cohort_date": "1878-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.368,
+      "cape_regime": "BELOW_15",
       "start_month_index": 93,
       "max_horizon_months": 2365
     },
     {
       "cohort_date": "1878-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.5513,
+      "cape_regime": "BELOW_15",
       "start_month_index": 94,
       "max_horizon_months": 2364
     },
     {
       "cohort_date": "1879-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.8824,
+      "cape_regime": "BELOW_15",
       "start_month_index": 95,
       "max_horizon_months": 2363
     },
     {
       "cohort_date": "1879-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.1596,
+      "cape_regime": "BELOW_15",
       "start_month_index": 96,
       "max_horizon_months": 2362
     },
     {
       "cohort_date": "1879-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.1133,
+      "cape_regime": "BELOW_15",
       "start_month_index": 97,
       "max_horizon_months": 2361
     },
     {
       "cohort_date": "1879-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.6478,
+      "cape_regime": "BELOW_15",
       "start_month_index": 98,
       "max_horizon_months": 2360
     },
     {
       "cohort_date": "1879-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.2489,
+      "cape_regime": "BELOW_15",
       "start_month_index": 99,
       "max_horizon_months": 2359
     },
     {
       "cohort_date": "1879-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.5204,
+      "cape_regime": "BELOW_15",
       "start_month_index": 100,
       "max_horizon_months": 2358
     },
     {
       "cohort_date": "1879-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.539,
+      "cape_regime": "BELOW_15",
       "start_month_index": 101,
       "max_horizon_months": 2357
     },
     {
       "cohort_date": "1879-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.636,
+      "cape_regime": "BELOW_15",
       "start_month_index": 102,
       "max_horizon_months": 2356
     },
     {
       "cohort_date": "1879-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.6207,
+      "cape_regime": "BELOW_15",
       "start_month_index": 103,
       "max_horizon_months": 2355
     },
     {
       "cohort_date": "1879-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.3122,
+      "cape_regime": "MODERATE",
       "start_month_index": 104,
       "max_horizon_months": 2354
     },
     {
       "cohort_date": "1879-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.2809,
+      "cape_regime": "MODERATE",
       "start_month_index": 105,
       "max_horizon_months": 2353
     },
     {
       "cohort_date": "1879-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.7724,
+      "cape_regime": "BELOW_15",
       "start_month_index": 106,
       "max_horizon_months": 2352
     },
     {
       "cohort_date": "1880-01-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.8744,
+      "cape_regime": "BELOW_15",
       "start_month_index": 107,
       "max_horizon_months": 2351
     },
     {
       "cohort_date": "1880-02-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.1456,
+      "cape_regime": "MODERATE",
       "start_month_index": 108,
       "max_horizon_months": 2350
     },
     {
       "cohort_date": "1880-03-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.2315,
+      "cape_regime": "MODERATE",
       "start_month_index": 109,
       "max_horizon_months": 2349
     },
     {
       "cohort_date": "1880-04-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.4705,
+      "cape_regime": "MODERATE",
       "start_month_index": 110,
       "max_horizon_months": 2348
     },
     {
       "cohort_date": "1880-05-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.6461,
+      "cape_regime": "BELOW_15",
       "start_month_index": 111,
       "max_horizon_months": 2347
     },
     {
       "cohort_date": "1880-06-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.9465,
+      "cape_regime": "BELOW_15",
       "start_month_index": 112,
       "max_horizon_months": 2346
     },
     {
       "cohort_date": "1880-07-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.5962,
+      "cape_regime": "MODERATE",
       "start_month_index": 113,
       "max_horizon_months": 2345
     },
     {
       "cohort_date": "1880-08-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.1231,
+      "cape_regime": "MODERATE",
       "start_month_index": 114,
       "max_horizon_months": 2344
     },
     {
       "cohort_date": "1880-09-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.8649,
+      "cape_regime": "MODERATE",
       "start_month_index": 115,
       "max_horizon_months": 2343
     },
     {
       "cohort_date": "1880-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.2637,
+      "cape_regime": "MODERATE",
       "start_month_index": 116,
       "max_horizon_months": 2342
     },
     {
       "cohort_date": "1880-11-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.8998,
+      "cape_regime": "MODERATE",
       "start_month_index": 117,
       "max_horizon_months": 2341
     },
     {
       "cohort_date": "1880-12-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.3321,
+      "cape_regime": "MODERATE",
       "start_month_index": 118,
       "max_horizon_months": 2340
     },
@@ -1192,9 +1197,9 @@
     {
       "cohort_date": "1881-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.2747,
+      "cape_regime": "MODERATE",
       "start_month_index": 128,
       "max_horizon_months": 2330
     },
@@ -1300,9 +1305,9 @@
     {
       "cohort_date": "1882-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.7821,
+      "cape_regime": "MODERATE",
       "start_month_index": 140,
       "max_horizon_months": 2318
     },
@@ -1408,9 +1413,9 @@
     {
       "cohort_date": "1883-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.059,
+      "cape_regime": "MODERATE",
       "start_month_index": 152,
       "max_horizon_months": 2306
     },
@@ -1516,9 +1521,9 @@
     {
       "cohort_date": "1884-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.27,
+      "cape_regime": "BELOW_15",
       "start_month_index": 164,
       "max_horizon_months": 2294
     },
@@ -1624,9 +1629,9 @@
     {
       "cohort_date": "1885-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.991,
+      "cape_regime": "MODERATE",
       "start_month_index": 176,
       "max_horizon_months": 2282
     },
@@ -1732,9 +1737,9 @@
     {
       "cohort_date": "1886-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 18.5624,
+      "cape_regime": "MODERATE",
       "start_month_index": 188,
       "max_horizon_months": 2270
     },
@@ -1840,9 +1845,9 @@
     {
       "cohort_date": "1887-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.8807,
+      "cape_regime": "MODERATE",
       "start_month_index": 200,
       "max_horizon_months": 2258
     },
@@ -1948,9 +1953,9 @@
     {
       "cohort_date": "1888-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.7159,
+      "cape_regime": "MODERATE",
       "start_month_index": 212,
       "max_horizon_months": 2246
     },
@@ -2056,9 +2061,9 @@
     {
       "cohort_date": "1889-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.0532,
+      "cape_regime": "MODERATE",
       "start_month_index": 224,
       "max_horizon_months": 2234
     },
@@ -2164,9 +2169,9 @@
     {
       "cohort_date": "1890-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.4828,
+      "cape_regime": "MODERATE",
       "start_month_index": 236,
       "max_horizon_months": 2222
     },
@@ -2272,9 +2277,9 @@
     {
       "cohort_date": "1891-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.7166,
+      "cape_regime": "MODERATE",
       "start_month_index": 248,
       "max_horizon_months": 2210
     },
@@ -2380,9 +2385,9 @@
     {
       "cohort_date": "1892-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 19.0402,
+      "cape_regime": "MODERATE",
       "start_month_index": 260,
       "max_horizon_months": 2198
     },
@@ -2488,9 +2493,9 @@
     {
       "cohort_date": "1893-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.2718,
+      "cape_regime": "MODERATE",
       "start_month_index": 272,
       "max_horizon_months": 2186
     },
@@ -2596,9 +2601,9 @@
     {
       "cohort_date": "1894-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.5029,
+      "cape_regime": "MODERATE",
       "start_month_index": 284,
       "max_horizon_months": 2174
     },
@@ -2704,9 +2709,9 @@
     {
       "cohort_date": "1895-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.9447,
+      "cape_regime": "MODERATE",
       "start_month_index": 296,
       "max_horizon_months": 2162
     },
@@ -2812,9 +2817,9 @@
     {
       "cohort_date": "1896-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.4389,
+      "cape_regime": "MODERATE",
       "start_month_index": 308,
       "max_horizon_months": 2150
     },
@@ -2920,9 +2925,9 @@
     {
       "cohort_date": "1897-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 19.028,
+      "cape_regime": "MODERATE",
       "start_month_index": 320,
       "max_horizon_months": 2138
     },
@@ -3028,9 +3033,9 @@
     {
       "cohort_date": "1898-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 19.9472,
+      "cape_regime": "MODERATE",
       "start_month_index": 332,
       "max_horizon_months": 2126
     },
@@ -3136,9 +3141,9 @@
     {
       "cohort_date": "1899-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 20.1537,
+      "cape_regime": "HIGH",
       "start_month_index": 344,
       "max_horizon_months": 2114
     },
@@ -3244,9 +3249,9 @@
     {
       "cohort_date": "1900-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.4699,
+      "cape_regime": "MODERATE",
       "start_month_index": 356,
       "max_horizon_months": 2102
     },
@@ -3352,9 +3357,9 @@
     {
       "cohort_date": "1901-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 22.2529,
+      "cape_regime": "HIGH",
       "start_month_index": 368,
       "max_horizon_months": 2090
     },
@@ -3460,9 +3465,9 @@
     {
       "cohort_date": "1902-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 20.6044,
+      "cape_regime": "HIGH",
       "start_month_index": 380,
       "max_horizon_months": 2078
     },
@@ -3568,9 +3573,9 @@
     {
       "cohort_date": "1903-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.2529,
+      "cape_regime": "MODERATE",
       "start_month_index": 392,
       "max_horizon_months": 2066
     },
@@ -3676,9 +3681,9 @@
     {
       "cohort_date": "1904-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.6332,
+      "cape_regime": "MODERATE",
       "start_month_index": 404,
       "max_horizon_months": 2054
     },
@@ -3784,9 +3789,9 @@
     {
       "cohort_date": "1905-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 19.8974,
+      "cape_regime": "MODERATE",
       "start_month_index": 416,
       "max_horizon_months": 2042
     },
@@ -3892,9 +3897,9 @@
     {
       "cohort_date": "1906-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 18.5417,
+      "cape_regime": "MODERATE",
       "start_month_index": 428,
       "max_horizon_months": 2030
     },
@@ -4000,9 +4005,9 @@
     {
       "cohort_date": "1907-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.8318,
+      "cape_regime": "BELOW_15",
       "start_month_index": 440,
       "max_horizon_months": 2018
     },
@@ -4108,9 +4113,9 @@
     {
       "cohort_date": "1908-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.6908,
+      "cape_regime": "BELOW_15",
       "start_month_index": 452,
       "max_horizon_months": 2006
     },
@@ -4216,9 +4221,9 @@
     {
       "cohort_date": "1909-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.9888,
+      "cape_regime": "BELOW_15",
       "start_month_index": 464,
       "max_horizon_months": 1994
     },
@@ -4324,9 +4329,9 @@
     {
       "cohort_date": "1910-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.9189,
+      "cape_regime": "BELOW_15",
       "start_month_index": 476,
       "max_horizon_months": 1982
     },
@@ -4432,9 +4437,9 @@
     {
       "cohort_date": "1911-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.0665,
+      "cape_regime": "BELOW_15",
       "start_month_index": 488,
       "max_horizon_months": 1970
     },
@@ -4540,9 +4545,9 @@
     {
       "cohort_date": "1912-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.9051,
+      "cape_regime": "BELOW_15",
       "start_month_index": 500,
       "max_horizon_months": 1958
     },
@@ -4648,9 +4653,9 @@
     {
       "cohort_date": "1913-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4715,
+      "cape_regime": "BELOW_15",
       "start_month_index": 512,
       "max_horizon_months": 1946
     },
@@ -4756,9 +4761,9 @@
     {
       "cohort_date": "1914-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.159,
+      "cape_regime": "BELOW_15",
       "start_month_index": 524,
       "max_horizon_months": 1934
     },
@@ -4864,9 +4869,9 @@
     {
       "cohort_date": "1915-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.5491,
+      "cape_regime": "BELOW_15",
       "start_month_index": 536,
       "max_horizon_months": 1922
     },
@@ -4972,9 +4977,9 @@
     {
       "cohort_date": "1916-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.0457,
+      "cape_regime": "BELOW_15",
       "start_month_index": 548,
       "max_horizon_months": 1910
     },
@@ -5080,9 +5085,9 @@
     {
       "cohort_date": "1917-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 7.3871,
+      "cape_regime": "BELOW_15",
       "start_month_index": 560,
       "max_horizon_months": 1898
     },
@@ -5188,9 +5193,9 @@
     {
       "cohort_date": "1918-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 6.5249,
+      "cape_regime": "BELOW_15",
       "start_month_index": 572,
       "max_horizon_months": 1886
     },
@@ -5296,9 +5301,9 @@
     {
       "cohort_date": "1919-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 6.947,
+      "cape_regime": "BELOW_15",
       "start_month_index": 584,
       "max_horizon_months": 1874
     },
@@ -5404,9 +5409,9 @@
     {
       "cohort_date": "1920-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 5.3847,
+      "cape_regime": "BELOW_15",
       "start_month_index": 596,
       "max_horizon_months": 1862
     },
@@ -5512,9 +5517,9 @@
     {
       "cohort_date": "1921-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 5.5996,
+      "cape_regime": "BELOW_15",
       "start_month_index": 608,
       "max_horizon_months": 1850
     },
@@ -5620,9 +5625,9 @@
     {
       "cohort_date": "1922-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.0668,
+      "cape_regime": "BELOW_15",
       "start_month_index": 620,
       "max_horizon_months": 1838
     },
@@ -5728,9 +5733,9 @@
     {
       "cohort_date": "1923-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 7.3115,
+      "cape_regime": "BELOW_15",
       "start_month_index": 632,
       "max_horizon_months": 1826
     },
@@ -5836,9 +5841,9 @@
     {
       "cohort_date": "1924-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.5925,
+      "cape_regime": "BELOW_15",
       "start_month_index": 644,
       "max_horizon_months": 1814
     },
@@ -5944,9 +5949,9 @@
     {
       "cohort_date": "1925-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.1782,
+      "cape_regime": "BELOW_15",
       "start_month_index": 656,
       "max_horizon_months": 1802
     },
@@ -6052,9 +6057,9 @@
     {
       "cohort_date": "1926-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.5315,
+      "cape_regime": "BELOW_15",
       "start_month_index": 668,
       "max_horizon_months": 1790
     },
@@ -6160,9 +6165,9 @@
     {
       "cohort_date": "1927-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.5267,
+      "cape_regime": "MODERATE",
       "start_month_index": 680,
       "max_horizon_months": 1778
     },
@@ -6268,9 +6273,9 @@
     {
       "cohort_date": "1928-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 23.6657,
+      "cape_regime": "HIGH",
       "start_month_index": 692,
       "max_horizon_months": 1766
     },
@@ -6376,9 +6381,9 @@
     {
       "cohort_date": "1929-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 24.9878,
+      "cape_regime": "HIGH",
       "start_month_index": 704,
       "max_horizon_months": 1754
     },
@@ -6484,9 +6489,9 @@
     {
       "cohort_date": "1930-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.2182,
+      "cape_regime": "MODERATE",
       "start_month_index": 716,
       "max_horizon_months": 1742
     },
@@ -6592,9 +6597,9 @@
     {
       "cohort_date": "1931-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4493,
+      "cape_regime": "BELOW_15",
       "start_month_index": 728,
       "max_horizon_months": 1730
     },
@@ -6700,9 +6705,9 @@
     {
       "cohort_date": "1932-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.2787,
+      "cape_regime": "BELOW_15",
       "start_month_index": 740,
       "max_horizon_months": 1718
     },
@@ -6808,9 +6813,9 @@
     {
       "cohort_date": "1933-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.9672,
+      "cape_regime": "BELOW_15",
       "start_month_index": 752,
       "max_horizon_months": 1706
     },
@@ -6916,9 +6921,9 @@
     {
       "cohort_date": "1934-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.9265,
+      "cape_regime": "BELOW_15",
       "start_month_index": 764,
       "max_horizon_months": 1694
     },
@@ -7024,9 +7029,9 @@
     {
       "cohort_date": "1935-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.5085,
+      "cape_regime": "MODERATE",
       "start_month_index": 776,
       "max_horizon_months": 1682
     },
@@ -7132,9 +7137,9 @@
     {
       "cohort_date": "1936-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 21.3175,
+      "cape_regime": "HIGH",
       "start_month_index": 788,
       "max_horizon_months": 1670
     },
@@ -7240,9 +7245,9 @@
     {
       "cohort_date": "1937-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.1255,
+      "cape_regime": "BELOW_15",
       "start_month_index": 800,
       "max_horizon_months": 1658
     },
@@ -7348,9 +7353,9 @@
     {
       "cohort_date": "1938-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.1856,
+      "cape_regime": "MODERATE",
       "start_month_index": 812,
       "max_horizon_months": 1646
     },
@@ -7456,9 +7461,9 @@
     {
       "cohort_date": "1939-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.7348,
+      "cape_regime": "MODERATE",
       "start_month_index": 824,
       "max_horizon_months": 1634
     },
@@ -7564,9 +7569,9 @@
     {
       "cohort_date": "1940-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.7998,
+      "cape_regime": "BELOW_15",
       "start_month_index": 836,
       "max_horizon_months": 1622
     },
@@ -7672,9 +7677,9 @@
     {
       "cohort_date": "1941-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.1995,
+      "cape_regime": "BELOW_15",
       "start_month_index": 848,
       "max_horizon_months": 1610
     },
@@ -7780,9 +7785,9 @@
     {
       "cohort_date": "1942-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.7022,
+      "cape_regime": "BELOW_15",
       "start_month_index": 860,
       "max_horizon_months": 1598
     },
@@ -7888,9 +7893,9 @@
     {
       "cohort_date": "1943-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.225,
+      "cape_regime": "BELOW_15",
       "start_month_index": 872,
       "max_horizon_months": 1586
     },
@@ -7996,9 +8001,9 @@
     {
       "cohort_date": "1944-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4665,
+      "cape_regime": "BELOW_15",
       "start_month_index": 884,
       "max_horizon_months": 1574
     },
@@ -8104,9 +8109,9 @@
     {
       "cohort_date": "1945-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.5053,
+      "cape_regime": "BELOW_15",
       "start_month_index": 896,
       "max_horizon_months": 1562
     },
@@ -8212,9 +8217,9 @@
     {
       "cohort_date": "1946-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.464,
+      "cape_regime": "BELOW_15",
       "start_month_index": 908,
       "max_horizon_months": 1550
     },
@@ -8320,9 +8325,9 @@
     {
       "cohort_date": "1947-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.1614,
+      "cape_regime": "BELOW_15",
       "start_month_index": 920,
       "max_horizon_months": 1538
     },
@@ -8428,9 +8433,9 @@
     {
       "cohort_date": "1948-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.209,
+      "cape_regime": "BELOW_15",
       "start_month_index": 932,
       "max_horizon_months": 1526
     },
@@ -8536,9 +8541,9 @@
     {
       "cohort_date": "1949-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.2797,
+      "cape_regime": "BELOW_15",
       "start_month_index": 944,
       "max_horizon_months": 1514
     },
@@ -8644,9 +8649,9 @@
     {
       "cohort_date": "1950-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.5108,
+      "cape_regime": "BELOW_15",
       "start_month_index": 956,
       "max_horizon_months": 1502
     },
@@ -8752,9 +8757,9 @@
     {
       "cohort_date": "1951-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.1083,
+      "cape_regime": "BELOW_15",
       "start_month_index": 968,
       "max_horizon_months": 1490
     },
@@ -8860,9 +8865,9 @@
     {
       "cohort_date": "1952-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 12.2697,
+      "cape_regime": "BELOW_15",
       "start_month_index": 980,
       "max_horizon_months": 1478
     },
@@ -8968,9 +8973,9 @@
     {
       "cohort_date": "1953-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.744,
+      "cape_regime": "BELOW_15",
       "start_month_index": 992,
       "max_horizon_months": 1466
     },
@@ -9076,9 +9081,9 @@
     {
       "cohort_date": "1954-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.4885,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1004,
       "max_horizon_months": 1454
     },
@@ -9184,9 +9189,9 @@
     {
       "cohort_date": "1955-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.928,
+      "cape_regime": "MODERATE",
       "start_month_index": 1016,
       "max_horizon_months": 1442
     },
@@ -9292,9 +9297,9 @@
     {
       "cohort_date": "1956-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.1689,
+      "cape_regime": "MODERATE",
       "start_month_index": 1028,
       "max_horizon_months": 1430
     },
@@ -9400,9 +9405,9 @@
     {
       "cohort_date": "1957-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.082,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1040,
       "max_horizon_months": 1418
     },
@@ -9508,9 +9513,9 @@
     {
       "cohort_date": "1958-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.6838,
+      "cape_regime": "MODERATE",
       "start_month_index": 1052,
       "max_horizon_months": 1406
     },
@@ -9616,9 +9621,9 @@
     {
       "cohort_date": "1959-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 18.1901,
+      "cape_regime": "MODERATE",
       "start_month_index": 1064,
       "max_horizon_months": 1394
     },
@@ -9724,9 +9729,9 @@
     {
       "cohort_date": "1960-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.5348,
+      "cape_regime": "MODERATE",
       "start_month_index": 1076,
       "max_horizon_months": 1382
     },
@@ -9832,9 +9837,9 @@
     {
       "cohort_date": "1961-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 21.1378,
+      "cape_regime": "HIGH",
       "start_month_index": 1088,
       "max_horizon_months": 1370
     },
@@ -9940,9 +9945,9 @@
     {
       "cohort_date": "1962-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.8622,
+      "cape_regime": "MODERATE",
       "start_month_index": 1100,
       "max_horizon_months": 1358
     },
@@ -10048,9 +10053,9 @@
     {
       "cohort_date": "1963-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 21.2147,
+      "cape_regime": "HIGH",
       "start_month_index": 1112,
       "max_horizon_months": 1346
     },
@@ -10156,9 +10161,9 @@
     {
       "cohort_date": "1964-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 23.2968,
+      "cape_regime": "HIGH",
       "start_month_index": 1124,
       "max_horizon_months": 1334
     },
@@ -10264,9 +10269,9 @@
     {
       "cohort_date": "1965-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 24.042,
+      "cape_regime": "HIGH",
       "start_month_index": 1136,
       "max_horizon_months": 1322
     },
@@ -10372,9 +10377,9 @@
     {
       "cohort_date": "1966-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 19.6138,
+      "cape_regime": "MODERATE",
       "start_month_index": 1148,
       "max_horizon_months": 1310
     },
@@ -10480,9 +10485,9 @@
     {
       "cohort_date": "1967-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 21.6705,
+      "cape_regime": "HIGH",
       "start_month_index": 1160,
       "max_horizon_months": 1298
     },
@@ -10588,9 +10593,9 @@
     {
       "cohort_date": "1968-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 21.9295,
+      "cape_regime": "HIGH",
       "start_month_index": 1172,
       "max_horizon_months": 1286
     },
@@ -10696,9 +10701,9 @@
     {
       "cohort_date": "1969-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 18.764,
+      "cape_regime": "MODERATE",
       "start_month_index": 1184,
       "max_horizon_months": 1274
     },
@@ -10804,9 +10809,9 @@
     {
       "cohort_date": "1970-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.9159,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1196,
       "max_horizon_months": 1262
     },
@@ -10912,9 +10917,9 @@
     {
       "cohort_date": "1971-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.6753,
+      "cape_regime": "MODERATE",
       "start_month_index": 1208,
       "max_horizon_months": 1250
     },
@@ -11020,9 +11025,9 @@
     {
       "cohort_date": "1972-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.8974,
+      "cape_regime": "MODERATE",
       "start_month_index": 1220,
       "max_horizon_months": 1238
     },
@@ -11128,9 +11133,9 @@
     {
       "cohort_date": "1973-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 15.699,
+      "cape_regime": "MODERATE",
       "start_month_index": 1232,
       "max_horizon_months": 1226
     },
@@ -11236,9 +11241,9 @@
     {
       "cohort_date": "1974-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.3278,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1244,
       "max_horizon_months": 1214
     },
@@ -11344,9 +11349,9 @@
     {
       "cohort_date": "1975-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.3848,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1256,
       "max_horizon_months": 1202
     },
@@ -11452,9 +11457,9 @@
     {
       "cohort_date": "1976-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 11.4813,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1268,
       "max_horizon_months": 1190
     },
@@ -11560,9 +11565,9 @@
     {
       "cohort_date": "1977-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.6227,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1280,
       "max_horizon_months": 1178
     },
@@ -11668,9 +11673,9 @@
     {
       "cohort_date": "1978-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.8291,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1292,
       "max_horizon_months": 1166
     },
@@ -11776,9 +11781,9 @@
     {
       "cohort_date": "1979-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.4605,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1304,
       "max_horizon_months": 1154
     },
@@ -11884,9 +11889,9 @@
     {
       "cohort_date": "1980-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.1734,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1316,
       "max_horizon_months": 1142
     },
@@ -11992,9 +11997,9 @@
     {
       "cohort_date": "1981-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 7.9312,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1328,
       "max_horizon_months": 1130
     },
@@ -12100,9 +12105,9 @@
     {
       "cohort_date": "1982-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 8.1766,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1340,
       "max_horizon_months": 1118
     },
@@ -12208,9 +12213,9 @@
     {
       "cohort_date": "1983-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.7768,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1352,
       "max_horizon_months": 1106
     },
@@ -12316,9 +12321,9 @@
     {
       "cohort_date": "1984-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 9.6899,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1364,
       "max_horizon_months": 1094
     },
@@ -12424,9 +12429,9 @@
     {
       "cohort_date": "1985-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 10.7794,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1376,
       "max_horizon_months": 1082
     },
@@ -12532,9 +12537,9 @@
     {
       "cohort_date": "1986-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 13.8136,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1388,
       "max_horizon_months": 1070
     },
@@ -12640,9 +12645,9 @@
     {
       "cohort_date": "1987-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.215,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1400,
       "max_horizon_months": 1058
     },
@@ -12748,9 +12753,9 @@
     {
       "cohort_date": "1988-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.9357,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1412,
       "max_horizon_months": 1046
     },
@@ -12856,9 +12861,9 @@
     {
       "cohort_date": "1989-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 17.3139,
+      "cape_regime": "MODERATE",
       "start_month_index": 1424,
       "max_horizon_months": 1034
     },
@@ -12964,9 +12969,9 @@
     {
       "cohort_date": "1990-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 14.6813,
+      "cape_regime": "BELOW_15",
       "start_month_index": 1436,
       "max_horizon_months": 1022
     },
@@ -13072,9 +13077,9 @@
     {
       "cohort_date": "1991-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 18.6418,
+      "cape_regime": "MODERATE",
       "start_month_index": 1448,
       "max_horizon_months": 1010
     },
@@ -13180,9 +13185,9 @@
     {
       "cohort_date": "1992-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 19.8656,
+      "cape_regime": "MODERATE",
       "start_month_index": 1460,
       "max_horizon_months": 998
     },
@@ -13288,9 +13293,9 @@
     {
       "cohort_date": "1993-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 21.3605,
+      "cape_regime": "HIGH",
       "start_month_index": 1472,
       "max_horizon_months": 986
     },
@@ -13396,9 +13401,9 @@
     {
       "cohort_date": "1994-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 20.7846,
+      "cape_regime": "HIGH",
       "start_month_index": 1484,
       "max_horizon_months": 974
     },
@@ -13504,9 +13509,9 @@
     {
       "cohort_date": "1995-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 23.8982,
+      "cape_regime": "HIGH",
       "start_month_index": 1496,
       "max_horizon_months": 962
     },
@@ -13612,9 +13617,9 @@
     {
       "cohort_date": "1996-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 26.6412,
+      "cape_regime": "HIGH",
       "start_month_index": 1508,
       "max_horizon_months": 950
     },
@@ -13720,9 +13725,9 @@
     {
       "cohort_date": "1997-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 31.6535,
+      "cape_regime": "EXTREME",
       "start_month_index": 1520,
       "max_horizon_months": 938
     },
@@ -13828,9 +13833,9 @@
     {
       "cohort_date": "1998-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 36.3796,
+      "cape_regime": "EXTREME",
       "start_month_index": 1532,
       "max_horizon_months": 926
     },
@@ -13936,9 +13941,9 @@
     {
       "cohort_date": "1999-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 42.2624,
+      "cape_regime": "EXTREME",
       "start_month_index": 1544,
       "max_horizon_months": 914
     },
@@ -14044,9 +14049,9 @@
     {
       "cohort_date": "2000-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 40.5007,
+      "cape_regime": "EXTREME",
       "start_month_index": 1556,
       "max_horizon_months": 902
     },
@@ -14152,9 +14157,9 @@
     {
       "cohort_date": "2001-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 28.1466,
+      "cape_regime": "HIGH",
       "start_month_index": 1568,
       "max_horizon_months": 890
     },
@@ -14260,9 +14265,9 @@
     {
       "cohort_date": "2002-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 22.7681,
+      "cape_regime": "HIGH",
       "start_month_index": 1580,
       "max_horizon_months": 878
     },
@@ -14368,9 +14373,9 @@
     {
       "cohort_date": "2003-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 25.992,
+      "cape_regime": "HIGH",
       "start_month_index": 1592,
       "max_horizon_months": 866
     },
@@ -14476,9 +14481,9 @@
     {
       "cohort_date": "2004-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 25.7192,
+      "cape_regime": "HIGH",
       "start_month_index": 1604,
       "max_horizon_months": 854
     },
@@ -14584,9 +14589,9 @@
     {
       "cohort_date": "2005-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 25.1981,
+      "cape_regime": "HIGH",
       "start_month_index": 1616,
       "max_horizon_months": 842
     },
@@ -14692,9 +14697,9 @@
     {
       "cohort_date": "2006-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 26.8003,
+      "cape_regime": "HIGH",
       "start_month_index": 1628,
       "max_horizon_months": 830
     },
@@ -14800,9 +14805,9 @@
     {
       "cohort_date": "2007-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 27.4516,
+      "cape_regime": "HIGH",
       "start_month_index": 1640,
       "max_horizon_months": 818
     },
@@ -14908,9 +14913,9 @@
     {
       "cohort_date": "2008-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 16.3502,
+      "cape_regime": "MODERATE",
       "start_month_index": 1652,
       "max_horizon_months": 806
     },
@@ -15016,9 +15021,9 @@
     {
       "cohort_date": "2009-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 18.7536,
+      "cape_regime": "MODERATE",
       "start_month_index": 1664,
       "max_horizon_months": 794
     },
@@ -15124,9 +15129,9 @@
     {
       "cohort_date": "2010-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 21.414,
+      "cape_regime": "HIGH",
       "start_month_index": 1676,
       "max_horizon_months": 782
     },
@@ -15232,9 +15237,9 @@
     {
       "cohort_date": "2011-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 20.8883,
+      "cape_regime": "HIGH",
       "start_month_index": 1688,
       "max_horizon_months": 770
     },
@@ -15340,9 +15345,9 @@
     {
       "cohort_date": "2012-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 21.1567,
+      "cape_regime": "HIGH",
       "start_month_index": 1700,
       "max_horizon_months": 758
     },
@@ -15448,9 +15453,9 @@
     {
       "cohort_date": "2013-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 24.3216,
+      "cape_regime": "HIGH",
       "start_month_index": 1712,
       "max_horizon_months": 746
     },
@@ -15556,9 +15561,9 @@
     {
       "cohort_date": "2014-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 26.2066,
+      "cape_regime": "HIGH",
       "start_month_index": 1724,
       "max_horizon_months": 734
     },
@@ -15664,9 +15669,9 @@
     {
       "cohort_date": "2015-10-01",
       "market_available": true,
-      "cape_available": false,
-      "cape_value": null,
-      "cape_regime": null,
+      "cape_available": true,
+      "cape_value": 26.1823,
+      "cape_regime": "HIGH",
       "start_month_index": 1736,
       "max_horizon_months": 722
     },

@@ -142,15 +142,17 @@ class TestManifestLoading:
         first = manifest.cohorts[0]
         assert first.cohort_date == "1871-02-01"
         assert first.market_available is True
-        assert first.cape_available is False
-        assert first.cape_value is None
-        assert first.cape_regime is None
+        # With workbook Shiller CAPE, CAPE is now available from 1871-02-01
+        assert first.cape_available is True
+        assert first.cape_value is not None
+        assert first.cape_regime == "BELOW_15"
 
     @pytest.mark.skipif(not MANIFEST_PATH.is_file(), reason="Manifest not present")
     def test_load_manifest_statistics(self) -> None:
         manifest = load_manifest(MANIFEST_PATH)
         assert manifest.statistics["total_cohorts"] == 1739
-        assert manifest.statistics["cape_available"] == 1485
+        # Updated: all 1739 cohorts now have CAPE from cape_shiller.csv
+        assert manifest.statistics["cape_available"] == 1739
 
     @pytest.mark.skipif(not MANIFEST_PATH.is_file(), reason="Manifest not present")
     def test_load_manifest_is_deterministic(self) -> None:
@@ -402,16 +404,18 @@ class TestPart3ErnIntegration:
     def test_cape_available_count(self) -> None:
         manifest = load_manifest(MANIFEST_PATH)
         cape_available = sum(1 for c in manifest.cohorts if c.cape_available)
-        assert cape_available == 1485
+        # Updated: all 1739 cohorts now have CAPE from cape_shiller.csv
+        assert cape_available == 1739
 
     def test_regime_distribution(self) -> None:
         manifest = load_manifest(MANIFEST_PATH)
         from collections import Counter
         regimes = Counter(c.cape_regime for c in manifest.cohorts if c.cape_available)
-        assert regimes["BELOW_15"] == 632
-        assert regimes["MODERATE"] == 470
-        assert regimes["HIGH"] == 330
-        assert regimes["EXTREME"] == 53
+        # Updated counts with workbook Shiller CAPE semantics
+        assert regimes["BELOW_15"] == 799
+        assert regimes["MODERATE"] == 524
+        assert regimes["HIGH"] == 359
+        assert regimes["EXTREME"] == 57
 
 
 # ---------------------------------------------------------------------------

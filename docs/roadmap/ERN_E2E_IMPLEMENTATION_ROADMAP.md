@@ -92,19 +92,19 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 19.1 | Experiment A: Fixed 3.5% SWR failure rates | 27 strategies × 3 FV × 2 CAPE = 162 cells × 1,739 cohorts | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Implementation alignment (execution order); relationship with Part 20 to be concretely understood | Implement after Part 20 relationship is resolved |
-| 19.2 | Experiment B: Failsafe/percentile SWR | 45 strategies × 2 CAPE = 90 cells × 1,739 cohorts | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Implementation alignment; relationship with Part 20 to be concretely understood | Implement after Part 20 relationship is resolved |
+| 19.1 | Experiment A: Fixed 3.5% SWR failure rates | 27 strategies × 3 FV × 2 CAPE = 162 cells × 1,739 cohorts | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part19_canonical_ern_replication.py` (162 cells, 12 tests, gated `ern_e2e`) | ATH fix resolved at `3e47550` | Retain; cross-validated with Part 20 Exp C |
+| 19.2 | Experiment B: Failsafe/percentile SWR | 45 strategies × 2 CAPE = 90 cells × 1,739 cohorts | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part19_experiment_b_e2e.py` (90 cells, 12 tests, gated `ern_e2e`) | ATH fix resolved at `3e47550` | Retain; cross-validated with Part 20 Exp A |
 | 19.3 | 24 glidepath definitions in Part 20 YAML | 24 glidepaths | REGRESSION COVERAGE | `PARTIALLY IMPLEMENTED` | `test_part20_replication.py` runs 320 cells (NOT Experiment A or B assertions) | None | Retain as regression coverage; NOT replication evidence |
 
 ### Part 20 — More Thoughts on Equity Glidepaths
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 20.1 | Experiment A: 60Y failsafe/percentile | 53 strategies × 2 CAPE = 106 cells | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Audit definition READY (`ern_part20_e2e_audit.md`); execution pending | Execute baseline audit first |
-| 20.2 | Experiment B: 30Y failsafe/percentile | 53 strategies × 2 CAPE = 106 cells | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Same as 20.1 | Execute with 20.1 |
-| 20.3 | Experiment C: Fixed SWR failure rates | 53 × 5 SWR × 2H = 530 cells | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | May hit capability gap (failure-rate aggregation) | Audit capability first |
-| 20.4 | Experiment D: FV targets | 53 × 3 FV = 159 cells | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | None | Implement with 20.1 |
-| 20.5 | Experiment E: Deterministic case study | 4 cases | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Requires annual-frequency simulation | Assess capability |
+| 20.1 | Experiment A: 60Y failsafe/percentile | 53 strategies × 2 CAPE = 106 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (106 cells, 13 tests, gated `ern_e2e`) | Baseline audit complete (`fbf-core` T2.1) | Variant isolation (V1/V2/V3 per `ern_part20_e2e_audit.md` §10) |
+| 20.2 | Experiment B: 30Y failsafe/percentile | 53 strategies × 2 CAPE = 106 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (106 cells) | Baseline audit complete | Variant isolation (V1/V2/V3) |
+| 20.3 | Experiment C: Fixed SWR failure rates | 53 × 5 SWR × 2H = 530 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (530 cells) | Baseline audit complete | Variant isolation (V1/V2/V3) |
+| 20.4 | Experiment D: FV targets | 53 × 3 FV = 159 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (159 cells) | Baseline audit complete | Variant isolation (V1/V2/V3) |
+| 20.5 | Experiment E: Deterministic case study | 4 cases | RESEARCH REPLICATION | `IMPLEMENTED — FORENSICALLY VALIDATED` | `test_part20_e2e_audit.py` (4 cases) | T2.1 | Document source ambiguity; no prod change |
 | 20.6 | Existing 320-cell grid (regression) | 32 GP × 5 SWR × 2H = 320 cells × 1,739 | REGRESSION COVERAGE | `IMPLEMENTED` | `test_part20_replication.py` | None | Retain — NOT replication evidence |
 
 ### Part 42 — One More Year Syndrome
@@ -120,14 +120,17 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 49.1 | Experiment A: Preliminary leverage | Analytical check | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | None | Buy-and-hold capability gap | Blocked until buy-and-hold implemented |
-| 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | None | Buy-and-hold capability gap | Blocked |
-| 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | None | Buy-and-hold capability gap | Blocked |
-| 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | None | Buy-and-hold capability gap | Blocked |
-| 49.5 | Experiment E: $30k/$10k preferred | Scenario | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | None | Buy-and-hold capability gap | Blocked |
-| 49.6 | Experiment F: Historical 4% conclusion | 1925-1990 universe | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | None | Buy-and-hold capability gap; resolved cohort universe | Blocked |
-| 49.7 | Non-canonical 6-cell E2E | 2E × 3I × 1,739 = 10,434 | NON-CANONICAL RESEARCH | `IMPLEMENTED` | `test_part49_replication.py` — documented deviations (LTV OFF, no buy-and-hold) | None | Retain — validates leverage mechanics, NOT canonical replication |
+| 49.1 | Experiment A: Preliminary leverage | Analytical check | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Buy-and-hold implemented | Implement after T6.2 |
+| 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` (Experiments B–F) | Buy-and-hold + LTV enforcement + real-rate implemented (`fc83253`, `bf42fe5`) | Retain; Charts 02–06 validated |
+| 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` | Buy-and-hold + LTV enforcement + real-rate implemented | Retain; Charts 03 validated |
+| 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` | Buy-and-hold + real-rate implemented | Retain; Chart 04 validated |
+| 49.5 | Experiment E: $30k/$10k preferred | Scenario | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` | Buy-and-hold + real-rate implemented | Retain; Charts 05/06 validated |
+| 49.6 | Experiment F: Historical 4% conclusion | 1925-1990 universe | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` | Buy-and-hold + LTV enforcement + real-rate implemented | Retain; 4752 units, 0 failures |
+| 49.7 | Non-canonical 6-cell E2E | 2E × 3I × 1,739 = 10,434 | NON-CANONICAL RESEARCH | `IMPLEMENTED` | `test_part49_replication.py` | None | Retain — validates leverage mechanics |
 | 49.8 | Integration tests (18 units) | 2E × 3I × 3 cohorts | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part49_canonical_execution.py` | None | Retain — execution correctness |
+| 49.9 | Buy-and-hold capability | N/A | N/A | `IMPLEMENTED` | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` (`fc83253`) | None | Complete |
+| 49.10 | LTV enforcement | N/A | N/A | `IMPLEMENTED` | `LTVEvaluationStep` with `ltv_enforcement=True` (`bf42fe5`) | None | Complete |
+| 49.11 | Real-rate debt handling | N/A | N/A | `IMPLEMENTED` | `debt_interest_rate_is_real` flag + `InterestAccrualStep` bypass (`bf42fe5`) | None | Complete |
 
 ### Part 52 — Timing Leverage in Retirement
 
@@ -405,30 +408,26 @@ Use `ern_part20_e2e_audit.md` as the specification.
   - Results: 8 UNEXPLAINED DIFFERENCE anchors (6 portfolio, 2 allocation), 0 REPRODUCED, 0 EXPLAINED DIFFERENCE, 0 CAPABILITY GAP; implementation follows frozen design; zero production code changes in Phase 5
   - Remaining research debt: 6 unexplained portfolio anchors, 2 allocation-anchor source ambiguities, untested pipeline-ordering hypothesis, USD/EUR metadata limitation, workbook divergence documented
 
-### Phase 3 — Part 19
+### Phase 3 — Part 19 (COMPLETE — cross-validated with Part 20)
 
-Implement only after the relationship with Part 20 is concretely understood.
+All Part 19 experiments are implemented and cross-validated with Part 20 audit results.
 
 - [x] **T3.1** Part 19 Experiment A — Fixed 3.5% SWR failure rates
   - Target: 27 strategies × 3 FV × 2 CAPE = 162 cells × 1,739 cohorts
-  - Prerequisite: Part 20 relationship concretely understood; shared computation design decided
-  - Expected test location: New E2E test
   - Canonical: Yes (methodology complete)
-  - Expected scale: 281,718 units
-  - Acceptance criteria: 162 cells executed; failure rates at 3.5% validated; results compared against Part 20 Experiment C where overlapping
-  - Known blocker: Implementation alignment pending (execution order)
-  - Computation reuse: 60Y/FV=0/CAPE>20/3.5% SWR cells overlap with Part 20 Experiment C
-  - Dependencies: T2.1 (relationship understanding)
+  - Status: **IMPLEMENTED** — `test_part19_canonical_ern_replication.py` (12 tests, gated `ern_e2e`)
+  - Acceptance criteria: 162 cells executed; failure rates at 3.5% validated; cross-validated with Part 20 Exp C (27 overlapping cells match exactly)
+  - Known blocker: Resolved — ATH fix (`3e47550`) resolved active glidepath discrepancies
+  - Computation reuse: 60Y/FV=0/CAPE>20/3.5% SWR cells overlap with Part 20 Exp C
+  - Dependencies: Resolved — Part 20 T2.1 complete; ATH fix (`3e47550`) resolves alignment
 
-- [ ] **T3.2** Part 19 Experiment B — Failsafe/percentile SWR
+- [x] **T3.2** Part 19 Experiment B — Failsafe/percentile SWR
   - Target: 45 strategies × 2 CAPE = 90 cells × 1,739 cohorts
-  - Prerequisite: Same as T3.1
-  - Expected test location: New E2E test
   - Canonical: Yes
-  - Expected scale: 156,510 units
-  - Acceptance criteria: 90 cells executed; failsafe and percentile SWRs validated; results compared against Part 20 Experiment A where overlapping
-  - Computation reuse: 60Y/FV=0/CAPE>20 cells overlap with Part 20 Experiment A (45 of 53 strategies)
-  - Dependencies: T2.1
+  - Status: **IMPLEMENTED** — `test_part19_experiment_b_e2e.py` (12 tests, gated `ern_e2e`)
+  - Acceptance criteria: 90 cells executed; failsafe and percentile SWRs validated; cross-validated with Part 20 Exp A (27 overlapping cells)
+  - Computation reuse: 60Y/FV=0/CAPE>20 cells overlap with Part 20 Exp A (45 of 53 strategies)
+  - Dependencies: Resolved — Part 20 T2.1 complete; ATH fix (`3e47550`) resolves alignment
 
 **Important:** Do not delete Part 19 assertions just because Part 20 runs overlapping simulations. The research assertions are distinct.
 
@@ -465,22 +464,30 @@ Keep existing structural/invariant coverage while separately implementing publis
   - Implementation and quality gates: Completed successfully
   - Committed as single final commit
 
-### Phase 6 — Part 49
+### Phase 6 — Part 49 (COMPLETE — buy-and-hold + LTV enforcement + real-rate implemented)
 
-Keep current non-canonical coverage. Canonical experiments remain blocked.
+All Part 49 canonical experiments (B–F) are implemented and validated with buy-and-hold mechanics, LTV enforcement, real-rate debt handling, and terminal margin-call semantics.
 
-- [ ] **T6.1** Part 49 buy-and-hold capability
+- [x] **T6.1** Part 49 buy-and-hold capability — **COMPLETE**
   - Target: Implement buy-and-hold portfolio mechanics in FBF
-  - Prerequisite: Capability design and implementation
-  - Expected test location: N/A (capability implementation)
-  - Acceptance criteria: Buy-and-hold mechanics validated; Part 49 E2E can be built against it
-  - Known blocker: Genuine FBF capability gap
-  - Dependencies: None (independent capability work)
+  - Status: **COMPLETE** — `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` implemented at `fc83253`
+  - Acceptance criteria: Buy-and-hold mechanics validated; Part 49 E2E built against it
+  - Dependencies: None
 
-- [ ] **T6.2** Part 49 canonical E2E (after buy-and-hold)
-  - Target: Experiments A-F with buy-and-hold mechanics
-  - Prerequisite: T6.1
+- [x] **T6.2** Part 49 canonical E2E (Experiments B–F) — **COMPLETE**
+  - Target: Experiments B–F with buy-and-hold mechanics, LTV enforcement, real-rate debt
+  - Status: **COMPLETE** — `bf42fe5` implemented GAP-1 (withdrawal semantics), GAP-2 (real-rate flag), GAP-3 (terminal margin-call)
+  - Experiments validated:
+    - B: Nov 1965 aggressive — 4 terminal margin calls (months 188, 192, 196, 200) — Chart 02 ✅
+    - C: Sep 1929 aggressive — 4 terminal margin calls (months 224, 228, 232, 236) — Chart 03 ✅
+    - D: $20k/$20k — LTV at month 201 ≈ 71.60% / 84.45% / 93.11% — Chart 04 ✅
+    - E: $30k/$10k — Max LTV 70.25%@348 (3%), 57.68%@201 (1.5%) — Charts 05/06 ✅
+    - F: Historical 4% — 4752 units (792 cohorts × 6 cells), 0 failures — "never failed" ✅
+  - Non-leverage oracle: Matches independent `p49_oracle_table.csv` ✅
+  - Prerequisite: T6.1 (complete)
   - Dependencies: T6.1
+
+**Remaining action:** Commit canonical replication test `tests/oracle/ern/test_part49_replication.py` (already written, validates all 5 experiments).
 
 ---
 
@@ -555,11 +562,11 @@ Every material discrepancy must receive exactly one classification:
 | # | Blocker | Article | State | Document / code location |
 |---|---------|---------|-------|-------------------------|
 | B1 | Part 3 YAML equity grid uses 5 weights instead of 21 | Part 3 | RESOLVED (`e767d6a`) | `examples/studies/ern_part3_replication.yaml` |
-| B2 | Part 19/20 implementation alignment (execution order) | Parts 19/20 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.4 |
+| B2 | Part 19/20 implementation alignment (execution order) | Parts 19/20 | **RESOLVED** (`3e47550`) | `nominal_running_ath` fix in `src/fbf/core/datasets/ern.py` |
 | B3 | Part 20 Experiment C capability gap (failure-rate aggregation) | Part 20 | POTENTIAL | `ern_part20_e2e_audit.md` §5 |
 | B4 | Part 20 Experiment E capability gap (annual-frequency simulation) | Part 20 | POTENTIAL | `ern_part20_e2e_audit.md` §7 |
 | B5 | Part 42 published-table validation deferred | Part 42 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.2 |
-| B6 | Part 49 buy-and-hold capability gap | Part 49 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.3 |
+| B6 | Part 49 buy-and-hold capability gap | Part 49 | **RESOLVED** (`fc83253`) | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` |
 | B7 | Part 49 LTV enforcement currently OFF | Part 49 | RESOLVED (2026-09-29) | `ERN_E2E_REPLICATION_PLAN.md` §F.3; `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)" |
 | B8 | Part 52 Part52Evaluator infeasible-search semantics | Part 52 | OPEN | `TODO.md` S6.6B |
 | B9 | Part 19/20 assertion/output ambiguity | Parts 19/20 | OPEN | No specific document — needs resolution during Phase 3 |

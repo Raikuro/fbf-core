@@ -88,7 +88,7 @@ class TestAuditSpec:
         spec = load_part20_audit_spec(AUDIT_SPEC_PATH)
         assert sorted(exp.id for exp in spec.experiments) == ["A", "B", "C", "D", "E"]
         assert spec.structural_counts.total_cohorts == 1739
-        assert spec.structural_counts.cape_high == 383
+        assert spec.structural_counts.cape_high == 416
         assert spec.structural_counts.strategy_count == 53
 
     def test_anchor_counts(self) -> None:
