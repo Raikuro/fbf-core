@@ -121,7 +121,7 @@ class TestCapeBinaryFromManifest:
 
     def test_missing_cape_not_in_manifest(self) -> None:
         """Cohorts without CAPE in manifest have cape_available=false.
-        
+
         With workbook Shiller CAPE, all 1739 cohorts now have CAPE available.
         This test verifies the new state.
         """
@@ -132,7 +132,7 @@ class TestCapeBinaryFromManifest:
 
     def test_1997_2001_cohorts_are_high(self) -> None:
         """1997-2001 cohorts should be HIGH under workbook Shiller CAPE.
-        
+
         Previously these were LOW/MODERATE under FBF's Shiller CAPE.
         Workbook Shiller CAPE for 1997-2001 ranges from ~27 to ~44.
         """

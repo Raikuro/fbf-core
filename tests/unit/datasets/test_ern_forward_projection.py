@@ -63,7 +63,7 @@ class TestForwardConstants:
 
     def test_historical_end_is_july_2026(self) -> None:
         """Forward projection begins July 2026 (per SWR Toolbox v2.0 workbook).
-        
+
         The workbook's Asset Returns sheet contains actual historical observations
         through June 2026. Projection begins at the first month after historical
         data ends. _HISTORICAL_END is the first forward month = July 2026.

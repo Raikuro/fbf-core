@@ -19,12 +19,14 @@ import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from fbf.core.datasets import load_canonical_dataset
 from fbf.core.execution import ExecutionOptions
 from fbf.core.research.part3_planner import load_manifest
+from fbf.core.research.part20_pipeline import SearchCache
 from fbf.core.research.part42_aggregation import (
     AnchorComparison,
     build_table01_aggregation,
@@ -81,11 +83,11 @@ class Part42AuditState:
     """In-memory results for one full audit run (class-scoped fixture)."""
 
     spec: Part42AuditSpec
-    manifest: any  # CohortManifest
-    trajectory: any  # Dataset
+    manifest: Any  # CohortManifest
+    trajectory: Any  # Dataset
     experiment_configs: list[Part42ExperimentConfig]
     ctx: Part42ExecutionContext
-    cache: dict = field(default_factory=dict)
+    cache: SearchCache = field(default_factory=dict)
     failsafe_results: dict[str, Part42FailsafeResult] = field(default_factory=dict)
     fixed_swr_results: dict[str, Part42FixedSWRResult] = field(default_factory=dict)
     table01_aggregated: dict[str, dict[str, Decimal | None]] = field(default_factory=dict)
@@ -109,7 +111,7 @@ class Part42AuditState:
             out.append(compare_anchor(anchor, observed, cohort_count))
         return out
 
-    def _observed(self, anchor) -> tuple[Decimal | None, int]:
+    def _observed(self, anchor: Any) -> tuple[Decimal | None, int]:
         """Look up observed value for an anchor."""
         # Table 01 anchors
         if anchor.table == 1:
@@ -165,7 +167,13 @@ def audit_state() -> Part42AuditState:
     populations = ctx.populations
 
     # Helper to run an experiment with the correct SS step configuration
-    def run_experiment_with_ss(exp, experiment_type, cohort_dates, options, cache):
+    def run_experiment_with_ss(
+        exp: Any,
+        experiment_type: str,
+        cohort_dates: list[str],
+        options: ExecutionOptions,
+        cache: SearchCache | None,
+    ) -> Any:
         """Run an experiment with the correct SS step configuration."""
         from fbf.core.execution.pipeline.steps.supplemental_cash_flow_step import (
             SupplementalCashFlowStep,
@@ -190,13 +198,21 @@ def audit_state() -> Part42AuditState:
             ss_active=ss_active,
         )
 
-        # Monkey-patch _create_default_simulation_executor
+# Monkey-patch _create_default_simulation_executor
         original_create = _create_default_simulation_executor
         try:
             import fbf.core.execution.strategies.parallel_executor as pe
-            pe._create_default_simulation_executor = lambda: original_create(
-                supplemental_cash_flow_step=ss_step
+            from fbf.core.execution.pipeline.executor import SimulationExecutor
+            from fbf.core.execution.pipeline.steps.supplemental_cash_flow_step import (
+                SupplementalCashFlowStep,
             )
+
+            def _patched_create(
+                supplemental_cash_flow_step: SupplementalCashFlowStep | None = None,
+            ) -> SimulationExecutor:
+                return original_create(supplemental_cash_flow_step=ss_step)
+
+            pe._create_default_simulation_executor = _patched_create
 
             if experiment_type == "failsafe":
                 return run_failsafe_search(
@@ -532,6 +548,7 @@ class TestPart42E2EAudit:
             for cond in expected_conditions:
                 assert cond in conditions, f"Scenario {scenario} missing condition {cond}"
                 assert conditions[cond] is not None, f"Scenario {scenario} condition {cond} is None"
-                assert conditions[cond] >= Decimal("0"), (
-                    f"Scenario {scenario} condition {cond} negative: {conditions[cond]}"
+                cond_val = conditions[cond]
+                assert cond_val is not None and cond_val >= Decimal("0"), (
+                    f"Scenario {scenario} condition {cond} negative: {cond_val}"
                 )
