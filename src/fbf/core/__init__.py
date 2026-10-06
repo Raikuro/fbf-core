@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from fbf.core.application import (
+    ExecutionOptions,
+    ResearchExecutionResult,
+    run_study,
+)
 from fbf.core.datasets import build_prescribed_dataset, load_canonical_dataset
 from fbf.core.domain.policies import AllocationPolicyType, WithdrawalPolicyType
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy, GlidepathCadence
@@ -13,7 +18,6 @@ from fbf.core.execution import (
     DeterministicTrajectory,
     EnhancedProfileReport,
     ExecutionBackend,
-    ExecutionOptions,
     ExecutionProfiler,
     ExecutionStrategy,
     MemoryProfiler,
@@ -21,7 +25,6 @@ from fbf.core.execution import (
     NoOpProfiler,
     Profiler,
     ProfileReport,
-    ResearchExecutionResult,
     execute_deterministic_trajectory,
     execute_study_plan,
 )
@@ -50,6 +53,7 @@ __all__ = [
     "GlidepathAllocationPolicy",
     "GlidepathCadence",
     "StudyConfiguration",
+    "run_study",
     "StudyPlanResult",
     "build_study_plan",
     "BuiltStudy",
@@ -67,6 +71,7 @@ __all__ = [
     "execute_study_plan",
     "execute_deterministic_trajectory",
     "ResearchExecutionResult",
+    "run_study",
     "optimize_study_swr",
     "optimize_part52",
     "load_canonical_dataset",

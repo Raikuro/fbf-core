@@ -6,6 +6,12 @@ import pytest
 
 from .fixtures import parse_per_cell_lines
 
+
+def _make_key(params: dict[str, float | int | bool]) -> tuple[tuple[str, float | int | bool], ...]:
+    """Create a canonical cell key from parameter dict."""
+    return tuple(sorted(params.items()))
+
+
 _CELL = (
     "cell: equity_allocation=0.75 withdrawal_rate=0.04 horizon_years=60 "
     "units_run=1739 units_failed=264 success_rate=0.8482"
@@ -15,7 +21,6 @@ _CELL2 = (
     "units_run=1739 units_failed=85 success_rate=0.9511"
 )
 
-
 _CELL_FV = (
     "cell: equity_allocation=0.5 withdrawal_rate=0.04 horizon_years=30 "
     "final_value_target=100.0 units_run=1739 units_failed=105 success_rate=0.9396"
@@ -24,19 +29,28 @@ _CELL_FV = (
 
 def test_parses_cells_into_parameter_keyed_stats() -> None:
     cells = parse_per_cell_lines(f"{_CELL}\n{_CELL2}\n{_CELL_FV}\n")
-    assert set(cells) == {
-        (0.75, 0.04, 60, None),
-        (0.5, 0.05, 30, None),
-        (0.5, 0.04, 30, 100.0),
-    }
-    stats = cells[(0.75, 0.04, 60, None)]
+
+    key1 = _make_key({"equity_allocation": 0.75, "withdrawal_rate": 0.04, "horizon_years": 60})
+    key2 = _make_key({"equity_allocation": 0.5, "withdrawal_rate": 0.05, "horizon_years": 30})
+    key3 = _make_key(
+        {
+            "equity_allocation": 0.5,
+            "withdrawal_rate": 0.04,
+            "horizon_years": 30,
+            "final_value_target": 100.0,
+        }
+    )
+
+    assert set(cells) == {key1, key2, key3}
+
+    stats = cells[key1]
     assert stats.units_run == 1739
     assert stats.units_failed == 264
     assert stats.success_rate == pytest.approx(0.8482)
     assert stats.success_percent == pytest.approx(84.82)
     assert stats.final_value_target is None
 
-    stats_fv = cells[(0.5, 0.04, 30, 100.0)]
+    stats_fv = cells[key3]
     assert stats_fv.final_value_target == 100.0
 
 
@@ -67,3 +81,4 @@ def test_duplicate_field_in_one_line_raises() -> None:
             "withdrawal_rate=0.04 horizon_years=60 units_run=1739 "
             "units_failed=1 success_rate=0.9994\n"
         )
+

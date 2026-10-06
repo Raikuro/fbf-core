@@ -195,6 +195,7 @@ def test_public_facade_symbols() -> None:
         "execute_study_plan",
         "execute_deterministic_trajectory",
         "ResearchExecutionResult",
+        "run_study",
         "optimize_study_swr",
         "optimize_part52",
         "load_canonical_dataset",

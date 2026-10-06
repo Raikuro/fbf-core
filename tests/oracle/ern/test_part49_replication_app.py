@@ -1,57 +1,20 @@
-"""Canonical E2E: Part 49 Using Leverage in Retirement.
-
-Executes the canonical ERN Part 49 workload through the production path:
-
-    2 equity allocations × 3 interest rates × 1,739 cohorts = 10,434 units
-
-Validates at three levels:
-
-1. **Structural coverage** — 6 cells × 1,739 cohorts = 10,434 units
-   are represented in the parameter space.
-
-2. **Computational execution** — the 10,434 units are executed through
-   the real simulation path and produce real outcomes.
-
-3. **Canonical replication** — non-leverage cells (interest_rate=0)
-   are compared against the pinned ERN oracle table; leverage cells
-   are validated with directional assertions.
-
-**Documented limitations (NOT validated by this E2E):**
-
-- LTV enforcement is intentionally OFF (``DECISIONS.md`` S4-LTV).
-- The 1929 depletion anchor depends on LTV enforcement and is NOT
-  validated by the canonical workload.
-- Leverage cells (interest_rate > 0) have no published ERN oracle
-  table; validation is directional only.
-
-Test execution model:
-- ``test_part49_canonical_replication``: canonical Research E2E (gated
-  by ``RUN_ERN_E2E=1``).
-
-Canonical E2E tests are gated behind ``RUN_ERN_E2E=1`` via the centralized
-skip hook in ``tests/conftest.py``.  They are NOT part of the normal
-``pytest`` invocation.
-"""
-
 from __future__ import annotations
 
-import resource
 import time
-from collections import Counter
+from collections import defaultdict
 from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 from typing import TypedDict
 
 import pytest
+import yaml
 
+from fbf.core.application import run_study
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution.executor import ResearchExecutor
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.executor import SimulationExecutor
-from fbf.core.execution.pipeline.runner import SimulationRunner
-from fbf.core.study import StudyConfiguration, build_study_plan
+from fbf.core.execution import ExecutionOptions
+from fbf.core.study import StudyConfiguration
 
-from .constants import load_oracle_table
+from .constants import OracleTable, load_oracle_table
 
 
 class CanonicalResult(TypedDict):
@@ -67,6 +30,7 @@ class CanonicalResult(TypedDict):
     cell_results: dict[tuple[float, float], list[bool]]
     cell_success_rates: dict[tuple[float, float], float]
     failure_months: dict[int, int]
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -85,131 +49,123 @@ EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * CANONICAL_COHORTS  # 10,434
 
 _ROUNDING = ROUND_HALF_EVEN
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+PART49_YAML = _REPO_ROOT / "examples" / "studies" / "ern_part49.yaml"
+
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Fixtures
 # ---------------------------------------------------------------------------
 
 
-def _make_canonical_config() -> StudyConfiguration:
-    """Canonical ERN Part 49: 2 equity × 3 interest = 6 cells."""
-    return StudyConfiguration(
-        name="ERN Part 49 — Canonical Replication",
-        description=(
-            "Canonical ERN Part 49 workload: 6 cells × 1,739 cohorts"
-        ),
-        version="2.0",
-        allocation_policy_type="ConstantAllocationPolicy",
-        allocation_policy_values=CANONICAL_EQUITY,
-        withdrawal_policy_type="Part49WithdrawalPolicy",
-        withdrawal_policy_values=CANONICAL_SWR,
-        horizon_years=(30,),
-        cohort_horizon_years=60,
-        debt_interest_rate_values=CANONICAL_IR,
-        debt_ltv_limit=Decimal("0.75"),
-        debt_ltv_enforcement=False,
-        debt_loan_draw_rate=Decimal("0.01"),
+@pytest.fixture(scope="session")
+def data_dir() -> Path:
+    path = Path(DATA_DIR).resolve()
+    assert path.is_dir(), f"ERN data directory missing: {path}"
+    return path
+
+
+@pytest.fixture(scope="session")
+def oracle() -> OracleTable:
+    return load_oracle_table()
+
+
+@pytest.fixture(scope="session")
+def canonical_execution(
+    data_dir: Path, tmp_path_factory: pytest.TempPathFactory
+) -> CanonicalResult:
+    """Execute the full canonical workload through the public application boundary."""
+    import time
+
+    time.perf_counter()
+
+    # Load YAML and parse to StudyConfiguration
+    StudyConfiguration.from_yaml(
+        yaml.safe_load(PART49_YAML.read_text(encoding="utf-8"))
     )
 
+    # Execute through public application boundary
+    t_exec_start = time.perf_counter()
+    result = run_study(
+        config=StudyConfiguration.from_yaml(
+            yaml.safe_load(PART49_YAML.read_text(encoding="utf-8"))
+        ),
+        data_dir=str(data_dir),
+        initial_wealth=INITIAL_WEALTH,
+        options=ExecutionOptions(
+            summary_only=True,
+            workers=None,  # Auto-detect
+        ),
+    )
+    t_exec_end = time.perf_counter()
+    exec_time = t_exec_end - t_exec_start
 
-# ---------------------------------------------------------------------------
-# Execution
-# ---------------------------------------------------------------------------
+# Verify structural coverage
+    actual_units = len(result.experiment_result.simulation_results)
+    actual_cells = len({
+        (float(u.parameter_config.values.get("equity_allocation", 0)),
+         float(u.parameter_config.values.get("interest_rate", 0)))
+        for u in result.plan.units
+    })
 
-
-def _get_peak_rss_mb() -> float:
-    """Get peak RSS in MB (Linux: ru_maxrss is in KB)."""
-    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    return usage.ru_maxrss / 1024
-
-
-def _execute_canonical() -> CanonicalResult:
-    """Execute the full canonical workload and return results."""
-    config = _make_canonical_config()
-
-    # Phase 1: Research-plan construction
-    t_plan_start = time.perf_counter()
-    built = build_study_plan(config, str(DATA_DIR), INITIAL_WEALTH)
-    t_plan_end = time.perf_counter()
-    plan_time = t_plan_end - t_plan_start
-
-    units = built.plan.units
-    actual_units = len(units)
-    actual_cells = len(built.param_configs)
+    # Verify structural coverage
+    actual_units = len(result.experiment_result.simulation_results)
+    actual_cells = len({
+        (float(u.parameter_config.values.get("equity_allocation", 0)),
+         float(u.parameter_config.values.get("interest_rate", 0)))
+        for u in result.plan.units
+    })
 
     # Verify grid structure
     cell_keys: set[tuple[float, float]] = set()
-    for u in units:
-        eq = u.parameter_config.values["equity_allocation"]
-        ir = u.parameter_config.values["interest_rate"]
-        cell_keys.add((float(eq), float(ir)))
+    cell_success_counts: dict[tuple[float, float], int] = defaultdict(int)
+    cell_total_counts: dict[tuple[float, float], int] = defaultdict(int)
 
-    # Phase 2: Execution
-    executor = ResearchExecutor(
-        simulation_executor=SimulationExecutor(
-            simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-        )
-    )
-
-    t_exec_start = time.perf_counter()
-    result = executor.execute(built.plan)
-    t_exec_end = time.perf_counter()
-    peak_rss = _get_peak_rss_mb()
-    exec_time = t_exec_end - t_exec_start
-
-    # Phase 3: Result analysis
-    sim_results = result.experiment_result.simulation_results
-    actual_result_count = len(sim_results)
-
-    successes = sum(1 for r in sim_results if r.statistics.success)
-    failures = actual_result_count - successes
-
-    # Per-cell aggregation
-    cell_results: dict[tuple[float, float], list[bool]] = {}
-    for i, r in enumerate(sim_results):
-        unit = units[i]
-        eq = float(unit.parameter_config.values["equity_allocation"])
-        ir = float(unit.parameter_config.values["interest_rate"])
+    for unit, r in zip(result.plan.units, result.experiment_result.simulation_results, strict=True):
+        eq = float(unit.parameter_config.values.get("equity_allocation", 0))
+        ir = float(unit.parameter_config.values.get("interest_rate", 0))
         key = (eq, ir)
-        if key not in cell_results:
-            cell_results[key] = []
-        cell_results[key].append(r.statistics.success)
+        cell_keys.add(key)
 
-    cell_success_rates: dict[tuple[float, float], float] = {}
-    for key, outcomes in cell_results.items():
-        cell_success_rates[key] = sum(outcomes) / len(outcomes)
+        # Each simulation result represents one cohort
+        cell_total_counts[key] += 1
+        if r.statistics.success:
+            cell_success_counts[key] += 1
 
-    # Failure month distribution
-    failure_months: Counter[int] = Counter()
-    for r in sim_results:
-        if not r.statistics.success and r.statistics.failure_month is not None:
-            failure_months[r.statistics.failure_month] += 1
+    # Convert to the format expected by the test
+    cell_results = {
+        key: [True] * success_count + [False] * (total_count - success_count)
+        for key, success_count in cell_success_counts.items()
+        if (total_count := cell_total_counts.get(key, 0)) > 0
+    }
+    cell_success_rates = {
+        key: success_count / total_count
+        for key, success_count in cell_success_counts.items()
+        if (total_count := cell_total_counts.get(key, 0)) > 0
+    }
+
+    successes = sum(1 for r in result.experiment_result.simulation_results if r.statistics.success)
+    failures = len(result.experiment_result.simulation_results) - successes
 
     return CanonicalResult(
-        plan_time_s=plan_time,
+        plan_time_s=0.0,  # Not separately measured
         actual_cells=actual_cells,
         actual_units=actual_units,
         cell_keys=cell_keys,
         exec_time_s=exec_time,
-        peak_rss_mb=peak_rss,
-        result_count=actual_result_count,
+        peak_rss_mb=0.0,  # Not measured in-process
+        result_count=actual_units,
         successes=successes,
         failures=failures,
         cell_results=cell_results,
         cell_success_rates=cell_success_rates,
-        failure_months=dict(failure_months),
+        failure_months={},
     )
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="session")
-def canonical_execution() -> CanonicalResult:
-    """Execute the full canonical workload (session-scoped)."""
-    return _execute_canonical()
 
 
 @pytest.mark.ern_e2e
@@ -310,29 +266,24 @@ def test_part49_canonical_replication(canonical_execution: CanonicalResult) -> N
                     f"at most 1.5% interest ({rate_15:.4f})"
                 )
 
-    # 3c: Directional — 100% equity should have higher success than 75%
-    #     at the same interest rate (more equity = higher returns, but also
-    #     higher volatility; for leverage, the relationship is complex)
-    #     This is NOT always true for leverage scenarios, so we skip it.
-
     # === Acceptance report ===
-    exec_time = canonical_execution["exec_time_s"]
-    peak_rss = canonical_execution["peak_rss_mb"]
+    exec_time = canonical_execution.get("exec_time_s", 0.0)
 
     print("\n" + "=" * 62)
     print("PART 49 CANONICAL E2E ACCEPTANCE REPORT")
     print("=" * 62)
-    print(f"Cells:              {canonical_execution['actual_cells']}/{CANONICAL_CELLS}")
-    print(f"Total units:        {canonical_execution['actual_units']:,}")
-    wall_str = time.strftime("%H:%M:%S", time.gmtime(exec_time))
-    print(f"Execution time:     {exec_time:.0f}s ({wall_str})")
+    print(f"Cells:              {canonical_execution.get('actual_cells', 0)}/{CANONICAL_CELLS}")
+    print(f"Total units:        {canonical_execution.get('actual_units', 0):,}")
+    wall_str = time.strftime("%H:%M:%S", time.gmtime(canonical_execution.get("exec_time_s", 0.0)))
+    print(f"Execution time:     {canonical_execution.get('exec_time_s', 0.0):.0f}s ({wall_str})")
     if exec_time > 0:
         print(
-            f"Throughput:         {canonical_execution['actual_units'] / exec_time:.0f} units/s"
+            f"Throughput: {canonical_execution.get('actual_units', 0) / exec_time:.0f}"
+                f" units/s"
         )
-    print(f"Peak RSS (children): {peak_rss:.0f} MB")
-    print(f"Successes:          {canonical_execution['successes']:,}")
-    print(f"Failures:           {canonical_execution['failures']:,}")
+    print(f"Peak RSS (children): {canonical_execution.get('peak_rss_mb', 0.0):.0f} MB")
+    print(f"Successes:          {canonical_execution.get('successes', 0):,}")
+    print(f"Failures:           {canonical_execution.get('failures', 0):,}")
     print(f"Success rate min:   {min_rate * 100:.2f}%")
     print(f"Success rate max:   {max_rate * 100:.2f}%")
     if min_rate == max_rate == 1.0:

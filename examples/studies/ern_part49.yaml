@@ -32,10 +32,11 @@ metadata:
 
 cohorts:
   horizon_years: [30]
+  cohort_horizon_years: 60
 
 allocation_policy:
   type: "ConstantAllocationPolicy"
-  equity_allocation: [0.75]
+  equity_allocation: [0.75, 1.0]
 
 withdrawal_policy:
   type: "Part49WithdrawalPolicy"
@@ -43,9 +44,10 @@ withdrawal_policy:
 
 # Part 49 leverage configuration
 # ERN uses real interest rates: 0%, 1.5%, 3%
-# This config uses the primary scenario: 1.5% real
+# Canonical replication uses all three rates as a grid axis
 debt:
-  interest_rate: 0.015
+  interest_rate: [0.0, 0.015, 0.03]
+  interest_rate_is_real: true
   ltv_limit: 0.75
   ltv_enforcement: false
   loan_draw_rate: 0.01

@@ -579,6 +579,14 @@ class StudyConfiguration:
             )
         horizon_years = _parse_horizon_years(cohorts)
 
+        # Parse optional cohort_horizon_years (for studies like Part 49 that use
+        # a fixed cohort set determined by a longer horizon than the simulation)
+        cohort_horizon_years = cohorts.get("cohort_horizon_years")
+        if cohort_horizon_years is not None and (
+            not isinstance(cohort_horizon_years, int) or cohort_horizon_years <= 0
+        ):
+            raise ValueError("cohorts.cohort_horizon_years must be a positive integer")
+
         allocation_policy = data.get("allocation_policy")
         if not isinstance(allocation_policy, dict):
             raise ValueError("allocation_policy must be a mapping")
@@ -713,6 +721,7 @@ class StudyConfiguration:
         debt_data = data.get("debt")
         debt_interest_rate: Decimal | None = None
         debt_interest_rate_values: tuple[Decimal, ...] | None = None
+        debt_interest_rate_is_real: bool = False
         debt_ltv_limit: Decimal | None = None
         debt_ltv_enforcement: bool = True
         debt_loan_draw_rate: Decimal | None = None
@@ -800,6 +809,7 @@ class StudyConfiguration:
             withdrawal_policy_type=withdrawal_policy_type,
             withdrawal_policy_values=withdrawal_policy_values,
             horizon_years=horizon_years,
+            cohort_horizon_years=cohort_horizon_years,
             final_value_target_values=final_value_target_values,
             glidepath_start_values=glidepath_start_values,
             glidepath_end_values=glidepath_end_values,
@@ -812,6 +822,7 @@ class StudyConfiguration:
             omy_original_initial_wealth=omy_original_initial_wealth,
             debt_interest_rate=debt_interest_rate,
             debt_interest_rate_values=debt_interest_rate_values,
+            debt_interest_rate_is_real=debt_interest_rate_is_real,
             debt_ltv_limit=debt_ltv_limit,
             debt_ltv_enforcement=debt_ltv_enforcement,
             debt_loan_draw_rate=debt_loan_draw_rate,

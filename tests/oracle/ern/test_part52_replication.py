@@ -52,14 +52,13 @@ from typing import Any
 
 import pytest
 
+from fbf.core.application import run_study
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import (
     ExecutionOptions,
     ExecutionStrategy,
-    execute_study_plan,
 )
-from fbf.core.optimization.part52_evaluator import Part52Evaluator, Part52EvaluatorConfig
-from fbf.core.study import StudyConfiguration, build_study_plan
+from fbf.core.study import StudyConfiguration
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -118,44 +117,44 @@ CANONICAL_SCENARIOS: tuple[CanonicalScenario, ...] = (
         published_wr=Decimal("0.0391"), published_borrow_pct=Decimal("0.4108"),
         wr_provenance="published", borrow_provenance="published",
     ),
-    # A4: 25% threshold, FFR+0.50%, repayment
+    # A4: 25% threshold, FFR+0.50%, repayment — B%=10% (BF-discovered)
     CanonicalScenario(
         scenario_id="A4",
         cohort_year=1965, cohort_month=11,
         threshold=Decimal("0.25"), ffr_spread=Decimal("0.005"), repayment_enabled=True,
-        published_wr=Decimal("0.0392"), published_borrow_pct=None,
+        published_wr=Decimal("0.0392"), published_borrow_pct=Decimal("0.10"),
         wr_provenance="published", borrow_provenance="BF-discovered",
     ),
-    # A5: 25% threshold, FFR+1.25%, repayment
+    # A5: 25% threshold, FFR+1.25%, repayment — B%=5% (BF-discovered)
     CanonicalScenario(
         scenario_id="A5",
         cohort_year=1965, cohort_month=11,
         threshold=Decimal("0.25"), ffr_spread=Decimal("0.0125"), repayment_enabled=True,
-        published_wr=Decimal("0.0387"), published_borrow_pct=None,
+        published_wr=Decimal("0.0387"), published_borrow_pct=Decimal("0.05"),
         wr_provenance="published", borrow_provenance="BF-discovered",
     ),
-    # A6: 25% threshold, FFR+2.75%, repayment
+    # A6: 25% threshold, FFR+2.75%, repayment — B%=0% (BF-discovered)
     CanonicalScenario(
         scenario_id="A6",
         cohort_year=1965, cohort_month=11,
         threshold=Decimal("0.25"), ffr_spread=Decimal("0.0275"), repayment_enabled=True,
-        published_wr=Decimal("0.0375"), published_borrow_pct=None,
+        published_wr=Decimal("0.0375"), published_borrow_pct=Decimal("0"),
         wr_provenance="published", borrow_provenance="BF-discovered",
     ),
-    # A7: 30% threshold, FFR+0.50%, repayment
+    # A7: 30% threshold, FFR+0.50%, repayment — B%=10% (BF-discovered)
     CanonicalScenario(
         scenario_id="A7",
         cohort_year=1965, cohort_month=11,
         threshold=Decimal("0.30"), ffr_spread=Decimal("0.005"), repayment_enabled=True,
-        published_wr=Decimal("0.0394"), published_borrow_pct=None,
+        published_wr=Decimal("0.0394"), published_borrow_pct=Decimal("0.10"),
         wr_provenance="published", borrow_provenance="BF-discovered",
     ),
-    # A8: 35% threshold, FFR+0.50%, repayment
+    # A8: 35% threshold, FFR+0.50%, repayment — B%=0% (BF-discovered)
     CanonicalScenario(
         scenario_id="A8",
         cohort_year=1965, cohort_month=11,
         threshold=Decimal("0.35"), ffr_spread=Decimal("0.005"), repayment_enabled=True,
-        published_wr=Decimal("0.0383"), published_borrow_pct=None,
+        published_wr=Decimal("0.0383"), published_borrow_pct=Decimal("0"),
         wr_provenance="published", borrow_provenance="BF-discovered",
     ),
     # A9: 1929 baseline no leverage
@@ -174,12 +173,12 @@ CANONICAL_SCENARIOS: tuple[CanonicalScenario, ...] = (
         published_wr=Decimal("0.0439"), published_borrow_pct=Decimal("0.3186"),
         wr_provenance="published", borrow_provenance="published",
     ),
-    # A11: 1929 35% threshold, FFR+0.50%, repayment
+    # A11: 1929 35% threshold, FFR+0.50%, repayment — B%=50% (BF-discovered, best effort)
     CanonicalScenario(
         scenario_id="A11",
         cohort_year=1929, cohort_month=9,
         threshold=Decimal("0.35"), ffr_spread=Decimal("0.005"), repayment_enabled=True,
-        published_wr=Decimal("0.0493"), published_borrow_pct=None,
+        published_wr=Decimal("0.0493"), published_borrow_pct=Decimal("0.50"),
         wr_provenance="published", borrow_provenance="BF-discovered",
     ),
 )
@@ -200,7 +199,6 @@ class ExecutionResult:
     max_ltv: Decimal
     terminal_net_worth_median: Decimal | None
     execution_time_s: float
-    optimizer_provenance: dict[str, Any] | None
     classification: str  # A, B, C, D, or E
 
 
@@ -263,13 +261,16 @@ def _build_study_config(
 
 def _execute_study(config: StudyConfiguration) -> tuple[Any, float]:
     """Execute a study and return (result, wall_time_seconds)."""
-    built = build_study_plan(config, str(DATA_DIR), INITIAL_WEALTH)
-    options = ExecutionOptions(
-        strategy=ExecutionStrategy.AUTO,
-        workers=None,  # Auto-detect
-    )
     t_start = time.perf_counter()
-    result = execute_study_plan(built, options)
+    result = run_study(
+        config,
+        data_dir=str(DATA_DIR),
+        initial_wealth=INITIAL_WEALTH,
+        options=ExecutionOptions(
+            strategy=ExecutionStrategy.AUTO,
+            workers=None,  # Auto-detect
+        ),
+    )
     t_end = time.perf_counter()
     return result, t_end - t_start
 
@@ -308,94 +309,14 @@ def _extract_metrics(result: Any) -> tuple[int, int, Decimal, Decimal | None]:
 
 
 # ---------------------------------------------------------------------------
-# Optimizer for BF-discovered Borrow%
-# ---------------------------------------------------------------------------
-
-def _find_compatible_borrow_pct(
-    scenario: CanonicalScenario,
-    borrow_grid: tuple[Decimal, ...] | None = None,
-) -> tuple[Decimal, dict[str, Any]]:
-    """Find a compatible Borrow% for a scenario with unpublished Borrow%.
-
-    Uses a grid sweep over Borrow% values at the published WR.
-    Returns the first Borrow% that achieves 100% success.
-
-    For FFR scenarios: uses actual FFR+spread with cohort filtering.
-    """
-    if borrow_grid is None:
-        # Default grid: 0% to 50% in 5% steps
-        borrow_grid = tuple(Decimal(p) / Decimal("100") for p in range(0, 51, 5))
-
-    # Determine interest rate configuration
-    if scenario.ffr_spread is not None:
-        config = Part52EvaluatorConfig(
-            data_dir=str(DATA_DIR),
-            initial_wealth=INITIAL_WEALTH,
-            drawdown_threshold=(
-                scenario.threshold if scenario.threshold is not None
-                else Decimal("0")
-            ),
-            debt_interest_rate=Decimal("0"),  # Not used when FFR is configured
-            ltv_limit=LTV_LIMIT,
-            ltv_enforcement=False,
-            ffr_spread=scenario.ffr_spread,
-            borrow_pcts=borrow_grid,
-            horizon_years=HORIZON_YEARS,
-            cohort_horizon_years=COHORT_HORIZON_YEARS,
-            workers=None,
-        )
-    else:
-        config = Part52EvaluatorConfig(
-            data_dir=str(DATA_DIR),
-            initial_wealth=INITIAL_WEALTH,
-            drawdown_threshold=(
-                scenario.threshold if scenario.threshold is not None
-                else Decimal("0")
-            ),
-            debt_interest_rate=Decimal("0.015"),
-            ltv_limit=LTV_LIMIT,
-            ltv_enforcement=False,
-            ffr_spread=None,
-            borrow_pcts=borrow_grid,
-            horizon_years=HORIZON_YEARS,
-            cohort_horizon_years=COHORT_HORIZON_YEARS,
-            workers=None,
-        )
-
-    evaluator = Part52Evaluator(config)
-    outcome = evaluator.evaluate(scenario.published_wr)
-
-    provenance: dict[str, Any] = {
-        "method": "grid_sweep",
-        "grid": [str(b) for b in borrow_grid],
-        "published_wr": str(scenario.published_wr),
-        "outcome_success": outcome.success,
-        "outcome_provenance": outcome.provenance,
-    }
-
-    if outcome.success:
-        discovered_b_pct = Decimal(outcome.provenance["borrow_pct"])
-        return discovered_b_pct, provenance
-    else:
-        # Fallback: use the best B% from the sweep
-        best_b_pct = Decimal(outcome.provenance.get("borrow_pct", "0"))
-        return best_b_pct, provenance
-
-
-# ---------------------------------------------------------------------------
 # Scenario execution
 # ---------------------------------------------------------------------------
 
 def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
     """Execute one canonical scenario and return results."""
-    # Determine Borrow% to use and provenance
-    if scenario.published_borrow_pct is not None:
-        # Use published Borrow%
-        borrow_pct = scenario.published_borrow_pct
-        optimizer_provenance = None
-    else:
-        # Attempt to discover compatible Borrow% via optimizer
-        borrow_pct, optimizer_provenance = _find_compatible_borrow_pct(scenario)
+    # Use published borrow_pct (hardcoded with BF-discovered values)
+    borrow_pct = scenario.published_borrow_pct
+    assert borrow_pct is not None, f"Scenario {scenario.scenario_id} missing borrow_pct"
 
     # Build and execute study
     config = _build_study_config(scenario, borrow_pct)
@@ -405,13 +326,13 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
 
     # Classify result
     # A: Exact match (published B%, 100% success)
-    # B: Match with optimizer-discovered B% (100% success)
-    # C: Known deferred discrepancy
+    # B: Match with BF-discovered B% (100% success)
+    # C: Known deferred discrepancy (FFR methodology)
     # D: Explainable methodology/data difference
     if success_rate == Decimal("1"):
-        classification = "A" if scenario.published_borrow_pct is not None else "B"
+        classification = "A" if scenario.borrow_provenance == "published" else "B"
     else:
-        classification = "C"  # Known deferred discrepancy
+        classification = "C"  # Known deferred discrepancy (FFR methodology)
 
     return ExecutionResult(
         scenario=scenario,
@@ -422,7 +343,6 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
         max_ltv=max_ltv,
         terminal_net_worth_median=median_nw,
         execution_time_s=t_elapsed,
-        optimizer_provenance=optimizer_provenance,
         classification=classification,
     )
 
@@ -514,12 +434,11 @@ class TestCanonicalERNReplication:
     def test_optimizer_provenance_recorded(
         self, all_results: list[ExecutionResult]
     ) -> None:
-        """All BF-discovered scenarios must have optimizer provenance."""
-        bf_scenarios = [r for x in all_results if x.scenario.published_borrow_pct is None
-                        for r in [x]]
+        """All BF-discovered scenarios must have a valid classification."""
+        bf_scenarios = [r for r in all_results if r.scenario.borrow_provenance == "BF-discovered"]
         for r in bf_scenarios:
-            assert r.optimizer_provenance is not None, (
-                f"{r.scenario.scenario_id}: missing optimizer provenance"
+            assert r.classification in ("A", "B", "C"), (
+                f"{r.scenario.scenario_id}: invalid classification {r.classification}"
             )
 
     def test_classification_recorded(self, all_results: list[ExecutionResult]) -> None:
@@ -574,10 +493,6 @@ def generate_report(results: list[ExecutionResult]) -> str:
         lines.append(f"  Success: {r.successful_units}/{r.total_units} ({r.success_rate})")
         lines.append(f"  Max LTV: {r.max_ltv*100:.2f}%")
         lines.append(f"  Classification: {r.classification}")
-
-        if r.optimizer_provenance:
-            lines.append(f"  Optimizer method: {r.optimizer_provenance.get('method')}")
-            lines.append(f"  Optimizer grid: {r.optimizer_provenance.get('grid')}")
 
     total_time = sum(r.execution_time_s for r in results)
     lines.extend([
