@@ -59,7 +59,11 @@ from numpy.typing import NDArray
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
+from fbf.core.domain.policies import (
+    ConstantAllocationPolicy,
+    ConstantWithdrawalPolicy,
+    FixedRealWithdrawalPolicy,
+)
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
@@ -82,6 +86,7 @@ from fbf.core.execution.strategies.numba_kernel import (
     _compute_workbook_scr,
     _materialize_price_float,
     _simulate_trajectory,
+    _simulate_trajectory_constant_nominal,
     _simulate_trajectory_end_of_period,
     _simulate_trajectory_varying,
     compute_growth_factors_varying_weights_batch,
@@ -124,6 +129,31 @@ def _is_numba_eligible(context: SimulationContext) -> bool:
     return is_fast_path_eligible(context)
 
 
+def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
+    """Return True when *context* can use the Numba backend for constant nominal withdrawal.
+
+    Eligibility criteria: ConstantAllocationPolicy + ConstantWithdrawalPolicy,
+    sufficient dataset, two-asset portfolio.
+    """
+    if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
+        return False
+    if not isinstance(context.withdrawal_policy, ConstantWithdrawalPolicy):
+        return False
+    if context.horizon_months is None or context.horizon_months < 1:
+        return False
+    if context.dataset is None or len(context.dataset.snapshots) < 1:
+        return False
+    if len(context.dataset.snapshots) < context.horizon_months:
+        return False
+    holdings = context.initial_portfolio.holdings
+    if not holdings or len(holdings) != 2:
+        return False
+    equity_count = sum(1 for h in holdings if h.asset_class.id == "equity")
+    if equity_count != 1:
+        return False
+    return not any(h.asset_class not in context.dataset[0].index_levels for h in holdings)
+
+
 def _is_glidepath_eligible(context: SimulationContext) -> bool:
     """Return True when *context* is a glidepath strategy eligible for Numba.
 
@@ -162,6 +192,25 @@ def _gf_cache_key(context: SimulationContext) -> GFKey:
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     return (context.start_date, allocation.equity_allocation)
+
+
+def _constant_nominal_group_key(context: SimulationContext) -> tuple[object, ...]:
+    """Trajectory key for constant nominal withdrawal: excludes initial_wealth.
+
+    For ConstantWithdrawalPolicy, the withdrawal amount scales with the
+    current portfolio value, not the initial wealth.  Therefore, contexts
+    with different initial_wealth but same trajectory parameters can share
+    the same growth-factor computation.  The FV check is applied per-target
+    after the path is evaluated.
+    """
+    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    withdrawal = cast(ConstantWithdrawalPolicy, context.withdrawal_policy)
+    return (
+        context.start_date,
+        allocation.equity_allocation,
+        withdrawal.withdrawal_rate,
+        context.initial_portfolio,
+    )
 
 
 def _glidepath_gf_cache_key(context: SimulationContext) -> GlidepathGFKey:
@@ -293,7 +342,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
         glidepath_gf_key_to_sample_ctx: dict[GlidepathGFKey, SimulationContext] = {}
 
         for index, context in enumerate(definition.simulation_contexts):
-            # Check static eligibility first
+            # Check static eligibility first (FixedRealWithdrawalPolicy)
             if _is_numba_eligible(context):
                 key = _group_key(context)
                 if key not in key_to_group:
@@ -311,6 +360,24 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 if h > gf_key_to_max_horizon.get(gf_k, 0):
                     gf_key_to_max_horizon[gf_k] = h
                     gf_key_to_sample_ctx[gf_k] = context
+            # Check constant nominal withdrawal eligibility (ConstantWithdrawalPolicy)
+            elif _is_constant_nominal_eligible(context):
+                key = _constant_nominal_group_key(context)
+                if key not in key_to_group:
+                    group_id = len(group_contexts)
+                    key_to_group[key] = group_id
+                    group_contexts.append([])
+                else:
+                    group_id = key_to_group[key]
+                group_contexts[group_id].append(context)
+                order.append((index, group_id))
+
+                # Track max horizon and sample context per growth-factor cache key.
+                gf_k2: GFKey = _gf_cache_key(context)
+                h = context.horizon_months
+                if h > gf_key_to_max_horizon.get(gf_k2, 0):
+                    gf_key_to_max_horizon[gf_k2] = h
+                    gf_key_to_sample_ctx[gf_k2] = context
             # Check glidepath eligibility
             elif _is_glidepath_eligible(context):
                 key = _glidepath_gf_cache_key(context)
@@ -513,6 +580,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
             sample_ctx = contexts[0]
             if _is_numba_eligible(sample_ctx):
                 self._process_static_group(contexts, results, stats)
+            elif _is_constant_nominal_eligible(sample_ctx):
+                self._process_constant_nominal_group(contexts, results, stats)
             elif _is_glidepath_eligible(sample_ctx):
                 self._process_glidepath_group(contexts, results, stats)
         profiler.stop("numba_kernel_execution")
@@ -647,6 +716,75 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 if cache_key in horizon_result_cache:
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue
+
+                final_wealth = _money(final_value)
+
+                base = SimulationResult(
+                    timeline=SimulationTimeline(monthly_results=()),
+                    statistics=SimulationStatistics(
+                        final_wealth=final_wealth,
+                        max_drawdown=0.0,
+                        success=success,
+                        failure_month=failure_month,
+                        failure_state=None if success else "depleted",
+                        months_simulated=months_simulated,
+                        execution_time_seconds=0.0,
+                    ),
+                )
+                result = _apply_fv_check(base, ctx)
+                horizon_result_cache[cache_key] = result
+                results[id(ctx)] = result
+                stats["derived_count"] += 1
+
+    def _process_constant_nominal_group(
+        self,
+        contexts: list[SimulationContext],
+        results: dict[int, SimulationResult],
+        stats: dict[str, int],
+    ) -> None:
+        """Process a group of constant nominal withdrawal contexts."""
+        horizon_to_ctxs: dict[int, list[SimulationContext]] = {}
+        for ctx in contexts:
+            horizon_to_ctxs.setdefault(ctx.horizon_months, []).append(ctx)
+
+        sample_ctx = contexts[0]
+        initial_snapshot = sample_ctx.dataset[0]
+        v0 = float(sum(
+            holding.units * initial_snapshot.index_levels[holding.asset_class]
+            for holding in sample_ctx.initial_portfolio.holdings
+        ))
+        withdrawal_policy = cast(ConstantWithdrawalPolicy, sample_ctx.withdrawal_policy)
+        rate_f = float(withdrawal_policy.withdrawal_rate)
+
+        gf_key = _gf_cache_key(sample_ctx)
+        growth_factors_full = self._gf_cache[gf_key]
+
+        horizon_result_cache: dict[tuple[int, object], SimulationResult] = {}
+
+        for horizon, h_contexts in horizon_to_ctxs.items():
+            stats["month_work"] += horizon
+            growth_factors_arr = growth_factors_full[:horizon]
+
+            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_constant_nominal(
+                growth_factors_arr, v0, rate_f, horizon
+            )
+
+            for ctx in h_contexts:
+                cache_key = (horizon, ctx.final_value_target)
+                if cache_key in horizon_result_cache:
+                    results[id(ctx)] = horizon_result_cache[cache_key]
+                    continue
+
+                if 0 <= fail_month < horizon:
+                    success = False
+                    failure_month = fail_month
+                    final_value = 0.0
+                    months_simulated = fail_month
+                else:
+                    final_value = _final_val
+                    success = True
+                    failure_month = None
+                    months_simulated = horizon
 
                 final_wealth = _money(final_value)
 

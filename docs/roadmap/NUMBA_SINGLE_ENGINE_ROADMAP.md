@@ -657,8 +657,8 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | A1: Fix CLI default-routing bug | ✅ Complete | CLI dry-run works for all 3 paths | 8d142d3 (fbf-cli) | `run_command.py` default branch added |
 | A2: Part 52 Numba test coverage | ✅ Complete | 12 new tests exercise Numba path | [pending] | Tests prove eligible configs execute on Numba without fallback |
 | A3: Document legacy consumers | ✅ Complete | §1.3 | b4ff4ad | Verified via grep |
-| B1: Expense ratios (additive fee) | ✅ Complete | `workbook_scr.py`, `test_fast_path.py`, `part52_numba_executor.py` | [pending] | Static + Part 52 complete; Glidepath pending |
-| B2: Constant nominal withdrawal | ⬜ Not Started | — | — | Requires policy trace |
+| B1: Expense ratios (additive fee) | ✅ Complete (audited & fixed) | `workbook_scr.py`, `test_fast_path.py`, `part52_numba_executor.py` | 8dfbf24 (audited) | Static + Part 52 complete; Glidepath pending; **Critical cache key + fee pass-through bug fixed** |
+| B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | [current] | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
 | B3: Escalating withdrawal | ⬜ Not Started | — | — | Part 20 Experiment E |
 | B4: Buy-and-hold | ⬜ Not Started | — | — | Unit-tracking kernel |
 | B5: Multi-asset | ⬜ Not Started | — | — | Verify kernel support |
@@ -684,17 +684,26 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 - Validated against saved workbook values (600-month, 75/25, 4% WR, 0.05% fee)
 - All quality gates pass: ruff, mypy, contract tests, unit tests, integration tests
 
-**[pending]** — "B1: Part 52 expense ratio support (additive fee model)"
+**8dfbf24 (audited & fixed)** — "B1: Part 52 expense ratio support (additive fee model)"
 - Removed `expense_ratio` rejection from `is_part52_eligible()` in `part52_numba_executor.py`
-- Part 52 kernel already supported additive fee via `_compute_growth_factors_numpy(fee_annual)` — no kernel changes needed
-- Added 7 new tests in `test_part52_numba_executor.py`:
+- **Critical fix**: Part 52 executor was not passing `fee_annual` to `_compute_growth_factors_numpy` and cache key excluded `expense_ratio` — fixed in audit
+- Added 7 new tests in `test_part52_numba_executor.py` (plus cache key fix validation):
   - Eligibility: positive fee, zero fee now eligible
   - Numba path: zero fee, positive fee execute without fallback
-  - Fee affects wealth: separate executors avoid growth factor cache
+  - Fee affects wealth: verified fee reduces final wealth (strict inequality)
   - Boundary case: tiny fee (0.0001%) executes on Numba
   - Independent validation: workbook_scr module verifies additive fee model
   - SCR reduction: higher fee reduces SCR
 - All quality gates pass: ruff, mypy, pytest (19 Part 52 tests + all existing tests)
+
+**[current]** — "B2: Constant nominal withdrawal (ConstantWithdrawalPolicy)"
+- Implemented recurrence `V_{m+1} = V_m * (1 - rate/12) * g_m` in `_simulate_trajectory_constant_nominal` (beginning-of-period, matching legacy pipeline)
+- Added eligibility predicate `_is_constant_nominal_eligible` and group key `_constant_nominal_group_key` (excludes `initial_wealth` since withdrawal scales with current value)
+- Extended `NumbaSimulationExecutor` with `_process_constant_nominal_group` for batch processing
+- Fee model uses additive convention (embedded in growth factors) consistent with workbook methodology
+- Verified against legacy engine: matches for flat/growing markets; fee model differs from legacy `ExpenseDeductionStep` (documented)
+- AUTO routing now selects Numba for ConstantWithdrawalPolicy + ConstantAllocationPolicy
+- All quality gates pass: ruff, mypy, pytest (541 unit tests + integration tests)
 
 ### Known Limitations
 
@@ -702,6 +711,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 2. **Reference oracle divergence** — `tools/ern/reference_oracle.py` uses multiplicative fee + beginning-of-month withdrawals (matches published Table 1); `workbook_oracle.py` uses additive fee + end-of-period (matches workbook formulas). Documented in §1.4.
 3. **Part 52 tests bypass Numba** — All existing Part 52 integration tests use `create_default_pipeline()` directly (A2).
 4. **CLI default path broken** — Missing `research_result` branch in `run_command.py` (A1).
+5. **B1 audit finding** — Original B1 commit (8dfbf24) had a critical bug: Part 52 executor did not pass `fee_annual` to growth factor computation and cache key excluded `expense_ratio`. Fixed in subsequent audit; tests updated to verify strict fee impact.
 
 ---
 

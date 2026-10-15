@@ -201,6 +201,136 @@ def _simulate_trajectory(
 
 
 @numba.njit(cache=True)
+def _simulate_trajectory_constant_nominal(
+    growth_factors: NDArray[np.float64],
+    initial_value: float,
+    withdrawal_rate: float,
+    horizon: int,
+) -> tuple[float, bool, int, float]:
+    """Simulate one trajectory with constant nominal withdrawal (beginning-of-period).
+
+    This matches the legacy pipeline's behavior for ConstantWithdrawalPolicy:
+    withdrawal is computed as a percentage of the current portfolio value,
+    then growth is applied.
+
+    Recurrence:
+        V_0 = initial_value
+        For m in 0..horizon-1:
+            C_m = V_m * withdrawal_rate / 12
+            If C_m > V_m: failure at month m
+            V_m' = V_m - C_m = V_m * (1 - withdrawal_rate/12)
+            If m < horizon - 1: V_{m+1} = V_m' * growth_factors[m]
+        Final value = V_horizon (after last withdrawal, no growth)
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (length = horizon).  Only entries
+        0..horizon-2 are used; the last entry is ignored.
+    initial_value:
+        Portfolio value at month 0.
+    withdrawal_rate:
+        Annual withdrawal rate (e.g., 0.04 for 4%). Monthly rate = withdrawal_rate/12.
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    tuple of (final_value, success, failure_month, post_withdrawal_value)
+
+    On depletion, final_value is 0.0. On success, failure_month is -1.
+    """
+    value = initial_value
+    rate_monthly = withdrawal_rate / 12.0
+    factor = 1.0 - rate_monthly
+
+    for m in range(horizon):
+        # Withdrawal scales with current portfolio value
+        withdrawal_monthly = value * rate_monthly
+
+        # Depletion check: withdrawal exceeds portfolio value
+        if withdrawal_monthly > value:
+            return 0.0, False, m, 0.0
+
+        # Apply withdrawal
+        value = value * factor
+
+        # Apply growth (except for the last month)
+        if m < horizon - 1:
+            value *= growth_factors[m]
+
+    return value, True, -1, value
+
+
+@numba.njit(cache=True)
+def _simulate_batch_constant_nominal(
+    growth_factors: NDArray[np.float64],
+    initial_values: NDArray[np.float64],
+    withdrawal_rates: NDArray[np.float64],
+    horizons: NDArray[np.int32],
+    n_trajectories: int,
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.bool_],
+    NDArray[np.int32],
+    NDArray[np.float64],
+]:
+    """Simulate a batch of trajectories with constant nominal withdrawal."""
+    final_values = np.empty(n_trajectories, dtype=np.float64)
+    successes = np.empty(n_trajectories, dtype=np.bool_)
+    failure_months = np.empty(n_trajectories, dtype=np.int32)
+    post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
+
+    for i in range(n_trajectories):
+        fv, ok, fm, pwv = _simulate_trajectory_constant_nominal(
+            growth_factors,
+            initial_values[i],
+            withdrawal_rates[i],
+            int(horizons[i]),
+        )
+        final_values[i] = fv
+        successes[i] = ok
+        failure_months[i] = fm
+        post_withdrawal_values[i] = pwv
+
+    return final_values, successes, failure_months, post_withdrawal_values
+
+
+@numba.njit(parallel=True, cache=True)
+def _simulate_batch_constant_nominal_parallel(
+    growth_factors: NDArray[np.float64],
+    initial_values: NDArray[np.float64],
+    withdrawal_rates: NDArray[np.float64],
+    horizons: NDArray[np.int32],
+    n_trajectories: int,
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.bool_],
+    NDArray[np.int32],
+    NDArray[np.float64],
+]:
+    """Simulate a batch of trajectories in parallel with constant nominal withdrawal."""
+    final_values = np.empty(n_trajectories, dtype=np.float64)
+    successes = np.empty(n_trajectories, dtype=np.bool_)
+    failure_months = np.empty(n_trajectories, dtype=np.int32)
+    post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
+
+    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+        fv, ok, fm, pwv = _simulate_trajectory_constant_nominal(
+            growth_factors,
+            initial_values[i],
+            withdrawal_rates[i],
+            int(horizons[i]),
+        )
+        final_values[i] = fv
+        successes[i] = ok
+        failure_months[i] = fm
+        post_withdrawal_values[i] = pwv
+
+    return final_values, successes, failure_months, post_withdrawal_values
+
+
+@numba.njit(cache=True)
 def _simulate_batch(
     growth_factors: NDArray[np.float64],
     initial_values: NDArray[np.float64],
@@ -787,6 +917,99 @@ def simulate_batch(
     else:
         final_vals, successes, fail_months, _ = _simulate_batch(
             growth_factors, v0, c, h, n
+        )
+
+    results: list[tuple[bool, int | None, Money, int]] = []
+    for i in range(n):
+        fv = Money(Decimal(str(final_vals[i])), Currency.EUR)
+        if successes[i]:
+            results.append((True, None, fv, int(h[i])))
+        else:
+            results.append((False, int(fail_months[i]), fv, int(fail_months[i])))
+
+    return results
+
+
+def simulate_single_constant_nominal(
+    growth_factors: NDArray[np.float64],
+    initial_value: Money,
+    withdrawal_rate: Decimal,
+    horizon: int,
+) -> tuple[bool, int | None, Money, int]:
+    """Simulate a single trajectory with constant nominal withdrawal.
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (length = horizon).
+    initial_value:
+        Initial portfolio value.
+    withdrawal_rate:
+        Annual withdrawal rate (e.g., 0.04 for 4%).
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    tuple of (success, failure_month, final_wealth, months_simulated)
+    """
+    v0 = float(initial_value.amount)
+    r = float(withdrawal_rate)
+
+    final_value, success, failure_month, _ = _simulate_trajectory_constant_nominal(
+        growth_factors, v0, r, horizon
+    )
+
+    if success:
+        final_wealth = Money(Decimal(str(final_value)), Currency.EUR)
+        return True, None, final_wealth, horizon
+    else:
+        final_wealth = Money(Decimal(str(final_value)), Currency.EUR)
+        return False, failure_month, final_wealth, failure_month
+
+
+def simulate_batch_constant_nominal(
+    growth_factors: NDArray[np.float64],
+    initial_values: list[Money],
+    withdrawal_rates: list[Decimal],
+    horizons: list[int],
+    *,
+    parallel: bool = True,
+) -> list[tuple[bool, int | None, Money, int]]:
+    """Simulate a batch of trajectories with constant nominal withdrawal.
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (shared across all trajectories).
+    initial_values:
+        Initial portfolio values for each trajectory.
+    withdrawal_rates:
+        Annual withdrawal rates for each trajectory.
+    horizons:
+        Horizon in months for each trajectory.
+    parallel:
+        If True, use Numba parallel execution (recommended for batch > 10).
+
+    Returns
+    -------
+    List of (success, failure_month, final_wealth, months_simulated) tuples.
+    """
+    n = len(initial_values)
+    if n == 0:
+        return []
+
+    v0 = np.array([float(m.amount) for m in initial_values], dtype=np.float64)
+    r = np.array([float(rate) for rate in withdrawal_rates], dtype=np.float64)
+    h = np.array(horizons, dtype=np.int32)
+
+    if parallel and n > 10:
+        final_vals, successes, fail_months, _ = _simulate_batch_constant_nominal_parallel(
+            growth_factors, v0, r, h, n
+        )
+    else:
+        final_vals, successes, fail_months, _ = _simulate_batch_constant_nominal(
+            growth_factors, v0, r, h, n
         )
 
     results: list[tuple[bool, int | None, Money, int]] = []

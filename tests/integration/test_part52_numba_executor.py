@@ -545,11 +545,9 @@ class TestPart52ExpenseRatioSupport:
         result_fee = executor_fee.execute(defn_fee)
         wealth_fee = result_fee.simulation_results[0].statistics.final_wealth.amount
 
-        # Fee should reduce final wealth (or at least not increase it)
-        # Note: Part 52's leverage mechanics may offset fee effects
-        # The key assertion is that the executor accepts and processes the fee
-        assert wealth_fee <= wealth_zero, (
-            f"Fee should not increase wealth: {wealth_fee} > {wealth_zero}"
+        # Fee should strictly reduce final wealth
+        assert wealth_fee < wealth_zero, (
+            f"Fee should strictly reduce wealth: {wealth_fee} >= {wealth_zero}"
         )
 
     def test_fee_boundary_case(self) -> None:

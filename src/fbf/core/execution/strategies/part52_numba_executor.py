@@ -42,8 +42,8 @@ from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
 )
 
-# Type for growth-factor cache key: (start_date, equity_allocation)
-GFKey = tuple[date, Decimal]
+# Type for growth-factor cache key: (start_date, equity_allocation, expense_ratio)
+GFKey = tuple[date, Decimal, Decimal]
 
 # Type for price-float cache key: (start_date, number of price snapshots)
 _PriceCacheKey = tuple[date, int]
@@ -100,9 +100,10 @@ def is_part52_eligible(context: SimulationContext) -> bool:
 
 
 def _gf_cache_key(context: SimulationContext) -> GFKey:
-    """Cache key for growth-factor identity: (start_date, equity_allocation)."""
+    """Cache key for growth-factor identity: (start_date, equity_allocation, expense_ratio)."""
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
-    return (context.start_date, allocation.equity_allocation)
+    fee = context.expense_ratio or Decimal("0")
+    return (context.start_date, allocation.equity_allocation, fee)
 
 
 def _compute_monthly_rates(
@@ -150,7 +151,7 @@ def _compute_growth_factors_for_part52(
 ) -> NDArray[np.float64]:
     """Compute growth factors for the cohort's equity allocation and trajectory.
 
-    g_m = sum_j w_j * P_{j,m} / P_{j,m-1}
+    g_m = sum_j w_j * P_{j,m} / P_{j,m-1} - fee_annual/12
     """
     weights = _weights_by_class(context)
     series = _index_series(context)
@@ -165,7 +166,10 @@ def _compute_growth_factors_for_part52(
 
     weights_arr = np.array([float(weights[ac]) for ac in asset_classes], dtype=np.float64)
 
-    # Growth factors: g_m = sum_j w_j * P_{j,m+1} / P_{j,m}
+    fee_annual = float(context.expense_ratio or Decimal("0"))
+    fee_monthly = fee_annual / 12.0
+
+    # Growth factors: g_m = sum_j w_j * P_{j,m+1} / P_{j,m} - fee_monthly
     n_growth = min(horizon, n_prices - 1)
     growth_factors = np.ones(horizon, dtype=np.float64)
     for m in range(n_growth):
@@ -173,7 +177,7 @@ def _compute_growth_factors_for_part52(
         for j in range(len(asset_classes)):
             if prices[j, m] > 0.0:
                 g += weights_arr[j] * prices[j, m + 1] / prices[j, m]
-        growth_factors[m] = g
+        growth_factors[m] = g - fee_monthly
 
     return growth_factors
 
@@ -289,8 +293,9 @@ class Part52NumbaExecutor(SimulationExecutor):
             weights_f = np.array(
                 [float(weights[ac]) for ac in asset_classes], dtype=np.float64
             )
+            fee_annual = float(sample_ctx.expense_ratio or Decimal("0"))
             self._gf_cache[gf_k] = _compute_growth_factors_numpy(
-                weights_f, prices_f, max_h
+                weights_f, prices_f, max_h, fee_annual
             )
         profiler.stop("part52_growth_factors")
 
