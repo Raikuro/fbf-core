@@ -1,6 +1,6 @@
 # Roadmap: Migration to a Single Numba Execution Engine
 
-**Status:** Phase B — Capability Expansion **IN PROGRESS** 🔄
+**Status:** Phase A — Routing & Test Coverage Fixes **IN PROGRESS** 🔄
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
 **Objective:** Make Numba the sole simulation engine, progressively shrink and
 eventually delete the legacy Reference execution stack, and preserve
@@ -43,7 +43,7 @@ Independent oracle (never imported by production code):
 
 There is no second generic Decimal engine in the target state.
 
-### 1.3 Naming ambiguity that must eventually be resolved
+### 1.3 Naming ambiguity — verified consumers and migration approach
 
 The token **"reference"** currently denotes three different things. They must
 not be conflated:
@@ -54,12 +54,40 @@ not be conflated:
 | `ReferenceSimulationExecutor` / `execute_reference()` | `execution/strategies/reference.py:312`, `:455` | The legacy 9-step Decimal pipeline wrapped with horizon derivation and memory-bounded slice dispatch. |
 | "the reference engine" (prose) | `_create_default_simulation_executor()` | The actual legacy Decimal engine: the 9/15-step pipeline built in `parallel_executor.py:42` and `default_pipeline.py:53`. |
 
-**Consequence:** `ExecutionBackend.REFERENCE` is a *Delegate* to the fast path,
-while `execute_reference()` is the legacy engine. Any plan that says "remove
-Reference" must first disambiguate these. A future rename is recommended
-(e.g. `ExecutionBackend.DECIMAL_FAST_PATH` and `LEGACY_ENGINE`), but that is a
-breaking public-API change and is out of scope for this roadmap except as a
-noted follow-up.
+**Verified consumers (repository-wide search, 2026-10-15):**
+- `ExecutionBackend.REFERENCE`: Used in `execution/__init__.py` backend dispatch; `fbf-cli/src/fbf/cli/commands/run_command.py` CLI flag `--reference`; `tests/unit/execution/test_backend_strategy_matrix.py` routing tests; `tests/unit/execution/test_determinism.py` (one test).
+- `ReferenceSimulationExecutor`: Exported from `strategies/__init__.py`; used in `tests/unit/execution/test_reference.py`, `tests/unit/execution/test_trajectory_deduplication.py`, `tests/unit/execution/test_backend_strategy_matrix.py` (as `_make_reference_executor`), `tools/ern/mem_probe_*.py` (memory profiling, test-only).
+- `execute_reference()`: Exported from `execution/__init__.py`; used in `tests/unit/execution/test_reference.py`, `tests/integration/test_part42_e2e_audit.py` (monkey-patched), `tools/ern/mem_probe_*.py`.
+- `expected_reference_report`, `reference_month_work`: Exported from `execution/__init__.py`; used in CLI completion summary (`run_command.py:530-564, 640-678`).
+
+**Migration approach (per review):**
+- Do **not** delete `ReferenceSimulationExecutor` or `execute_reference()` in Phase A. Their unique responsibilities (cohort-slice dispatch for memory safety, report construction) must be migrated first.
+- Fix the CLI default-routing bug (`run_command.py` missing `research_result` branch for non-Part3, non-flagged execution) as a separate, explicitly tested change.
+- `ExecutionBackend.REFERENCE` rename to `DECIMAL_FAST_PATH` is a breaking public-API change. Trace all consumers first; a deprecation alias may be preferable to immediate removal. This is deferred until Phase C.
+- Obsolete equivalence tests (FAST vs legacy reference with multiplicative fee) are already deleted — confirmed.
+
+---
+
+## 1.4 Workbook-First Financial Correctness Policy
+
+`SWR_Toolbox_v2.0.xlsx` is the authoritative specification whenever it defines the relevant behavior.
+
+- Trace the actual workbook formulas and calculation order before implementing or changing financial calculations.
+- Preserve the validated workbook behavior, including the additive fee model (`weighted_return - fee/12`) and end-of-period withdrawal semantics (grow → withdraw) where applicable.
+- Do not assume that using the same fee convention automatically makes an unsupported workload workbook-equivalent.
+- Where the workbook does not define behavior (e.g., dynamic glidepaths, Part 52 timing leverage, buy-and-hold), explicitly specify and test the simulator extension. Do not silently invent financial semantics.
+- Keep `tools/ern/workbook_oracle.py` and `tools/ern/reference_oracle.py` independent of production Numba code. They are the validation oracles.
+- Do not regenerate, replace, or delete existing oracle data (`data/ern/p49_oracle_table.csv`) until its provenance, intended purpose, and relationship to published ERN results have been established. If the workbook and published ERN methodology differ (they do: workbook uses additive fee + end-of-period; reference oracle uses multiplicative fee + beginning-of-month), document the difference rather than silently overwriting one with the other.
+
+---
+
+## 1.5 Memory-Safety Requirements
+
+- The ERN canonical grid (313,020 units × 720 months) materializes ~0.37 MiB/unit of timeline payload (~110 GiB total). Memory-bounded cohort-slice dispatch (`reference.py:_slice_plan_units`) is the **only** current protection.
+- Any trajectory materialization (Phase B6) **requires** cohort-slice dispatch (Phase B7) to be implemented first or concurrently.
+- Summary-only execution (`summary_only=True`) must remain efficient and is the default for large grids.
+- Timeline materialization is opt-in unless existing public behavior requires otherwise.
+- The 16 GB memory target is a validation target, not an assumed guarantee. Actual workload requirements and execution environments must be measured.
 
 ---
 
@@ -182,34 +210,105 @@ Classification key:
 
 ## 4. Ordered Migration Phases
 
-### Phase A — Remove redundant legacy dependencies
+### Phase A — Routing Fixes, Test Coverage, and CLI Repair
 
-Goal: stop routing already-Numba-capable functionality through legacy
-abstractions, and delete dead wrappers — **without** deleting shared pipeline
-code that still serves unmigrated workloads.
+Goal: fix routing bugs, establish genuine Numba test coverage, repair the CLI
+default execution path, and document the verified consumers of legacy symbols.
+**Do not delete `ReferenceSimulationExecutor`, `execute_reference()`, or public
+exports in this phase.** Their unique responsibilities (cohort-slice dispatch
+for memory safety, report construction) must be migrated first.
 
 Work items:
 
-1. **A1 — Disambiguate names (documentation + symbol-level plan only).**
-   Record the three meanings of "reference" (§1.3). Prepare (do not yet land) a
-   rename plan for `ExecutionBackend.REFERENCE`.
-2. **A2 — Delete `ReferenceSimulationExecutor` and `execute_reference()`** once
-   the public export is removed and any CLI call site is redirected to
-   `execute_study_plan(..., backend=...)` or to the unified path. Horizon
-   derivation and FV dedup are already implemented in
-   `FastPathSimulationExecutor` (`fast_path.py`) and both Numba executors.
-3. **A3 — Retire `execute_reference`, `expected_reference_report`,
-   `reference_month_work`** lazy exports from `execution/__init__.py`
-   (`:53`, `:62`, `:70`) or redirect them to the surviving implementation.
-4. **A4 — Delete obsolete equivalence tests** (see §7.3) that assert
-   `FAST == legacy Reference` where the two intentionally differ.
-5. **A5 — Keep `parallel_executor._create_default_simulation_executor()`** until
-   Phase D; it is the fallback used by every executor.
+1. **A1 — Fix CLI default-routing bug.**
+   `fbf-cli/src/fbf/cli/commands/run_command.py` has a missing `research_result`
+   branch for non-Part3, non-flagged execution (lines 457-595). Implement the
+   default path: `research_result = execute_study_plan(built, options=ExecutionOptions(...))`.
+   Add explicit test for default (no flags), `--fast-path`, and `--reference` routes.
 
-Phase A gate: no production consumer imports `ReferenceSimulationExecutor` or
-`execute_reference`; all eligible ERN workloads route through Numba/Decimal fast
-path; remaining legacy fallback is only used by genuinely unmigrated
-workloads.
+2. **A2 — Establish genuine Part 52 Numba test coverage.**
+   Current Part 52 integration tests (`test_part52_compound_drawdown.py`,
+   `test_part52_ffr_floating_rate.py`, `test_part52_numerical_trace.py`) all
+   use `create_default_pipeline()` directly, bypassing `Part52NumbaExecutor`.
+   Add tests that instantiate `Part52NumbaExecutor` and verify eligible
+   configurations execute **without** invoking the fallback. Test expense
+   ratios, FFR schedules, loan draw/repay ordering, LTV enforcement, terminal
+   failure states, and boundary conditions.
+
+3. **A3 — Document verified consumers of legacy symbols (completed in §1.3).**
+   No deletions. Trace consumers for `ExecutionBackend.REFERENCE`,
+   `ReferenceSimulationExecutor`, `execute_reference()`,
+   `expected_reference_report`, `reference_month_work`.
+
+4. **A4 — Keep obsolete equivalence tests deleted** (already done).
+
+5. **A5 — Keep `parallel_executor._create_default_simulation_executor()`**
+   until Phase D; it is the fallback used by every executor.
+
+Phase A gate:
+- CLI default path, `--fast-path`, and `--reference` all work and are tested.
+- Part 52 has tests proving `Part52NumbaExecutor` executes eligible workloads
+  without fallback.
+- No production consumer imports `ReferenceSimulationExecutor` or
+  `execute_reference()` **for new code**; existing test consumers documented.
+- All eligible ERN workloads route through Numba/Decimal fast path.
+- Remaining legacy fallback only used by genuinely unmigrated workloads.
+
+### Phase B — Expand Numba's Generic Simulation Capabilities
+
+Goal: grow the unified Numba engine to cover the generic (non-debt) workload
+classes so they stop using the legacy fallback.
+
+Work items (each independently testable):
+
+1. **B1 — Non-zero expense ratio (additive fee).**
+   Add **additive** fee to the growth factor (`g_m' = g_m - fee/12`, matching
+   the workbook's `1 + r - f/12`) with the study's required semantics, and
+   remove the `expense_ratio` rejection from `is_part52_eligible`.
+   **Note:** The workbook uses additive fees (`V_{t+1} = (V_t - C) * (1 + r - f/12)`),
+   not the multiplicative form. The reference engine, fast path, and Numba
+   kernels must be updated to match. **Scope:** Static allocations (complete),
+   glidepaths (pending extension spec), Part 52 (kernel update required).
+
+2. **B2 — Constant nominal withdrawal.**
+   Trace the `ConstantWithdrawalPolicy` domain model and existing execution
+   order, then define the recurrence, withdrawal timing, failure conditions,
+   fees, and inflation adjustments explicitly. Validate with hand-calculated
+   examples and independent tests. Do not assume `V_{m+1} = V_m * (1 - rate/12) * g_m`
+   without verification.
+
+3. **B3 — Escalating withdrawal.**
+   Add a scalar withdrawal schedule input to the kernel and extend eligibility
+   to `EscalatingWithdrawalPolicy`. Validate with hand-calculated examples.
+
+4. **B4 — Buy-and-hold.**
+   Implement a non-rebalancing recurrence (unit-tracking) with explicit
+   specification. Workbook does not define this; document as simulator extension.
+
+5. **B5 — Multi-asset portfolios.**
+   Confirm whether existing Numba kernels genuinely support arbitrary asset
+   counts or only their numerical helper functions do. Introduce explicit
+   per-class target-weight source; relax the 2-asset predicate; verify
+   rebalance semantics.
+
+6. **B6 — Full monthly trajectory.**
+   Define trajectory semantics and required contents of `SimulationTimeline`
+   (including `portfolio`, `market_snapshot`, `debt_snapshot`) before
+   implementing materialization. Memory-bounded cohort processing (B7) must be
+   implemented first or concurrently.
+
+7. **B7 — Memory-bounded dispatch.**
+   Port cohort-aligned slice dispatch (`reference.py:_slice_plan_units`) into
+   the unified path so large grids stay within the host memory budget once B6
+   adds timeline payloads. Validate against actual ERN grid (313k units).
+
+Design rule: prefer extending the existing Numba executors and kernels over
+creating new engines. The executors already share `_group_key`, `_index_series`,
+`_weights_by_class`, `_apply_fv_check`, and growth-factor caching.
+
+Phase B gate: every non-debt workload that currently falls back to the legacy
+engine has either migrated to Numba with equivalent semantics or is recorded as
+a deliberate specialized path; large-grid memory and determinism gates pass.
 
 ### Phase B — Expand Numba's generic simulation capabilities
 
@@ -248,48 +347,87 @@ Phase B gate: every non-debt workload that currently falls back to the legacy
 engine has either migrated to Numba with equivalent semantics or is recorded as
 a deliberate specialized path; large-grid memory and determinism gates pass.
 
+### Phase C — Debt-Aware Workloads and Part 49/52 Migration
+
+Goal: migrate Part 49, Part 52, and other debt-aware workloads to Numba.
+
+Work items:
+
+1. **C1 — Part 52 Numba-only execution.**
+   Remove fallback from `Part52NumbaExecutor` for eligible configurations.
+   Ineligible configurations (missing FFR schedule, non-zero expense ratio before B1)
+   fail with explicit `UnsupportedConfigurationError`. Do not silently fall back.
+
+2. **C2 — Part 52 fee behavior (workbook additive).**
+   Implement additive fee in Part 52 kernel growth factors. Resolve against
+   workbook where defined; for Part 52-specific behavior not defined by workbook,
+   use explicit specification and independent numerical checks.
+
+3. **C3 — Part 49 debt (`loan_draw_rate`) migration.**
+   Part 49 and Part 52 have different debt semantics (fixed draw rate vs
+   drawdown-triggered, no ATH repayment). Implement separate kernel or mode
+   flag only if shared implementation is demonstrably clearer, safer, and
+   easier to validate than separate kernels. Do not merge merely for code reuse.
+
+4. **C4 — Part 49 buy-and-hold migration.**
+   Migrate `create_buy_and_hold_pipeline()` workloads to Numba buy-and-hold
+   kernel (B4).
+
+5. **C5 — LTV enforcement terminal state.**
+   Add `failure_state="margin_call_terminal"` to Part 52/49 Numba kernels to
+   match legacy `LTVEvaluationStep` behavior.
+
+Phase C gate:
+- Part 52 eligible configurations execute on Numba with no fallback.
+- Part 49 debt workloads execute on Numba.
+- LTV enforcement produces `margin_call_terminal` failure state.
+- All Part 52/49 integration tests pass on Numba executors.
+
+### Phase D — Trajectories, Memory, and Legacy Removal
+
+Goal: implement trajectory materialization, bounded-memory dispatch, and
+remove all legacy pipeline code.
+
+Work items:
+
+1. **D1 — Monthly trajectory materialization.**
+   Define `SimulationTimeline` contents (`portfolio`, `market_snapshot`,
+   `debt_snapshot`). Add optional `materialize_timeline` flag to Numba
+   executors. Implement in kernels with pre-allocated arrays.
+
+2. **D2 — Cohort-slice dispatch for bounded memory.**
+   Port `_slice_plan_units` to unified Numba path. Validate ERN grid
+   (313k units) stays within memory budget with timelines enabled.
+
+3. **D3 — Deterministic trajectory on Numba.**
+   Rewrite `execute_deterministic_trajectory` to use Numba kernel with
+   trajectory output and checkpoint extraction.
+
+3. **D4 — Legacy pipeline removal.**
+   Delete `_create_default_simulation_executor()`, `create_default_pipeline()`,
+   `create_buy_and_hold_pipeline()`, `ExpenseDeductionStep`, all pipeline
+   steps, `ReferenceSimulationExecutor`, `execute_reference()`,
+   `expected_reference_report`, `reference_month_work`, `FastPathSimulationExecutor`
+   (if Numba is mandatory), and all fallback references.
+
+4. **D5 — Public API resolution.**
+   Decide on `ExecutionBackend.REFERENCE` rename/removal (breaking change).
+   Update CLI to route `--reference` and default path through unified engine.
+   Remove `--validate` (tied to Decimal fast path validation).
+
+Phase D gate (Final Deletion Gate):
+- All capabilities in §3 migrated or explicitly retained.
+- Workbook fidelity for static allocations validated.
+- Dynamic glidepath extension specification documented.
+- Zero production references to legacy symbols.
+- `ExecutionBackend.REFERENCE` renamed/removed; Core minor version bumped.
+- CLI routes through unified engine.
+- Canonical ERN grids match oracle; all E2E tests pass.
+- Large-grid execution within memory budget.
+- Quality gates pass: `ruff check .`, `mypy --strict .`, full test suite.
+- `tools/ern/reference_oracle.py` unchanged and independently regenerates oracle.
+
 ---
-
-### Phase B Sub-task: Workbook SCR Implementation — COMPLETE ✅
-
-**Status**: The workbook SCR methodology for static allocations has been implemented across the fast path and Numba executor, and validated against the saved workbook values for the documented acceptance case.
-
-**Implemented components:**
-
-| Component | File | Status |
-|-----------|------|--------|
-| Core workbook SCR formulas | `src/fbf/core/execution/strategies/workbook_scr.py` | COMPLETE |
-| Fast path eligibility + evaluation | `src/fbf/core/execution/strategies/fast_path.py` (`_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form`) | COMPLETE |
-| Numba kernel SCR + end-of-period trajectory | `src/fbf/core/execution/strategies/numba_kernel.py` (`_compute_workbook_scr`, `_simulate_trajectory_end_of_period`) | COMPLETE |
-| Numba executor integration | `src/fbf/core/execution/strategies/numba_executor.py` (`_use_workbook_scr`, `_process_static_group`) | COMPLETE |
-
-**Workbook fidelity scope:**
-- **Static allocations (ConstantAllocationPolicy + FixedRealWithdrawalPolicy, FV=0)**: Workbook SCR formula applied for success determination; end-of-period trajectory (grow → withdraw) used for final wealth with fee embedded in returns (`weighted_return - fee/12`).
-- **Dynamic glidepaths (GlidepathAllocationPolicy)**: **NOT adapted** — remain on legacy beginning-of-period recurrence with multiplicative fee. A separate extension specification is required.
-
-**Validated passing checks:**
-- Ruff lint: **All checks passed**
-- Strict mypy: **Success: no issues found in 317 source files**
-- Contract tests: **16/16 passed**
-- Fast-path unit tests (including depletion boundary, multi-horizon equivalence): **22/22 passed**
-- Part20 corrected methodology tests: **9/9 passed** (expectations updated to workbook methodology)
-- Oracle matrix tests: **3/3 passed**
-- Full unit suite: **597 passed**
-- Integration + contract suites: **229 passed, 83 skipped (ERN E2E)**
-- Performance benchmarks: **3 passed**
-
-**Known gaps (not workbook fidelity failures):**
-- The independent workbook oracle (`tools/ern/workbook_oracle.py`) and the test oracle (`_workbook_oracle_result`) implement the workbook formulas independently; they do not invoke production calculation helpers.
-- The differential tests that compared workbook-based Numba results against the legacy reference engine methodology have been removed; they compared against the legacy multiplicative-fee methodology.
-- Fresh spreadsheet recalculation in Excel/LibreOffice was **not completed** (LibreOffice headless timed out); validation is against pre-calculated workbook saved values.
-
-**Acceptance criteria for workbook fidelity (static):**
-1. ✅ Independent validation of the SCR calculation against the workbook formulas.
-2. ✅ Agreement between SCR-based success classification and workbook-calculated examples.
-3. ✅ Validation of end-of-period trajectory and final wealth against the workbook or hand-verifiable cases (for the documented acceptance case).
-4. ✅ Tests covering fees, horizon boundaries, and depletion.
-
-These criteria are **COMPLETE for the tested cases** (600-month horizon, 75/25 equity/bond, 4% WR, 0.05% fee). Broader independent acceptance coverage remains pending.
 
 ## 5. Correctness and Validation Contracts
 
@@ -405,17 +543,17 @@ be imported by production code.
 
 | File | Symbols | Phase | Action |
 |------|---------|:-----:|--------|
-| `src/fbf/core/execution/strategies/reference.py` | `ReferenceSimulationExecutor`, `execute_reference`, `_slice_plan_units`, `expected_reference_report`, `_build_derived_result` | A/D | Delete (port slice dispatch in B7) |
+| `src/fbf/core/execution/strategies/reference.py` | `ReferenceSimulationExecutor`, `execute_reference`, `_slice_plan_units`, `expected_reference_report`, `_build_derived_result` | D | Delete after slice dispatch ported (B7/D2) and report duties migrated |
 | `src/fbf/core/execution/strategies/workbook_scr.py` | `compute_workbook_growth_factors`, `compute_workbook_scr`, `workbook_scr_success` | B | **COMPLETE** — workbook SCR core implementation |
-| `src/fbf/core/execution/__init__.py` | `execute_reference`, `expected_reference_report` exports (`:53`,`:62`); REFERENCE branch (`:436`) | A/D | Remove/redirect; resolve naming |
-| `src/fbf/core/execution/strategies/parallel_executor.py` | `_create_default_simulation_executor` (`:42`) | D | Delete after fallbacks removed |
-| `src/fbf/core/execution/pipeline/default_pipeline.py` | `create_default_pipeline`, `create_buy_and_hold_pipeline` | D | Delete/retain per pipeline consumers |
-| `src/fbf/core/execution/pipeline/steps/expense_deduction_step.py` | `ExpenseDeductionStep` | B/D | Migrate fee to Numba; delete only via §8 gate |
-| `src/fbf/core/execution/strategies/fast_path.py` | `FastPathSimulationExecutor`, `self._reference` (`:817`), `_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form` | B/D | **Workbook SCR COMPLETE**; decide survival (fallback vs delete) |
-| `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `self._reference` (`:255`), `_use_workbook_scr`, `_process_static_group` | B/D | **Workbook SCR COMPLETE**; extend; remove fallback |
-| `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor`, `self._reference` (`:217`) | C/D | Generalize; remove fallback |
-| `src/fbf/core/execution/strategies/numba_kernel.py` | `_simulate_trajectory`, `_simulate_trajectory_end_of_period`, `_simulate_trajectory_varying`, `_compute_workbook_scr`, `_simulate_part52` | B/C | **Workbook SCR COMPLETE**; add nominal/escalating withdrawal, trajectories, debt snapshots |
-| `src/fbf/core/execution/deterministic.py` | `execute_deterministic_trajectory` | B/D | Reimplement or retain |
+| `src/fbf/core/execution/__init__.py` | `execute_reference`, `expected_reference_report`, `reference_month_work` exports (`:53`,`:62`,`:70`); REFERENCE branch (`:436`) | D | Remove after Phase C; rename `ExecutionBackend.REFERENCE` in Phase C |
+| `src/fbf/core/execution/strategies/parallel_executor.py` | `_create_default_simulation_executor` (`:42`) | D | Delete after all fallbacks removed (Phase D4) |
+| `src/fbf/core/execution/pipeline/default_pipeline.py` | `create_default_pipeline`, `create_buy_and_hold_pipeline` | D | Delete after all pipeline consumers migrated (Phase D4) |
+| `src/fbf/core/execution/pipeline/steps/expense_deduction_step.py` | `ExpenseDeductionStep` | C/D | Migrate fee to Numba (B1); delete in Phase D4 |
+| `src/fbf/core/execution/strategies/fast_path.py` | `FastPathSimulationExecutor`, `self._reference` (`:817`), `_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form` | C/D | **Workbook SCR COMPLETE**; retain as Decimal fast path if Numba optional; else delete in D4 |
+| `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `self._reference` (`:255`), `_use_workbook_scr`, `_process_static_group` | B/C/D | **Workbook SCR COMPLETE**; extend; remove fallback in C1/D4 |
+| `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor`, `self._reference` (`:217`) | C | Generalize; remove fallback in C1; add expense ratio (B1) |
+| `src/fbf/core/execution/strategies/numba_kernel.py` | `_simulate_trajectory`, `_simulate_trajectory_end_of_period`, `_simulate_trajectory_varying`, `_compute_workbook_scr`, `_simulate_part52` | B/C/D | **Workbook SCR COMPLETE**; add nominal/escalating withdrawal (B2/B3), trajectories (D1), debt snapshots |
+| `src/fbf/core/execution/deterministic.py` | `execute_deterministic_trajectory` | D | Reimplement on Numba (D3) |
 
 ### 7.2 Configuration / CLI / public surface
 
@@ -434,39 +572,44 @@ be imported by production code.
 | `tests/oracle/ern/*` | Canonical correctness | — | Keep (primary acceptance) |
 | `tests/unit/execution/test_determinism.py::TestReferenceDecimalEquivalence` | Obsolete equivalence | A | **DELETED** — tested FAST vs legacy reference (multiplicative fee) |
 | `tests/unit/execution/test_fast_path_exact_equivalence.py` | Obsolete equivalence | A | **DELETED** — tested FAST vs legacy reference (multiplicative fee) |
-| `tests/unit/execution/test_reference.py` | Legacy executor internals | A/D | Delete/port needed cases |
-| `tests/unit/execution/test_trajectory_deduplication.py` | Behavioral (FV dedup) | A | Keep; retarget to surviving executor |
+| `tests/unit/execution/test_reference.py` | Legacy executor internals | D | Delete after D2; port FV dedup cases to `test_trajectory_deduplication.py` |
+| `tests/unit/execution/test_trajectory_deduplication.py` | Behavioral (FV dedup) | A/D | Keep; retarget to `FastPathSimulationExecutor` / `NumbaSimulationExecutor` |
 | `tests/unit/execution/test_backend_equivalence.py` | Routing | A | Keep; fix "reference" naming |
-| `tests/unit/execution/test_backend_strategy_matrix.py` | Routing | A | Keep |
-| `tests/unit/execution/test_pipeline_parity.py` | Behavioral/equivalence | A/D | Reclassify |
+| `tests/unit/execution/test_backend_strategy_matrix.py` | Routing | A | Keep; replace `_make_reference_executor()` with `FastPathSimulationExecutor` |
+| `tests/unit/execution/test_pipeline_parity.py` | Behavioral/equivalence | C/D | Reclassify; keep behavioral contract tests |
 | `tests/unit/strategies/test_numba_executor_differential.py` | Differential vs legacy (legacy methodology) | B/C | **DELETED** — compared workbook-based numba vs legacy reference |
-| `tests/unit/execution/test_grid_reference.py` | Legacy grid | A/D | Reclassify |
+| `tests/unit/execution/test_grid_reference.py` | Legacy grid | C/D | Reclassify; keep routing tests |
 | `tests/integration/test_numba_e2e.py` | Numba E2E (legacy comparison) | B/C | **DELETED** — compared workbook-based numba vs legacy reference |
-| `tests/integration/test_part52_*` | Behavioral (debt) | C | Keep; run on Numba |
-| `tests/integration/test_part49_*` | Behavioral/canonical | C | Keep |
-| `tests/benchmarks/test_*` | Performance | B | Keep; update to unified path |
-| `fbf-cli/tests/unit/test_run_command.py`, `test_grid_cli_contract.py` | Routing/CLI | A | Keep; align to repaired dispatch |
+| `tests/integration/test_part52_*` | Behavioral (debt) | C | **REWRITE** to use `Part52NumbaExecutor`; add explicit Numba-path tests |
+| `tests/integration/test_part49_*` | Behavioral/canonical | C | **REWRITE** to use Numba executor; add explicit Numba-path tests |
+| `tests/benchmarks/test_*` | Performance | B/D | Keep; update to unified path |
+| `fbf-cli/tests/unit/test_run_command.py`, `test_grid_cli_contract.py` | Routing/CLI | A | Keep; align to repaired dispatch (A1) |
 | `tests/unit/execution/test_fast_path.py` | Fast path workbook SCR | B | **PASSING** (22/22) — validates workbook SCR path, depletion boundary, multi-horizon equivalence |
 | `tests/unit/research/test_part20_corrected_methodology.py` | Part20 workbook fidelity | B | **PASSING** (9/9) — updated expectations for workbook methodology |
+| `tests/integration/test_part52_numba_executor.py` | Part 52 Numba path | A | **NEW** — prove eligible configs execute without fallback |
+| `tests/integration/test_part52_ineligible_error.py` | Unsupported config errors | A | **NEW** — explicit errors for ineligible configs |
 
 ---
 
 ## 8. Final Deletion Gate for the Legacy Reference Engine
 
-The legacy engine may be deleted only when **all** of the following hold:
+The legacy engine may be deleted only when **all** of the following hold (Phase D gate):
 
 1. **Capability parity.** Every capability in §3 is either class 1 (migrated)
    or an explicitly retained specialized path. No production path calls
    `_create_default_simulation_executor()`.
+
 2. **Workbook fidelity for static allocations.**
    - Independent validation of the SCR calculation against the workbook formulas.
    - Agreement between SCR-based success classification and workbook-calculated examples.
    - Validation of end-of-period trajectory and final wealth against the workbook or hand-verifiable cases.
    - Tests covering fees, horizon boundaries, and depletion.
+
 3. **Dynamic glidepath extension specification documented.**
    - A documented extension specification for glidepath allocation transitions, withdrawals, and depletion.
    - Deterministic tests for allocation transitions, withdrawals, and depletion.
    - Explicit separation between workbook-defined behavior and simulator-specific extension behavior.
+
 4. **No production consumer.** A repository-wide search for the following
    returns no production references (only the roadmap / history):
    - `ReferenceSimulationExecutor`
@@ -478,26 +621,75 @@ The legacy engine may be deleted only when **all** of the following hold:
    - `expected_reference_report`
    - `reference_month_work`
    - `reference_executor=`
+
 5. **Public surface resolved.** `execute_reference` and
    `expected_reference_report` are removed from public exports; the
    `ExecutionBackend.REFERENCE` semantics are renamed/aliased/removed and all
    consumer pins updated (Core minor bump if Tier 1/2 API changes).
+
 6. **CLI resolved.** `--reference` and the default execution path route through
    the unified engine; `--fast-path` remains an alias for the same engine or is
-   removed deliberately.
+   removed deliberately; `--validate` removed (tied to Decimal fast path).
+
 7. **Validation.** Canonical ERN grids match `data/ern/p49_oracle_table.csv`
    (via `tools/ern/reference_oracle.py`) within the justified tolerance; Part
    52 / Part 49 / Part 19 / Part 20 E2E and behavioral tests pass; determinism
    and parallel-equivalence tests pass; persistence round-trips full
    trajectories.
+
 8. **Memory gate.** Large-grid execution (313k units) stays within the
    documented host memory budget with timelines enabled.
+
 9. **Quality gate.** `ruff check .`, `mypy --strict .`, and the full test suite
    pass from a clean checkout per `AGENTS.md`.
+
 10. **Oracle preserved.** `tools/ern/reference_oracle.py` is unchanged and still
     regenerates the oracle table independently.
 
 Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
+
+---
+
+## 9. Progress Tracking
+
+| Milestone | Status | Evidence | Commit | Notes |
+|-----------|--------|----------|--------|-------|
+| A1: Fix CLI default-routing bug | ⬜ Not Started | — | — | `run_command.py` missing default branch |
+| A2: Part 52 Numba test coverage | ⬜ Not Started | — | — | Rewrite existing tests to use `Part52NumbaExecutor` |
+| A3: Document legacy consumers | ✅ Complete | §1.3 | — | Verified via grep |
+| B1: Expense ratios (additive fee) | ✅ Static Complete | `workbook_scr.py`, `test_fast_path.py` | 99b4882 | Glidepath/Part 52 pending |
+| B2: Constant nominal withdrawal | ⬜ Not Started | — | — | Requires policy trace |
+| B3: Escalating withdrawal | ⬜ Not Started | — | — | Part 20 Experiment E |
+| B4: Buy-and-hold | ⬜ Not Started | — | — | Unit-tracking kernel |
+| B5: Multi-asset | ⬜ Not Started | — | — | Verify kernel support |
+| B6: Trajectory materialization | ⬜ Not Started | — | — | Requires B7 first |
+| B7: Cohort-slice dispatch | ⬜ Not Started | — | — | Port `_slice_plan_units` |
+| C1: Part 52 Numba-only | ⬜ Not Started | — | — | Remove fallback |
+| C2: Part 52 fee behavior | ⬜ Not Started | — | — | Additive in kernel |
+| C3: Part 49 debt migration | ⬜ Not Started | — | — | Separate kernel or mode |
+| C4: Part 49 buy-and-hold | ⬜ Not Started | — | — | Depends on B4 |
+| C5: LTV terminal state | ⬜ Not Started | — | — | `margin_call_terminal` |
+| D1: Trajectory materialization | ⬜ Not Started | — | — | Optional flag |
+| D2: Cohort-slice for memory | ⬜ Not Started | — | — | ERN grid validation |
+| D3: Deterministic trajectory | ⬜ Not Started | — | — | Checkpoint extraction |
+| D4: Legacy removal | ⬜ Not Started | — | — | Final deletion gate |
+| D5: Public API resolution | ⬜ Not Started | — | — | Breaking change decision |
+
+**Legend:** ✅ Complete | 🔄 In Progress | ⬜ Not Started | ❌ Blocked
+
+### Completed Milestones
+
+**99b4882** — "workbook fidelity: implement additive fee model, fix builder horizon bug, add validation tests"
+- Implemented workbook SCR methodology for static allocations across `workbook_scr.py`, `fast_path.py`, `numba_kernel.py`, `numba_executor.py`
+- Validated against saved workbook values (600-month, 75/25, 4% WR, 0.05% fee)
+- All quality gates pass: ruff, mypy, contract tests, unit tests, integration tests
+
+### Known Limitations
+
+1. **Workbook recalculation not completed** — LibreOffice headless timed out; validation against pre-calculated saved values.
+2. **Reference oracle divergence** — `tools/ern/reference_oracle.py` uses multiplicative fee + beginning-of-month withdrawals (matches published Table 1); `workbook_oracle.py` uses additive fee + end-of-period (matches workbook formulas). Documented in §1.4.
+3. **Part 52 tests bypass Numba** — All existing Part 52 integration tests use `create_default_pipeline()` directly (A2).
+4. **CLI default path broken** — Missing `research_result` branch in `run_command.py` (A1).
 
 ---
 
