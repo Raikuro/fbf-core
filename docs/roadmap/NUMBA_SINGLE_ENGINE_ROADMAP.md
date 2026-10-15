@@ -654,9 +654,9 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 
 | Milestone | Status | Evidence | Commit | Notes |
 |-----------|--------|----------|--------|-------|
-| A1: Fix CLI default-routing bug | ⬜ Not Started | — | — | `run_command.py` missing default branch |
-| A2: Part 52 Numba test coverage | ⬜ Not Started | — | — | Rewrite existing tests to use `Part52NumbaExecutor` |
-| A3: Document legacy consumers | ✅ Complete | §1.3 | — | Verified via grep |
+| A1: Fix CLI default-routing bug | ✅ Complete | CLI dry-run works for all 3 paths | 8d142d3 (fbf-cli) | `run_command.py` default branch added |
+| A2: Part 52 Numba test coverage | ✅ Complete | 12 new tests exercise Numba path | [pending] | Tests prove eligible configs execute on Numba without fallback |
+| A3: Document legacy consumers | ✅ Complete | §1.3 | b4ff4ad | Verified via grep |
 | B1: Expense ratios (additive fee) | ✅ Static Complete | `workbook_scr.py`, `test_fast_path.py` | 99b4882 | Glidepath/Part 52 pending |
 | B2: Constant nominal withdrawal | ⬜ Not Started | — | — | Requires policy trace |
 | B3: Escalating withdrawal | ⬜ Not Started | — | — | Part 20 Experiment E |
