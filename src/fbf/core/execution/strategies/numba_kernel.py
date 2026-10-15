@@ -60,13 +60,100 @@ from fbf.core.domain.model.money import Currency, Money
 
 
 @numba.njit(cache=True)
+def _compute_workbook_scr(
+    growth_factors: NDArray[np.float64],
+    horizon: int,
+    fee_annual: float,
+) -> float:
+    """Compute workbook SCR from growth factors (with fee already embedded).
+
+    SCR = 1 / (Sum_{t=0..T-1} 1/P[t]) * 12
+
+    Where P[t] is cumulative growth factor WITH FEE EMBEDDED:
+    P[0] = 1
+    P[t] = P[t-1] * growth_factors[t-1]  (growth_factors already include fee)
+
+    Parameters
+    ----------
+    growth_factors:
+        Monthly growth factors (1 + return) WITH FEE EMBEDDED, length >= horizon.
+    horizon:
+        Number of months (T).
+    fee_annual:
+        Annual fee (e.g., 0.0005 for 0.05%). NOT USED - kept for API compatibility.
+        Fee is already embedded in growth_factors.
+
+    Returns
+    -------
+    SCR as annual rate (e.g., 0.04 for 4%).
+    """
+    # Build cumulative growth factors P
+    P_T = 1.0
+    sum_inv_P = 1.0  # 1/P[0] = 1
+
+    for m in range(1, horizon):
+        P_T *= growth_factors[m - 1]
+        sum_inv_P += 1.0 / P_T
+
+    # SCR = 1 / (Sum_{t=0..T-1} 1/P[t]) * 12
+    scr = 1.0 / sum_inv_P * 12.0
+    return scr
+
+
+@numba.njit(cache=True)
+def _simulate_trajectory_end_of_period(
+    growth_factors: NDArray[np.float64],
+    initial_value: float,
+    withdrawal_monthly: float,
+    horizon: int,
+) -> tuple[float, bool, int, float]:
+    """Simulate one trajectory with end-of-period withdrawals (grow → withdraw).
+
+    This matches the workbook methodology: portfolio grows first, then withdrawal occurs.
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (length = horizon).  Entry m is the growth
+        from month m to m+1.  All entries 0..horizon-1 are used.
+    initial_value:
+        Portfolio value at month 0.
+    withdrawal_monthly:
+        Constant real monthly withdrawal ``C``.
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    tuple of (final_value, success, failure_month, post_withdrawal_value)
+
+    On depletion, final_value is 0.0.  On success, failure_month is -1.
+    """
+    value = initial_value
+
+    for m in range(horizon):
+        # Grow first (end-of-period)
+        value *= growth_factors[m]
+
+        # Then withdraw
+        if value < withdrawal_monthly:
+            return 0.0, False, m, 0.0
+
+        value -= withdrawal_monthly
+
+    return value, True, -1, value
+
+
+@numba.njit(cache=True)
 def _simulate_trajectory(
     growth_factors: NDArray[np.float64],
     initial_value: float,
     withdrawal_monthly: float,
     horizon: int,
 ) -> tuple[float, bool, int, float]:
-    """Simulate one trajectory using the scalar recurrence.
+    """Simulate one trajectory using the scalar recurrence (beginning-of-period).
+
+    Kept for backward compatibility with non-workbook contexts.
 
     The recurrence matches the reference engine's monthly pipeline:
     withdrawal → rebalance → market evolution.  Growth is applied for months
@@ -194,14 +281,15 @@ def compute_growth_factors(
     target_weights: dict[object, Decimal],
     price_series: dict[object, tuple[Decimal, ...]],
     horizon: int,
+    fee_annual: Decimal = Decimal("0"),
 ) -> NDArray[np.float64]:
-    """Precompute the constant growth factors for each month.
+    """Precompute the constant growth factors for each month (with fee embedded).
 
-    ``growth_factors[m] = sum_j w_j * P_{j,m+1} / P_{j,m}``
+    ``growth_factors[m] = sum_j w_j * P_{j,m+1} / P_{j,m} - fee_annual/12``
 
-    Only entries 0..horizon-2 are meaningful (the simulation applies growth
-    for months 0..horizon-2; the final month has no further growth).  The
-    entry at index horizon-1 is filled with 1.0 for safety.
+    Entries 0..horizon-1 are meaningful for end-of-period trajectories
+    (T growth periods for T months).  For beginning-of-period trajectories,
+    only entries 0..horizon-2 are used (T-1 growth periods).
 
     Parameters
     ----------
@@ -213,6 +301,8 @@ def compute_growth_factors(
         Monthly index levels keyed by asset class.
     horizon:
         Number of months to simulate.
+    fee_annual:
+        Annual fee (e.g., 0.0005 for 0.05%). Applied monthly as fee_annual/12.
 
     Returns
     -------
@@ -230,14 +320,16 @@ def compute_growth_factors(
         for m in range(n_prices):
             prices[j, m] = float(series[m])
 
-    n_growth = min(horizon - 1, n_prices - 1)
+    n_growth = min(horizon, n_prices - 1)
     growth_factors = np.ones(horizon, dtype=np.float64)
+
+    fee_monthly = float(fee_annual) / 12.0
 
     for m in range(n_growth):
         g = 0.0
         for j in range(n_assets):
             g += weights[j] * prices[j, m + 1] / prices[j, m]
-        growth_factors[m] = g
+        growth_factors[m] = g - fee_monthly
 
     return growth_factors
 
@@ -302,8 +394,9 @@ def _compute_growth_factors_numpy(
     weights_float: NDArray[np.float64],
     prices_float: NDArray[np.float64],
     horizon: int,
+    fee_annual: float = 0.0,
 ) -> NDArray[np.float64]:
-    """Compute growth factors using vectorized NumPy operations.
+    """Compute growth factors using vectorized NumPy operations (with fee embedded).
 
     Parameters
     ----------
@@ -313,19 +406,22 @@ def _compute_growth_factors_numpy(
         Float64 array of price series, shape (n_assets, n_prices).
     horizon:
         Number of months to simulate.
+    fee_annual:
+        Annual fee (e.g., 0.0005 for 0.05%). Applied monthly as fee_annual/12.
 
     Returns
     -------
     NDArray of float64 growth factors, length = horizon.
     """
     n_prices = prices_float.shape[1]
-    n_growth = min(horizon - 1, n_prices - 1)
+    n_growth = min(horizon, n_prices - 1)
 
     ratios = prices_float[:, 1:] / prices_float[:, :-1]
     growth = np.dot(weights_float, ratios)
 
     growth_factors = np.ones(horizon, dtype=np.float64)
-    growth_factors[:n_growth] = growth[:n_growth]
+    fee_monthly = fee_annual / 12.0
+    growth_factors[:n_growth] = growth[:n_growth] - fee_monthly
 
     return growth_factors
 
@@ -335,13 +431,14 @@ def compute_growth_factors_varying_weights(
     equity_prices: NDArray[np.float64],
     bond_prices: NDArray[np.float64],
     horizon: int,
+    fee_annual: float = 0.0,
 ) -> NDArray[np.float64]:
-    """Compute growth factors with time-varying equity weights.
+    """Compute growth factors with time-varying equity weights (with fee embedded).
 
     For glidepath strategies, the equity weight changes each month.
     The growth factor for month m is:
 
-        g_m = w_m * equity_return[m] + (1 - w_m) * bond_return[m]
+        g_m = w_m * equity_return[m] + (1 - w_m) * bond_return[m] - fee_annual/12
 
     where w_m is the equity weight after rebalancing at month m.
 
@@ -356,21 +453,24 @@ def compute_growth_factors_varying_weights(
         Float64 array of bond index levels, length >= horizon.
     horizon:
         Number of months to simulate.
+    fee_annual:
+        Annual fee (e.g., 0.0005 for 0.05%). Applied monthly as fee_annual/12.
 
     Returns
     -------
     NDArray of float64 growth factors, length = horizon.
     """
     n_prices = len(equity_prices)
-    n_growth = min(horizon - 1, n_prices - 1)
+    n_growth = min(horizon, n_prices - 1)
 
     growth_factors = np.ones(horizon, dtype=np.float64)
+    fee_monthly = fee_annual / 12.0
 
     for m in range(n_growth):
         eq_ret = equity_prices[m + 1] / equity_prices[m]
         bd_ret = bond_prices[m + 1] / bond_prices[m]
         w = equity_weights[m]
-        growth_factors[m] = w * eq_ret + (1.0 - w) * bd_ret
+        growth_factors[m] = w * eq_ret + (1.0 - w) * bd_ret - fee_monthly
 
     return growth_factors
 
@@ -381,8 +481,9 @@ def compute_growth_factors_varying_weights_batch(
     equity_prices: NDArray[np.float64],
     bond_prices: NDArray[np.float64],
     horizon: int,
+    fee_annual: float = 0.0,
 ) -> NDArray[np.float64]:
-    """Batched version: compute growth factors for multiple sequences at once.
+    """Batched version: compute growth factors for multiple sequences at once (with fee embedded).
 
     Parameters
     ----------
@@ -394,13 +495,15 @@ def compute_growth_factors_varying_weights_batch(
         2D array of shape (batch, n_prices) with bond index levels.
     horizon:
         Number of months to simulate.
+    fee_annual:
+        Annual fee (e.g., 0.0005 for 0.05%). Applied monthly as fee_annual/12.
 
     Returns
     -------
     2D array of shape (batch, horizon) with growth factors for each sequence.
     """
     batch_size, n_prices = equity_prices.shape
-    n_growth = min(horizon - 1, n_prices - 1)
+    n_growth = min(horizon, n_prices - 1)
 
     # Compute returns for all sequences at once
     equity_returns = equity_prices[:, 1:] / equity_prices[:, :-1]  # (batch, n_prices-1)
@@ -413,8 +516,10 @@ def compute_growth_factors_varying_weights_batch(
     eq_ret = equity_returns[:, :n_growth]  # (batch, n_growth)
     bd_ret = bond_returns[:, :n_growth]    # (batch, n_growth)
 
+    fee_monthly = fee_annual / 12.0
+
     growth_factors = np.ones((batch_size, horizon), dtype=np.float64)
-    growth_factors[:, :n_growth] = weights * eq_ret + (1.0 - weights) * bd_ret
+    growth_factors[:, :n_growth] = weights * eq_ret + (1.0 - weights) * bd_ret - fee_monthly
 
     return growth_factors
 

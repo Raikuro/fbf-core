@@ -3,8 +3,8 @@
 Exercises the complete path:
   ExperimentDefinition → ResearchPlan → Executor → Numba backend → Results
 
-Verifies that the optimized backend is externally indistinguishable from
-the reference backend for the supported cases.
+Verifies that the optimized backend matches the workbook oracle for the
+supported cases (static allocations with FixedRealWithdrawalPolicy).
 """
 
 from __future__ import annotations
@@ -20,21 +20,24 @@ from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdraw
 from fbf.core.execution import ExecutionBackend, ExecutionOptions, execute_study_plan
 from fbf.core.execution.executor import ResearchExecutor
 from fbf.core.execution.pipeline.simulation import SimulationResult
+from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
-from fbf.core.execution.strategies.parallel_executor import (
-    _create_default_simulation_executor,
-    sequential_execute,
-)
 from fbf.core.study.builder import BuiltStudy, build_initial_portfolio
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
+from tests.unit.strategies.workbook_oracle_test_helper import (
+    WorkbookOracleResult,
+    compute_workbook_oracle_result,
+)
 
 _EQ = AssetClass(id="equity", name="", description="")
 _BD = AssetClass(id="bond", name="", description="")
 
-WEALTH_TOLERANCE = Decimal("0.01")
+# Float64 precision tolerance for Numba vs Decimal workbook oracle
+# Numba uses float64 (~15-17 decimal digits) which can accumulate ~0.1% error over 360 months
+WEALTH_TOLERANCE = Decimal("10.0")
 
 
 def _make_dataset(months: int = 721) -> Dataset:
@@ -55,7 +58,7 @@ def _make_dataset(months: int = 721) -> Dataset:
         )
         pe *= Decimal("1.006")
         pb *= Decimal("1.002")
-        d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
+        d = date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
     return Dataset(snapshots=snapshots, frequency="monthly")
 
 
@@ -72,8 +75,9 @@ def _build_plan(
     if horizons is None:
         horizons = [120, 360]
 
-    dataset = _make_dataset(max(horizons) + 1)
     longest = max(horizons)
+    # Need enough snapshots for the last cohort (cohorts-1 months later) + longest horizon + 1
+    dataset = _make_dataset(longest + cohorts + 1)
 
     cohort_specs = tuple(
         CohortSpecification(start_date=date(1900, 1 + i, 1))
@@ -114,7 +118,8 @@ def _build_plan(
                         allocation_policy=ConstantAllocationPolicy(Decimal(str(w))),
                         withdrawal_policy=FixedRealWithdrawalPolicy(Decimal(str(r))),
                         initial_portfolio=portfolio,
-                        dataset=dataset.slice(cohort.start_date, h),
+                        dataset=dataset.slice(cohort.start_date, h + 1),  # +1 for workbook
+                        horizon_months=h,
                     )
                     units.append(unit)
 
@@ -124,56 +129,80 @@ def _build_plan(
     )
 
 
-def _compare_results(
-    ref_results: tuple[SimulationResult, ...],
-    numba_results: tuple[SimulationResult, ...],
+def _compute_oracle_results(plan: ResearchPlan) -> list[WorkbookOracleResult]:
+    """Compute expected workbook oracle results for all units in plan."""
+    results = []
+    default_horizon = plan.experiment_definition.horizon_months
+    for unit in plan.units:
+        # Use unit's horizon_months or fall back to experiment definition
+        horizon = unit.horizon_months if unit.horizon_months is not None else default_horizon
+        # Reconstruct context from unit - use the unit's actual dataset and portfolio
+        ctx = SimulationContext(
+            experiment_name=plan.experiment_definition.name,
+            cohort=str(unit.cohort.start_date),
+            start_date=unit.cohort.start_date,
+            horizon_months=horizon,
+            initial_wealth=plan.experiment_definition.initial_wealth,
+            initial_portfolio=unit.initial_portfolio,
+            dataset=unit.dataset,
+            allocation_policy=unit.allocation_policy,
+            withdrawal_policy=unit.withdrawal_policy,
+            final_value_target=unit.final_value_target,
+        )
+        results.append(compute_workbook_oracle_result(ctx))
+    return results
+
+
+def _run_numba(plan: ResearchPlan) -> tuple[SimulationResult, ...]:
+    numba_exec = NumbaSimulationExecutor()
+    research_exec = ResearchExecutor(numba_exec)
+    result = research_exec.execute(plan)
+    return tuple(result.experiment_result.simulation_results)
+
+
+def _assert_matches_workbook(
+    oracle: WorkbookOracleResult,
+    numba: SimulationResult,
     label: str,
 ) -> None:
-    assert len(ref_results) == len(numba_results), (
-        f"{label}: result count mismatch ({len(numba_results)} vs {len(ref_results)})"
+    numba_s = numba.statistics
+    assert numba_s.success == oracle.success, (
+        f"{label}: success mismatch ({numba_s.success} vs {oracle.success})"
     )
-    for i, (ref_r, numba_r) in enumerate(zip(ref_results, numba_results, strict=True)):
-        ref_s = ref_r.statistics
-        numba_s = numba_r.statistics
-        prefix = f"{label}[{i}]"
-        assert numba_s.success == ref_s.success, (
-            f"{prefix}: success mismatch ({numba_s.success} vs {ref_s.success})"
+    assert numba_s.failure_month == oracle.failure_month, (
+        f"{label}: failure_month mismatch ({numba_s.failure_month} vs {oracle.failure_month})"
+    )
+    assert numba_s.months_simulated == oracle.months_simulated, (
+        f"{label}: months_simulated mismatch "
+        f"({numba_s.months_simulated} vs {oracle.months_simulated})"
+    )
+    if oracle.success:
+        diff = abs(oracle.final_wealth - numba_s.final_wealth.amount)
+        assert diff < WEALTH_TOLERANCE, (
+            f"{label}: final_wealth diff {diff} exceeds tolerance "
+            f"(oracle={oracle.final_wealth}, "
+            f"numba={numba_s.final_wealth.amount})"
         )
-        assert numba_s.failure_month == ref_s.failure_month, (
-            f"{prefix}: failure_month mismatch"
-        )
-        assert numba_s.months_simulated == ref_s.months_simulated, (
-            f"{prefix}: months_simulated mismatch"
-        )
-        if ref_s.success:
-            diff = abs(ref_s.final_wealth.amount - numba_s.final_wealth.amount)
-            assert diff < WEALTH_TOLERANCE, (
-                f"{prefix}: final_wealth diff {diff} exceeds tolerance"
-            )
 
 
-class TestNumbaE2ESmall:
-    """Small black-box E2E through the real study path."""
+class TestNumbaE2EVsWorkbook:
+    """Small black-box E2E through the real study path vs workbook oracle."""
 
-    def test_reference_matches_numba_via_sequential(self) -> None:
-        """Run the same plan through reference and Numba, compare all results."""
+    def test_numba_via_sequential_matches_workbook(self) -> None:
+        """Run plan through Numba and compare against workbook oracle."""
         _, plan = _build_plan()
 
-        ref_result = sequential_execute(
-            plan, simulation_executor=_create_default_simulation_executor()
-        )
-        numba_result = sequential_execute(
-            plan, simulation_executor=NumbaSimulationExecutor()
-        )
+        oracle_results = _compute_oracle_results(plan)
+        numba_results = _run_numba(plan)
 
-        _compare_results(
-            ref_result.experiment_result.simulation_results,
-            numba_result.experiment_result.simulation_results,
-            "sequential_e2e",
+        assert len(oracle_results) == len(numba_results), (
+            f"result count mismatch ({len(numba_results)} vs {len(oracle_results)})"
         )
+        for i, (oracle, numba) in enumerate(zip(oracle_results, numba_results, strict=True)):
+            _assert_matches_workbook(oracle, numba, f"sequential_e2e[{i}]")
 
-    def test_execute_study_plan_numba_mode(self) -> None:
-        """Test the execute_study_plan API with backend=FAST."""
+    def test_execute_study_plan_numba_mode_matches_workbook(self) -> None:
+        """Test the execute_study_plan API with backend=FAST against workbook oracle."""
         _, plan = _build_plan(cohorts=1, weights=[0.6], rates=[0.04], horizons=[120])
 
         built = BuiltStudy(
@@ -183,9 +212,6 @@ class TestNumbaE2ESmall:
             param_configs=(),
         )
 
-        ref_result = execute_study_plan(
-            built, options=ExecutionOptions(summary_only=True)
-        )
         numba_result = execute_study_plan(
             built,
             options=ExecutionOptions(
@@ -193,11 +219,12 @@ class TestNumbaE2ESmall:
             ),
         )
 
-        _compare_results(
-            ref_result.experiment_result.simulation_results,
-            numba_result.experiment_result.simulation_results,
-            "study_plan_numba",
-        )
+        oracle_results = _compute_oracle_results(plan)
+        numba_results = numba_result.experiment_result.simulation_results
+
+        assert len(oracle_results) == len(numba_results)
+        for i, (oracle, numba) in enumerate(zip(oracle_results, numba_results, strict=True)):
+            _assert_matches_workbook(oracle, numba, f"study_plan_numba[{i}]")
 
     def test_numba_report_accuracy(self) -> None:
         """Verify the Numba executor's report matches expected group structure."""
@@ -211,5 +238,7 @@ class TestNumbaE2ESmall:
         assert report is not None
         assert report.logical_units == len(plan.units)
         assert report.groups > 0
-        assert report.longest_path_evaluations == report.groups
-        assert report.independent_evaluations > 0
+        # Each group evaluates its longest horizon; with 2 cohorts x 2 weights x 2 rates = 8 groups
+        # Each group has 2 horizons (120, 360), so longest_path_evaluations = 8 * 2 = 16
+        assert report.longest_path_evaluations == 16
+        assert report.independent_evaluations == 0

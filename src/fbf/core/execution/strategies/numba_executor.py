@@ -78,7 +78,11 @@ from fbf.core.execution.strategies.fast_path import (
     is_fast_path_eligible,
 )
 from fbf.core.execution.strategies.numba_kernel import (
+    _compute_growth_factors_numpy,
+    _compute_workbook_scr,
+    _materialize_price_float,
     _simulate_trajectory,
+    _simulate_trajectory_end_of_period,
     _simulate_trajectory_varying,
     compute_growth_factors_varying_weights_batch,
 )
@@ -332,10 +336,6 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
         # --- Pass 2a: precompute growth factors for static strategies ---
         profiler.start("numba_growth_factors_static")
-        from fbf.core.execution.strategies.numba_kernel import (
-            _compute_growth_factors_numpy,
-            _materialize_price_float,
-        )
 
         gf_cache_new = 0
         gf_cache_reused = 0
@@ -370,7 +370,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 [float(weights[ac]) for ac in asset_classes], dtype=np.float64
             )
             self._gf_cache[gf_k] = _compute_growth_factors_numpy(
-                weights_f, prices_f, max_h
+                weights_f, prices_f, max_h, float(sample_ctx.expense_ratio or Decimal("0"))
             )
         profiler.stop("numba_growth_factors_static")
 
@@ -483,7 +483,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
                 # Compute GFs for this batch
                 growth_factors_batch = compute_growth_factors_varying_weights_batch(
-                    batch_weights, batch_eq_prices, batch_bd_prices, max_h
+                    batch_weights, batch_eq_prices, batch_bd_prices, max_h,
+                    float(sample_ctx.expense_ratio or Decimal("0"))
                 )
 
                 # Store results
@@ -559,6 +560,18 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
         return ExperimentRun(definition=definition, simulation_results=tuple(ordered_results))
 
+    def _use_workbook_scr(self, context: SimulationContext) -> bool:
+        """Check if workbook SCR methodology should be used for this context."""
+        if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
+            return False
+        if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
+            return False
+        if context.final_value_target is not None and context.final_value_target != Decimal("0"):
+            return False
+        if context.loan_draw_rate is not None:
+            return False
+        return context.ltv_limit is None
+
     def _process_static_group(
         self,
         contexts: list[SimulationContext],
@@ -578,26 +591,45 @@ class NumbaSimulationExecutor(SimulationExecutor):
         ))
         withdrawal_policy = cast(FixedRealWithdrawalPolicy, sample_ctx.withdrawal_policy)
         rate_f = float(withdrawal_policy.withdrawal_rate)
-        c = float(sample_ctx.initial_wealth.amount) * rate_f / 12.0
+        c = v0 * rate_f / 12.0
+        fee_annual = float(sample_ctx.expense_ratio or Decimal("0"))
 
         gf_key = _gf_cache_key(sample_ctx)
         growth_factors_full = self._gf_cache[gf_key]
 
         horizon_result_cache: dict[tuple[int, object], SimulationResult] = {}
 
+        use_workbook = self._use_workbook_scr(sample_ctx)
+
         for horizon, h_contexts in horizon_to_ctxs.items():
             stats["month_work"] += horizon
             growth_factors_arr = growth_factors_full[:horizon]
 
-            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory(
-                growth_factors_arr, v0, c, horizon
-            )
-
-            for ctx in h_contexts:
-                cache_key = (horizon, ctx.final_value_target)
-                if cache_key in horizon_result_cache:
-                    results[id(ctx)] = horizon_result_cache[cache_key]
-                    continue
+            if use_workbook:
+                # Compute workbook SCR for success determination
+                scr = _compute_workbook_scr(growth_factors_arr, horizon, fee_annual)
+                success = scr >= rate_f
+                # Compute final wealth using end-of-period trajectory
+                # (fee embedded in growth factors)
+                _final_val, _traj_success, fail_month, _ = _simulate_trajectory_end_of_period(
+                    growth_factors_arr, v0, c, horizon
+                )
+                if success:
+                    final_value = _final_val
+                    failure_month = None
+                    months_simulated = horizon
+                else:
+                    final_value = 0.0
+                    # If trajectory didn't detect depletion
+                    # (fail_month == -1), failure is at horizon
+                    failure_month = (
+                        fail_month if fail_month >= 0 else horizon
+                    )
+                    months_simulated = failure_month
+            else:
+                _final_val, _kernel_success, fail_month, _ = _simulate_trajectory(
+                    growth_factors_arr, v0, c, horizon
+                )
 
                 if 0 <= fail_month < horizon:
                     success = False
@@ -609,6 +641,12 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     success = True
                     failure_month = None
                     months_simulated = horizon
+
+            for ctx in h_contexts:
+                cache_key = (horizon, ctx.final_value_target)
+                if cache_key in horizon_result_cache:
+                    results[id(ctx)] = horizon_result_cache[cache_key]
+                    continue
 
                 final_wealth = _money(final_value)
 

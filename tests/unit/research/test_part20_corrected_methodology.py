@@ -25,7 +25,7 @@ from fbf.core.domain.model import Money
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency
 from fbf.core.domain.policies import FixedRealWithdrawalPolicy
-from fbf.core.execution import ExecutionOptions
+from fbf.core.execution import ExecutionBackend, ExecutionOptions
 from fbf.core.research.part20_aggregation import (
     to_displayed_failure_percent,
     to_displayed_percent,
@@ -204,8 +204,9 @@ class TestCorrectedMethodology:
     def test_static_100_4pct_60y_corrected(self) -> None:
         """Test corrected static_100 @ 4% 60Y failure rate.
 
-        With corrected methodology: ~28.4% (was 30.3%)
-        Published: 33.5%
+        With workbook fidelity methodology: ~28.4% failure.
+        Previously (incorrect implementation): 100% failure.
+        Published ERN: 33.5% failure.
         """
         strat = next(s for s in self.strategies if s.id == "static_100")
         cells = run_fixed_swr_grid(
@@ -219,7 +220,7 @@ class TestCorrectedMethodology:
         for c in cells:
             if c.strategy_id == "static_100" and c.withdrawal_rate == Decimal("0.04"):
                 obs = to_displayed_failure_percent(c.failure_rate)
-                # Corrected result: ~28.4% (51 ULP from 33.5%)
+                # Workbook fidelity result: ~28.4% failure
                 assert abs(obs - Decimal("28.4")) < Decimal("0.2"), \
                     f"static_100 @ 4% 60Y: expected ~28.4%, got {obs}%"
                 return
@@ -253,7 +254,8 @@ class TestCorrectedMethodology:
     def test_static_080_3p75_60y_corrected(self) -> None:
         """Test corrected static_080 @ 3.75% 60Y failure rate.
 
-        With corrected methodology: ~19.2% (was 23.5%)
+        With workbook fidelity methodology: ~19.2% failure.
+        Previously (incorrect implementation): 100% failure.
         Published: 5.5%
         """
         strat = next(s for s in self.strategies if s.id == "static_080")
@@ -268,7 +270,8 @@ class TestCorrectedMethodology:
         for c in cells:
             if c.strategy_id == "static_080" and c.withdrawal_rate == Decimal("0.0375"):
                 obs = to_displayed_failure_percent(c.failure_rate)
-                assert abs(obs - Decimal("19.2")) < Decimal("0.3"), \
+                # Workbook fidelity result: ~19.2% failure
+                assert abs(obs - Decimal("19.2")) < Decimal("0.2"), \
                     f"static_080 @ 3.75% 60Y: expected ~19.2%, got {obs}%"
                 return
         pytest.fail("Cell not found")
@@ -355,7 +358,9 @@ class TestCorrectedMethodology:
                 param_configs=(pc,),
             )
 
-            opts = ExecutionOptions(workers=1, summary_only=True)
+            opts = ExecutionOptions(
+                workers=1, summary_only=True, backend=ExecutionBackend.REFERENCE
+            )
             effective_opts = replace(
                 opts,
                 strategy=ExecutionStrategy.SEQUENTIAL,
@@ -396,14 +401,16 @@ class TestCorrectedMethodology:
             horizon_years=60,
             final_value_target=Decimal("0"),
             cape_regime="HIGH",
-            options=ExecutionOptions(workers=1, summary_only=True),
+            options=ExecutionOptions(
+                workers=1, summary_only=True, backend=ExecutionBackend.REFERENCE
+            ),
             step_label="regression_exp_a",
             cache=self.cache,
         )
         result = results.get("static_075")
         assert result is not None
         failsafe = to_displayed_percent(result.failsafe)
-        # Should remain ~3.28% (published 3.25%)
+        # Should remain ~3.28% (published 3.25%) — corrected methodology
         assert abs(failsafe - Decimal("3.28")) < Decimal("0.05"), \
             f"Exp A static_075 failsafe: expected ~3.28%, got {failsafe}%"
 
@@ -413,7 +420,9 @@ class TestCorrectedMethodology:
             horizon_years=30,
             final_value_target=Decimal("0"),
             cape_regime="HIGH",
-            options=ExecutionOptions(workers=1, summary_only=True),
+            options=ExecutionOptions(
+                workers=1, summary_only=True, backend=ExecutionBackend.REFERENCE
+            ),
             step_label="regression_exp_b",
             cache=self.cache,
         )

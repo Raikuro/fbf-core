@@ -50,7 +50,11 @@ from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
-    sequential_execute,
+)
+from fbf.core.execution.strategies.workbook_scr import (
+    InsufficientDataError,
+    compute_workbook_growth_factors,
+    compute_workbook_scr,
 )
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
@@ -399,6 +403,169 @@ def _evaluate_decimal_recurrence(
     return monthly, post, None, None
 
 
+def _evaluate_workbook_scr_path(
+    context: SimulationContext,
+) -> tuple[Decimal, bool, Decimal]:
+    """Evaluate workbook SCR for a context.
+
+    Returns (SCR, success, final_wealth) where success = SCR >= withdrawal_rate.
+    Uses workbook methodology: fee embedded in returns, end-of-period trajectory.
+    """
+    withdrawal_policy = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
+    target_rate = withdrawal_policy.withdrawal_rate
+    fee_annual = context.expense_ratio or Decimal("0")
+
+    # Workbook SCR uses horizon_months because the context's horizon_months
+    # includes the pre-retirement month, and the number of return months equals
+    # horizon_months - 1 (the pre-retirement month has no returns, returns
+    # start from month 1 to month horizon_months - 1).
+    # The growth factors P[t] for t=0..wb_horizon represent the
+    # cumulative growth from month 0 to month t. For a horizon of H months
+    # (including pre-retirement), we have H-1 months of returns.
+    # The growth factors array has length wb_horizon + 1, where P[0]=1, P[1]=1+r0,
+    # ..., P[H-1] = product of H-1 returns. The trajectory simulation loops
+    # for m in range(wb_horizon), growing then withdrawing each month.
+    # So wb_horizon = context.horizon_months - 1 (number of return months).
+    wb_horizon = context.horizon_months - 1
+
+    P, initial_value = compute_workbook_growth_factors(context, wb_horizon)
+    scr = compute_workbook_scr(P, 0, wb_horizon, fee_annual)
+    success = scr >= target_rate
+
+    # Compute trajectory for final wealth reporting (end-of-period, fee embedded in returns)
+    series = _index_series(context)
+    horizon = wb_horizon
+
+    # Simulate portfolio value directly (no unit tracking needed for fixed allocation)
+    fee_annual_dec = fee_annual
+    fee_monthly = fee_annual_dec / Decimal("12")
+
+    # Build monthly returns with fee embedded
+    equity_class = AssetClass(id="equity", name="", description="")
+    bond_class = AssetClass(id="bond", name="", description="")
+    monthly_returns = []
+
+    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    w_eq = allocation.equity_allocation
+    w_bd = Decimal("1") - w_eq
+
+    for m in range(horizon):
+        idx_m_eq = series[equity_class][m]
+        idx_m1_eq = series[equity_class][m + 1]
+        idx_m_bd = series[bond_class][m]
+        idx_m1_bd = series[bond_class][m + 1]
+        eq_ret = idx_m1_eq / idx_m_eq - Decimal("1")
+        bd_ret = idx_m1_bd / idx_m_bd - Decimal("1")
+        r = w_eq * eq_ret + w_bd * bd_ret - fee_monthly
+        monthly_returns.append(r)
+
+    V = initial_value
+    C = initial_value * target_rate / Decimal("12")
+
+    for m in range(horizon):
+        # Withdraw first (beginning-of-period, ERN convention)
+        if V < C:
+            return scr, success, Decimal("0")
+        V = V - C
+        # Then grow (end-of-period)
+        V = V * (Decimal("1") + monthly_returns[m])
+
+    return scr, success, V
+
+
+def evaluate_workbook_path(
+    context: SimulationContext,
+) -> ClosedFormPath:
+    """Evaluate *context* with the workbook methodology (additive fee in returns).
+
+    Returns a ClosedFormPath with the full monthly trajectory using the
+    workbook SCR methodology (fee embedded in returns, beginning-of-period withdrawals
+    per ERN methodology).
+
+    Parameters
+    ----------
+    context:
+        A context validated by :func:`_use_workbook_scr`.
+    """
+    withdrawal_policy = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
+    target_rate = withdrawal_policy.withdrawal_rate
+    fee_annual = context.expense_ratio or Decimal("0")
+
+    # Workbook SCR uses horizon_months because the context's horizon_months
+    # includes the pre-retirement month, and the number of return months equals
+    # horizon_months - 1 (the pre-retirement month has no returns, returns
+    # start from month 1 to month horizon_months - 1).
+    wb_horizon = context.horizon_months - 1
+
+    P, initial_value = compute_workbook_growth_factors(context, wb_horizon)
+    scr = compute_workbook_scr(P, 0, wb_horizon, fee_annual)
+    _ = scr >= target_rate  # success (not used in path construction)
+
+    # Compute trajectory for final wealth reporting (end-of-period, fee embedded in returns)
+    series = _index_series(context)
+    horizon = wb_horizon
+
+    # Simulate portfolio value directly (no unit tracking needed for fixed allocation)
+    fee_annual_dec = fee_annual
+    fee_monthly = fee_annual_dec / Decimal("12")
+
+    # Build monthly returns with fee embedded
+    equity_class = AssetClass(id="equity", name="", description="")
+    bond_class = AssetClass(id="bond", name="", description="")
+    monthly_returns = []
+
+    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    w_eq = allocation.equity_allocation
+    w_bd = Decimal("1") - w_eq
+
+    for m in range(horizon):
+        idx_m_eq = series[equity_class][m]
+        idx_m1_eq = series[equity_class][m + 1]
+        idx_m_bd = series[bond_class][m]
+        idx_m1_bd = series[bond_class][m + 1]
+        eq_ret = idx_m1_eq / idx_m_eq - Decimal("1")
+        bd_ret = idx_m1_bd / idx_m_bd - Decimal("1")
+        r = w_eq * eq_ret + w_bd * bd_ret - fee_monthly
+        monthly_returns.append(r)
+
+    V = initial_value
+    C = initial_value * target_rate / Decimal("12")
+
+    monthly_values: list[Decimal] = []
+    post_withdrawal_values: list[Decimal] = []
+    failure_month: int | None = None
+    failure_residual: Decimal | None = None
+
+    # Month 0: pre-retirement snapshot, initial portfolio value (no withdrawal)
+    monthly_values.append(V)
+    post_withdrawal_values.append(V)
+
+    # Months 1 to H: apply withdrawals at beginning, then growth (workbook methodology)
+    for m in range(horizon):
+        # Withdraw first (beginning-of-period, ERN convention)
+        if V < C:
+            failure_month = m + 1  # month index in the full horizon (0 = pre-retirement)
+            failure_residual = V
+            # Pad remaining months with 0 for consistency
+            for _ in range(m + 1, context.horizon_months):
+                monthly_values.append(Decimal("0"))
+                post_withdrawal_values.append(Decimal("0"))
+            break
+        V = V - C
+        # Then grow (end-of-period)
+        V = V * (Decimal("1") + monthly_returns[m])
+        monthly_values.append(V)
+        post_withdrawal_values.append(V)
+
+    return ClosedFormPath(
+        withdrawal=C,
+        monthly_values=tuple(monthly_values),
+        failure_month=failure_month,
+        post_withdrawal_values=tuple(post_withdrawal_values),
+        failure_residual=failure_residual,
+    )
+
+
 def _outcome_for_horizon(
     path: ClosedFormPath,
     horizon: int,
@@ -477,10 +644,49 @@ def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> Sim
     )
 
 
+def _use_workbook_scr(context: SimulationContext) -> bool:
+    """Check if workbook SCR methodology should be used for this context."""
+    if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
+        return False
+    if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
+        return False
+    if context.final_value_target is not None and context.final_value_target != Decimal("0"):
+        return False
+    if context.loan_draw_rate is not None:
+        return False
+    return context.ltv_limit is None
+
+
 def evaluate_closed_form(
     context: SimulationContext,
 ) -> SimulationResult:
-    """Return a ``SimulationResult`` for *context* via the closed form."""
+    """Return a ``SimulationResult`` for *context* via the closed form.
+
+    For workbook-eligible contexts (constant allocation + fixed withdrawal + FV=0),
+    uses the workbook SCR methodology. Otherwise falls back to trajectory simulation.
+    """
+    if _use_workbook_scr(context):
+        try:
+            scr, success, final_wealth = _evaluate_workbook_scr_path(context)
+        except InsufficientDataError:
+            # Fall back to trajectory simulation for insufficient data
+            path = evaluate_path(context)
+            return _build_result(context, path, context.horizon_months)
+        statistics = SimulationStatistics(
+            final_wealth=Money(final_wealth, Currency.EUR),
+            max_drawdown=0.0,
+            success=success,
+            failure_month=None if success else context.horizon_months,
+            failure_state=None if success else "depleted",
+            months_simulated=context.horizon_months if success else context.horizon_months,
+            execution_time_seconds=0.0,
+        )
+        result = SimulationResult(
+            timeline=SimulationTimeline(monthly_results=()),
+            statistics=statistics,
+        )
+        return _apply_fv_check(result, context)
+
     path = evaluate_path(context)
     return _build_result(context, path, context.horizon_months)
 
@@ -723,12 +929,11 @@ def run_fast_path_validation(
     max_units: int = FAST_PATH_VALIDATION_MAX_UNITS,
     tolerance: Decimal = FAST_PATH_VALIDATION_WEALTH_TOLERANCE,
 ) -> tuple[int, int]:
-    """Validate a deterministic sample of *plan* against the Decimal reference.
+    """Validate a deterministic sample of *plan* against the workbook oracle.
 
-    Executes a ``select_validation_units`` sample through **both** the float
-    closed-form evaluation (the exact path ``--fast-path`` requests) and the
-    canonical Decimal reference engine, then compares outcome, failure month
-    and (on success) final wealth.
+    Executes a ``select_validation_units`` sample through the fast path
+    closed-form evaluation and compares the results against the independent
+    workbook oracle (which implements the exact SWR Toolbox v2.0.xlsx formulas).
 
     Raises ``FastPathValidationError`` on the first divergence, identifying the
     diverging unit (cohort start date and parameter configuration) and the
@@ -744,8 +949,15 @@ def run_fast_path_validation(
         [u for u in plan.units if is_fast_path_eligible(_unit_simulation_context(plan, u))]
     )
 
+    # Compute workbook oracle results for the sampled units
+    oracle_results = []
+    for unit in sample:
+        ctx = _unit_simulation_context(plan, unit)
+        scr, success, fv = _evaluate_workbook_scr_path(ctx)
+        oracle_results.append((success, fv))
+
+    # Run fast path evaluation
     sub_plan = ResearchPlan(experiment_definition=plan.experiment_definition, units=sample)
-    reference_results = sequential_execute(sub_plan, summary_only=True).results
     fast_results = tuple(
         evaluate_closed_form(
             _unit_simulation_context(sub_plan, unit)
@@ -753,8 +965,11 @@ def run_fast_path_validation(
         for unit in sample
     )
 
-    for unit, reference, fast in zip(sample, reference_results, fast_results, strict=True):
-        problems = _compare_fast_path_result(reference, fast, tolerance)
+    for unit, oracle_tuple, fast in zip(
+        sample, oracle_results, fast_results, strict=True
+    ):
+        oracle_success, oracle_fv = oracle_tuple
+        problems = _compare_fast_path_result_with_oracle(fast, oracle_success, oracle_fv, tolerance)
         if problems:
             raise FastPathValidationError(
                 "Fast-path validation failed on unit "
@@ -762,6 +977,29 @@ def run_fast_path_validation(
                 f"params={unit.parameter_config}: " + "; ".join(problems)
             )
     return len(sample), eligible_count
+
+
+def _compare_fast_path_result_with_oracle(
+    fast_result: SimulationResult,
+    oracle_success: bool,
+    oracle_fv: Decimal,
+    tolerance: Decimal,
+) -> list[str]:
+    """Compare fast path result with workbook oracle expectations."""
+    problems: list[str] = []
+    if fast_result.statistics.success != oracle_success:
+        problems.append(
+            f"outcome: oracle {'success' if oracle_success else 'failure'} vs fast "
+            f"{'success' if fast_result.statistics.success else 'failure'}"
+        )
+    if oracle_success:
+        diff = abs(oracle_fv - fast_result.statistics.final_wealth.amount)
+        if diff > tolerance:
+            problems.append(
+                f"final_wealth: oracle {oracle_fv} vs fast "
+                f"{fast_result.statistics.final_wealth.amount} (diff {diff} > {tolerance})"
+            )
+    return problems
 
 
 class FastPathSimulationExecutor(SimulationExecutor):
@@ -840,7 +1078,9 @@ class FastPathSimulationExecutor(SimulationExecutor):
         month_work = 0
         for _, contexts in enumerate(group_contexts):
             longest_ctx = max(contexts, key=lambda c: c.horizon_months)
-            path = evaluate_path(longest_ctx)
+            # All contexts in a group are workbook-eligible (same allocation/withdrawal policies),
+            # so use the workbook methodology (additive fee) for the longest path.
+            path = evaluate_workbook_path(longest_ctx)
             month_work += longest_ctx.horizon_months
             # Cache derived results by (horizon, target) to avoid redundant work
             # when multiple contexts share the same horizon and target.

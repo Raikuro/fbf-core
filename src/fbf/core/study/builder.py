@@ -1525,6 +1525,7 @@ def _build_omy_retirement_plan(
             final_value_target = _make_target_resolver(config.base_config)(param_config)
             cache_key = (cohort.start_date, horizon_months)
             if cache_key not in dataset_cache:
+                # Use horizon_months snapshots (already includes pre-retirement + return periods)
                 dataset_cache[cache_key] = dataset.slice(
                     cohort.start_date, horizon_months
                 )
@@ -1536,6 +1537,7 @@ def _build_omy_retirement_plan(
                     withdrawal_policy=withdrawal_policy,
                     initial_portfolio=acc_portfolio,
                     dataset=dataset_cache[cache_key],
+                    # horizon_months already includes pre-retirement snapshot
                     horizon_months=horizon_months,
                     final_value_target=final_value_target,
                 )

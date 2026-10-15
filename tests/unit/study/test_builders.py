@@ -24,7 +24,7 @@ from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.study.builder import build_initial_portfolio
+from fbf.core.study.builder import StudyConfiguration, build_initial_portfolio
 
 
 def _loader_asset(asset_id: str) -> AssetClass:
@@ -773,3 +773,113 @@ class TestPart52ParameterAxes:
         _, policy = resolver(pc)
         assert isinstance(policy, Part52WithdrawalPolicy)
         assert policy.borrow_pct == Decimal("0.4108")
+
+
+class TestProductionBuilderHorizon:
+    """Regression test for the production builder's horizon calculation.
+
+    Ensures the builder does not double-count the pre-retirement snapshot.
+    A 10-year horizon = 120 return periods, 121 snapshots (pre-retirement + 120 returns).
+    """
+
+    def _make_config(self) -> StudyConfiguration:
+        """Create a minimal config for 10-year horizon testing."""
+        from decimal import Decimal
+
+        from fbf.core.study import StudyConfiguration
+
+        config = StudyConfiguration(
+            name="test-horizon",
+            description="test",
+            version="1.0",
+            allocation_policy_type="ConstantAllocationPolicy",
+            allocation_policy_values=(Decimal("0.5"),),
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+            withdrawal_policy_values=(Decimal("0.04"),),
+            horizon_years=(10,),
+            cohort_horizon_years=None,
+            expense_ratio=Decimal("0.0005"),
+        )
+        return config
+
+    def test_ten_year_horizon_has_121_snapshots_and_120_returns(self) -> None:
+        """Production builder yields correct snapshot count and return periods."""
+        from decimal import Decimal
+
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        config = self._make_config()
+        initial_wealth = Money(Decimal("1000000"), Currency.EUR)
+
+        # Build the study plan using the production builder
+        # Uses canonical ERN dataset from data/ern
+        built_study = build_study_plan(config, "data/ern", initial_wealth)
+        plan = built_study.plan
+
+        # Verify the plan has units (at least 2 cohorts)
+        assert len(plan.units) >= 2
+
+        # Verify each unit has correct horizon
+        for unit in plan.units[:2]:
+            # 10 years = 120 return periods
+            # unit.horizon_months should be 121 (120 returns + 1 pre-retirement snapshot)
+            assert unit.horizon_months == 121, (
+                f"Expected unit.horizon_months=121, got {unit.horizon_months}"
+            )
+
+            # Dataset should have 121 snapshots (pre-retirement + 120 returns)
+            assert len(unit.dataset.snapshots) == 121, (
+                f"Expected 121 snapshots, got {len(unit.dataset.snapshots)}"
+            )
+
+            # The first snapshot is pre-retirement, returns start from snapshot 1 to 120
+            # Number of return periods = len(snapshots) - 1 = 120
+
+        # Verify the experiment definition horizon matches
+        assert plan.experiment_definition.horizon_months == 121
+
+    def test_ten_year_horizon_wb_horizon_semantics(self) -> None:
+        """Verify wb_horizon = unit.horizon_months - 1 = 120 return periods."""
+        from decimal import Decimal
+
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.execution.pipeline.simulation_context import SimulationContext
+        from fbf.core.study import build_study_plan
+
+        config = self._make_config()
+        initial_wealth = Money(Decimal("1000000"), Currency.EUR)
+
+        built_study = build_study_plan(config, "data/ern", initial_wealth)
+        plan = built_study.plan
+
+        unit = plan.units[0]
+
+        # Create context to verify wb_horizon semantics
+        assert unit.horizon_months is not None
+        ctx = SimulationContext(
+            experiment_name="test",
+            cohort=str(unit.cohort.start_date),
+            start_date=unit.cohort.start_date,
+            horizon_months=unit.horizon_months,
+            initial_wealth=plan.experiment_definition.initial_wealth,
+            initial_portfolio=unit.initial_portfolio,
+            dataset=unit.dataset,
+            allocation_policy=unit.allocation_policy,
+            withdrawal_policy=unit.withdrawal_policy,
+            expense_ratio=unit.expense_ratio,
+        )
+
+        # The workbook path uses wb_horizon = horizon_months - 1
+        # For unit.horizon_months = 121, wb_horizon = 120 (correct return periods)
+        from fbf.core.execution.strategies.fast_path import evaluate_workbook_path
+        path = evaluate_workbook_path(ctx)
+
+        # Monthly values should have length 121 (month 0 through month 120)
+        # Month 0 = pre-retirement, months 1-120 = 120 return periods
+        assert len(path.monthly_values) == 121, (
+            f"Expected 121 monthly values (0 to 120), got {len(path.monthly_values)}"
+        )
+
+        # Post-withdrawal values should also have 121 entries
+        assert len(path.post_withdrawal_values) == 121

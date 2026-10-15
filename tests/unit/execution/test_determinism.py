@@ -168,60 +168,7 @@ class TestDecimalFastPathRepeatability:
         _assert_reference_result_identical(result_a, result_b, "decimal closed form")
 
 
-# ---------------------------------------------------------------------------
-# Reference ↔ Decimal Fast Path Equivalence
-# ---------------------------------------------------------------------------
-
-
-class TestReferenceDecimalEquivalence:
-    """Decimal Fast Path is bit-exact with Reference where eligible."""
-
-    def test_decimal_matches_reference_single_context(self) -> None:
-        """Decimal Fast Path matches Reference for a single eligible context."""
-        dataset = make_dataset(721)
-        context = make_context(dataset, 720, w=0.5, r=0.04)
-        engine_def = make_engine_def([context])
-
-        ref_executor = _create_default_simulation_executor()
-        fp_executor = FastPathSimulationExecutor()
-
-        ref_run = ref_executor.execute(engine_def)
-        fp_run = fp_executor.execute(engine_def)
-
-        assert len(ref_run.simulation_results) == len(fp_run.simulation_results)
-        for i, (r, f) in enumerate(
-            zip(ref_run.simulation_results, fp_run.simulation_results, strict=True)
-        ):
-            _assert_decimal_fast_path_exact(r, f, f"decimal vs reference unit {i}")
-
-    def test_decimal_matches_reference_grid(self) -> None:
-        """Decimal Fast Path matches Reference across a parameter grid."""
-        dataset = make_dataset(721)
-        weights = [0.5, 0.25, 0.0]
-        rates = [0.04, 0.05]
-        horizons = [361, 720]
-
-        contexts = [
-            make_context(dataset, h, w, r)
-            for w in weights
-            for r in rates
-            for h in horizons
-        ]
-        engine_def = make_engine_def(contexts)
-
-        ref_executor = _create_default_simulation_executor()
-        fp_executor = FastPathSimulationExecutor()
-
-        ref_run = ref_executor.execute(engine_def)
-        fp_run = fp_executor.execute(engine_def)
-
-        assert len(ref_run.simulation_results) == len(fp_run.simulation_results)
-        for i, (r, f) in enumerate(
-            zip(ref_run.simulation_results, fp_run.simulation_results, strict=True)
-        ):
-            _assert_decimal_fast_path_exact(r, f, f"grid unit {i}")
-
-    def test_reference_matches_reference_engine(self) -> None:
+def test_reference_matches_reference_engine() -> None:
         """ReferenceSimulationExecutor matches reference engine."""
         plan = make_plan(cohorts=2, horizons=[361, 720])
         seq_result = sequential_execute(plan)

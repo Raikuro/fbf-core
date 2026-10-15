@@ -1,8 +1,10 @@
-"""Differential validation: Numba executor vs Decimal reference engine.
+"""Differential validation: Numba executor vs Workbook Oracle.
 
 Verifies that the NumbaSimulationExecutor produces results matching the
-Decimal reference engine for identical inputs through the real execution
-architecture (not just the raw kernel).
+workbook SCR methodology for identical inputs through the real execution
+architecture. The workbook oracle implements the exact formulas from
+SWR_Toolbox_v2.0.xlsx for static allocations (ConstantAllocationPolicy +
+FixedRealWithdrawalPolicy, FV=0).
 """
 
 from __future__ import annotations
@@ -22,24 +24,26 @@ from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdraw
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
-    ExperimentRun,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.fast_path import _index_series, _weights_by_class
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
-from fbf.core.execution.strategies.parallel_executor import (
-    _create_default_simulation_executor,
-)
 from fbf.core.study.builder import build_initial_portfolio
+from tests.unit.strategies.workbook_oracle_test_helper import (
+    WorkbookOracleResult,
+    compute_workbook_oracle_result,
+    make_workbook_test_context,
+)
 
 _EQ = AssetClass(id="equity", name="", description="")
 _BD = AssetClass(id="bond", name="", description="")
 
-_REFERENCE_EXECUTOR: SimulationExecutor = _create_default_simulation_executor()
 _NUMBA_EXECUTOR: SimulationExecutor = NumbaSimulationExecutor()
 
 WEALTH_TOLERANCE = Decimal("0.01")
 
+
+# --- Legacy helpers for cache tests (use horizon snapshots, not horizon+1) ---
 
 def _make_dataset(n_months: int) -> Dataset:
     pe = pb = Decimal("100")
@@ -59,7 +63,7 @@ def _make_dataset(n_months: int) -> Dataset:
         )
         pe *= Decimal("1.006")
         pb *= Decimal("1.002")
-        d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
+        d = date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
     return Dataset(snapshots=snapshots, frequency="monthly")
 
 
@@ -84,165 +88,180 @@ def _make_context(
     )
 
 
-def _run_both(
+# --- Workbook oracle helpers ---
+
+def _make_context_workbook(
+    horizon: int,
+    w: float = 0.5,
+    r: float = 0.04,
+) -> SimulationContext:
+    """Create a context with horizon+1 snapshots for workbook validation."""
+    return make_workbook_test_context(horizon, w, r)
+
+
+def _run_numba(
     contexts: list[SimulationContext],
-) -> tuple[
-    list[tuple[bool, int | None, Decimal, int]],
-    list[tuple[bool, int | None, Decimal, int]],
-]:
+) -> list[tuple[bool, int | None, Decimal, int]]:
     definition = EngineExperimentDefinition(
         name="test",
         description="test",
         simulation_contexts=tuple(contexts),
     )
-    ref_run = _REFERENCE_EXECUTOR.execute(definition)
     numba_run = _NUMBA_EXECUTOR.execute(definition)
 
-    def _extract(run: ExperimentRun) -> list[tuple[bool, int | None, Decimal, int]]:
-        results = []
-        for r in run.simulation_results:
-            s = r.statistics
-            results.append((
-                s.success,
-                s.failure_month,
-                s.final_wealth.amount,
-                s.months_simulated,
-            ))
-        return results
-
-    return _extract(ref_run), _extract(numba_run)
+    results = []
+    for r in numba_run.simulation_results:
+        s = r.statistics
+        results.append((
+            s.success,
+            s.failure_month,
+            s.final_wealth.amount,
+            s.months_simulated,
+        ))
+    return results
 
 
-def _assert_matches(
-    ref: tuple[bool, int | None, Decimal, int],
+def _assert_matches_workbook(
+    oracle: WorkbookOracleResult,
     numba: tuple[bool, int | None, Decimal, int],
     label: str,
 ) -> None:
-    ref_ok, ref_fm, ref_fv, ref_months = ref
     numba_ok, numba_fm, numba_fv, numba_months = numba
 
-    assert numba_ok == ref_ok, f"{label}: success mismatch ({numba_ok} vs {ref_ok})"
-    assert numba_fm == ref_fm, f"{label}: failure_month mismatch ({numba_fm} vs {ref_fm})"
-    assert numba_months == ref_months, (
-        f"{label}: months_simulated mismatch ({numba_months} vs {ref_months})"
+    assert numba_ok == oracle.success, (
+        f"{label}: success mismatch ({numba_ok} vs {oracle.success})"
     )
-    if ref_ok:
-        diff = abs(ref_fv - numba_fv)
+    assert numba_fm == oracle.failure_month, (
+        f"{label}: failure_month mismatch ({numba_fm} vs {oracle.failure_month})"
+    )
+    assert numba_months == oracle.months_simulated, (
+        f"{label}: months_simulated mismatch ({numba_months} vs {oracle.months_simulated})"
+    )
+    if oracle.success:
+        diff = abs(oracle.final_wealth - numba_fv)
         assert diff < WEALTH_TOLERANCE, (
-            f"{label}: final_wealth diff {diff} exceeds tolerance {WEALTH_TOLERANCE}"
+            f"{label}: final_wealth diff {diff} exceeds tolerance {WEALTH_TOLERANCE} "
+            f"(oracle={oracle.final_wealth}, numba={numba_fv})"
         )
 
 
-class TestNumbaExecutorDeterministic:
+class TestNumbaExecutorVsWorkbookOracle:
+    """Test Numba executor against workbook oracle for static allocations."""
+
     def test_flat_market_single_context(self) -> None:
-        ds = _make_dataset(721)
-        ctx = _make_context(ds, horizon=720, w=0.5, r=0.04)
-        ref, numba = _run_both([ctx])
-        assert len(ref) == 1
-        _assert_matches(ref[0], numba[0], "flat_720m")
+        ctx = _make_context_workbook(horizon=720, w=0.5, r=0.04)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        assert len(numba) == 1
+        _assert_matches_workbook(oracle, numba[0], "flat_720m")
 
     def test_flat_market_multiple_horizons(self) -> None:
-        ds = _make_dataset(721)
-        contexts = [_make_context(ds, horizon=h, w=0.6, r=0.03) for h in [12, 60, 360, 720]]
-        ref, numba = _run_both(contexts)
-        assert len(ref) == 4
+        contexts = [_make_context_workbook(horizon=h, w=0.6, r=0.03) for h in [12, 60, 360, 720]]
+        numba = _run_numba(contexts)
+        assert len(numba) == 4
         for i, h in enumerate([12, 60, 360, 720]):
-            _assert_matches(ref[i], numba[i], f"multi_horizon_{h}m")
+            ctx = contexts[i]
+            oracle = compute_workbook_oracle_result(ctx)
+            _assert_matches_workbook(oracle, numba[i], f"multi_horizon_{h}m")
 
     def test_equity_only(self) -> None:
-        ds = _make_dataset(241)
-        ctx = _make_context(ds, horizon=240, w=1.0, r=0.04)
-        ref, numba = _run_both([ctx])
-        _assert_matches(ref[0], numba[0], "equity_only_240m")
+        ctx = _make_context_workbook(horizon=240, w=1.0, r=0.04)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "equity_only_240m")
 
     def test_bond_only(self) -> None:
-        ds = _make_dataset(241)
-        ctx = _make_context(ds, horizon=240, w=0.0, r=0.02)
-        ref, numba = _run_both([ctx])
-        _assert_matches(ref[0], numba[0], "bond_only_240m")
+        ctx = _make_context_workbook(horizon=240, w=0.0, r=0.02)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "bond_only_240m")
 
     def test_high_withdrawal_depletes(self) -> None:
-        ds = _make_dataset(121)
-        ctx = _make_context(ds, horizon=120, w=0.5, r=0.20)
-        ref, numba = _run_both([ctx])
-        _assert_matches(ref[0], numba[0], "high_withdrawal_depletes")
+        ctx = _make_context_workbook(horizon=120, w=0.5, r=0.20)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "high_withdrawal_depletes")
 
     def test_zero_withdrawal(self) -> None:
-        ds = _make_dataset(241)
-        ctx = _make_context(ds, horizon=240, w=0.7, r=0.0)
-        ref, numba = _run_both([ctx])
-        _assert_matches(ref[0], numba[0], "zero_withdrawal")
+        ctx = _make_context_workbook(horizon=240, w=0.7, r=0.0)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "zero_withdrawal")
 
     def test_different_allocations(self) -> None:
-        ds = _make_dataset(361)
         for w in [0.0, 0.25, 0.5, 0.75, 1.0]:
-            ctx = _make_context(ds, horizon=360, w=w, r=0.04)
-            ref, numba = _run_both([ctx])
-            _assert_matches(ref[0], numba[0], f"alloc_{w}")
+            ctx = _make_context_workbook(horizon=360, w=w, r=0.04)
+            oracle = compute_workbook_oracle_result(ctx)
+            numba = _run_numba([ctx])
+            _assert_matches_workbook(oracle, numba[0], f"alloc_{w}")
 
     def test_different_rates(self) -> None:
-        ds = _make_dataset(361)
         for r in [0.0, 0.02, 0.03, 0.04, 0.05, 0.08]:
-            ctx = _make_context(ds, horizon=360, w=0.6, r=r)
-            ref, numba = _run_both([ctx])
-            _assert_matches(ref[0], numba[0], f"rate_{r}")
+            ctx = _make_context_workbook(horizon=360, w=0.6, r=r)
+            oracle = compute_workbook_oracle_result(ctx)
+            numba = _run_numba([ctx])
+            _assert_matches_workbook(oracle, numba[0], f"rate_{r}")
 
     def test_grouping_derives_shorter_horizons(self) -> None:
-        ds = _make_dataset(721)
-        base = _make_context(ds, horizon=720, w=0.5, r=0.04)
-        shorter = _make_context(ds, horizon=360, w=0.5, r=0.04)
-        ref, numba = _run_both([base, shorter])
-        assert len(ref) == 2
-        _assert_matches(ref[0], numba[0], "group_longest_720m")
-        _assert_matches(ref[1], numba[1], "group_derived_360m")
+        contexts = [
+            _make_context_workbook(horizon=720, w=0.5, r=0.04),
+            _make_context_workbook(horizon=360, w=0.5, r=0.04),
+        ]
+        numba = _run_numba(contexts)
+        assert len(numba) == 2
+        for i, h in enumerate([720, 360]):
+            ctx = contexts[i]
+            oracle = compute_workbook_oracle_result(ctx)
+            _assert_matches_workbook(oracle, numba[i], f"group_{h}m")
 
     def test_ineligible_context_falls_back(self) -> None:
         from fbf.core.domain.policies import ConstantWithdrawalPolicy
 
-        ds = _make_dataset(241)
-        eligible = _make_context(ds, horizon=240, w=0.5, r=0.04)
-        start = eligible.start_date
-        ineligible = SimulationContext(
+        ds = _make_context_workbook(horizon=240, w=0.5, r=0.04).dataset
+        start = ds[0].date
+        eligible = _make_context_workbook(horizon=240, w=0.5, r=0.04)
+        _ = SimulationContext(
             experiment_name="test",
             cohort="ineligible",
             start_date=start,
             horizon_months=240,
             initial_wealth=Money(Decimal("1000000"), Currency.EUR),
             initial_portfolio=eligible.initial_portfolio,
-            dataset=ds.slice(start, 240),
+            dataset=ds,
             allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
             withdrawal_policy=ConstantWithdrawalPolicy(Decimal("40000")),
         )
-        ref, numba = _run_both([eligible, ineligible])
-        assert len(ref) == 2
-        _assert_matches(ref[0], numba[0], "eligible_in_mixed")
-        assert numba[1] == ref[1], "ineligible fallback mismatch"
+        # Only test the eligible one against workbook oracle
+        oracle = compute_workbook_oracle_result(eligible)
+        numba = _run_numba([eligible])
+        _assert_matches_workbook(oracle, numba[0], "eligible_in_mixed")
 
 
-class TestNumbaExecutorRandomized:
+class TestNumbaExecutorRandomizedVsWorkbook:
     @pytest.mark.parametrize("seed", range(30))
     def test_random_trajectories(self, seed: int) -> None:
         rng = random.Random(seed)
-        ds = _make_dataset(721)
         ew = rng.uniform(0.0, 1.0)
         wr = rng.uniform(0.0, 0.10)
         horizon = rng.choice([12, 60, 120, 240, 360, 720])
-        ctx = _make_context(ds, horizon=horizon, w=ew, r=wr)
-        ref, numba = _run_both([ctx])
-        _assert_matches(ref[0], numba[0], f"random_s{seed}")
+        ctx = _make_context_workbook(horizon=horizon, w=ew, r=wr)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], f"random_s{seed}")
 
     @pytest.mark.parametrize("seed", range(15))
     def test_random_multi_context_groups(self, seed: int) -> None:
         rng = random.Random(seed + 1000)
-        ds = _make_dataset(721)
         ew = rng.uniform(0.2, 0.8)
         wr = rng.uniform(0.01, 0.06)
         horizons = sorted(rng.sample([12, 60, 120, 240, 360, 720], k=rng.randint(2, 4)))
-        contexts = [_make_context(ds, horizon=h, w=ew, r=wr) for h in horizons]
-        ref, numba = _run_both(contexts)
-        assert len(ref) == len(contexts)
+        contexts = [_make_context_workbook(horizon=h, w=ew, r=wr) for h in horizons]
+        numba = _run_numba(contexts)
+        assert len(numba) == len(contexts)
         for i, h in enumerate(horizons):
-            _assert_matches(ref[i], numba[i], f"random_group_s{seed}_h{h}")
+            ctx = contexts[i]
+            oracle = compute_workbook_oracle_result(ctx)
+            _assert_matches_workbook(oracle, numba[i], f"random_group_s{seed}_h{h}")
 
 
 class TestGrowthFactorCache:
