@@ -73,8 +73,8 @@ def is_part52_eligible(context: SimulationContext) -> bool:
     - Dataset covers full horizon
     - Exactly 2 holdings (one equity, one bond)
     - All held asset classes in dataset
-    - expense_ratio is None or 0 (no expense deduction in kernel)
     - interest_rate_schedule is not None (FFR-based interest)
+    - expense_ratio is supported (additive fee embedded in growth factors)
     """
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
@@ -94,10 +94,6 @@ def is_part52_eligible(context: SimulationContext) -> bool:
     if sum(1 for h in holdings if h.asset_class.id == "equity") != 1:
         return False
     if any(h.asset_class not in context.dataset[0].index_levels for h in holdings):
-        return False
-    # Expense deduction is a no-op in the kernel; reject if non-zero
-    expense_ratio = context.expense_ratio
-    if expense_ratio is not None and expense_ratio != Decimal("0"):
         return False
     # Interest rate schedule is required for FFR-based interest
     return context.interest_rate_schedule is not None

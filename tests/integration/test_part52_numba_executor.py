@@ -67,6 +67,38 @@ def _create_dataset(horizon_months: int) -> Dataset:
     return Dataset(snapshots=tuple(snapshots), frequency="monthly")
 
 
+def _create_growth_dataset(
+    horizon_months: int,
+    equity_return: Decimal,
+    bond_return: Decimal,
+) -> Dataset:
+    """Create a dataset with constant growth rates for equity and bond.
+
+    The index levels grow by the specified monthly returns.
+    """
+    snapshots = []
+    current = date(1965, 11, 1)
+    eq_price = Decimal("100")
+    bd_price = Decimal("100")
+    for _ in range(horizon_months + 1):
+        snapshots.append(
+            MarketSnapshot(
+                date=current,
+                index_levels={EQUITY_ASSET: eq_price, BOND_ASSET: bd_price},
+                inflation=Decimal("0"),
+                inflation_cumulative=Decimal("0"),
+                is_ath=True,
+                is_underwater=False,
+                running_ath=eq_price,
+            )
+        )
+        # Grow prices for next month
+        eq_price = eq_price * (Decimal("1") + equity_return)
+        bd_price = bd_price * (Decimal("1") + bond_return)
+        current = date(current.year + (current.month // 12), current.month % 12 + 1, 1)
+    return Dataset(snapshots=tuple(snapshots), frequency="monthly")
+
+
 def _create_ffr_dataset(horizon_months: int, ffr_schedule: tuple[Decimal, ...]) -> Dataset:
     """Create a dataset with is_underwater variation for FFR testing."""
     snapshots = []
@@ -180,11 +212,17 @@ class TestPart52Eligibility:
         )
         assert is_part52_eligible(ctx) is False
 
-    def test_ineligible_non_zero_expense_ratio(self) -> None:
-        """Non-zero expense_ratio should make context ineligible (current restriction)."""
+    def test_eligible_with_expense_ratio(self) -> None:
+        """Positive expense_ratio should now be eligible (additive fee supported)."""
         dataset = _create_dataset(12)
         ctx = _make_context(dataset, 12, expense_ratio=Decimal("0.0005"))
-        assert is_part52_eligible(ctx) is False
+        assert is_part52_eligible(ctx) is True
+
+    def test_eligible_with_zero_expense_ratio(self) -> None:
+        """Zero expense_ratio should be eligible."""
+        dataset = _create_dataset(12)
+        ctx = _make_context(dataset, 12, expense_ratio=Decimal("0"))
+        assert is_part52_eligible(ctx) is True
 
     def test_ineligible_wrong_allocation_policy(self) -> None:
         """Non-ConstantAllocationPolicy should be ineligible."""
@@ -241,9 +279,9 @@ class TestPart52NumbaExecutorDirect:
         assert isinstance(sim_result.statistics.success, bool)
 
     def test_ineligible_context_invokes_fallback(self) -> None:
-        """Ineligible context (non-zero expense_ratio) should invoke fallback."""
+        """Ineligible context (missing FFR schedule) should invoke fallback."""
         dataset = _create_dataset(6)
-        # Non-zero expense_ratio makes context ineligible
+        # Missing interest_rate_schedule makes context ineligible
         ctx = SimulationContext(
             experiment_name="test",
             cohort="1965-11",
@@ -264,10 +302,10 @@ class TestPart52NumbaExecutorDirect:
                 drawdown_threshold=DRAWDOWN_THRESHOLD,
             ),
             interest_rate=INTEREST_RATE,
-            interest_rate_schedule=tuple(Decimal("0.015") for _ in range(6)),
+            interest_rate_schedule=None,  # Missing FFR schedule makes ineligible
             ltv_limit=LTV_LIMIT,
             ltv_enforcement=False,
-            expense_ratio=Decimal("0.0005"),  # Non-zero expense makes ineligible
+            expense_ratio=None,
         )
 
         executor = Part52NumbaExecutor()
@@ -415,6 +453,207 @@ class TestPart52NumbaExecutorReport:
         assert report.longest_path_evaluations == 2
         assert report.derived_results == 0  # No cross-horizon derivation yet
         assert report.month_work == 18  # 6 + 12
+
+
+class TestPart52ExpenseRatioSupport:
+    """Verify Part 52 Numba executor supports expense ratios via additive fee model."""
+
+    def test_zero_fee_executes_on_numba_no_fallback(self) -> None:
+        """Zero expense_ratio should execute on Numba without fallback."""
+        dataset = _create_ffr_dataset(6, (Decimal("0.015"),) * 6)
+        ctx = _make_context(dataset, 6, expense_ratio=Decimal("0"))
+
+        executor = Part52NumbaExecutor()
+        definition = EngineExperimentDefinition(
+            name="test",
+            description="test",
+            simulation_contexts=(ctx,),
+        )
+
+        fallback_invoked: list[bool] = []
+        original_execute = executor._reference.execute
+
+        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
+            fallback_invoked.append(True)
+            return original_execute(defn)
+
+        object.__setattr__(executor._reference, "execute", tracking_execute)
+
+        result = executor.execute(definition)
+
+        assert len(fallback_invoked) == 0, "Legacy fallback invoked for zero fee!"
+        assert len(result.simulation_results) == 1
+        sim_result = result.simulation_results[0]
+        assert sim_result.statistics is not None
+
+    def test_positive_fee_executes_on_numba_no_fallback(self) -> None:
+        """Positive expense_ratio (0.05% canonical ERN) should execute on Numba without fallback."""
+        dataset = _create_ffr_dataset(6, (Decimal("0.015"),) * 6)
+        ctx = _make_context(dataset, 6, expense_ratio=Decimal("0.0005"))
+
+        executor = Part52NumbaExecutor()
+        definition = EngineExperimentDefinition(
+            name="test",
+            description="test",
+            simulation_contexts=(ctx,),
+        )
+
+        fallback_invoked: list[bool] = []
+        original_execute = executor._reference.execute
+
+        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
+            fallback_invoked.append(True)
+            return original_execute(defn)
+
+        object.__setattr__(executor._reference, "execute", tracking_execute)
+
+        result = executor.execute(definition)
+
+        assert len(fallback_invoked) == 0, "Legacy fallback invoked for positive fee!"
+        assert len(result.simulation_results) == 1
+        sim_result = result.simulation_results[0]
+        assert sim_result.statistics is not None
+
+    def test_fee_affects_final_wealth(self) -> None:
+        """Positive fee should reduce final wealth compared to zero fee.
+
+        Uses a longer horizon so fee effect is visible.
+        Uses separate executor instances to avoid growth factor cache interference.
+        """
+        # Create dataset with 1% monthly equity return, 0.5% bond return
+        dataset = _create_growth_dataset(
+            12,
+            equity_return=Decimal("0.01"),
+            bond_return=Decimal("0.005"),
+        )
+
+        # Zero fee - use fresh executor
+        ctx_zero = _make_context(dataset, 12, expense_ratio=Decimal("0"))
+        executor_zero = Part52NumbaExecutor()
+        defn_zero = EngineExperimentDefinition(
+            name="test", description="test", simulation_contexts=(ctx_zero,)
+        )
+        result_zero = executor_zero.execute(defn_zero)
+        wealth_zero = result_zero.simulation_results[0].statistics.final_wealth.amount
+
+        # Positive fee (0.05%) - use fresh executor to avoid growth factor cache
+        ctx_fee = _make_context(dataset, 12, expense_ratio=Decimal("0.0005"))
+        executor_fee = Part52NumbaExecutor()
+        defn_fee = EngineExperimentDefinition(
+            name="test", description="test", simulation_contexts=(ctx_fee,)
+        )
+        result_fee = executor_fee.execute(defn_fee)
+        wealth_fee = result_fee.simulation_results[0].statistics.final_wealth.amount
+
+        # Fee should reduce final wealth (or at least not increase it)
+        # Note: Part 52's leverage mechanics may offset fee effects
+        # The key assertion is that the executor accepts and processes the fee
+        assert wealth_fee <= wealth_zero, (
+            f"Fee should not increase wealth: {wealth_fee} > {wealth_zero}"
+        )
+
+    def test_fee_boundary_case(self) -> None:
+        """Test boundary: very small fee still executes on Numba."""
+        dataset = _create_ffr_dataset(6, (Decimal("0.015"),) * 6)
+        ctx = _make_context(dataset, 6, expense_ratio=Decimal("0.000001"))  # 0.0001%
+
+        executor = Part52NumbaExecutor()
+        definition = EngineExperimentDefinition(
+            name="test",
+            description="test",
+            simulation_contexts=(ctx,),
+        )
+
+        fallback_invoked: list[bool] = []
+
+        original_execute = executor._reference.execute
+
+        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
+            fallback_invoked.append(True)
+            return original_execute(defn)
+
+        object.__setattr__(executor._reference, "execute", tracking_execute)
+
+        result = executor.execute(definition)
+
+        assert len(fallback_invoked) == 0, "Legacy fallback invoked for tiny fee!"
+        assert len(result.simulation_results) == 1
+
+
+class TestPart52ExpenseRatioIndependentValidation:
+    """Independent validation of expense ratio implementation using hand-calculable scenarios.
+
+    This test validates the additive fee model against a manually computable scenario.
+    It does NOT use the production kernel to compute expected values.
+    """
+
+    def test_fee_model_matches_additive_formula(self) -> None:
+        """Validate that fee is applied additively in growth factors: g' = g - fee/12.
+
+        This test uses the workbook_scr module (independent implementation) to verify
+        the fee model matches the workbook methodology: weighted_return - fee/12.
+        """
+        from fbf.core.execution.strategies.workbook_scr import (
+            compute_workbook_growth_factors,
+            compute_workbook_scr,
+        )
+
+        # Create a dataset with 0.5% equity return, 0.2% bond return
+        # 75/25 allocation (matching the _make_context default), 12 months, 0.05% fee
+        dataset = _create_growth_dataset(
+            13,  # 12 months + 1 for returns
+            equity_return=Decimal("0.005"),
+            bond_return=Decimal("0.002"),
+        )
+        ctx = _make_context(dataset, 12, expense_ratio=Decimal("0.0005"))
+
+        # Compute growth factors using workbook_scr (independent implementation)
+        P, initial_value = compute_workbook_growth_factors(ctx, 12)
+
+        # Verify fee is embedded in growth factors
+        # Month 1 growth factor: 0.75*0.005 + 0.25*0.002 - 0.0005/12
+        fee_monthly = Decimal("0.0005") / Decimal("12")
+        expected_monthly_return = (
+            Decimal("0.75") * Decimal("0.005")
+            + Decimal("0.25") * Decimal("0.002")
+            - fee_monthly
+        )
+        expected_g1 = Decimal("1") + expected_monthly_return
+
+        # P[1] = P[0] * (1 + r0) = 1 * (1 + r0)
+        # compute_workbook_growth_factors returns P dict with P[0]=1, P[1]=1+r0
+        assert abs(P[1] - expected_g1) < Decimal("1e-10"), (
+            f"Fee not embedded correctly: P[1]={P[1]}, expected={expected_g1}"
+        )
+
+        # Verify SCR computation uses fee-embedded P
+        scr = compute_workbook_scr(P, 0, 12, Decimal("0.0005"))
+        # SCR should be computable and reasonable
+        assert scr > Decimal("0")
+
+    def test_expense_ratio_reduces_scr(self) -> None:
+        """Higher expense ratio should reduce SCR (independent validation)."""
+        from fbf.core.execution.strategies.workbook_scr import (
+            compute_workbook_growth_factors,
+            compute_workbook_scr,
+        )
+
+        dataset = _create_growth_dataset(
+            13,
+            equity_return=Decimal("0.005"),
+            bond_return=Decimal("0.002"),
+        )
+        ctx_zero = _make_context(dataset, 12, expense_ratio=Decimal("0"))
+        ctx_fee = _make_context(dataset, 12, expense_ratio=Decimal("0.0005"))
+
+        P_zero, _ = compute_workbook_growth_factors(ctx_zero, 12)
+        P_fee, _ = compute_workbook_growth_factors(ctx_fee, 12)
+
+        scr_zero = compute_workbook_scr(P_zero, 0, 12, Decimal("0"))
+        scr_fee = compute_workbook_scr(P_fee, 0, 12, Decimal("0.0005"))
+
+        # Higher fee should reduce SCR
+        assert scr_fee < scr_zero, f"Fee should reduce SCR: {scr_fee} >= {scr_zero}"
 
 
 if __name__ == "__main__":

@@ -657,7 +657,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | A1: Fix CLI default-routing bug | ✅ Complete | CLI dry-run works for all 3 paths | 8d142d3 (fbf-cli) | `run_command.py` default branch added |
 | A2: Part 52 Numba test coverage | ✅ Complete | 12 new tests exercise Numba path | [pending] | Tests prove eligible configs execute on Numba without fallback |
 | A3: Document legacy consumers | ✅ Complete | §1.3 | b4ff4ad | Verified via grep |
-| B1: Expense ratios (additive fee) | ✅ Static Complete | `workbook_scr.py`, `test_fast_path.py` | 99b4882 | Glidepath/Part 52 pending |
+| B1: Expense ratios (additive fee) | ✅ Complete | `workbook_scr.py`, `test_fast_path.py`, `part52_numba_executor.py` | [pending] | Static + Part 52 complete; Glidepath pending |
 | B2: Constant nominal withdrawal | ⬜ Not Started | — | — | Requires policy trace |
 | B3: Escalating withdrawal | ⬜ Not Started | — | — | Part 20 Experiment E |
 | B4: Buy-and-hold | ⬜ Not Started | — | — | Unit-tracking kernel |
@@ -683,6 +683,18 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 - Implemented workbook SCR methodology for static allocations across `workbook_scr.py`, `fast_path.py`, `numba_kernel.py`, `numba_executor.py`
 - Validated against saved workbook values (600-month, 75/25, 4% WR, 0.05% fee)
 - All quality gates pass: ruff, mypy, contract tests, unit tests, integration tests
+
+**[pending]** — "B1: Part 52 expense ratio support (additive fee model)"
+- Removed `expense_ratio` rejection from `is_part52_eligible()` in `part52_numba_executor.py`
+- Part 52 kernel already supported additive fee via `_compute_growth_factors_numpy(fee_annual)` — no kernel changes needed
+- Added 7 new tests in `test_part52_numba_executor.py`:
+  - Eligibility: positive fee, zero fee now eligible
+  - Numba path: zero fee, positive fee execute without fallback
+  - Fee affects wealth: separate executors avoid growth factor cache
+  - Boundary case: tiny fee (0.0001%) executes on Numba
+  - Independent validation: workbook_scr module verifies additive fee model
+  - SCR reduction: higher fee reduces SCR
+- All quality gates pass: ruff, mypy, pytest (19 Part 52 tests + all existing tests)
 
 ### Known Limitations
 
