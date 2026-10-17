@@ -97,9 +97,9 @@ from fbf.core.execution.strategies.numba_kernel import (
     _simulate_trajectory,
     _simulate_trajectory_buy_and_hold,
     _simulate_trajectory_constant_nominal,
-    _simulate_trajectory_end_of_period,
     _simulate_trajectory_escalating,
     _simulate_trajectory_varying,
+    _simulate_trajectory_workbook,
     compute_growth_factors_varying_weights_batch,
 )
 from fbf.core.execution.strategies.parallel_executor import (
@@ -839,30 +839,26 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
         for horizon, h_contexts in horizon_to_ctxs.items():
             stats["month_work"] += horizon
-            growth_factors_arr = growth_factors_full[:horizon]
 
             if use_workbook:
-                # Compute workbook SCR for success determination
-                scr = _compute_workbook_scr(growth_factors_arr, horizon, fee_annual)
+                # Workbook convention (SWR Toolbox ``Case Study``): the context
+                # horizon includes the pre-retirement snapshot, so the number of
+                # return / withdrawal periods is ``horizon - 1``.  Withdraw
+                # before growth in every period and compound the final month's
+                # return, exactly as ``fast_path._evaluate_workbook_scr_path``
+                # (including its failure reporting: success is decided by the
+                # SCR, failure_month is the horizon).
+                periods = horizon - 1
+                growth_factors_arr = growth_factors_full[:periods]
+                scr = _compute_workbook_scr(growth_factors_arr, periods, fee_annual)
                 success = scr >= rate_f
-                # Compute final wealth using end-of-period trajectory
-                # (fee embedded in growth factors)
-                _final_val, _traj_success, fail_month, _ = _simulate_trajectory_end_of_period(
-                    growth_factors_arr, v0, c, horizon
+                final_value, _traj_success, _fail_month, _ = _simulate_trajectory_workbook(
+                    growth_factors_arr, v0, c, periods
                 )
-                if success:
-                    final_value = _final_val
-                    failure_month = None
-                    months_simulated = horizon
-                else:
-                    final_value = 0.0
-                    # If trajectory didn't detect depletion
-                    # (fail_month == -1), failure is at horizon
-                    failure_month = (
-                        fail_month if fail_month >= 0 else horizon
-                    )
-                    months_simulated = failure_month
+                failure_month = None if success else horizon
+                months_simulated = horizon
             else:
+                growth_factors_arr = growth_factors_full[:horizon]
                 _final_val, _kernel_success, fail_month, _ = _simulate_trajectory(
                     growth_factors_arr, v0, c, horizon
                 )

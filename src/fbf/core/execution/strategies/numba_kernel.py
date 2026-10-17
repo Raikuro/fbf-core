@@ -101,27 +101,40 @@ def _compute_workbook_scr(
 
 
 @numba.njit(cache=True)
-def _simulate_trajectory_end_of_period(
+def _simulate_trajectory_workbook(
     growth_factors: NDArray[np.float64],
     initial_value: float,
     withdrawal_monthly: float,
     horizon: int,
 ) -> tuple[float, bool, int, float]:
-    """Simulate one trajectory with end-of-period withdrawals (grow → withdraw).
+    """Simulate one trajectory with the SWR Toolbox workbook recurrence.
 
-    This matches the workbook methodology: portfolio grows first, then withdrawal occurs.
+    Matches ``SWR_Toolbox_v2.0.xlsx`` ``Case Study``:
+
+        P(t) = (P(t-1) - W(t)) * (1 + R(t))    for t = 1 .. horizon
+
+    The withdrawal precedes the growth in every period, and the return of the
+    final period is compounded (the trajectory is reported at the *end* of the
+    final month).  ``growth_factors[m]`` is ``1 + R(t)`` for the ``m``-th
+    (0-based) period and is applied *after* the withdrawal, so all ``horizon``
+    entries are used.  This is the exact recurrence of the Decimal fast path
+    (``fast_path._evaluate_workbook_scr_path``) and of the canonical ERN oracle.
+
+    Depletion semantics match the reference engine: when the portfolio value is
+    insufficient to cover the withdrawal, the remaining value is 0 (all
+    holdings are sold).  The exact-boundary case (value == withdrawal) is NOT
+    depleted — the withdrawal succeeds with remaining value 0.
 
     Parameters
     ----------
     growth_factors:
-        Precomputed growth factors (length = horizon).  Entry m is the growth
-        from month m to m+1.  All entries 0..horizon-1 are used.
+        Precomputed growth factors (length >= horizon), fee already embedded.
     initial_value:
-        Portfolio value at month 0.
+        Portfolio value at the pre-retirement snapshot.
     withdrawal_monthly:
         Constant real monthly withdrawal ``C``.
     horizon:
-        Number of months to simulate.
+        Number of withdrawal / growth periods.
 
     Returns
     -------
@@ -132,14 +145,11 @@ def _simulate_trajectory_end_of_period(
     value = initial_value
 
     for m in range(horizon):
-        # Grow first (end-of-period)
-        value *= growth_factors[m]
-
-        # Then withdraw
         if value < withdrawal_monthly:
             return 0.0, False, m, 0.0
 
         value -= withdrawal_monthly
+        value *= growth_factors[m]
 
     return value, True, -1, value
 

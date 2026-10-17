@@ -27,7 +27,11 @@ from fbf.core.execution.pipeline.simulation import (
     SimulationResult,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.strategies.fast_path import _index_series, _weights_by_class
+from fbf.core.execution.strategies.fast_path import (
+    _index_series,
+    _weights_by_class,
+    evaluate_closed_form,
+)
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.study.builder import build_initial_portfolio
 from tests.unit.strategies.workbook_oracle_test_helper import (
@@ -319,6 +323,137 @@ class TestNumbaExecutorRandomizedVsWorkbook:
             ctx = contexts[i]
             oracle = compute_workbook_oracle_result(ctx)
             _assert_matches_workbook(oracle, numba[i], f"random_group_s{seed}_h{h}")
+
+
+class TestNumbaVsFastPathEquivalence:
+    """The Numba workbook path and the Decimal fast path must agree.
+
+    Guards against terminal-period drift: the Numba kernel must use the same
+    number of periods (``horizon_months - 1``) and the same withdraw-then-grow
+    order as ``fast_path`` (the canonical workbook implementation).
+    """
+
+    @pytest.mark.parametrize("horizon", [12, 60, 120, 240, 360, 720])
+    @pytest.mark.parametrize("w", [0.0, 0.5, 1.0])
+    def test_matches_fast_path(self, horizon: int, w: float) -> None:
+        ctx = _make_context_workbook(horizon=horizon, w=w, r=0.04)
+        numba_ok, numba_fm, numba_fv, numba_months = _run_numba([ctx])[0]
+        fast = evaluate_closed_form(ctx).statistics
+
+        assert numba_ok == fast.success
+        assert numba_months == fast.months_simulated
+        if fast.success:
+            assert numba_fm is None
+            assert fast.failure_month is None
+            assert abs(numba_fv - fast.final_wealth.amount) < WEALTH_TOLERANCE
+
+    @pytest.mark.parametrize("rate", [0.0, 0.01, 0.02, 0.05, 0.10])
+    def test_matches_fast_path_rates(self, rate: float) -> None:
+        ctx = _make_context_workbook(horizon=360, w=0.6, r=rate)
+        numba_ok, _numba_fm, numba_fv, numba_months = _run_numba([ctx])[0]
+        fast = evaluate_closed_form(ctx).statistics
+
+        assert numba_ok == fast.success
+        assert numba_months == fast.months_simulated
+        if fast.success:
+            assert abs(numba_fv - fast.final_wealth.amount) < WEALTH_TOLERANCE
+
+
+def _wb_ctx(
+    horizon: int,
+    w: float,
+    r: float,
+    eq_return: float = 0.0,
+    bd_return: float = 0.0,
+) -> SimulationContext:
+    """Workbook context with explicit constant asset returns and no fee.
+
+    Fee is fixed at zero so these boundary tests isolate the terminal-period
+    convention (order and count) from fee handling.
+    """
+    return make_workbook_test_context(
+        horizon,
+        w=w,
+        r=r,
+        equity_return=eq_return,
+        bond_return=bd_return,
+        fee_annual=0.0,
+    )
+
+
+class TestWorkbookConventionBoundaries:
+    """Boundary behaviour of the workbook terminal convention.
+
+    The workbook (``SWR_Toolbox_v2.0.xlsx`` ``Case Study``) withdraws before
+    growing, for exactly ``horizon_months - 1`` periods, compounding the final
+    period's return.  These cases pin the minimum horizon, exact depletion,
+    withdrawal exceeding available wealth, and the terminal period.
+    """
+
+    def test_minimum_horizon_one_period(self) -> None:
+        # horizon_months == 2 -> exactly one withdrawal and one growth period.
+        ctx = _wb_ctx(horizon=2, w=0.5, r=0.05, eq_return=0.006, bd_return=0.002)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "min_horizon")
+
+        v0 = Decimal("1000000")
+        port_ret = Decimal("0.5") * Decimal("0.006") + Decimal("0.5") * Decimal("0.002")
+        c = v0 * Decimal("0.05") / Decimal("12")
+        expected = (v0 - c) * (Decimal("1") + port_ret)
+        assert abs(oracle.final_wealth - expected) < WEALTH_TOLERANCE
+
+    def test_terminal_period_growth_is_applied(self) -> None:
+        # horizon_months == 3 -> two periods; the second period's return must be
+        # compounded (withdraw-then-grow) rather than dropped.
+        ctx = _wb_ctx(horizon=3, w=0.5, r=0.04, eq_return=0.01, bd_return=0.0)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "terminal_period")
+
+        v0 = Decimal("1000000")
+        g = Decimal("1") + Decimal("0.5") * Decimal("0.01")
+        c = v0 * Decimal("0.04") / Decimal("12")
+        expected = v0 * g**2 - c * (g + g**2)
+        assert abs(oracle.final_wealth - expected) < WEALTH_TOLERANCE
+
+    def test_exact_depletion_is_sustainable(self) -> None:
+        # Zero returns and zero fee: rate = 12 / T drains the portfolio to
+        # exactly zero on the final withdrawal, which is sustainable
+        # (SCR == rate), not a shortfall.
+        periods = 100
+        ctx = _wb_ctx(horizon=periods + 1, w=0.5, r=0.12)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "exact_depletion")
+
+        assert oracle.scr == Decimal("0.12")
+        assert oracle.success is True
+        assert oracle.final_wealth == Decimal("0")
+
+    def test_exact_depletion_then_shortfall(self) -> None:
+        # Same zero-return setup, but the horizon outlives the funds: the
+        # portfolio hits exactly zero before the horizon and then fails.
+        ctx = _wb_ctx(horizon=151, w=0.5, r=0.12)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "exact_depletion_shortfall")
+
+        assert oracle.scr == Decimal("0.08")  # 12 / 150 periods
+        assert oracle.success is False
+        assert oracle.final_wealth == Decimal("0")
+        assert oracle.failure_month == 151
+
+    def test_withdrawal_exceeding_available_wealth(self) -> None:
+        # Zero returns: rate far above the SCR depletes the portfolio early.
+        ctx = _wb_ctx(horizon=101, w=0.5, r=0.30)
+        oracle = compute_workbook_oracle_result(ctx)
+        numba = _run_numba([ctx])
+        _assert_matches_workbook(oracle, numba[0], "withdrawal_exceeds_wealth")
+
+        assert oracle.success is False
+        assert oracle.final_wealth == Decimal("0")
+        assert oracle.failure_month == 101
 
 
 class TestGrowthFactorCache:

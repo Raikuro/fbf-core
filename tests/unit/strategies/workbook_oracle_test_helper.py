@@ -32,13 +32,20 @@ class WorkbookOracleResult:
 def compute_workbook_oracle_result(context: SimulationContext) -> WorkbookOracleResult:
     """Compute expected workbook result for a context.
 
-    Requires context.dataset to have at least horizon_months + 1 snapshots.
+    The workbook convention (``SWR_Toolbox_v2.0.xlsx`` ``Case Study``) counts
+    ``horizon_months - 1`` return / withdrawal periods because
+    ``context.horizon_months`` includes the pre-retirement snapshot.  Each
+    period withdraws before growing, and the final period's return is
+    compounded.
+
+    Requires context.dataset to have at least ``horizon_months`` snapshots.
     """
     horizon = context.horizon_months
-    if len(context.dataset.snapshots) < horizon + 1:
+    periods = horizon - 1
+    if len(context.dataset.snapshots) < periods + 1:
         raise ValueError(
             f"Dataset has {len(context.dataset.snapshots)} snapshots, "
-            f"need {horizon + 1}"
+            f"need {periods + 1}"
         )
 
     # Extract returns from dataset
@@ -62,7 +69,7 @@ def compute_workbook_oracle_result(context: SimulationContext) -> WorkbookOracle
     eq_class = AssetClass(id="equity", name="", description="")
     bd_class = AssetClass(id="bond", name="", description="")
 
-    for m in range(horizon):
+    for m in range(periods):
         idx_m = snapshots[m].index_levels
         idx_m1 = snapshots[m + 1].index_levels
         eq_ret = idx_m1[eq_class] / idx_m[eq_class] - Decimal("1")
@@ -75,25 +82,19 @@ def compute_workbook_oracle_result(context: SimulationContext) -> WorkbookOracle
 
     success = scr >= target_rate
 
-    # Compute end-of-period trajectory for final wealth
+    # Compute workbook trajectory for final wealth
     initial_value = _compute_initial_value(context)
     monthly_withdrawal = initial_value * target_rate / Decimal("12")
 
-    final_wealth = _simulate_end_of_period_trajectory(
-        eq_returns, bd_returns, w_eq, fee_monthly, initial_value, monthly_withdrawal, horizon
+    final_wealth, _failure = _simulate_workbook_trajectory(
+        eq_returns, bd_returns, w_eq, fee_monthly, initial_value,
+        monthly_withdrawal, periods,
     )
-
-    if success:
-        failure_month = None
-        months_simulated = horizon
-    else:
-        # Find failure month by simulating step by step
-        failure_month = _find_failure_month(
-            eq_returns, bd_returns, w_eq, fee_monthly, initial_value,
-            monthly_withdrawal, horizon
-        )
-        months_simulated = failure_month
-        final_wealth = Decimal("0")
+    # Match the canonical Decimal fast path: success is decided by the SCR and
+    # failure is reported at the horizon (the workbook model has no notion of a
+    # trajectory depletion month).
+    failure_month = None if success else horizon
+    months_simulated = horizon
 
     return WorkbookOracleResult(
         success=success,
@@ -143,7 +144,7 @@ def _compute_initial_value(context: SimulationContext) -> Decimal:
     return initial_value
 
 
-def _simulate_end_of_period_trajectory(
+def _simulate_workbook_trajectory(
     eq_returns: Sequence[Decimal],
     bd_returns: Sequence[Decimal],
     w_eq: Decimal,
@@ -151,42 +152,24 @@ def _simulate_end_of_period_trajectory(
     initial_value: Decimal,
     monthly_withdrawal: Decimal,
     horizon: int,
-) -> Decimal:
-    """Simulate end-of-period trajectory and return final wealth."""
+) -> tuple[Decimal, int | None]:
+    """Simulate the workbook trajectory (withdraw first, then grow).
+
+    Returns ``(final_wealth, failure_month)`` where ``failure_month`` is the
+    0-based month of depletion or ``None`` if the withdrawal is sustainable for
+    the whole horizon.
+    """
     w_bd = Decimal("1") - w_eq
     V = initial_value
 
     for m in range(horizon):
-        r = w_eq * eq_returns[m] + w_bd * bd_returns[m] - fee_monthly
-        V = V * (Decimal("1") + r)  # Grow first (with fee embedded)
         if monthly_withdrawal > V:
-            return Decimal("0")
-        V = V - monthly_withdrawal  # Then withdraw
-
-    return V
-
-
-def _find_failure_month(
-    eq_returns: Sequence[Decimal],
-    bd_returns: Sequence[Decimal],
-    w_eq: Decimal,
-    fee_monthly: Decimal,
-    initial_value: Decimal,
-    monthly_withdrawal: Decimal,
-    horizon: int,
-) -> int:
-    """Find the month of failure (0-indexed)."""
-    w_bd = Decimal("1") - w_eq
-    V = initial_value
-
-    for m in range(horizon):
+            return Decimal("0"), m
+        V = V - monthly_withdrawal  # Withdraw first (beginning-of-period)
         r = w_eq * eq_returns[m] + w_bd * bd_returns[m] - fee_monthly
-        V = V * (Decimal("1") + r)
-        if monthly_withdrawal > V:
-            return m
-        V = V - monthly_withdrawal
+        V = V * (Decimal("1") + r)  # Then grow (with fee embedded)
 
-    return horizon  # Should not reach here if called only on failure
+    return V, None
 
 
 def make_workbook_test_context(
@@ -199,8 +182,10 @@ def make_workbook_test_context(
 ) -> SimulationContext:
     """Create a test context with horizon+1 snapshots for workbook validation.
 
-    Uses flat/growing returns matching the differential test patterns.
-    Fee is applied in the snapshot returns (embedded in returns).
+    Snapshot index levels are gross market levels (``equity_return`` /
+    ``bond_return``), matching production datasets.  The annual ``fee_annual``
+    is carried by ``expense_ratio`` and applied exactly once by the strategy;
+    it is deliberately not embedded in the prices as well.
     """
     from datetime import date
 
@@ -210,7 +195,6 @@ def make_workbook_test_context(
     pe = pb = Decimal("100")
     snapshots = []
     d = date(1900, 1, 1)
-    fee_monthly = Decimal(str(fee_annual)) / Decimal("12")
     equity_return_dec = Decimal(str(equity_return))
     bond_return_dec = Decimal(str(bond_return))
 
@@ -226,9 +210,8 @@ def make_workbook_test_context(
                 running_ath=Decimal("100"),
             )
         )
-        # Apply returns with fee embedded
-        pe *= (Decimal("1") + equity_return_dec - fee_monthly)
-        pb *= (Decimal("1") + bond_return_dec - fee_monthly)
+        pe *= (Decimal("1") + equity_return_dec)
+        pb *= (Decimal("1") + bond_return_dec)
         d = date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
 
     dataset = Dataset(snapshots=snapshots, frequency="monthly")

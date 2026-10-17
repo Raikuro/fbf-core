@@ -158,9 +158,15 @@ def simulate_end_of_period_trajectory(
     withdrawal_rate: Decimal,
     fee_annual: Decimal = FEE_ANNUAL,
 ) -> tuple[bool, Decimal]:
-    """Simulate end-of-period trajectory for final wealth.
+    """Simulate the workbook trajectory for final wealth.
 
-    Uses fee-inclusive returns matching workbook methodology.
+    The workbook (``Case Study`` sheet, note in row 6) withdraws *before*
+    growing every month::
+
+        P(t) = (P(t-1) - W(t)) * (1 + R(t))
+
+    so the withdrawal is taken at the beginning of the period and the return is
+    compounded at the end, for all ``T`` periods including the final one.
 
     Returns (success, final_wealth).
     """
@@ -171,10 +177,10 @@ def simulate_end_of_period_trajectory(
 
     for m in range(T):
         r = w_eq * eq_returns[start + m] + w_bd * bd_returns[start + m] - fee_monthly
-        V = V * (_ONE + r)  # Grow first (with fee embedded)
         if V < C:
             return False, _ZERO
-        V = V - C  # Then withdraw
+        V = V - C  # Withdraw first (workbook: P(t-1) - W(t))
+        V = V * (_ONE + r)  # Then grow (workbook: * (1 + R(t)))
 
     return True, V
 
