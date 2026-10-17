@@ -21,9 +21,11 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
+from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     ExperimentRun,
+    SimulationResult,
     SimulationStatistics,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
@@ -112,6 +114,42 @@ def _create_decline_dataset(horizon_months: int) -> Dataset:
     )
 
 
+def _create_decline_inflation_dataset(
+    horizon_months: int,
+    equity_return: Decimal = Decimal("-0.04"),
+    monthly_inflation: Decimal = Decimal("0.005"),
+) -> Dataset:
+    """Declining equity combined with a strictly increasing CPI path.
+
+    The equity decline drives the compound drawdown below -0.20 by month ~6,
+    so borrowing starts well inside a 12-month schedule window and the loan
+    balance becomes sensitive to the interest rate.  The CPI compounds every
+    month, so ``inflation_cumulative[m] != inflation_cumulative[m-1]`` and the
+    CPI-adjusted real monthly rate differs materially from ``annual/12``.
+    """
+    snapshots = []
+    current = date(1965, 11, 1)
+    equity = Decimal("100")
+    bond = Decimal("100")
+    cpi = Decimal("1")
+    for _ in range(horizon_months + 1):
+        snapshots.append(
+            MarketSnapshot(
+                date=current,
+                index_levels={EQUITY_ASSET: equity, BOND_ASSET: bond},
+                inflation=monthly_inflation,
+                inflation_cumulative=cpi,
+                is_ath=True,
+                is_underwater=False,
+                running_ath=equity,
+            )
+        )
+        equity = equity * (Decimal("1") + equity_return)
+        cpi = cpi * (Decimal("1") + monthly_inflation)
+        current = date(current.year + (current.month // 12), current.month % 12 + 1, 1)
+    return Dataset(snapshots=tuple(snapshots), frequency="monthly")
+
+
 def _create_ffr_dataset(horizon_months: int, ffr_schedule: tuple[Decimal, ...]) -> Dataset:
     """Create a dataset with is_underwater variation for FFR testing."""
     snapshots = []
@@ -153,7 +191,8 @@ def _make_context(
     """Create a Part52-eligible SimulationContext.
 
     Use `interest_rate_schedule=...` (Ellipsis) to request default schedule.
-    Use `interest_rate_schedule=None` for no schedule (ineligible).
+    Use `interest_rate_schedule=None` for no schedule, exercising the
+    fixed-rate fallback (eligible via the scalar ``interest_rate``).
     """
     # Default to a simple FFR schedule if Ellipsis is provided
     if interest_rate_schedule is ...:
@@ -204,8 +243,13 @@ class TestPart52Eligibility:
         ctx = _make_context(dataset, 12)
         assert is_part52_eligible(ctx) is True
 
-    def test_ineligible_missing_ffr_schedule(self) -> None:
-        """Missing interest_rate_schedule should make context ineligible."""
+    def test_eligible_missing_ffr_schedule_with_fixed_rate(self) -> None:
+        """A schedule-less context with a fixed interest_rate is eligible.
+
+        This is the fixed-rate / pre-1928 path: ``InterestAccrualStep`` falls
+        back to the scalar ``interest_rate`` when no FFR schedule is present,
+        and the Part 52 Numba kernel reproduces that convention.
+        """
         dataset = _create_dataset(12)
         # Explicitly pass None to disable the default schedule
         ctx = SimulationContext(
@@ -229,6 +273,36 @@ class TestPart52Eligibility:
             ),
             interest_rate=INTEREST_RATE,
             interest_rate_schedule=None,  # Explicitly no schedule
+            ltv_limit=LTV_LIMIT,
+            ltv_enforcement=False,
+            expense_ratio=None,
+        )
+        assert is_part52_eligible(ctx) is True
+
+    def test_ineligible_without_any_rate_source(self) -> None:
+        """No schedule and no fixed rate is unsupported by the Numba backend."""
+        dataset = _create_dataset(12)
+        ctx = SimulationContext(
+            experiment_name="test",
+            cohort="1965-11",
+            start_date=date(1965, 11, 1),
+            horizon_months=12,
+            initial_wealth=INITIAL_WEALTH,
+            initial_portfolio=Portfolio(
+                holdings=(
+                    AssetHolding(asset_class=EQUITY_ASSET, units=Decimal("7500")),
+                    AssetHolding(asset_class=BOND_ASSET, units=Decimal("2500")),
+                )
+            ),
+            dataset=dataset,
+            allocation_policy=ConstantAllocationPolicy(Decimal("0.75")),
+            withdrawal_policy=Part52WithdrawalPolicy(
+                withdrawal_rate=WITHDRAWAL_RATE,
+                borrow_pct=BORROW_PCT,
+                drawdown_threshold=DRAWDOWN_THRESHOLD,
+            ),
+            interest_rate=None,  # No fixed rate
+            interest_rate_schedule=None,  # No schedule either
             ltv_limit=LTV_LIMIT,
             ltv_enforcement=False,
             expense_ratio=None,
@@ -301,10 +375,10 @@ class TestPart52NumbaExecutorDirect:
         assert sim_result.statistics is not None
         assert isinstance(sim_result.statistics.success, bool)
 
-    def test_ineligible_context_invokes_fallback(self) -> None:
-        """Ineligible context (missing FFR schedule) should invoke fallback."""
+    def test_ineligible_context_raises_unsupported(self) -> None:
+        """An ineligible context must fail loudly, never silently fall back."""
         dataset = _create_dataset(6)
-        # Missing interest_rate_schedule makes context ineligible
+        # No rate source at all makes the context unsupported
         ctx = SimulationContext(
             experiment_name="test",
             cohort="1965-11",
@@ -324,8 +398,8 @@ class TestPart52NumbaExecutorDirect:
                 borrow_pct=BORROW_PCT,
                 drawdown_threshold=DRAWDOWN_THRESHOLD,
             ),
-            interest_rate=INTEREST_RATE,
-            interest_rate_schedule=None,  # Missing FFR schedule makes ineligible
+            interest_rate=None,  # No fixed rate
+            interest_rate_schedule=None,  # No schedule
             ltv_limit=LTV_LIMIT,
             ltv_enforcement=False,
             expense_ratio=None,
@@ -339,7 +413,6 @@ class TestPart52NumbaExecutorDirect:
         )
 
         fallback_invoked: list[bool] = []
-
         original_execute = executor._reference.execute
 
         def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
@@ -348,10 +421,10 @@ class TestPart52NumbaExecutorDirect:
 
         object.__setattr__(executor._reference, "execute", tracking_execute)
 
-        _ = executor.execute(definition)
+        with pytest.raises(UnsupportedConfigurationError):
+            executor.execute(definition)
 
-        # Fallback SHOULD have been invoked for ineligible context
-        assert len(fallback_invoked) == 1, "Legacy fallback was NOT invoked for ineligible context!"
+        assert fallback_invoked == [], "Legacy fallback must never be invoked."
 
     def test_multiple_eligible_contexts_all_on_numba(self) -> None:
         """Multiple eligible contexts in one definition should all execute on Numba."""
@@ -1011,6 +1084,175 @@ class TestPart52ExpenseRatioIndependentValidation:
 
         # Higher fee should reduce SCR
         assert scr_fee < scr_zero, f"Fee should reduce SCR: {scr_fee} >= {scr_zero}"
+
+
+_WEALTH_TOLERANCE = Decimal("0.01")
+
+
+def _reference_result(ctx: SimulationContext) -> SimulationResult:
+    """Execute *ctx* on the legacy Decimal reference pipeline."""
+    from fbf.core.execution.strategies.parallel_executor import (
+        _create_default_simulation_executor,
+    )
+
+    reference = _create_default_simulation_executor()
+    run = reference.execute(
+        EngineExperimentDefinition(name="ref", description="ref", simulation_contexts=(ctx,))
+    )
+    return run.simulation_results[0]
+
+
+def _numba_result(ctx: SimulationContext) -> SimulationResult:
+    """Execute *ctx* on the Part 52 Numba executor."""
+    run = Part52NumbaExecutor().execute(
+        EngineExperimentDefinition(name="numba", description="numba", simulation_contexts=(ctx,))
+    )
+    return run.simulation_results[0]
+
+
+def _legacy_terminal_loan(result: SimulationResult) -> Decimal:
+    """Terminal loan balance recorded by the Decimal reference timeline."""
+    debt = result.timeline.monthly_results[-1].debt_snapshot
+    return debt.loan_balance if debt is not None else Decimal("0")
+
+
+def _kernel_terminal_loan(ctx: SimulationContext, horizon: int) -> Decimal:
+    """Terminal loan balance for the production Part 52 Numba kernel path.
+
+    The kernel inputs are produced by the executor's own precompute helpers, so
+    this is the balance the production ``Part52NumbaExecutor`` carries.  It is
+    always compared against the independent Decimal reference, never against a
+    value derived from these helpers.
+    """
+    import numpy as np
+
+    from fbf.core.execution.strategies.numba_kernel import _simulate_part52
+    from fbf.core.execution.strategies.part52_numba_executor import (
+        _compute_growth_factors_for_part52,
+        _compute_monthly_rates,
+        _extract_equity_prices,
+    )
+
+    initial_snapshot = ctx.dataset[0]
+    v0 = float(
+        sum(
+            holding.units * initial_snapshot.index_levels[holding.asset_class]
+            for holding in ctx.initial_portfolio.holdings
+        )
+    )
+    withdrawal = ctx.withdrawal_policy
+    assert isinstance(withdrawal, Part52WithdrawalPolicy)
+    c = v0 * float(withdrawal.withdrawal_rate) / 12.0
+
+    final_loan = _simulate_part52(
+        _compute_growth_factors_for_part52(ctx, horizon),
+        np.array([float(rate) for rate in _compute_monthly_rates(ctx, horizon)]),
+        _extract_equity_prices(ctx, horizon),
+        v0,
+        c,
+        float(withdrawal.drawdown_threshold),
+        float(withdrawal.borrow_pct),
+        float(ctx.ltv_limit) if ctx.ltv_limit else 0.5,
+        horizon,
+        ctx.ltv_enforcement,
+    )[3]
+    return Decimal(str(final_loan))
+
+
+class TestPart52DecimalDifferential:
+    """Differential: Part52 Numba executor vs the legacy Decimal reference.
+
+    Fees are zero in these scenarios so the only cross-engine difference under
+    test is the interest-accrual / debt mechanics (the Part 52 fee convention
+    is a separate, pre-existing divergence).
+    """
+
+    @staticmethod
+    def _assert_matches(numba: SimulationResult, legacy: SimulationResult) -> None:
+        ns, ls = numba.statistics, legacy.statistics
+        assert ns.success == ls.success
+        assert ns.failure_month == ls.failure_month
+        assert ns.months_simulated == ls.months_simulated
+        diff = abs(ns.final_wealth.amount - ls.final_wealth.amount)
+        assert diff < _WEALTH_TOLERANCE, (
+            f"final_wealth diff {diff} exceeds tolerance {_WEALTH_TOLERANCE}: "
+            f"numba={ns.final_wealth.amount}, legacy={ls.final_wealth.amount}"
+        )
+
+    @staticmethod
+    def _assert_terminal_loan_matches(
+        ctx: SimulationContext, horizon: int, legacy: SimulationResult
+    ) -> None:
+        numba_loan = _kernel_terminal_loan(ctx, horizon)
+        legacy_loan = _legacy_terminal_loan(legacy)
+        diff = abs(numba_loan - legacy_loan)
+        assert diff < _WEALTH_TOLERANCE, (
+            f"terminal loan diff {diff} exceeds tolerance {_WEALTH_TOLERANCE}: "
+            f"numba={numba_loan}, legacy={legacy_loan}"
+        )
+
+    def test_schedule_backed_matches_decimal_reference(self) -> None:
+        dataset = _create_decline_dataset(24)
+        ctx = _make_context(
+            dataset, 24, interest_rate_schedule=tuple(Decimal("0.04") for _ in range(24))
+        )
+        self._assert_matches(_numba_result(ctx), _reference_result(ctx))
+
+    def test_schedule_less_fixed_rate_matches_decimal_reference(self) -> None:
+        dataset = _create_decline_dataset(24)
+        ctx = _make_context(dataset, 24, interest_rate_schedule=None)
+        self._assert_matches(_numba_result(ctx), _reference_result(ctx))
+
+    def test_terminal_loan_matches_decimal_reference(self) -> None:
+        """The kernel's terminal loan balance matches the legacy reference."""
+        horizon = 24
+        ctx = _make_context(
+            _create_decline_dataset(horizon), horizon, interest_rate_schedule=None
+        )
+        numba, legacy = _numba_result(ctx), _reference_result(ctx)
+        self._assert_matches(numba, legacy)
+        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+
+    def test_schedule_backed_nonzero_inflation_matches_decimal_reference(self) -> None:
+        """CPI-adjusted interest end to end: full schedule, non-zero inflation."""
+        horizon = 24
+        schedule = tuple(Decimal("0.04") for _ in range(horizon))
+        dataset = _create_decline_inflation_dataset(horizon)
+        ctx = _make_context(dataset, horizon, interest_rate_schedule=schedule)
+
+        numba, legacy = _numba_result(ctx), _reference_result(ctx)
+        self._assert_matches(numba, legacy)
+        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+
+        # The CPI adjustment is genuinely exercised: on an otherwise identical
+        # trajectory with flat CPI, the legacy loan differs materially.
+        flat_cpi_ctx = _make_context(
+            _create_growth_dataset(horizon, Decimal("-0.04"), Decimal("0")),
+            horizon,
+            interest_rate_schedule=schedule,
+        )
+        assert _legacy_terminal_loan(legacy) != _legacy_terminal_loan(
+            _reference_result(flat_cpi_ctx)
+        )
+
+    def test_partial_schedule_nonzero_inflation_matches_decimal_reference(self) -> None:
+        """CPI-adjusted interest end to end: schedule ends before the horizon."""
+        horizon = 24
+        schedule = tuple(Decimal("0.04") for _ in range(12))
+        dataset = _create_decline_inflation_dataset(horizon)
+        ctx = _make_context(dataset, horizon, interest_rate_schedule=schedule)
+
+        numba, legacy = _numba_result(ctx), _reference_result(ctx)
+        self._assert_matches(numba, legacy)
+        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+
+        # Borrowing starts inside the 12-month schedule window, so both the
+        # scheduled prefix and the fixed-rate tail shape the loan: the hybrid
+        # schedule must differ from an all-fixed-rate run on the same data.
+        all_scalar_ctx = _make_context(dataset, horizon, interest_rate_schedule=None)
+        assert _legacy_terminal_loan(legacy) != _legacy_terminal_loan(
+            _reference_result(all_scalar_ctx)
+        )
 
 
 if __name__ == "__main__":

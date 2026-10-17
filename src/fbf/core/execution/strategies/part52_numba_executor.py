@@ -9,7 +9,11 @@ kernel (see ``_part52_group_key``), splits each group into identity-prefix
 clusters so derived horizons only reuse a trajectory whose snapshots are the
 very same objects, precomputes growth factors keyed by dataset identity and
 per-cohort monthly rates / equity prices, and runs the Part52 kernel per unique
-horizon.  Ineligible contexts are delegated to the reference Decimal engine.
+horizon.  Interest accrual uses a per-month FFR schedule when present and the
+fixed scalar ``interest_rate`` otherwise, mirroring the legacy
+``InterestAccrualStep``.  Ineligible contexts raise
+``UnsupportedConfigurationError`` rather than delegating to the reference
+Decimal engine, so the numerical conventions are never silently mixed.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
+from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
@@ -66,6 +71,15 @@ class Part52NumbaReport:
     gf_cache_misses: int
 
 
+def is_part52_context(context: SimulationContext) -> bool:
+    """Return True when *context* uses the Part 52 timing-leverage withdrawal policy.
+
+    Distinguishes a Part 52 workload from other policies so dispatch can apply
+    Part 52-specific contracts before checking full Numba eligibility.
+    """
+    return isinstance(context.withdrawal_policy, Part52WithdrawalPolicy)
+
+
 def is_part52_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can use the Part52 Numba backend.
 
@@ -76,7 +90,9 @@ def is_part52_eligible(context: SimulationContext) -> bool:
     - Dataset covers full horizon
     - Exactly 2 holdings (one equity, one bond)
     - All held asset classes in dataset
-    - interest_rate_schedule is not None (FFR-based interest)
+    - An interest-rate source covering the full horizon: either an FFR
+      schedule at least ``horizon_months`` long, or a fixed scalar
+      ``interest_rate`` (the schedule-less fixed-rate / pre-1928 path).
     - expense_ratio is supported (additive fee embedded in growth factors)
     """
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
@@ -102,8 +118,14 @@ def is_part52_eligible(context: SimulationContext) -> bool:
         return False
     if any(h.asset_class not in context.dataset[0].index_levels for h in holdings):
         return False
-    # Interest rate schedule is required for FFR-based interest
-    return context.interest_rate_schedule is not None
+    # Interest-rate source covering the full horizon: an FFR schedule of at
+    # least ``horizon_months`` entries, otherwise a fixed scalar rate.  This
+    # mirrors ``InterestAccrualStep``, which uses ``interest_rate`` both when
+    # no schedule is present and beyond a shorter schedule's length.
+    schedule = context.interest_rate_schedule
+    if schedule is not None and len(schedule) >= context.horizon_months:
+        return True
+    return context.interest_rate is not None
 
 
 def _gf_cache_key(context: SimulationContext) -> GFKey:
@@ -168,15 +190,22 @@ def _compute_monthly_rates(
     Formula: r_m = (1 + annual_rate_m / 12) * (CPI_{m-1} / CPI_m) - 1
 
     For real-terms datasets (CPI=0), simplifies to annual_rate_m / 12.
+
+    The annual rate for month *m* is the FFR schedule entry at *m* when a
+    schedule covers that month, otherwise the fixed scalar ``interest_rate``.
+    This mirrors ``InterestAccrualStep`` so schedule-backed and schedule-less
+    (fixed-rate / pre-1928) Part 52 workloads share one accrual convention.
     """
     schedule = context.interest_rate_schedule
-    if schedule is None:
-        return tuple(Decimal("0") for _ in range(horizon))
 
     rates: list[Decimal] = []
     for m in range(horizon):
-        # Annual rate from schedule (or fallback to static rate)
-        annual_rate = schedule[m] if m < len(schedule) else context.interest_rate or Decimal("0")
+        # Annual rate from the schedule, or the fixed scalar rate when the
+        # schedule is absent or shorter than the horizon.
+        if schedule is not None and m < len(schedule):
+            annual_rate = schedule[m]
+        else:
+            annual_rate = context.interest_rate or Decimal("0")
 
         # CPI ratio
         snapshot_curr = context.dataset[m] if m < len(context.dataset) else None
@@ -318,14 +347,24 @@ class Part52NumbaExecutor(SimulationExecutor):
             self._dataset_refs[id(dataset)] = dataset
 
         # --- Pass 1: group eligible contexts by trajectory parameters ---
+        # Fail fast on any unsupported configuration: the Part 52 Numba kernel
+        # must never silently delegate to the reference Decimal engine, whose
+        # fee/ordering conventions may differ.
         profiler.start("part52_grouping")
         key_to_contexts: dict[tuple[object, ...], list[SimulationContext]] = {}
-        is_eligible: list[bool] = []
         for context in definition.simulation_contexts:
             if not is_part52_eligible(context):
-                is_eligible.append(False)
-                continue
-            is_eligible.append(True)
+                raise UnsupportedConfigurationError(
+                    "Part52NumbaExecutor received an unsupported configuration "
+                    f"(cohort={context.cohort!r}, "
+                    f"start_date={context.start_date.isoformat()!r}). "
+                    "Part 52 Numba execution requires a ConstantAllocationPolicy "
+                    "without explicit allocations, a Part52WithdrawalPolicy, a "
+                    "two-asset (equity + bond) portfolio covered by the dataset, "
+                    "and an interest-rate source covering the horizon (an FFR "
+                    "schedule at least horizon_months long, or a fixed scalar "
+                    "interest_rate)."
+                )
             key_to_contexts.setdefault(_part52_group_key(context), []).append(context)
         profiler.stop("part52_grouping")
 
@@ -480,22 +519,12 @@ class Part52NumbaExecutor(SimulationExecutor):
                     derived_count += 1
         profiler.stop("part52_kernel_execution")
 
-        # Assemble results in original order
+        # Assemble results in original order.  Every context is eligible by
+        # construction (Pass 1 raises otherwise), so results are complete.
         profiler.start("part52_assembly")
-        ordered_results: list[SimulationResult] = []
-        for index, context in enumerate(definition.simulation_contexts):
-            if not is_eligible[index]:
-                single = EngineExperimentDefinition(
-                    name=definition.name,
-                    description=definition.description,
-                    simulation_contexts=(context,),
-                )
-                run = self._reference.execute(single)
-                ordered_results.append(run.simulation_results[0])
-                independent_count += 1
-                month_work += context.horizon_months
-            else:
-                ordered_results.append(results[id(context)])
+        ordered_results: list[SimulationResult] = [
+            results[id(context)] for context in definition.simulation_contexts
+        ]
         profiler.stop("part52_assembly")
 
         longest_path_evaluations = sum(

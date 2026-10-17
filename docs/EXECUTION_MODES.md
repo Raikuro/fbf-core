@@ -11,7 +11,7 @@ This document describes the public execution model, internal implementation mapp
 | Value | Contract |
 |-------|----------|
 | `REFERENCE` | Authoritative Decimal reference implementation. Exact semantics; used for validation, debugging, oracle comparisons, and regression testing. |
-| `FAST` | Optimized float64 backend. Requires the optional Numba dependency (`pip install fbf-core[numba]`). Automatically selects the best validated kernel (Part52 or FixedReal) based on workload. |
+| `FAST` | Optimized float64 backend. Requires the optional Numba dependency (`pip install fbf-core[numba]`). Automatically selects the best validated kernel (Part52 or FixedReal) based on workload. A workload it cannot execute on Numba raises `UnsupportedConfigurationError` rather than silently falling back to REFERENCE; use `None` (AUTO) for graceful routing. |
 | `None` (default) | AUTO dispatch. Capability-driven routing: selects FAST when all units are eligible, REFERENCE otherwise. This is the recommended production path. |
 
 ### ExecutionStrategy
@@ -121,7 +121,9 @@ REFERENCE
 FAST
   → Part52NumbaExecutor (when all units Part52-eligible)
        → Part52 scalar kernel, float64 arithmetic
-       → ineligible contexts: Legacy Reference Decimal (automatic internal fallback)
+       → any ineligible context: raise UnsupportedConfigurationError
+         (no silent fallback; the Part52 kernel and the Decimal pipeline
+          have different fee/ordering conventions)
   → NumbaSimulationExecutor (otherwise)
        → Numba JIT scalar kernel, float64 arithmetic
        → ineligible contexts: Legacy Reference Decimal (automatic internal fallback)
@@ -132,9 +134,9 @@ FAST
 
 | Workload | Eligibility | Executor |
 |----------|-------------|----------|
-| Part52: `ConstantAllocationPolicy` + `Part52WithdrawalPolicy` + 2 assets + dataset coverage + expense_ratio=0 + interest_rate_schedule | All units eligible | `Part52NumbaExecutor` |
+| Part52: `ConstantAllocationPolicy` + `Part52WithdrawalPolicy` + 2 assets + dataset coverage + an interest-rate source covering the horizon (FFR schedule of at least `horizon_months` entries, or a fixed scalar `interest_rate`) | All units eligible | `Part52NumbaExecutor` |
 | FixedReal: `ConstantAllocationPolicy` + `FixedRealWithdrawalPolicy` + 2 assets + dataset coverage | All units eligible | `NumbaSimulationExecutor` |
-| Mixed/unsupported | Not eligible | Falls back to REFERENCE |
+| Mixed/unsupported Part52 | Not eligible | AUTO → REFERENCE; explicit FAST → `UnsupportedConfigurationError` |
 
 ### Dependency Model
 
@@ -160,7 +162,7 @@ The legacy Reference engine (full 9-step Decimal pipeline) is:
 
 - **Mathematically unchanged**: the canonical oracle for correctness
 - **Unavailable as a public backend**: not an `ExecutionBackend` value
-- **Internally reachable**: as automatic fallback for REFERENCE and FAST when contexts are ineligible
+- **Internally reachable**: as automatic fallback for AUTO dispatch, REFERENCE, and the FixedReal FAST kernel when contexts are ineligible. The Part52 FAST path is the exception: an ineligible Part52 workload raises `UnsupportedConfigurationError` instead of falling back.
 - **Available for testing**: differential and regression tests verify equivalence
 
 It should not be selected automatically as an independent execution mode.

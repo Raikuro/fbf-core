@@ -16,6 +16,7 @@ from fbf.core.execution.deterministic import (
     DeterministicTrajectory,
     execute_deterministic_trajectory,
 )
+from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.profiling import (
     CompositeProfiler,
     CpuProfiler,
@@ -270,7 +271,16 @@ def _extract_simulation_contexts(
                 experiment_name="eligibility_check",
                 cohort=str(unit.cohort.start_date),
                 start_date=unit.cohort.start_date,
-                horizon_months=unit.horizon_months or 360,
+                # Mirror the real execution context exactly: the per-unit
+                # horizon is authoritative and falls back to the shared
+                # experiment horizon only when the unit predates per-unit
+                # horizons.  Keeping this in lockstep is what makes dispatch
+                # eligibility agree with executor eligibility.
+                horizon_months=(
+                    unit.horizon_months
+                    if unit.horizon_months is not None
+                    else plan.experiment_definition.horizon_months
+                ),
                 initial_wealth=plan.experiment_definition.initial_wealth,
                 initial_portfolio=unit.initial_portfolio,
                 dataset=unit.dataset,
@@ -430,17 +440,28 @@ def execute_study_plan(
                 "Install it with: pip install fbf-core[numba]"
             ) from exc
 
-        # Check if the workload is Part52-eligible for the dedicated kernel
+        # FAST guarantees Numba execution: a plan containing any Part 52
+        # workload must be entirely Part52-Numba-eligible, otherwise the
+        # request is rejected rather than silently routed to the Decimal
+        # reference engine.
         from fbf.core.execution.strategies.part52_numba_executor import (
+            is_part52_context,
             is_part52_eligible,
         )
 
-        all_part52 = all(
-            is_part52_eligible(ctx)
-            for ctx in _extract_simulation_contexts(built.plan)
-        )
+        fast_contexts = _extract_simulation_contexts(built.plan)
+        has_part52 = any(is_part52_context(ctx) for ctx in fast_contexts)
 
-        if all_part52:
+        if has_part52:
+            if not all(is_part52_eligible(ctx) for ctx in fast_contexts):
+                raise UnsupportedConfigurationError(
+                    "FAST backend cannot execute this plan on Numba: it contains "
+                    "Part 52 workloads that are not Numba-eligible. Mixed plans "
+                    "(Part 52 combined with other policies) and schedule-less "
+                    "Part 52 configurations without a fixed interest_rate are "
+                    "unsupported by the FAST backend. Use backend=AUTO to route "
+                    "unsupported workloads through the reference engine."
+                )
             from fbf.core.execution.strategies.part52_numba_executor import (
                 Part52NumbaExecutor,
             )
@@ -553,6 +574,7 @@ __all__ = [
     "sequential_execute",
     "FastPathSimulationExecutor",
     "FastPathValidationError",
+    "UnsupportedConfigurationError",
     "NumbaSimulationExecutor",
     "reference_month_work",
     "execute_reference",
