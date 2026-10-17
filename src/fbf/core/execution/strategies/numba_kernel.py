@@ -414,6 +414,78 @@ def _simulate_trajectory_escalating(
 
 
 @numba.njit(cache=True)
+def _simulate_trajectory_buy_and_hold(
+    equity_growth: NDArray[np.float64],
+    bond_growth: NDArray[np.float64],
+    initial_value: float,
+    equity_weight: float,
+    withdrawal_monthly: float,
+    horizon: int,
+) -> tuple[float, bool, int, float]:
+    """Simulate one buy-and-hold trajectory with explicit unit/weight tracking.
+
+    Buy-and-hold establishes the target equity/bond split once and never
+    rebalances.  Withdrawals are funded by selling both holdings pro rata,
+    which preserves the weights immediately before the withdrawal; between
+    withdrawals the weights drift with the asset-specific returns::
+
+        V_0 = initial_value,  w_0 = equity_weight
+        for m in 0 .. horizon-1:
+            if withdrawal_monthly > V_m: failure at month m
+            V_m <- V_m - withdrawal_monthly          (pro rata: w unchanged)
+            if m < horizon - 1:
+                g_e = equity_growth[m], g_b = bond_growth[m]
+                G   = w_m * g_e + (1 - w_m) * g_b
+                w_{m+1} = w_m * g_e / G
+                V_{m+1} = V_m * G
+
+    The recurrence follows the same beginning-of-period convention as the other
+    Numba kernels (withdrawal before growth, growth only for ``m < horizon - 1``);
+    the target allocation is applied once before the first growth period.
+
+    Parameters
+    ----------
+    equity_growth:
+        Per-asset monthly equity growth factors ``P_{m+1} / P_m`` (length =
+        horizon).  Only entries ``0..horizon-2`` are used.
+    bond_growth:
+        Per-asset monthly bond growth factors (length = horizon).
+    initial_value:
+        Portfolio value at month 0 (the withdrawal base).
+    equity_weight:
+        Target equity allocation applied once at the start (0.0-1.0).
+    withdrawal_monthly:
+        Constant monthly withdrawal amount.
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    tuple of (final_value, success, failure_month, post_withdrawal_value)
+
+    On depletion, final_value is 0.0.  On success, failure_month is -1.
+    """
+    value = initial_value
+    weight = equity_weight
+
+    for m in range(horizon):
+        if withdrawal_monthly > value:
+            return 0.0, False, m, 0.0
+
+        value -= withdrawal_monthly
+
+        if m < horizon - 1:
+            ge = equity_growth[m]
+            gb = bond_growth[m]
+            blended = weight * ge + (1.0 - weight) * gb
+            if blended != 0.0:
+                weight = weight * ge / blended
+            value *= blended
+
+    return value, True, -1, value
+
+
+@numba.njit(cache=True)
 def _simulate_batch_escalating(
     growth_factors: NDArray[np.float64],
     initial_values: NDArray[np.float64],
@@ -480,6 +552,82 @@ def _simulate_batch_escalating_parallel(
             escalation_rates[i],
             int(horizons[i]),
             annual,
+        )
+        final_values[i] = fv
+        successes[i] = ok
+        failure_months[i] = fm
+        post_withdrawal_values[i] = pwv
+
+    return final_values, successes, failure_months, post_withdrawal_values
+
+
+@numba.njit(cache=True)
+def _simulate_batch_buy_and_hold(
+    equity_growth: NDArray[np.float64],
+    bond_growth: NDArray[np.float64],
+    initial_values: NDArray[np.float64],
+    equity_weights: NDArray[np.float64],
+    withdrawals_monthly: NDArray[np.float64],
+    horizons: NDArray[np.int32],
+    n_trajectories: int,
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.bool_],
+    NDArray[np.int32],
+    NDArray[np.float64],
+]:
+    """Simulate a batch of buy-and-hold trajectories sharing one trajectory."""
+    final_values = np.empty(n_trajectories, dtype=np.float64)
+    successes = np.empty(n_trajectories, dtype=np.bool_)
+    failure_months = np.empty(n_trajectories, dtype=np.int32)
+    post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
+
+    for i in range(n_trajectories):
+        fv, ok, fm, pwv = _simulate_trajectory_buy_and_hold(
+            equity_growth,
+            bond_growth,
+            initial_values[i],
+            equity_weights[i],
+            withdrawals_monthly[i],
+            int(horizons[i]),
+        )
+        final_values[i] = fv
+        successes[i] = ok
+        failure_months[i] = fm
+        post_withdrawal_values[i] = pwv
+
+    return final_values, successes, failure_months, post_withdrawal_values
+
+
+@numba.njit(parallel=True, cache=True)
+def _simulate_batch_buy_and_hold_parallel(
+    equity_growth: NDArray[np.float64],
+    bond_growth: NDArray[np.float64],
+    initial_values: NDArray[np.float64],
+    equity_weights: NDArray[np.float64],
+    withdrawals_monthly: NDArray[np.float64],
+    horizons: NDArray[np.int32],
+    n_trajectories: int,
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.bool_],
+    NDArray[np.int32],
+    NDArray[np.float64],
+]:
+    """Simulate a batch of buy-and-hold trajectories in parallel."""
+    final_values = np.empty(n_trajectories, dtype=np.float64)
+    successes = np.empty(n_trajectories, dtype=np.bool_)
+    failure_months = np.empty(n_trajectories, dtype=np.int32)
+    post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
+
+    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+        fv, ok, fm, pwv = _simulate_trajectory_buy_and_hold(
+            equity_growth,
+            bond_growth,
+            initial_values[i],
+            equity_weights[i],
+            withdrawals_monthly[i],
+            int(horizons[i]),
         )
         final_values[i] = fv
         successes[i] = ok
@@ -1277,6 +1425,118 @@ def simulate_batch_escalating(
     else:
         final_vals, successes, fail_months, _ = _simulate_batch_escalating(
             growth_factors, v0, r, esc, h, n, annual
+        )
+
+    results: list[tuple[bool, int | None, Money, int]] = []
+    for i in range(n):
+        fv = Money(Decimal(str(final_vals[i])), Currency.EUR)
+        if successes[i]:
+            results.append((True, None, fv, int(h[i])))
+        else:
+            results.append((False, int(fail_months[i]), fv, int(fail_months[i])))
+
+    return results
+
+
+def simulate_single_buy_and_hold(
+    equity_growth: NDArray[np.float64],
+    bond_growth: NDArray[np.float64],
+    initial_value: Money,
+    equity_weight: Decimal,
+    withdrawal_rate: Decimal,
+    horizon: int,
+) -> tuple[bool, int | None, Money, int]:
+    """Simulate a single buy-and-hold trajectory.
+
+    Parameters
+    ----------
+    equity_growth:
+        Monthly equity growth factors ``P_{m+1} / P_m`` (length = horizon).
+    bond_growth:
+        Monthly bond growth factors (length = horizon).
+    initial_value:
+        Initial portfolio value (the real withdrawal base).
+    equity_weight:
+        Target equity allocation applied once at the start.
+    withdrawal_rate:
+        Constant annual real withdrawal rate (e.g. ``0.04`` for 4%).
+    horizon:
+        Number of months to simulate.
+
+    Returns
+    -------
+    tuple of (success, failure_month, final_wealth, months_simulated)
+    """
+    v0 = float(initial_value.amount)
+    weight = float(equity_weight)
+    c = v0 * float(withdrawal_rate) / 12.0
+
+    final_value, success, failure_month, _ = _simulate_trajectory_buy_and_hold(
+        equity_growth, bond_growth, v0, weight, c, horizon
+    )
+
+    final_wealth = Money(Decimal(str(final_value)), Currency.EUR)
+    if success:
+        return True, None, final_wealth, horizon
+    return False, failure_month, final_wealth, failure_month
+
+
+def simulate_batch_buy_and_hold(
+    equity_growth: NDArray[np.float64],
+    bond_growth: NDArray[np.float64],
+    initial_values: list[Money],
+    equity_weights: list[Decimal],
+    withdrawal_rates: list[Decimal],
+    horizons: list[int],
+    *,
+    parallel: bool = True,
+) -> list[tuple[bool, int | None, Money, int]]:
+    """Simulate a batch of buy-and-hold trajectories sharing one trajectory.
+
+    All trajectories share the same per-asset growth-factor arrays (the
+    executor groups contexts accordingly).
+
+    Parameters
+    ----------
+    equity_growth, bond_growth:
+        Monthly per-asset growth factors (shared across all trajectories).
+    initial_values:
+        Initial portfolio values (the withdrawal bases).
+    equity_weights:
+        Target equity allocations applied once at the start.
+    withdrawal_rates:
+        Constant annual real withdrawal rates.
+    horizons:
+        Horizon in months for each trajectory.
+    parallel:
+        If True, use Numba parallel execution (recommended for batch > 10).
+
+    Returns
+    -------
+    List of (success, failure_month, final_wealth, months_simulated) tuples.
+    """
+    n = len(initial_values)
+    if n == 0:
+        return []
+
+    v0 = np.array([float(m.amount) for m in initial_values], dtype=np.float64)
+    w = np.array([float(weight) for weight in equity_weights], dtype=np.float64)
+    c = np.array(
+        [
+            float(v.amount) * float(r) / 12.0
+            for v, r in zip(initial_values, withdrawal_rates, strict=True)
+        ],
+        dtype=np.float64,
+    )
+    h = np.array(horizons, dtype=np.int32)
+
+    if parallel and n > 10:
+        final_vals, successes, fail_months, _ = _simulate_batch_buy_and_hold_parallel(
+            equity_growth, bond_growth, v0, w, c, h, n
+        )
+    else:
+        final_vals, successes, fail_months, _ = _simulate_batch_buy_and_hold(
+            equity_growth, bond_growth, v0, w, c, h, n
         )
 
     results: list[tuple[bool, int | None, Money, int]] = []

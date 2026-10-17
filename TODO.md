@@ -565,3 +565,28 @@ Do NOT redesign the optimizer now.
 - Change execution architecture
 - Add batching or worker architecture
 - Rerun expensive optimizer sweeps
+
+---
+
+## Buy-and-Hold Expense/Timing Correction Uses Stale Prior Value
+
+**Classification:** defect — affects buy-and-hold with a non-zero expense ratio
+
+`ExpenseDeductionStep` computes its expense (`previous_portfolio_value * exp/12`)
+and timing correction (`(C - D_prev) * (w_t - exp/12)`, with
+`w_t = current_value / previous_portfolio_value - 1`) from
+`SimulationState.previous_portfolio_value`. That field is written only by
+`PortfolioRebalanceStep`. The buy-and-hold pipeline rebalances only in period 0,
+so from month 1 onward the correction is computed against the period-0 value: the
+expense is charged on a stale value and `w_t` becomes a cumulative multi-month
+return instead of a monthly one.
+
+Impact: buy-and-hold runs with `expense_ratio > 0` produce incorrect fee drag.
+The Numba buy-and-hold path mitigates this by rejecting non-zero fees and falling
+back to the legacy pipeline (which still computes the stale-base correction); the
+canonical Part 49 buy-and-hold workload uses no fee and is unaffected.
+
+Resolution: refresh `previous_portfolio_value` as part of the regular
+monthly evolution (independent of rebalancing), or give the expense step its own
+prior-value tracking. Decide whether the legacy behavior or the corrected
+behavior is authoritative before migrating buy-and-hold fees to the Numba kernel.

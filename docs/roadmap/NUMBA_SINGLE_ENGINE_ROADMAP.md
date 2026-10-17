@@ -283,9 +283,9 @@ Work items (each independently testable):
    Add a scalar withdrawal schedule input to the kernel and extend eligibility
    to `EscalatingWithdrawalPolicy`. Validate with hand-calculated examples.
 
-4. **B4 — Buy-and-hold.**
-   Implement a non-rebalancing recurrence (unit-tracking) with explicit
-   specification. Workbook does not define this; document as simulator extension.
+4. **B4 — Buy-and-hold.** ✅ Implemented: a non-rebalancing unit-tracking
+   recurrence with explicit specification (a simulator extension — the workbook
+   does not define buy-and-hold). See the B4 milestone below.
 
 5. **B5 — Multi-asset portfolios.**
    Confirm whether existing Numba kernels genuinely support arbitrary asset
@@ -330,8 +330,8 @@ Work items (each independently testable):
    recurrence and extend eligibility to `ConstantWithdrawalPolicy`.
 3. **B3 — Escalating withdrawal.** Add a scalar withdrawal schedule input to
    the kernel and extend eligibility to `EscalatingWithdrawalPolicy`.
-4. **B4 — Buy-and-hold.** Add a non-rebalancing recurrence (unit-tracking) or
-   a documented equivalence check for buy-and-hold growth factors.
+4. **B4 — Buy-and-hold.** ✅ Implemented: a non-rebalancing unit-tracking
+   recurrence (per-asset growth factors; weights drift endogenously).
 5. **B5 — Multi-asset portfolios.** Add an explicit per-class target-weight
    source and relax the 2-asset predicate. The kernel math already generalizes.
 6. **B6 — Full monthly trajectory.** Add optional per-month materialization to
@@ -663,8 +663,9 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | [current] | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
 | Numba cache/dataset identity fix | ✅ Complete | `test_numba_executor_differential.py`, `test_part52_numba_executor.py` | 99aa5a4 | Dataset-identity tokens + identity-prefix clustering in both Numba executors |
 | B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | [audit] | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
-| B3: Escalating withdrawal | ✅ Complete (ConstantAllocation) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py` | [current] | Value-independent annual schedule; Glidepath + deterministic Experiment E path deferred (D3) |
-| B4: Buy-and-hold | ⬜ Not Started | — | — | Unit-tracking kernel |
+| B3: Escalating withdrawal | ✅ Complete (ConstantAllocation) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py` | 65f1f67 | Value-independent annual schedule; Glidepath + deterministic Experiment E path deferred (D3) |
+| Buy-and-hold initial allocation | ✅ Complete (correction) | `default_pipeline.py`, `allocation_decision_step.py`, `portfolio_rebalance_step.py`, `test_part49_buy_and_hold.py` | 3f2f788 | Buy-and-hold applied the 50/50 default; allocation now applied once in period 0 |
+| B4: Buy-and-hold | ✅ Complete (non-debt, fee=0) | `numba_kernel.py`, `numba_executor.py`, `execution/__init__.py`, `test_numba_buy_and_hold.py` | [current] | Unit-tracking kernel; Part 49 leverage → C4, multi-asset → B5, fee>0 deferred |
 | B5: Multi-asset | ⬜ Not Started | — | — | Verify kernel support |
 | B6: Trajectory materialization | ⬜ Not Started | — | — | Requires B7 first |
 | B7: Cohort-slice dispatch | ⬜ Not Started | — | — | Port `_slice_plan_units` |
@@ -778,7 +779,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   `interest_rate_schedule` may only be excluded because its consumed prefix is
   now explicitly checked.
 
-**[current]** — "B3: Escalating withdrawal (ConstantAllocationPolicy)"
+**65f1f67** — "B3: Escalating withdrawal (ConstantAllocationPolicy)"
 - Added `_simulate_trajectory_escalating` (`numba_kernel.py`) plus sequential and
   parallel batch variants and the `simulate_single_escalating` /
   `simulate_batch_escalating` wrappers. The withdrawal schedule is
@@ -809,6 +810,68 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   path (`execute_deterministic_trajectory`, which uses the legacy pipeline
   directly and honours an annual rebalance cadence), remain future work
   (capability #4 / #15, D3).
+- All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
+  contract).
+
+**[current]** — "B4: Buy-and-hold (BuyAndHoldAllocationPolicy)"
+- Prerequisite correction (`3f2f788`): `create_buy_and_hold_pipeline()` never
+  invoked `BuyAndHoldAllocationPolicy` — it omitted both `AllocationDecisionStep`
+  and `PortfolioRebalanceStep`, so every buy-and-hold run started from
+  `build_initial_portfolio`'s equal weights regardless of `equity_allocation`.
+  Both steps gained a `first_period_only` flag and now run only in period 0,
+  applying the configured target once before weights drift.
+- Added `_simulate_trajectory_buy_and_hold` (`numba_kernel.py`) plus sequential
+  and parallel batch variants and the `simulate_single_buy_and_hold` /
+  `simulate_batch_buy_and_hold` wrappers. The kernel tracks the equity weight
+  explicitly: withdrawals reduce both holdings pro rata (preserving the weight
+  immediately before the withdrawal) and the weight drifts between withdrawals
+  via the asset-specific returns::
+
+      V_0 = initial_value,  w_0 = equity_weight
+      for m in 0 .. horizon-1:
+          if C > V_m: failure at month m
+          V_m <- V_m - C
+          if m < horizon - 1:
+              G = w_m * ge[m] + (1 - w_m) * gb[m]
+              w_{m+1} = w_m * ge[m] / G
+              V_{m+1} = V_m * G
+
+  This matches the legacy buy-and-hold pipeline exactly (fee = 0), because the
+  proportional liquidation used to fund withdrawals is the reference behavior.
+- Extended `NumbaSimulationExecutor` with `_is_buy_and_hold_eligible`,
+  `_buy_and_hold_group_key` (excludes `initial_wealth`; the withdrawal base is
+  `v0`), `_process_buy_and_hold_group`, and a per-dataset-token per-asset
+  growth-factor cache (`_bh_growth_cache`). Unlike the static/glidepath paths, a
+  single blended growth-factor series cannot be precomputed because the weights
+  are path-dependent, so the kernel consumes the equity and bond series
+  separately. AUTO backend dispatch now routes all-buy-and-hold workloads to
+  `NumbaSimulationExecutor`.
+- **Eligibility** requires `BuyAndHoldAllocationPolicy` + `FixedRealWithdrawalPolicy`,
+  a two-asset equity/bond portfolio present in the dataset, `v0 == initial_wealth`,
+  and `expense_ratio in (None, 0)`. Fees are excluded because the legacy
+  buy-and-hold path's expense/timing correction is derived from
+  `previous_portfolio_value`, which (absent a periodic rebalance) is only
+  refreshed in period 0 — so a non-zero fee applies the correction on a stale
+  base. A non-zero fee therefore falls back rather than being simulated
+  inconsistently (defect recorded in `TODO.md`). Multi-asset portfolios (B5)
+  and Part 49 leverage (`loan_draw_rate > 0`, C4) are also out of scope and
+  fall back.
+- Validation in `tests/unit/strategies/test_numba_buy_and_hold.py`: closed-form
+  flat-market and zero-withdrawal hand calculations, a drift-vs-rebalanced
+  check, an independent Decimal unit-tracking recurrence across horizons and
+  allocations, depletion-boundary cases, batch sequential/parallel equivalence,
+  a differential against the legacy buy-and-hold pipeline (fee = 0) anchored to
+  hand-derived terminal values, per-context `final_value_target`, eligibility
+  (fee, mismatch, three-asset, constant-allocation exclusions), grouping
+  (shared trajectory, distinct allocations, distinct datasets), and AUTO routing
+  (including a mixed-plan negative case).
+- **Known limitation:** buy-and-hold with a non-zero fee falls back to the legacy
+  pipeline. The legacy `ExpenseDeductionStep` derives its expense/timing
+  correction from `previous_portfolio_value`, which is only refreshed by
+  `PortfolioRebalanceStep`; since buy-and-hold rebalances only in period 0, the
+  correction is applied on a stale base for months ≥ 1. Migrating fees requires
+  either fixing that legacy defect or documenting an intentional divergence.
+  Deferred (defect recorded in `TODO.md`).
 - All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
   contract).
 

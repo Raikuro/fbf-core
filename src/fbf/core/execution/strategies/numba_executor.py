@@ -64,6 +64,7 @@ from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import (
+    BuyAndHoldAllocationPolicy,
     ConstantAllocationPolicy,
     ConstantWithdrawalPolicy,
     EscalatingWithdrawalPolicy,
@@ -94,6 +95,7 @@ from fbf.core.execution.strategies.numba_kernel import (
     _compute_workbook_scr,
     _materialize_price_float,
     _simulate_trajectory,
+    _simulate_trajectory_buy_and_hold,
     _simulate_trajectory_constant_nominal,
     _simulate_trajectory_end_of_period,
     _simulate_trajectory_escalating,
@@ -245,6 +247,65 @@ def _is_glidepath_eligible(context: SimulationContext) -> bool:
     if equity_count != 1:
         return False
     return not any(h.asset_class not in context.dataset[0].index_levels for h in holdings)
+
+
+def _is_buy_and_hold_eligible(context: SimulationContext) -> bool:
+    """Return True when *context* can use the Numba buy-and-hold kernel.
+
+    Eligibility requires the buy-and-hold allocation policy (no periodic
+    rebalancing), a constant real withdrawal policy, a sufficient dataset, a
+    two-asset (equity + bond) portfolio, and no fees.  Fees are excluded
+    because the legacy buy-and-hold path computes its expense/timing correction
+    from ``previous_portfolio_value``, which (without a periodic rebalance) is
+    only refreshed in period 0; with a non-zero fee the legacy correction is
+    therefore applied on a stale base.  Deferring fees keeps the Numba path a
+    faithful match instead of replicating that defect (see ``TODO.md``).
+
+    The withdrawal base is the value-independent initial portfolio value
+    (``v0``) while the legacy policy uses ``initial_wealth``; they must agree
+    (see ``_initial_value_equals_wealth``).
+    """
+    if not isinstance(context.allocation_policy, BuyAndHoldAllocationPolicy):
+        return False
+    if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
+        return False
+    if context.horizon_months is None or context.horizon_months < 1:
+        return False
+    if context.dataset is None or len(context.dataset.snapshots) < 1:
+        return False
+    if len(context.dataset.snapshots) < context.horizon_months:
+        return False
+    if context.expense_ratio not in (None, Decimal("0")):
+        return False
+    holdings = context.initial_portfolio.holdings
+    if not holdings or len(holdings) != 2:
+        return False
+    equity_count = sum(1 for h in holdings if h.asset_class.id == "equity")
+    if equity_count != 1:
+        return False
+    if any(h.asset_class not in context.dataset[0].index_levels for h in holdings):
+        return False
+    return _initial_value_equals_wealth(context)
+
+
+def _buy_and_hold_group_key(context: SimulationContext) -> tuple[object, ...]:
+    """Trajectory key for buy-and-hold contexts: excludes initial_wealth.
+
+    The path depends on the market trajectory (``start_date`` + dataset),
+    the target equity allocation, the withdrawal rate, and the initial
+    portfolio.  ``initial_wealth`` does not enter the kernel (the withdrawal
+    base is ``v0``, derived from the initial portfolio), so it is excluded;
+    the FV check is applied per-target afterwards.  Dataset identity is
+    enforced separately by the identity-prefix clustering.
+    """
+    allocation = cast(BuyAndHoldAllocationPolicy, context.allocation_policy)
+    withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
+    return (
+        context.start_date,
+        allocation.equity_allocation,
+        withdrawal.withdrawal_rate,
+        context.initial_portfolio,
+    )
 
 
 def _gf_cache_key(context: SimulationContext) -> GFKey:
@@ -422,6 +483,13 @@ class NumbaSimulationExecutor(SimulationExecutor):
         ) = glidepath_gf_cache
         self._price_float_cache: dict[int, NDArray[np.float64]] = {}
         self._index_series_cache: dict[int, dict[object, tuple[Decimal, ...]]] = {}
+        # Per-asset (equity, bond) monthly growth factors keyed by dataset
+        # identity token.  Buy-and-hold weights drift endogenously, so a single
+        # blended growth-factor series cannot be precomputed; the per-asset
+        # ratios are trajectory-only and shared across allocations/withdrawals.
+        self._bh_growth_cache: dict[
+            int, tuple[NDArray[np.float64], NDArray[np.float64]]
+        ] = {}
         # Strong references that keep dataset-identity tokens unique for the
         # executor's lifetime (see ``execute``).
         self._dataset_refs: dict[int, Dataset] = {}
@@ -461,6 +529,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 key = _constant_nominal_group_key(context)
             elif _is_escalating_eligible(context):
                 key = _escalating_group_key(context)
+            elif _is_buy_and_hold_eligible(context):
+                key = _buy_and_hold_group_key(context)
             elif _is_glidepath_eligible(context):
                 key = _glidepath_group_key(context)
             else:
@@ -679,6 +749,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 self._process_constant_nominal_group(cluster, results, stats)
             elif _is_escalating_eligible(sample_ctx):
                 self._process_escalating_group(cluster, results, stats)
+            elif _is_buy_and_hold_eligible(sample_ctx):
+                self._process_buy_and_hold_group(cluster, results, stats)
             elif _is_glidepath_eligible(sample_ctx):
                 self._process_glidepath_group(cluster, results, stats)
         profiler.stop("numba_kernel_execution")
@@ -974,6 +1046,125 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 horizon_result_cache[cache_key] = result
                 results[id(ctx)] = result
                 stats["derived_count"] += 1
+
+    def _process_buy_and_hold_group(
+        self,
+        contexts: list[SimulationContext],
+        results: dict[int, SimulationResult],
+        stats: dict[str, int],
+    ) -> None:
+        """Process a group of buy-and-hold (BuyAndHoldAllocationPolicy) contexts.
+
+        Buy-and-hold weights drift endogenously with asset-specific returns, so
+        the kernel consumes the per-asset monthly growth factors rather than a
+        precomputed blended series.
+        """
+        horizon_to_ctxs: dict[int, list[SimulationContext]] = {}
+        for ctx in contexts:
+            horizon_to_ctxs.setdefault(ctx.horizon_months, []).append(ctx)
+
+        sample_ctx = contexts[0]
+        initial_snapshot = sample_ctx.dataset[0]
+        v0 = float(sum(
+            holding.units * initial_snapshot.index_levels[holding.asset_class]
+            for holding in sample_ctx.initial_portfolio.holdings
+        ))
+        allocation = cast(BuyAndHoldAllocationPolicy, sample_ctx.allocation_policy)
+        equity_weight = float(allocation.equity_allocation)
+        withdrawal_policy = cast(FixedRealWithdrawalPolicy, sample_ctx.withdrawal_policy)
+        rate_f = float(withdrawal_policy.withdrawal_rate)
+        c = float(sample_ctx.initial_wealth.amount) * rate_f / 12.0
+
+        equity_growth_full, bond_growth_full = self._buy_and_hold_growth_factors(sample_ctx)
+
+        # The FV verdict depends on ``initial_wealth * final_value_target``
+        # (see ``_apply_fv_check``), so both per-context evaluation dimensions
+        # are part of the cache key.
+        horizon_result_cache: dict[tuple[int, object, object], SimulationResult] = {}
+
+        for horizon, h_contexts in horizon_to_ctxs.items():
+            stats["month_work"] += horizon
+            equity_growth = equity_growth_full[:horizon]
+            bond_growth = bond_growth_full[:horizon]
+
+            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_buy_and_hold(
+                equity_growth, bond_growth, v0, equity_weight, c, horizon
+            )
+
+            for ctx in h_contexts:
+                cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
+                if cache_key in horizon_result_cache:
+                    results[id(ctx)] = horizon_result_cache[cache_key]
+                    continue
+
+                if 0 <= fail_month < horizon:
+                    success = False
+                    failure_month = fail_month
+                    final_value = 0.0
+                    months_simulated = fail_month
+                else:
+                    final_value = _final_val
+                    success = True
+                    failure_month = None
+                    months_simulated = horizon
+
+                final_wealth = _money(final_value)
+
+                base = SimulationResult(
+                    timeline=SimulationTimeline(monthly_results=()),
+                    statistics=SimulationStatistics(
+                        final_wealth=final_wealth,
+                        max_drawdown=0.0,
+                        success=success,
+                        failure_month=failure_month,
+                        failure_state=None if success else "depleted",
+                        months_simulated=months_simulated,
+                        execution_time_seconds=0.0,
+                    ),
+                )
+                result = _apply_fv_check(base, ctx)
+                horizon_result_cache[cache_key] = result
+                results[id(ctx)] = result
+                stats["derived_count"] += 1
+
+    def _buy_and_hold_growth_factors(
+        self, context: SimulationContext
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Return (equity_growth, bond_growth) monthly factors for *context*.
+
+        The factors are ``P_{m+1} / P_m`` per asset and depend only on the
+        dataset trajectory, so they are cached by dataset-identity token and
+        shared across allocations, withdrawal rates, and horizons.
+        """
+        dataset_key = _dataset_token(context)
+        cached = self._bh_growth_cache.get(dataset_key)
+        if cached is not None:
+            return cached
+
+        if dataset_key not in self._index_series_cache:
+            self._index_series_cache[dataset_key] = _index_series(context)
+        series = self._index_series_cache[dataset_key]
+        asset_classes = tuple(series.keys())
+        if dataset_key not in self._price_float_cache:
+            self._price_float_cache[dataset_key] = _materialize_price_float(
+                asset_classes, series
+            )
+        prices_f = self._price_float_cache[dataset_key]
+
+        equity_row = next(
+            i for i, ac in enumerate(asset_classes) if cast(AssetClass, ac).id == "equity"
+        )
+        bond_row = next(
+            i for i, ac in enumerate(asset_classes) if cast(AssetClass, ac).id == "bond"
+        )
+        equity_prices = prices_f[equity_row]
+        bond_prices = prices_f[bond_row]
+        growth = (
+            equity_prices[1:] / equity_prices[:-1],
+            bond_prices[1:] / bond_prices[:-1],
+        )
+        self._bh_growth_cache[dataset_key] = growth
+        return growth
 
     def _process_glidepath_group(
         self,
