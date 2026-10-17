@@ -81,6 +81,10 @@ def is_part52_eligible(context: SimulationContext) -> bool:
     """
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
+    if context.allocation_policy.allocations is not None:
+        # Explicit N-asset allocations are only supported by the fixed-real
+        # workbook path; Part52 falls back to the reference backend.
+        return False
     if not isinstance(context.withdrawal_policy, Part52WithdrawalPolicy):
         return False
     if context.horizon_months is None or context.horizon_months < 1:
@@ -110,8 +114,10 @@ def _gf_cache_key(context: SimulationContext) -> GFKey:
     start date, allocation, and fee coincide).
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    equity_weight = allocation.equity_allocation
+    assert equity_weight is not None
     fee = context.expense_ratio or Decimal("0")
-    return (context.start_date, allocation.equity_allocation, fee, _dataset_token(context))
+    return (context.start_date, equity_weight, fee, _dataset_token(context))
 
 
 def _part52_group_key(context: SimulationContext) -> tuple[object, ...]:

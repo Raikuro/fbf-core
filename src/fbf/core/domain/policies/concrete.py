@@ -7,6 +7,7 @@ real simulation execution.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
@@ -19,31 +20,178 @@ from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDec
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 
+_EQUITY_ID = "equity"
+
 
 class ConstantAllocationPolicy(AllocationPolicy):
-    """Fixed equity/bond split allocation policy.
+    """Constant target allocation policy with periodic rebalancing.
+
+    Two mutually exclusive forms are supported:
+
+    * **Legacy (two-asset):** ``equity_allocation`` is a scalar ``Decimal`` in
+      ``[0, 1]``; the remaining weight is assigned to the single other held
+      asset class. Behavior is unchanged from the original policy.
+    * **Explicit (N ≥ 2):** ``allocations`` maps every held asset-class id to
+      its target weight. The mapping is authoritative — weights are never
+      inferred or residual-distributed — and must be complete, non-negative,
+      and sum to exactly ``1``.
+
+    Supplying neither form, or both, is rejected. For the explicit form
+    ``equity_allocation`` is ``None`` so that no legacy reader can silently
+    consume a partial value; use :func:`resolve_target_weights` instead.
 
     YAML type: "ConstantAllocationPolicy"
-    YAML params: equity_allocation (Decimal, 0.0-1.0)
-
-    The attribute name ``equity_allocation`` matches the key expected by
-    ``AllocationPolicyCodec.dump()`` (see ``codecs.py`` line 103), enabling
-    lossless round-trip persistence through the existing codec.
+    YAML params: ``equity_allocation`` (legacy) or ``allocations`` (explicit).
     """
 
-    def __init__(self, equity_allocation: Decimal) -> None:
-        self.equity_allocation = equity_allocation
+    def __init__(
+        self,
+        equity_allocation: Decimal | None = None,
+        *,
+        allocations: Mapping[str, Decimal] | None = None,
+    ) -> None:
+        if equity_allocation is None and allocations is None:
+            raise ValueError(
+                "ConstantAllocationPolicy requires either equity_allocation or "
+                "allocations"
+            )
+        if equity_allocation is not None and allocations is not None:
+            raise ValueError(
+                "ConstantAllocationPolicy accepts equity_allocation or allocations, "
+                "not both"
+            )
+        if allocations is not None:
+            self.allocations: tuple[tuple[str, Decimal], ...] | None = (
+                _validate_explicit_allocations(allocations)
+            )
+            self.equity_allocation: Decimal | None = None
+        else:
+            self.allocations = None
+            self.equity_allocation = equity_allocation
 
     def decide(self, context: DecisionContext) -> AllocationDecision:
-        equity = AssetClass(id="equity", name="", description="")
-        bond = AssetClass(id="bond", name="", description="")
+        if self.allocations is None:
+            equity = AssetClass(id=_EQUITY_ID, name="", description="")
+            bond = AssetClass(id="bond", name="", description="")
+            assert self.equity_allocation is not None
+            return AllocationDecision(
+                reason="ConstantAllocationPolicy",
+                allocation_target=AllocationTarget(weights={
+                    equity: self.equity_allocation,
+                    bond: Decimal("1") - self.equity_allocation,
+                }),
+            )
+
+        held_by_id = {
+            holding.asset_class.id: holding.asset_class
+            for holding in context.portfolio.holdings
+        }
+        target: dict[AssetClass, Decimal] = {}
+        for asset_id, weight in self.allocations:
+            asset_class = held_by_id.get(asset_id)
+            if asset_class is None:
+                raise ValueError(
+                    f"ConstantAllocationPolicy allocations reference unknown asset "
+                    f"class {asset_id!r}"
+                )
+            target[asset_class] = weight
+        if len(target) != len(held_by_id):
+            missing = sorted(set(held_by_id) - {k for k, _ in self.allocations})
+            raise ValueError(
+                "ConstantAllocationPolicy allocations must cover every held asset "
+                f"class; missing {missing}"
+            )
         return AllocationDecision(
             reason="ConstantAllocationPolicy",
-            allocation_target=AllocationTarget(weights={
-                equity: self.equity_allocation,
-                bond: Decimal("1") - self.equity_allocation,
-            }),
+            allocation_target=AllocationTarget(weights=target),
         )
+
+
+def _validate_explicit_allocations(
+    allocations: Mapping[str, Decimal],
+) -> tuple[tuple[str, Decimal], ...]:
+    """Validate and canonicalize an explicit asset-class weight mapping."""
+    if not isinstance(allocations, Mapping):
+        raise TypeError("allocations must be a mapping of asset-class id to Decimal")
+    if len(allocations) < 2:
+        raise ValueError("allocations must define at least two asset classes")
+    items: list[tuple[str, Decimal]] = []
+    for asset_id, weight in allocations.items():
+        if not isinstance(asset_id, str) or not asset_id:
+            raise ValueError("allocations keys must be non-empty asset-class id strings")
+        if not isinstance(weight, Decimal):
+            raise TypeError(f"allocations[{asset_id!r}] must be a Decimal")
+        if weight < 0 or weight > 1:
+            raise ValueError(f"allocations[{asset_id!r}] must be within [0, 1]")
+        items.append((asset_id, weight))
+    total = sum((weight for _, weight in items), Decimal("0"))
+    if total != Decimal("1"):
+        raise ValueError("allocations weights must sum to exactly 1")
+    items.sort(key=lambda item: item[0])
+    return tuple(items)
+
+
+def resolve_target_weights(
+    policy: ConstantAllocationPolicy,
+    asset_classes: Sequence[AssetClass],
+) -> tuple[Decimal, ...]:
+    """Return target weights aligned with *asset_classes* (engine series order).
+
+    This is the single validator/ordering authority for allocation weights.
+    For the explicit form it requires exact asset-class coverage (no missing or
+    extra ids, no duplicate held ids). For the legacy form it mirrors the
+    historical ``equity→w`` / every-other-class→``1-w`` split.
+    """
+    if not isinstance(policy, ConstantAllocationPolicy):
+        raise TypeError("resolve_target_weights requires a ConstantAllocationPolicy")
+    classes = list(asset_classes)
+    if policy.allocations is not None:
+        return _resolve_explicit_weights(policy.allocations, classes)
+    equity_weight = policy.equity_allocation
+    if equity_weight is None:
+        raise ValueError("legacy ConstantAllocationPolicy has no equity_allocation")
+    return tuple(
+        equity_weight if asset_class.id == _EQUITY_ID else Decimal("1") - equity_weight
+        for asset_class in classes
+    )
+
+
+def _resolve_explicit_weights(
+    allocations: tuple[tuple[str, Decimal], ...],
+    asset_classes: Sequence[AssetClass],
+) -> tuple[Decimal, ...]:
+    ids = [asset_class.id for asset_class in asset_classes]
+    if len(ids) != len(set(ids)):
+        raise ValueError("asset classes contain duplicate ids")
+    expected = {asset_id for asset_id, _ in allocations}
+    if set(ids) != expected:
+        missing = sorted(expected - set(ids))
+        extra = sorted(set(ids) - expected)
+        raise ValueError(
+            "explicit allocations must exactly cover the held asset classes "
+            f"(missing={missing}, unexpected={extra})"
+        )
+    weight_by_id = dict(allocations)
+    return tuple(weight_by_id[asset_id] for asset_id in ids)
+
+
+def allocation_identity(
+    policy: ConstantAllocationPolicy,
+    asset_classes: Sequence[AssetClass],
+) -> tuple[tuple[str, Decimal], ...]:
+    """Return an order-insensitive canonical identity for cache/group keys.
+
+    Combines each held asset-class id with its resolved weight, sorted by id, so
+    that reordered-but-equal allocations share an identity while distinct
+    allocations never collide.
+    """
+    weights = resolve_target_weights(policy, asset_classes)
+    return tuple(
+        sorted(
+            (asset_class.id, weight)
+            for asset_class, weight in zip(asset_classes, weights, strict=True)
+        )
+    )
 
 
 class BuyAndHoldAllocationPolicy(AllocationPolicy):

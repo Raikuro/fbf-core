@@ -7,7 +7,7 @@ CLI presentation layer and the frozen domain layer.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -333,6 +333,37 @@ def _parse_optional_decimal_array(
     return tuple(values)
 
 
+def _parse_allocation_weights(
+    raw: Any,
+) -> tuple[tuple[str, Decimal], ...]:
+    """Parse and validate an explicit ``allocation_policy.allocations`` mapping.
+
+    Weights are validated (asset-class coverage is checked later against the
+    dataset portfolio) and returned in canonical, id-sorted order.
+    """
+    if not isinstance(raw, Mapping) or not raw:
+        raise ValueError(
+            "allocation_policy.allocations must be a non-empty mapping of "
+            "asset-class id to decimal weight"
+        )
+    parsed: dict[str, Decimal] = {}
+    for asset_id, raw_weight in raw.items():
+        if not isinstance(asset_id, str) or not asset_id:
+            raise ValueError(
+                "allocation_policy.allocations keys must be non-empty asset-class "
+                "id strings"
+            )
+        try:
+            parsed[asset_id] = Decimal(str(raw_weight))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError(
+                f"allocation_policy.allocations[{asset_id!r}] must be a decimal number"
+            ) from None
+    policy = ConstantAllocationPolicy(allocations=parsed)
+    assert policy.allocations is not None
+    return policy.allocations
+
+
 def _parse_optional_decimal_scalar(
     data: dict[str, Any], key: str
 ) -> Decimal | None:
@@ -383,12 +414,29 @@ def _validate_withdrawal_frequency(raw: object) -> None:
         ) from None
 
 
-def build_allocation_policy(policy_type: str, scalar: Decimal) -> AllocationPolicy:
-    """Build the concrete allocation policy for the declared YAML ``type``."""
+def build_allocation_policy(
+    policy_type: str,
+    scalar: Decimal | None = None,
+    *,
+    allocations: Mapping[str, Decimal] | None = None,
+) -> AllocationPolicy:
+    """Build the concrete allocation policy for the declared YAML ``type``.
+
+    ``scalar`` is the legacy ``equity_allocation`` value; ``allocations`` is the
+    explicit multi-asset mapping. The two forms are mutually exclusive on
+    ``ConstantAllocationPolicy``.
+    """
     policy_enum = AllocationPolicyType.from_yaml_name(policy_type)
     if policy_enum is AllocationPolicyType.CONSTANT:
-        return ConstantAllocationPolicy(equity_allocation=scalar)
+        return ConstantAllocationPolicy(
+            equity_allocation=scalar, allocations=allocations
+        )
     if policy_enum is AllocationPolicyType.BUY_AND_HOLD:
+        if allocations is not None:
+            raise ValueError(
+                "BuyAndHoldAllocationPolicy does not support explicit allocations"
+            )
+        assert scalar is not None
         return BuyAndHoldAllocationPolicy(equity_allocation=scalar)
     raise ValueError(f"Unsupported allocation policy type: {policy_type!r}")
 
@@ -503,6 +551,9 @@ class StudyConfiguration:
     withdrawal_policy_type: str
     withdrawal_policy_values: tuple[Decimal, ...]
     horizon_years: tuple[int, ...]
+    # Explicit multi-asset weights (asset-class id -> weight), one fixed
+    # configuration rather than a grid axis. ``None`` for the legacy scalar form.
+    allocation_weights: tuple[tuple[str, Decimal], ...] | None = None
     # Optional: specify a different horizon for cohort generation.
     # ERN uses a fixed cohort set determined by the longest horizon (60y)
     # across ALL studies for comparability. When set, cohorts are generated
@@ -596,6 +647,7 @@ class StudyConfiguration:
         allocation_policy_enum = AllocationPolicyType.from_yaml_name(allocation_policy_type)
 
         allocation_policy_values: tuple[Decimal, ...] = ()
+        allocation_weights: tuple[tuple[str, Decimal], ...] | None = None
         glidepath_start_values: tuple[Decimal, ...] | None = None
         glidepath_end_values: tuple[Decimal, ...] | None = None
         glidepath_slope_values: tuple[Decimal, ...] | None = None
@@ -606,6 +658,11 @@ class StudyConfiguration:
         has_axis_arrays = False
 
         if allocation_policy_enum is AllocationPolicyType.GLIDEPATH:
+            if "allocations" in allocation_policy:
+                raise ValueError(
+                    "allocation_policy.allocations is only supported for "
+                    "ConstantAllocationPolicy"
+                )
             glidepath_start_values = _parse_optional_decimal_array(
                 allocation_policy, "start_equity"
             )
@@ -628,10 +685,22 @@ class StudyConfiguration:
                 )
             )
         else:
+            if "allocations" in allocation_policy:
+                allocation_weights = _parse_allocation_weights(
+                    allocation_policy["allocations"]
+                )
             allocation_policy_values = _parse_optional_decimal_array(
                 allocation_policy, "equity_allocation"
             ) or ()
-            has_axis_arrays = bool(allocation_policy.get("equity_allocation"))
+            if allocation_weights is not None and allocation_policy_values:
+                raise ValueError(
+                    "allocation_policy.allocations and allocation_policy."
+                    "equity_allocation are mutually exclusive"
+                )
+            has_axis_arrays = (
+                bool(allocation_policy.get("equity_allocation"))
+                or allocation_weights is not None
+            )
 
         if raw_configurations is not None:
             if has_axis_arrays:
@@ -806,6 +875,7 @@ class StudyConfiguration:
             version=str(metadata.get("version", "")),
             allocation_policy_type=allocation_policy_type,
             allocation_policy_values=allocation_policy_values,
+            allocation_weights=allocation_weights,
             withdrawal_policy_type=withdrawal_policy_type,
             withdrawal_policy_values=withdrawal_policy_values,
             horizon_years=horizon_years,
@@ -894,12 +964,19 @@ def _build_unified_parameter_configs(
             ),
         ]
     else:
-        axes = [
-            ParameterAxis(
-                name="equity_allocation",
-                values=tuple(float(value) for value in config.allocation_policy_values),
-            ),
-        ]
+        if config.allocation_weights is None:
+            axes = [
+                ParameterAxis(
+                    name="equity_allocation",
+                    values=tuple(
+                        float(value) for value in config.allocation_policy_values
+                    ),
+                ),
+            ]
+        else:
+            # Explicit allocations are one fixed configuration, not a grid
+            # axis; only withdrawal_rate and horizon_years vary.
+            axes = []
     axes.extend([
         ParameterAxis(
             name="withdrawal_rate",
@@ -1093,6 +1170,7 @@ def _make_policy_resolver(
     construction), keeping plan building memory-bounded.
     """
     _alloc_by_weight: dict[Decimal, AllocationPolicy] = {}
+    _alloc_explicit: dict[tuple[tuple[str, Decimal], ...], AllocationPolicy] = {}
     _alloc_glidepath: dict[tuple[Decimal, Decimal, Decimal, str], AllocationPolicy] = {}
     _withdraw_by_params: dict[
         tuple[Decimal, Decimal, Decimal, WithdrawalFrequency], WithdrawalPolicy
@@ -1118,13 +1196,23 @@ def _make_policy_resolver(
                 resolved_alloc = build_glidepath_allocation_policy(start, end, slope, mode)
                 _alloc_glidepath[key] = resolved_alloc
         else:
-            weight = Decimal(str(param_config.get("equity_allocation")))
-            resolved_alloc = _alloc_by_weight.get(weight)
-            if resolved_alloc is None:
-                resolved_alloc = build_allocation_policy(
-                    config.allocation_policy_type, weight
-                )
-                _alloc_by_weight[weight] = resolved_alloc
+            if config.allocation_weights is not None:
+                weights_key = config.allocation_weights
+                resolved_alloc = _alloc_explicit.get(weights_key)
+                if resolved_alloc is None:
+                    resolved_alloc = build_allocation_policy(
+                        config.allocation_policy_type,
+                        allocations=dict(weights_key),
+                    )
+                    _alloc_explicit[weights_key] = resolved_alloc
+            else:
+                weight = Decimal(str(param_config.get("equity_allocation")))
+                resolved_alloc = _alloc_by_weight.get(weight)
+                if resolved_alloc is None:
+                    resolved_alloc = build_allocation_policy(
+                        config.allocation_policy_type, weight
+                    )
+                    _alloc_by_weight[weight] = resolved_alloc
         rate = Decimal(str(param_config.get("withdrawal_rate")))
         # Read leverage parameters from the parameter configuration (axis values)
         # with fallback to the scalar study-level configuration.  The cache key
@@ -1242,6 +1330,11 @@ def _representative_policies(
             representative_alloc = build_allocation_policy(
                 config.allocation_policy_type,
                 Decimal(str(first["equity_allocation"])),
+            )
+        elif config.allocation_weights is not None:
+            representative_alloc = build_allocation_policy(
+                config.allocation_policy_type,
+                allocations=dict(config.allocation_weights),
             )
         else:
             representative_alloc = build_allocation_policy(

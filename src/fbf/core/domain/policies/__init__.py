@@ -8,6 +8,8 @@ from fbf.core.domain.policies.concrete import (
     ConstantAllocationPolicy,
     ConstantWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
+    allocation_identity,
+    resolve_target_weights,
 )
 from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from fbf.core.domain.policies.escalating_withdrawal import EscalatingWithdrawalPolicy
@@ -35,4 +37,6 @@ __all__ = [
     "Part49WithdrawalPolicy",
     "AllocationPolicyType",
     "WithdrawalPolicyType",
+    "resolve_target_weights",
+    "allocation_identity",
 ]

@@ -32,6 +32,7 @@ from .errors import (
 from .schema import ALL_DDL, SCHEMA_VERSION
 
 JSONScalar = None | bool | int | float | str
+JSONValue = JSONScalar | Mapping[str, JSONScalar]
 
 
 class PolicyKind(StrEnum):
@@ -310,8 +311,8 @@ class PolicyCodec(Protocol):
     policy_type: str
     policy_kind: PolicyKind
 
-    def dump(self, policy: Any) -> Mapping[str, JSONScalar]: ...
-    def load(self, parameters: Mapping[str, JSONScalar]) -> Any: ...
+    def dump(self, policy: Any) -> Mapping[str, JSONValue]: ...
+    def load(self, parameters: Mapping[str, JSONValue]) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -2159,6 +2160,11 @@ class SQLiteRepository:
         The selector is ``(equity_allocation, withdrawal_rate)``.
         ``horizon_years`` is NOT included — it is derived from matching
         configurations when the grid is requested.
+
+        Explicit multi-asset configurations (which carry no ``equity_allocation``
+        axis) are filtered out by the query, so they never yield a NULL selector.
+        When the result has only explicit configurations the returned list is
+        empty; ``None`` is reserved for a missing result_id.
         """
         with self._connect() as conn:
             erow = conn.execute(
@@ -2177,6 +2183,7 @@ class SQLiteRepository:
                 JOIN parameter_configurations pc ON pu.param_config_id = pc.param_config_id
                 JOIN execution_results er ON er.plan_id = pu.plan_id
                 WHERE er.result_id = ?
+                  AND json_extract(pc.params_json, '$.equity_allocation') IS NOT NULL
                 ORDER BY equity_allocation, withdrawal_rate
                 """,
                 (result_id,),
@@ -2202,6 +2209,11 @@ class SQLiteRepository:
         The query resolves matching param_config_ids via SQL ``json_extract``
         filtering on the parameter_configurations table, then reads only the
         matching simulation results. No full-scan of simulation_results occurs.
+
+        Explicit multi-asset configurations (no ``equity_allocation`` axis) do
+        not match the ``equity_allocation`` equality filter, so they are
+        excluded; a result containing only such configurations therefore has no
+        matching units and returns ``None``.
 
         Returned dict keys:
             - result_id: str

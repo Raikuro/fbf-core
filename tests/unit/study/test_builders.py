@@ -930,3 +930,164 @@ class TestProductionBuilderHorizon:
 
         # Post-withdrawal values should also have 121 entries
         assert len(path.post_withdrawal_values) == 121
+
+
+_BASE_YAML = {
+    "metadata": {"name": "test-allocations", "description": "explicit allocations"},
+    "dataset": {"identifier": "ern_swr_h720"},
+    "cohorts": {"horizon_years": [10, 20]},
+    "allocation_policy": {"type": "ConstantAllocationPolicy"},
+    "withdrawal_policy": {
+        "type": "FixedRealWithdrawalPolicy",
+        "withdrawal_rate": [0.04],
+    },
+}
+
+
+class TestExplicitAllocationsConfiguration:
+    """Tests for ``allocation_policy.allocations`` (explicit N-asset form)."""
+
+    def _data(self, allocation_policy: dict[str, object]) -> dict[str, object]:
+        return {**_BASE_YAML, "allocation_policy": allocation_policy}
+
+    def test_from_yaml_populates_allocation_weights(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        config = StudyConfiguration.from_yaml(
+            self._data(
+                {
+                    "type": "ConstantAllocationPolicy",
+                    "allocations": {
+                        "equity": "0.5",
+                        "bond": "0.3",
+                        "gold": "0.2",
+                    },
+                }
+            )
+        )
+        assert config.allocation_weights == (
+            ("bond", Decimal("0.3")),
+            ("equity", Decimal("0.5")),
+            ("gold", Decimal("0.2")),
+        )
+        assert config.allocation_policy_values == ()
+
+    def test_allocations_and_equity_allocation_mutually_exclusive(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            StudyConfiguration.from_yaml(
+                self._data(
+                    {
+                        "type": "ConstantAllocationPolicy",
+                        "allocations": {"equity": "0.5", "bond": "0.5"},
+                        "equity_allocation": ["0.5"],
+                    }
+                )
+            )
+
+    def test_allocations_and_configurations_mutually_exclusive(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            StudyConfiguration.from_yaml(
+                self._data(
+                    {
+                        "type": "ConstantAllocationPolicy",
+                        "allocations": {"equity": "0.5", "bond": "0.5"},
+                        "configurations": [{"equity_allocation": "0.5"}],
+                    }
+                )
+            )
+
+    def test_allocations_rejected_for_glidepath(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        with pytest.raises(ValueError, match="only supported for ConstantAllocationPolicy"):
+            StudyConfiguration.from_yaml(
+                self._data(
+                    {
+                        "type": "GlidepathAllocationPolicy",
+                        "allocations": {"equity": "0.5", "bond": "0.5"},
+                    }
+                )
+            )
+
+    def test_allocations_must_sum_to_one(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        with pytest.raises(ValueError, match="sum to exactly 1"):
+            StudyConfiguration.from_yaml(
+                self._data(
+                    {
+                        "type": "ConstantAllocationPolicy",
+                        "allocations": {"equity": "0.5", "bond": "0.4"},
+                    }
+                )
+            )
+
+    def test_build_configs_has_no_equity_axis(self) -> None:
+        from fbf.core.study.builder import (
+            StudyConfiguration,
+            _build_unified_parameter_configs,
+        )
+
+        config = StudyConfiguration.from_yaml(
+            self._data(
+                {
+                    "type": "ConstantAllocationPolicy",
+                    "allocations": {"equity": "0.5", "bond": "0.5"},
+                }
+            )
+        )
+        configs = _build_unified_parameter_configs(config)
+        assert len(configs) == 2  # 1 allocation x 1 rate x 2 horizons
+        for pc in configs:
+            assert "equity_allocation" not in pc.values
+
+    def test_policy_resolver_builds_explicit_policy(self) -> None:
+        from fbf.core.domain.policies import ConstantAllocationPolicy
+        from fbf.core.study.builder import (
+            StudyConfiguration,
+            _build_unified_parameter_configs,
+            _make_policy_resolver,
+        )
+
+        config = StudyConfiguration.from_yaml(
+            self._data(
+                {
+                    "type": "ConstantAllocationPolicy",
+                    "allocations": {"equity": "0.5", "bond": "0.5"},
+                }
+            )
+        )
+        configs = _build_unified_parameter_configs(config)
+        resolver = _make_policy_resolver(config)
+        allocation, _ = resolver(configs[0])
+        assert isinstance(allocation, ConstantAllocationPolicy)
+        assert allocation.allocations == (
+            ("bond", Decimal("0.5")),
+            ("equity", Decimal("0.5")),
+        )
+
+    def test_representative_policies_builds_explicit_policy(self) -> None:
+        from fbf.core.domain.policies import ConstantAllocationPolicy
+        from fbf.core.study.builder import (
+            StudyConfiguration,
+            _representative_policies,
+        )
+
+        config = StudyConfiguration.from_yaml(
+            self._data(
+                {
+                    "type": "ConstantAllocationPolicy",
+                    "allocations": {"equity": "0.5", "bond": "0.5"},
+                }
+            )
+        )
+        allocation, _ = _representative_policies(config)
+        assert isinstance(allocation, ConstantAllocationPolicy)
+        assert allocation.allocations == (
+            ("bond", Decimal("0.5")),
+            ("equity", Decimal("0.5")),
+        )

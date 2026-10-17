@@ -57,6 +57,8 @@ def compute_workbook_oracle_result(context: SimulationContext) -> WorkbookOracle
         raise ValueError("Only FixedRealWithdrawalPolicy supported")
 
     w_eq = allocation.equity_allocation
+    if w_eq is None:
+        raise ValueError("Workbook oracle supports only the legacy two-asset form")
     fee_annual = context.expense_ratio or Decimal("0")
     fee_monthly = fee_annual / Decimal("12")
     target_rate = withdrawal.withdrawal_rate

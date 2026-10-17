@@ -202,6 +202,56 @@ class TestAllocationPolicyCodec:
         loaded = codec.load(dumped)
         assert isinstance(loaded, _ConcreteAllocationPolicy)
 
+    def test_dump_explicit_allocations(self) -> None:
+        from fbf.core.domain.policies import ConstantAllocationPolicy
+
+        codec = AllocationPolicyCodec()
+        policy = ConstantAllocationPolicy(
+            allocations={
+                "equity": Decimal("0.5"),
+                "bond": Decimal("0.3"),
+                "gold": Decimal("0.2"),
+            }
+        )
+        dumped = codec.dump(policy)
+        assert dumped == {
+            "allocations": {"bond": "0.3", "equity": "0.5", "gold": "0.2"}
+        }
+
+    def test_load_explicit_allocations(self) -> None:
+        codec = AllocationPolicyCodec()
+        policy = codec.load(
+            {"allocations": {"equity": "0.6", "bond": "0.4"}}
+        )
+        assert isinstance(policy, _ConcreteAllocationPolicy)
+        assert policy.allocations == {"equity": "0.6", "bond": "0.4"}
+        assert policy.equity_allocation is None
+
+    def test_round_trip_explicit_allocations(self) -> None:
+        from fbf.core.domain.policies import ConstantAllocationPolicy
+
+        codec = AllocationPolicyCodec()
+        original = ConstantAllocationPolicy(
+            allocations={
+                "equity": Decimal("0.5"),
+                "bond": Decimal("0.3"),
+                "gold": Decimal("0.2"),
+            }
+        )
+        loaded = codec.load(codec.dump(original))
+        assert loaded.allocations == {
+            "bond": "0.3",
+            "equity": "0.5",
+            "gold": "0.2",
+        }
+
+    def test_legacy_policy_emits_equity_allocation(self) -> None:
+        from fbf.core.domain.policies import ConstantAllocationPolicy
+
+        codec = AllocationPolicyCodec()
+        dumped = codec.dump(ConstantAllocationPolicy(Decimal("0.7")))
+        assert dumped == {"equity_allocation": "0.7"}
+
 
 class TestWithdrawalPolicyCodec:
     def test_codec_has_required_attributes(self) -> None:

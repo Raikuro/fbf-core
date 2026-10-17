@@ -16,7 +16,11 @@ from typing import cast
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import Portfolio
-from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
+from fbf.core.domain.policies import (
+    ConstantAllocationPolicy,
+    FixedRealWithdrawalPolicy,
+    allocation_identity,
+)
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
@@ -87,9 +91,10 @@ def _reference_group_key(context: SimulationContext) -> tuple[object, ...]:
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
+    asset_classes = tuple(h.asset_class for h in context.initial_portfolio.holdings)
     return (
         context.start_date,
-        allocation.equity_allocation,
+        allocation_identity(allocation, asset_classes),
         withdrawal.withdrawal_rate,
         context.initial_wealth,
         context.initial_portfolio,
@@ -117,9 +122,10 @@ def _unit_group_key(
     """
     allocation = cast(ConstantAllocationPolicy, unit.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, unit.withdrawal_policy)
+    asset_classes = tuple(h.asset_class for h in unit.initial_portfolio.holdings)
     return (
         unit.cohort.start_date,
-        allocation.equity_allocation,
+        allocation_identity(allocation, asset_classes),
         withdrawal.withdrawal_rate,
         plan.experiment_definition.initial_wealth,
         unit.initial_portfolio,

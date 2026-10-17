@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 JSONScalar = None | bool | int | float | str
+JSONValue = JSONScalar | Mapping[str, JSONScalar]
 
 
 def serialize_decimal(value: Decimal) -> str:

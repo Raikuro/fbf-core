@@ -38,7 +38,12 @@ from typing import cast
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding
-from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
+from fbf.core.domain.policies import (
+    ConstantAllocationPolicy,
+    FixedRealWithdrawalPolicy,
+    allocation_identity,
+    resolve_target_weights,
+)
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
@@ -180,16 +185,24 @@ def is_fast_path_eligible(context: SimulationContext) -> bool:
     holdings = context.initial_portfolio.holdings
     if not holdings:
         return False
-    # The closed form encodes the two-asset (equity + one bond) rebalanced
-    # model: equity at weight ``w`` and every other held class at ``1 - w``.
-    # Any other holding set (single-asset, duplicate equity, or three or more
-    # classes) would make the per-class weights not sum to one, so it is
-    # rejected instead of silently producing a divergent recurrence.
-    if len(holdings) != 2:
+    asset_classes = tuple(holding.asset_class for holding in holdings)
+    if any(asset_class not in context.dataset[0].index_levels for asset_class in asset_classes):
         return False
-    if sum(1 for h in holdings if h.asset_class.id == _EquityId) != 1:
+    # The legacy scalar form encodes the two-asset (equity + one bond)
+    # rebalanced model: equity at weight ``w`` and every other held class at
+    # ``1 - w``.  Any other holding set (single-asset, duplicate equity, or
+    # three or more classes) would make the per-class weights ambiguous, so it
+    # is rejected.  The explicit form is accepted whenever its mapping exactly
+    # covers the held asset classes.
+    if context.allocation_policy.allocations is None:
+        if len(holdings) != 2:
+            return False
+        return sum(1 for h in holdings if h.asset_class.id == _EquityId) == 1
+    try:
+        resolve_target_weights(context.allocation_policy, asset_classes)
+    except (ValueError, TypeError):
         return False
-    return not any(h.asset_class not in context.dataset[0].index_levels for h in holdings)
+    return True
 
 
 def _weights_by_class(
@@ -197,18 +210,15 @@ def _weights_by_class(
 ) -> dict[object, Decimal]:
     """Map each held asset class to its constant target weight.
 
-    ConstantAllocationPolicy defines equity weight ``w`` and assigns the residual
-    ``1 - w`` to every other (bond) asset class.
+    Weights are resolved by :func:`~fbf.core.domain.policies.resolve_target_weights`,
+    the single authority for allocation semantics and asset ordering. The
+    legacy form assigns equity ``w`` and every other class ``1 - w``; the
+    explicit form uses the policy's complete mapping.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
-    equity_weight = allocation.equity_allocation
-    weights: dict[object, Decimal] = {}
-    for holding in context.initial_portfolio.holdings:
-        if holding.asset_class.id == _EquityId:
-            weights[holding.asset_class] = equity_weight
-        else:
-            weights[holding.asset_class] = Decimal("1") - equity_weight
-    return weights
+    asset_classes = tuple(h.asset_class for h in context.initial_portfolio.holdings)
+    weights = resolve_target_weights(allocation, asset_classes)
+    return dict(zip(asset_classes, weights, strict=True))
 
 
 def _index_series(context: SimulationContext) -> dict[object, tuple[Decimal, ...]]:
@@ -335,9 +345,10 @@ def _group_key(context: SimulationContext) -> tuple[object, ...]:
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
+    asset_classes = tuple(h.asset_class for h in context.initial_portfolio.holdings)
     return (
         context.start_date,
-        allocation.equity_allocation,
+        allocation_identity(allocation, asset_classes),
         withdrawal.withdrawal_rate,
         context.initial_wealth,
         context.initial_portfolio,
@@ -463,6 +474,30 @@ def _evaluate_decimal_recurrence(
     return monthly, post, None, None
 
 
+def _workbook_monthly_returns(
+    context: SimulationContext, horizon: int
+) -> list[Decimal]:
+    """Monthly portfolio returns with the workbook additive fee embedded (N assets).
+
+    ``r_m = sum_j w_j * (I_{j,m+1} / I_{j,m} - 1) - fee / 12`` over every held
+    asset class, using the policy's resolved target weights (constant monthly
+    rebalance). The fee is applied exactly once per month.
+    """
+    series = _index_series(context)
+    asset_classes = tuple(cast(AssetClass, ac) for ac in series)
+    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    weights = resolve_target_weights(allocation, asset_classes)
+    fee_monthly = (context.expense_ratio or Decimal("0")) / Decimal("12")
+    monthly_returns: list[Decimal] = []
+    for m in range(horizon):
+        r = Decimal("0")
+        for asset_class, weight in zip(asset_classes, weights, strict=True):
+            levels = series[asset_class]
+            r += weight * (levels[m + 1] / levels[m] - Decimal("1"))
+        monthly_returns.append(r - fee_monthly)
+    return monthly_returns
+
+
 def _evaluate_workbook_scr_path(
     context: SimulationContext,
 ) -> tuple[Decimal, bool, Decimal]:
@@ -493,31 +528,8 @@ def _evaluate_workbook_scr_path(
     success = scr >= target_rate
 
     # Compute trajectory for final wealth reporting (end-of-period, fee embedded in returns)
-    series = _index_series(context)
     horizon = wb_horizon
-
-    # Simulate portfolio value directly (no unit tracking needed for fixed allocation)
-    fee_annual_dec = fee_annual
-    fee_monthly = fee_annual_dec / Decimal("12")
-
-    # Build monthly returns with fee embedded
-    equity_class = AssetClass(id="equity", name="", description="")
-    bond_class = AssetClass(id="bond", name="", description="")
-    monthly_returns = []
-
-    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
-    w_eq = allocation.equity_allocation
-    w_bd = Decimal("1") - w_eq
-
-    for m in range(horizon):
-        idx_m_eq = series[equity_class][m]
-        idx_m1_eq = series[equity_class][m + 1]
-        idx_m_bd = series[bond_class][m]
-        idx_m1_bd = series[bond_class][m + 1]
-        eq_ret = idx_m1_eq / idx_m_eq - Decimal("1")
-        bd_ret = idx_m1_bd / idx_m_bd - Decimal("1")
-        r = w_eq * eq_ret + w_bd * bd_ret - fee_monthly
-        monthly_returns.append(r)
+    monthly_returns = _workbook_monthly_returns(context, horizon)
 
     V = initial_value
     C = initial_value * target_rate / Decimal("12")
@@ -562,31 +574,8 @@ def evaluate_workbook_path(
     _ = scr >= target_rate  # success (not used in path construction)
 
     # Compute trajectory for final wealth reporting (end-of-period, fee embedded in returns)
-    series = _index_series(context)
     horizon = wb_horizon
-
-    # Simulate portfolio value directly (no unit tracking needed for fixed allocation)
-    fee_annual_dec = fee_annual
-    fee_monthly = fee_annual_dec / Decimal("12")
-
-    # Build monthly returns with fee embedded
-    equity_class = AssetClass(id="equity", name="", description="")
-    bond_class = AssetClass(id="bond", name="", description="")
-    monthly_returns = []
-
-    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
-    w_eq = allocation.equity_allocation
-    w_bd = Decimal("1") - w_eq
-
-    for m in range(horizon):
-        idx_m_eq = series[equity_class][m]
-        idx_m1_eq = series[equity_class][m + 1]
-        idx_m_bd = series[bond_class][m]
-        idx_m1_bd = series[bond_class][m + 1]
-        eq_ret = idx_m1_eq / idx_m_eq - Decimal("1")
-        bd_ret = idx_m1_bd / idx_m_bd - Decimal("1")
-        r = w_eq * eq_ret + w_bd * bd_ret - fee_monthly
-        monthly_returns.append(r)
+    monthly_returns = _workbook_monthly_returns(context, horizon)
 
     V = initial_value
     C = initial_value * target_rate / Decimal("12")

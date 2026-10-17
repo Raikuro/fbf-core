@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 from fbf.core.persistence.studies.sqlite.sqlite_repository import (
     JSONScalar,
+    JSONValue,
     PolicyKind,
     SerializedSimulationResult,
 )
@@ -53,12 +54,18 @@ class CanonicalDatasetLoader:
 class _ConcreteAllocationPolicy(AllocationPolicy):
     """Concrete AllocationPolicy subclass for serialization round-trip.
 
-    Carries equity_allocation parameter through dump/load.
+    Carries the legacy ``equity_allocation`` scalar and/or an explicit
+    ``allocations`` mapping through dump/load.
     Not intended for execution — raises NotImplementedError on decide.
     """
 
-    def __init__(self, equity_allocation: str = "1.0") -> None:
+    def __init__(
+        self,
+        equity_allocation: str | None = None,
+        allocations: Mapping[str, str] | None = None,
+    ) -> None:
         self.equity_allocation = equity_allocation
+        self.allocations = dict(allocations) if allocations is not None else None
 
     def decide(self, context: Any) -> Any:
         raise NotImplementedError(
@@ -85,18 +92,33 @@ class _ConcreteWithdrawalPolicy(WithdrawalPolicy):
 class AllocationPolicyCodec:
     """Codec for AllocationPolicy-compatible objects.
 
-    Serializes equity_allocation and reconstructs a concrete
-    policy instance on load.
+    Legacy policies serialize ``equity_allocation``; explicit multi-asset
+    policies serialize their ``allocations`` mapping (asset-class id → weight
+    string) so the complete allocation round-trips losslessly.
     """
 
     policy_type: str = "AllocationPolicy"
     policy_kind: PolicyKind = PolicyKind.ALLOCATION
 
-    def dump(self, policy: Any) -> Mapping[str, JSONScalar]:
+    def dump(self, policy: Any) -> Mapping[str, JSONValue]:
+        allocations = getattr(policy, "allocations", None)
+        if allocations:
+            return {
+                "allocations": {
+                    str(asset_id): str(weight) for asset_id, weight in allocations
+                }
+            }
         equity = str(getattr(policy, "equity_allocation", "1.0"))
         return {"equity_allocation": equity}
 
-    def load(self, parameters: Mapping[str, JSONScalar]) -> Any:
+    def load(self, parameters: Mapping[str, JSONValue]) -> Any:
+        raw_allocations = parameters.get("allocations")
+        if isinstance(raw_allocations, Mapping):
+            allocations = {
+                str(asset_id): str(weight)
+                for asset_id, weight in raw_allocations.items()
+            }
+            return _ConcreteAllocationPolicy(allocations=allocations)
         equity = str(parameters.get("equity_allocation", "1.0"))
         return _ConcreteAllocationPolicy(equity_allocation=equity)
 
@@ -115,7 +137,7 @@ class WithdrawalPolicyCodec:
         rate = str(getattr(policy, "withdrawal_rate", "0.04"))
         return {"withdrawal_rate": rate}
 
-    def load(self, parameters: Mapping[str, JSONScalar]) -> Any:
+    def load(self, parameters: Mapping[str, JSONValue]) -> Any:
         rate = str(parameters.get("withdrawal_rate", "0.04"))
         return _ConcreteWithdrawalPolicy(withdrawal_rate=rate)
 

@@ -48,6 +48,11 @@ _NUMBA_EXECUTOR: SimulationExecutor = NumbaSimulationExecutor()
 WEALTH_TOLERANCE = Decimal("0.01")
 
 
+def _legacy_identity(w: Decimal) -> tuple[tuple[str, Decimal], ...]:
+    """Canonical allocation identity for a legacy two-asset (equity, bond) split."""
+    return (("bond", Decimal("1") - w), ("equity", w))
+
+
 # --- Legacy helpers for cache tests (use horizon snapshots, not horizon+1) ---
 
 def _make_dataset(n_months: int) -> Dataset:
@@ -494,7 +499,7 @@ class TestGrowthFactorCache:
         executor.execute(defn2)
 
         assert len(executor.gf_cache) == 1
-        assert (d1, Decimal("0.5"), id(sliced)) in executor.gf_cache
+        assert (d1, _legacy_identity(Decimal("0.5")), id(sliced)) in executor.gf_cache
 
     def test_different_start_date_separate_entries(self) -> None:
         executor = NumbaSimulationExecutor()
@@ -540,8 +545,8 @@ class TestGrowthFactorCache:
         executor.execute(defn2)
 
         assert len(executor.gf_cache) == 2
-        key1 = (date(1900, 1, 1), Decimal("0.5"), id(ctx1.dataset))
-        key2 = (date(2000, 1, 1), Decimal("0.5"), id(ctx2.dataset))
+        key1 = (date(1900, 1, 1), _legacy_identity(Decimal("0.5")), id(ctx1.dataset))
+        key2 = (date(2000, 1, 1), _legacy_identity(Decimal("0.5")), id(ctx2.dataset))
         assert key1 in executor.gf_cache
         assert key2 in executor.gf_cache
 
@@ -562,8 +567,8 @@ class TestGrowthFactorCache:
         executor.execute(defn_b)
 
         assert len(executor.gf_cache) == 2
-        key_a = (ds[0].date, Decimal("0.3"), id(sliced))
-        key_b = (ds[0].date, Decimal("0.7"), id(sliced))
+        key_a = (ds[0].date, _legacy_identity(Decimal("0.3")), id(sliced))
+        key_b = (ds[0].date, _legacy_identity(Decimal("0.7")), id(sliced))
         assert key_a in executor.gf_cache
         assert key_b in executor.gf_cache
 
@@ -584,7 +589,7 @@ class TestGrowthFactorCache:
         executor.execute(defn_b)
 
         assert len(executor.gf_cache) == 1
-        key = (ds[0].date, Decimal("0.5"), id(sliced))
+        key = (ds[0].date, _legacy_identity(Decimal("0.5")), id(sliced))
         assert key in executor.gf_cache
 
     def test_cached_array_not_mutated(self) -> None:
@@ -598,7 +603,7 @@ class TestGrowthFactorCache:
         )
         executor.execute(defn)
 
-        key = (ds[0].date, Decimal("0.5"), id(ctx.dataset))
+        key = (ds[0].date, _legacy_identity(Decimal("0.5")), id(ctx.dataset))
         arr1 = executor.gf_cache[key].copy()
         executor.execute(defn)
         arr2 = executor.gf_cache[key]

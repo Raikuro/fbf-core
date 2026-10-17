@@ -69,6 +69,7 @@ from fbf.core.domain.policies import (
     ConstantWithdrawalPolicy,
     EscalatingWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
+    allocation_identity,
 )
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
@@ -106,10 +107,12 @@ from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
 )
 
-# Growth-factor cache key (static): (start_date, equity_allocation, dataset_token).
-# The dataset token disambiguates contexts that share a start date but not a
-# market trajectory.
-GFKey = tuple[date, Decimal, int]
+# Growth-factor cache key (static): (start_date, allocation_identity, dataset_token).
+# The allocation identity is the canonical, order-insensitive ``(asset_id, weight)``
+# tuple so that distinct allocations never collide.  The dataset token
+# disambiguates contexts that share a start date but not a market trajectory.
+WeightIdentity = tuple[tuple[str, Decimal], ...]
+GFKey = tuple[date, WeightIdentity, int]
 
 # Glidepath trajectory-parameter key (no dataset identity):
 # (start_date, glidepath_type, start_equity, end_equity, slope, mode)
@@ -138,7 +141,9 @@ def _is_numba_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can use the Numba backend.
 
     Same eligibility criteria as the fast path: ConstantAllocationPolicy
-    + FixedRealWithdrawalPolicy, sufficient dataset, two-asset portfolio.
+    + FixedRealWithdrawalPolicy, sufficient dataset, and either the legacy
+    two-asset form or an explicit allocation mapping covering the held
+    asset classes.
     """
     return is_fast_path_eligible(context)
 
@@ -174,6 +179,10 @@ def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
     """
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
+    if context.allocation_policy.allocations is not None:
+        # Explicit N-asset allocations are only supported by the fixed-real
+        # workbook path; constant-nominal falls back to the reference backend.
+        return False
     if not isinstance(context.withdrawal_policy, ConstantWithdrawalPolicy):
         return False
     if context.horizon_months is None or context.horizon_months < 1:
@@ -198,6 +207,10 @@ def _is_escalating_eligible(context: SimulationContext) -> bool:
     sufficient dataset, two-asset portfolio.
     """
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
+        return False
+    if context.allocation_policy.allocations is not None:
+        # Explicit N-asset allocations are only supported by the fixed-real
+        # workbook path; escalating falls back to the reference backend.
         return False
     if not isinstance(context.withdrawal_policy, EscalatingWithdrawalPolicy):
         return False
@@ -312,14 +325,15 @@ def _gf_cache_key(context: SimulationContext) -> GFKey:
     """Minimal cache key for growth-factor identity (static strategies).
 
     Growth factors depend only on (market trajectory, allocation weights).
-    The start_date and dataset token determine the trajectory; the
-    equity_allocation determines the target weights.  Withdrawal rate, initial
+    The start_date and dataset token determine the trajectory; the canonical
+    allocation identity determines the target weights.  Withdrawal rate, initial
     wealth, horizon, and final_value_target do not affect growth factors.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    asset_classes = tuple(h.asset_class for h in context.initial_portfolio.holdings)
     return (
         context.start_date,
-        allocation.equity_allocation,
+        allocation_identity(allocation, asset_classes),
         _dataset_token(context),
     )
 

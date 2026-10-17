@@ -19,7 +19,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fbf.core.domain.model.asset import AssetClass
-from fbf.core.domain.policies import ConstantAllocationPolicy
+from fbf.core.domain.policies import ConstantAllocationPolicy, resolve_target_weights
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 
 
@@ -39,16 +39,15 @@ def compute_workbook_growth_factors(
 
     Requires at least horizon + 1 snapshots (to compute T months of returns).
     """
-    weights: dict[AssetClass, Decimal] = {}
     allocation = context.allocation_policy
-    if isinstance(allocation, ConstantAllocationPolicy):
-        for holding in context.initial_portfolio.holdings:
-            if holding.asset_class.id == "equity":
-                weights[holding.asset_class] = allocation.equity_allocation
-            else:
-                weights[holding.asset_class] = Decimal("1") - allocation.equity_allocation
-    else:
+    if not isinstance(allocation, ConstantAllocationPolicy):
         raise NotImplementedError("Only ConstantAllocationPolicy supported for workbook SCR")
+    asset_classes = tuple(
+        holding.asset_class for holding in context.initial_portfolio.holdings
+    )
+    weights: dict[AssetClass, Decimal] = dict(
+        zip(asset_classes, resolve_target_weights(allocation, asset_classes), strict=True)
+    )
 
     snapshots = context.dataset.snapshots
     if len(snapshots) < horizon + 1:

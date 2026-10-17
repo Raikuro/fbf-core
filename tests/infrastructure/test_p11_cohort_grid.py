@@ -585,3 +585,176 @@ class TestCohortHorizonGrid:
         assert grid2["result_id"] == result_id2
         assert grid1["total_units"] == 1
         assert grid2["total_units"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Explicit multi-asset configurations
+# ---------------------------------------------------------------------------
+
+
+def _insert_param_config(conn: sqlite3.Connection, params: dict[str, Any]) -> str:
+    payload = _to_canonical_json(params)
+    params_hash = _hash(payload)
+    existing = conn.execute(
+        "SELECT param_config_id FROM parameter_configurations WHERE params_hash = ?",
+        (params_hash,),
+    ).fetchone()
+    if existing:
+        return str(existing[0])
+    pcid = _uuid()
+    conn.execute(
+        "INSERT INTO parameter_configurations "
+        "(param_config_id, params_json, params_hash, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (pcid, payload, params_hash, _now_iso()),
+    )
+    return pcid
+
+
+def _policy_id(conn: sqlite3.Connection, policy_type: str) -> str:
+    existing = conn.execute(
+        "SELECT policy_id FROM policies WHERE policy_type = ? AND params_hash = ?",
+        (policy_type, _hash("{}")),
+    ).fetchone()
+    if existing:
+        return str(existing[0])
+    pid = _uuid()
+    conn.execute(
+        "INSERT INTO policies "
+        "(policy_id, policy_type, params_json, params_hash, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (pid, policy_type, "{}", _hash("{}"), _now_iso()),
+    )
+    return pid
+
+
+def _insert_unit(
+    conn: sqlite3.Connection,
+    plan_id: str,
+    cohort_id: str,
+    param_config_id: str,
+    result_id: str,
+    unit_index: int,
+) -> None:
+    conn.execute(
+        "INSERT INTO planned_units "
+        "(unit_id, plan_id, unit_index, cohort_id, param_config_id, "
+        "allocation_policy_id, withdrawal_policy_id, initial_portfolio_json, "
+        "final_value_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            _uuid(), plan_id, unit_index, cohort_id, param_config_id,
+            _policy_id(conn, "allocation"), _policy_id(conn, "withdrawal"),
+            "{}", None,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO simulation_results "
+        "(execution_result_id, unit_index, month_index, monthly_payload_json, "
+        "statistics_payload_json, final_month) VALUES (?, ?, ?, ?, ?, ?)",
+        (result_id, unit_index, 0, '{"dummy":true}',
+         _make_stats_json(True, "600000.00", None), 1),
+    )
+
+
+def _seed_explicit_database(
+    conn: sqlite3.Connection,
+    result_id: str | None = None,
+) -> str:
+    """Seed a plan whose only configuration uses explicit N-asset allocations."""
+    if result_id is None:
+        result_id = _uuid()
+    experiment_id = _uuid()
+    plan_id = _uuid()
+    cohort_id = _uuid()
+    cohort_date = _make_cohort_date(0)
+
+    conn.execute(
+        "INSERT INTO experiments (experiment_id, name, revision, description, "
+        "dataset_identifier, horizon_months, initial_wealth, "
+        "initial_wealth_currency, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (experiment_id, "explicit-test", "v1", "explicit",
+         "test", 721, "1000000", "EUR", _now_iso(), _now_iso()),
+    )
+    conn.execute(
+        "INSERT INTO cohorts (cohort_id, experiment_id, start_date, cohort_ref, "
+        "created_at) VALUES (?, ?, ?, ?, ?)",
+        (cohort_id, experiment_id, cohort_date.isoformat(),
+         cohort_date.isoformat(), _now_iso()),
+    )
+    pcid = _insert_param_config(
+        conn,
+        {
+            "allocations": {"bond": "0.3", "equity": "0.5", "gold": "0.2"},
+            "withdrawal_rate": 0.04,
+            "horizon_years": 30,
+        },
+    )
+    conn.execute(
+        "INSERT INTO research_plans (plan_id, experiment_id, created_at, "
+        "unit_count, status) VALUES (?, ?, ?, ?, ?)",
+        (plan_id, experiment_id, _now_iso(), 1, "completed"),
+    )
+    _insert_unit(conn, plan_id, cohort_id, pcid, result_id, 0)
+    conn.execute(
+        "INSERT INTO execution_results (result_id, plan_id, executed_at, "
+        "duration_seconds, success_count, failure_count, total_units) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (result_id, plan_id, _now_iso(), 1.0, 1, 0, 1),
+    )
+    conn.commit()
+    return result_id
+
+
+class TestExplicitAllocationGridSafety:
+    def test_available_parameters_returns_empty_list(
+        self, repo: SQLiteRepository,
+    ) -> None:
+        with sqlite3.connect(repo.db_path) as conn:
+            result_id = _seed_explicit_database(conn)
+        assert repo.get_available_parameters(result_id) == []
+
+    def test_cohort_horizon_grid_returns_none(
+        self, repo: SQLiteRepository,
+    ) -> None:
+        with sqlite3.connect(repo.db_path) as conn:
+            result_id = _seed_explicit_database(conn)
+        assert repo.get_cohort_horizon_grid(result_id, 0.5, 0.04) is None
+
+    def test_explicit_units_do_not_pollute_legacy_selectors(
+        self, repo: SQLiteRepository,
+    ) -> None:
+        cohorts = [_make_cohort_date(0)]
+        with sqlite3.connect(repo.db_path) as conn:
+            result_id = _seed_p11_database(
+                conn, cohorts, [0.5], [0.04], [30],
+            )
+            plan_id = conn.execute(
+                "SELECT plan_id FROM execution_results WHERE result_id = ?",
+                (result_id,),
+            ).fetchone()[0]
+            experiment_id = conn.execute(
+                "SELECT experiment_id FROM research_plans WHERE plan_id = ?",
+                (plan_id,),
+            ).fetchone()[0]
+            cohort_id = conn.execute(
+                "SELECT cohort_id FROM cohorts WHERE experiment_id = ? LIMIT 1",
+                (experiment_id,),
+            ).fetchone()[0]
+            explicit_pcid = _insert_param_config(
+                conn,
+                {
+                    "allocations": {"equity": "0.5", "bond": "0.5"},
+                    "withdrawal_rate": 0.05,
+                    "horizon_years": 30,
+                },
+            )
+            _insert_unit(conn, plan_id, cohort_id, explicit_pcid, result_id, 999)
+            conn.commit()
+
+        params = repo.get_available_parameters(result_id)
+        assert params is not None
+        assert params == [{"equity_allocation": 0.5, "withdrawal_rate": 0.04}]
+        grid = repo.get_cohort_horizon_grid(result_id, 0.5, 0.04)
+        assert grid is not None
+        assert grid["total_units"] == 1
