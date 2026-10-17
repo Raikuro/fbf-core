@@ -1564,6 +1564,15 @@ def simulate_batch_buy_and_hold(
 # Part52 Numba kernel
 # ---------------------------------------------------------------------------
 
+# Failure-reason codes returned by ``_simulate_part52`` (plain ints for
+# ``numba.njit`` compatibility).  They let the executor reproduce the legacy
+# pipeline / independent oracle terminal failure states instead of collapsing
+# every failure to "depleted".
+_PART52_SUCCESS = 0
+_PART52_DEPLETED = 1
+_PART52_MARGIN_CALL_IMPOSSIBLE = 2
+_PART52_MARGIN_CALL_TERMINAL = 3
+
 
 @numba.njit(cache=True)
 def _simulate_part52(
@@ -1577,7 +1586,7 @@ def _simulate_part52(
     ltv_limit: float,
     horizon: int,
     ltv_enforcement: bool = True,
-) -> tuple[float, bool, int, float]:
+) -> tuple[float, bool, int, float, int]:
     """Simulate one Part52 trajectory using the scalar recurrence.
 
     The recurrence replicates the 15-step pipeline's behavioral semantics:
@@ -1621,10 +1630,14 @@ def _simulate_part52(
 
     Returns
     -------
-    tuple of (final_value, success, failure_month, final_loan_balance)
+    tuple of (final_value, success, failure_month, final_loan_balance, reason)
 
-    On depletion, final_value is 0.  On LTV failure, final_loan_balance > 0
-    with final_value potentially zero.
+    ``reason`` is one of the ``_PART52_*`` codes.  On depletion, final_value is
+    0.  On a terminal margin-call liquidation, final_value is the
+    post-liquidation portfolio value and reason is
+    ``_PART52_MARGIN_CALL_TERMINAL`` (matching ``LTVEvaluationStep`` and the
+    independent oracle).  On success, reason is ``_PART52_SUCCESS`` and
+    failure_month is -1.
     """
     # --- Initial state (month 0) ---
     V = initial_value
@@ -1700,18 +1713,24 @@ def _simulate_part52(
                 # Margin call: liquidate to restore LTV to limit
                 liq = (Y - ltv_limit * V) / (1.0 - ltv_limit)
                 if liq > V:
-                    # Unsatisfiable: sell entire portfolio
+                    # Unsatisfiable: sell entire portfolio; the depleted
+                    # portfolio is classified by the failure check below.
                     Y -= V
                     V = 0.0
                 else:
+                    # A satisfiable margin-call liquidation is TERMINAL per ERN
+                    # Part 49 methodology (§15.3 items 19-20), matching
+                    # ``LTVEvaluationStep`` and the independent oracle: stop the
+                    # trajectory and report the post-liquidation value.
                     V -= liq
                     Y -= liq
+                    return V, False, m, Y, _PART52_MARGIN_CALL_TERMINAL
 
         # --- Failure detection (step 75) ---
         if V <= 0.0:
-            return 0.0, False, m, Y
+            return 0.0, False, m, Y, _PART52_DEPLETED
         if ltv_enforcement and Y > V and Y > 0.0:
-            return V, False, m, Y
+            return V, False, m, Y, _PART52_MARGIN_CALL_IMPOSSIBLE
 
         # --- Growth (implicit in price change) ---
         # Applied AFTER LTV evaluation.  gf[m] corresponds to the pipeline's
@@ -1729,7 +1748,7 @@ def _simulate_part52(
             cDD = 0.0
         eq_prev = eq_curr
 
-    return V, True, -1, Y
+    return V, True, -1, Y, _PART52_SUCCESS
 
 
 @numba.njit(parallel=True, cache=True)
@@ -1798,7 +1817,7 @@ def _simulate_part52_batch(
         mr = monthly_rates_all[off : off + h]
         ep = equity_prices_all[off : off + h + 1]
 
-        fv, ok, fm, y_final = _simulate_part52(
+        fv, ok, fm, y_final, _reason = _simulate_part52(
             growth_factors, mr, ep,
             initial_values[i], withdrawals_monthly[i],
             thresholds[i], borrow_pcts[i], ltv_limits[i], h,

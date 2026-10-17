@@ -839,23 +839,23 @@ class TestPart52NumbaKernelBehavior:
         assert result.simulation_results[0].statistics is not None
 
     def test_ltv_enforcement_produces_margin_call_terminal(self) -> None:
-        """LTV enforcement should produce margin_call_terminal failure state."""
-        dataset = _create_ffr_dataset(6, (Decimal("0.015"),) * 6)
-        ctx = _make_context(dataset, 6, ltv_enforcement=True)
+        """LTV enforcement terminates a satisfiable liquidation as terminal.
 
-        executor = Part52NumbaExecutor()
-        definition = EngineExperimentDefinition(
-            name="test",
-            description="test",
-            simulation_contexts=(ctx,),
-        )
+        Under a sustained decline the loan outgrows the portfolio and LTV
+        enforcement liquidates it.  The run must stop at the liquidation month
+        with the ``margin_call_terminal`` failure state and report the
+        post-liquidation portfolio value -- not zero, which is reserved for
+        depletion.
+        """
+        ctx = _make_context(_create_decline_dataset(60), 60, ltv_enforcement=True)
 
-        result = executor.execute(definition)
-        sim_result = result.simulation_results[0]
+        stats = _alone_statistics(ctx)
 
-        # With LTV enforcement, deep drawdowns may trigger margin call
-        if not sim_result.statistics.success:
-            assert sim_result.statistics.failure_state in ("depleted", "margin_call_terminal")
+        assert stats.success is False
+        assert stats.failure_state == "margin_call_terminal"
+        assert stats.failure_month == 40
+        assert stats.months_simulated == 40
+        assert stats.final_wealth.amount > Decimal("0")
 
 
 class TestPart52NumbaExecutorReport:
@@ -1171,6 +1171,7 @@ class TestPart52DecimalDifferential:
     def _assert_matches(numba: SimulationResult, legacy: SimulationResult) -> None:
         ns, ls = numba.statistics, legacy.statistics
         assert ns.success == ls.success
+        assert ns.failure_state == ls.failure_state
         assert ns.failure_month == ls.failure_month
         assert ns.months_simulated == ls.months_simulated
         diff = abs(ns.final_wealth.amount - ls.final_wealth.amount)
@@ -1253,6 +1254,56 @@ class TestPart52DecimalDifferential:
         assert _legacy_terminal_loan(legacy) != _legacy_terminal_loan(
             _reference_result(all_scalar_ctx)
         )
+
+    def test_margin_call_terminal_matches_decimal_reference(self) -> None:
+        """A satisfiable liquidation is terminal and matches the reference.
+
+        With LTV enforcement on, a sustained decline drives the loan past the
+        LTV limit while remaining satisfiable; the kernel must mark
+        ``margin_call_terminal`` at the liquidation month and carry the
+        post-liquidation portfolio value, exactly as the Decimal reference does.
+        """
+        horizon = 60
+        ctx = _make_context(
+            _create_decline_dataset(horizon), horizon, ltv_enforcement=True
+        )
+
+        numba, legacy = _numba_result(ctx), _reference_result(ctx)
+        self._assert_matches(numba, legacy)
+
+        ns = numba.statistics
+        assert ns.failure_state == "margin_call_terminal"
+        assert ns.failure_month == 40
+        assert ns.months_simulated == 40
+        # Post-liquidation wealth is positive: distinct from depletion.
+        assert ns.final_wealth.amount > Decimal("0")
+
+    def test_depleted_matches_decimal_reference(self) -> None:
+        """Depletion stays terminal with zero wealth and matches the reference.
+
+        A withdrawal rate high enough to exhaust the portfolio before the
+        horizon must keep the ``depleted`` failure state (never misreported as
+        an LTV margin call) and report zero final wealth.
+        """
+        horizon = 24
+        ctx = _make_context(_create_decline_dataset(horizon), horizon)
+        ctx = replace(
+            ctx,
+            withdrawal_policy=Part52WithdrawalPolicy(
+                withdrawal_rate=Decimal("0.6"),
+                borrow_pct=BORROW_PCT,
+                drawdown_threshold=DRAWDOWN_THRESHOLD,
+            ),
+        )
+
+        numba, legacy = _numba_result(ctx), _reference_result(ctx)
+        self._assert_matches(numba, legacy)
+
+        ns = numba.statistics
+        assert ns.failure_state == "depleted"
+        assert ns.failure_month == 18
+        assert ns.months_simulated == 18
+        assert ns.final_wealth.amount == Decimal("0")
 
 
 if __name__ == "__main__":

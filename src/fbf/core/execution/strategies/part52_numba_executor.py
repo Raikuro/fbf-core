@@ -425,7 +425,18 @@ class Part52NumbaExecutor(SimulationExecutor):
 
         # --- Pass 3: simulate each cluster ---
         profiler.start("part52_kernel_execution")
-        from fbf.core.execution.strategies.numba_kernel import _simulate_part52
+        from fbf.core.execution.strategies.numba_kernel import (
+            _PART52_DEPLETED,
+            _PART52_MARGIN_CALL_IMPOSSIBLE,
+            _PART52_MARGIN_CALL_TERMINAL,
+            _simulate_part52,
+        )
+
+        _failure_state_by_reason = {
+            _PART52_DEPLETED: "depleted",
+            _PART52_MARGIN_CALL_IMPOSSIBLE: "margin_call_impossible",
+            _PART52_MARGIN_CALL_TERMINAL: "margin_call_terminal",
+        }
 
         results: dict[int, SimulationResult] = {}
         derived_count = 0
@@ -476,7 +487,13 @@ class Part52NumbaExecutor(SimulationExecutor):
                 eq_prices = _extract_equity_prices(sample_ctx, horizon)
 
                 # Run kernel
-                _final_val, _kernel_success, fail_month, _final_loan = _simulate_part52(
+                (
+                    _final_val,
+                    _kernel_success,
+                    fail_month,
+                    _final_loan,
+                    failure_reason,
+                ) = _simulate_part52(
                     growth_factors_arr, mr_arr, eq_prices,
                     v0, c, threshold, borrow_pct, ltv_limit, horizon,
                     ltv_enforcement,
@@ -491,12 +508,22 @@ class Part52NumbaExecutor(SimulationExecutor):
                     if 0 <= fail_month < horizon:
                         success = False
                         failure_month = fail_month
-                        final_value = 0.0
+                        failure_state = _failure_state_by_reason[failure_reason]
+                        # Depletion reports a zero final value; a terminal
+                        # margin-call liquidation reports the post-liquidation
+                        # portfolio value, matching the legacy pipeline and the
+                        # independent oracle.
+                        final_value = (
+                            _final_val
+                            if failure_reason == _PART52_MARGIN_CALL_TERMINAL
+                            else 0.0
+                        )
                         months_simulated = fail_month
                     else:
                         final_value = _final_val
                         success = True
                         failure_month = None
+                        failure_state = None
                         months_simulated = horizon
 
                     final_wealth = _money(final_value)
@@ -508,7 +535,7 @@ class Part52NumbaExecutor(SimulationExecutor):
                             max_drawdown=0.0,
                             success=success,
                             failure_month=failure_month,
-                            failure_state=None if success else "depleted",
+                            failure_state=failure_state,
                             months_simulated=months_simulated,
                             execution_time_seconds=0.0,
                         ),
