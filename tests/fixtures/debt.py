@@ -151,7 +151,9 @@ SCENARIO_PROPORTIONAL_LIQUIDATION = DebtScenario(
         net_worth=Decimal("96000"),
         is_margin_call=True,
         is_unsatisfiable=False,
-        is_failure=False,
+        # A satisfiable margin-call liquidation is TERMINAL per ERN Part 49
+        # (§15.3 items 19-20): the trajectory ends on forced liquidation.
+        is_failure=True,
     ),
 )
 
@@ -293,7 +295,9 @@ SCENARIO_LTV_AT_LIMIT = DebtScenario(
         net_worth=Decimal("246250"),
         is_margin_call=True,
         is_unsatisfiable=False,
-        is_failure=False,
+        # A satisfiable margin-call liquidation is TERMINAL per ERN Part 49
+        # (§15.3 items 19-20): the trajectory ends on forced liquidation.
+        is_failure=True,
     ),
 )
 

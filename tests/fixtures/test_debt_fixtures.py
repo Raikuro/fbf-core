@@ -91,11 +91,24 @@ class TestScenarioOracleCorrespondence:
             f"expected {expected.net_worth}"
         )
 
-        # Failure state
+        # Failure presence (boolean expectation)
         is_failed = result.failure_state != FailureState.NONE
         assert is_failed == expected.is_failure, (
             f"Failure state mismatch: got {is_failed}, "
             f"expected {expected.is_failure}"
+        )
+
+        # Exact terminal failure state (not only a boolean)
+        if not expected.is_margin_call:
+            expected_failure_state = FailureState.NONE
+        elif expected.is_unsatisfiable:
+            expected_failure_state = FailureState.DEPLETED
+        else:
+            expected_failure_state = FailureState.MARGIN_CALL_TERMINAL
+
+        assert result.failure_state is expected_failure_state, (
+            f"Exact failure state mismatch: got {result.failure_state}, "
+            f"expected {expected_failure_state}"
         )
 
 
