@@ -251,12 +251,16 @@ def _build_derived_result(
         survived = _evaluate_fv_target(
             True, final_wealth, context.initial_wealth, context.final_value_target
         )
+        # This branch is reached only when the longest path did not fail before
+        # the derived horizon.  A non-survival verdict here is therefore purely a
+        # final-value target miss: it flips ``success`` but leaves no operational
+        # terminal failure month or state.
         statistics = SimulationStatistics(
             final_wealth=final_wealth,
             max_drawdown=longest_result.statistics.max_drawdown,
             success=survived,
-            failure_month=None if survived else context.horizon_months,
-            failure_state=None if survived else "depleted",
+            failure_month=None,
+            failure_state=None,
             months_simulated=context.horizon_months,
             execution_time_seconds=0.0,
         )
@@ -287,8 +291,10 @@ def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> Sim
     """Return a copy of *result* with the FV check applied for *context*'s target.
 
     When the context has no final_value_target, the result is returned unchanged.
-    When the target causes a previously-successful result to fail, the failure
-    month is set to the horizon boundary.
+    A final-value target miss is an evaluation-criterion failure, not an
+    operational terminal failure: only ``success`` is flipped, while
+    ``failure_month`` and ``failure_state`` remain those of the underlying
+    result (``None`` for a trajectory that survived to the horizon).
     """
     if context.final_value_target is None:
         return result
@@ -304,8 +310,8 @@ def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> Sim
         final_wealth=result.statistics.final_wealth,
         max_drawdown=result.statistics.max_drawdown,
         success=survived,
-        failure_month=None if survived else context.horizon_months,
-        failure_state=None if survived else result.statistics.failure_state,
+        failure_month=result.statistics.failure_month,
+        failure_state=result.statistics.failure_state,
         months_simulated=result.statistics.months_simulated,
         execution_time_seconds=result.statistics.execution_time_seconds,
     )

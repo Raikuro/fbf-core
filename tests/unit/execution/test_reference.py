@@ -84,6 +84,7 @@ def _make_context(
     horizon_months: int,
     withdrawal_rate: Decimal,
     initial_wealth: Money = _WEALTH,
+    final_value_target: Decimal | None = None,
 ) -> SimulationContext:
     return SimulationContext(
         experiment_name="test",
@@ -95,6 +96,7 @@ def _make_context(
         dataset=dataset,
         allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
         withdrawal_policy=FixedRealWithdrawalPolicy(withdrawal_rate=withdrawal_rate),
+        final_value_target=final_value_target,
     )
 
 
@@ -292,6 +294,27 @@ class TestBuildDerivedResult:
         assert derived_result.statistics.success is True
         assert derived_result.statistics.final_wealth == reference_result.statistics.final_wealth
         assert len(derived_result.timeline.monthly_results) == 8
+
+    def test_derived_fv_target_miss_has_no_failure_month(self) -> None:
+        """A derived-horizon target miss flips success only."""
+        dataset = _make_flat_dataset(20)
+        longest = _make_context(dataset, horizon_months=20, withdrawal_rate=Decimal("0.04"))
+        longest_result = _execute_reference(longest)
+        assert longest_result.statistics.failure_month is None
+
+        shorter = _make_context(
+            dataset.slice(dataset.start_date, 12),
+            horizon_months=12,
+            withdrawal_rate=Decimal("0.04"),
+            final_value_target=Decimal("10"),
+        )
+        derived_result = _build_derived_result(
+            longest_result, longest.horizon_months, shorter
+        )
+
+        assert derived_result.statistics.success is False
+        assert derived_result.statistics.failure_month is None
+        assert derived_result.statistics.failure_state is None
 
     def test_derived_result_after_failure_matches_failure_statistics(self) -> None:
         """Horizons beyond the failure month reproduce the failure statistics."""

@@ -15,6 +15,10 @@ Six test cases:
 4. Final wealth exactly equal to target -> success.
 5. Final wealth one cent below target -> failure.
 6. Depletion before the final period -> failure regardless of target.
+
+``failure_month`` records the month of an operational terminal failure only.
+A final-value target miss is an evaluation-criterion failure, so it sets
+``success=False`` while ``failure_month`` and ``failure_state`` remain ``None``.
 """
 
 from __future__ import annotations
@@ -159,9 +163,11 @@ class TestFinalValueSuccessSemantics:
         )
         stats = BUILDER.build(state)
         assert stats.success is True
+        assert stats.failure_month is None
+        assert stats.failure_state is None
 
     def test_case2_positive_target_below(self) -> None:
-        """Final wealth below target -> failure."""
+        """Final wealth below target -> failure with no terminal failure month."""
         ctx = _make_context(INITIAL_WEALTH, final_value_target=Decimal("0.90"))
         state = _make_state(
             ctx,
@@ -169,6 +175,8 @@ class TestFinalValueSuccessSemantics:
         )
         stats = BUILDER.build(state)
         assert stats.success is False
+        assert stats.failure_month is None
+        assert stats.failure_state is None
 
     def test_case3_temporary_dip_but_recovers(self) -> None:
         """Portfolio temporarily falls below target but finishes above it -> success.
@@ -191,6 +199,7 @@ class TestFinalValueSuccessSemantics:
         )
         stats = BUILDER.build(state)
         assert stats.success is True
+        assert stats.failure_month is None
 
     def test_case4_exact_equality(self) -> None:
         """Final wealth exactly equal to target -> success."""
@@ -211,6 +220,7 @@ class TestFinalValueSuccessSemantics:
         )
         stats = BUILDER.build(state)
         assert stats.success is False
+        assert stats.failure_month is None
 
     def test_case6_depletion_before_final_period(self) -> None:
         """Depletion before the final period -> failure regardless of target.
@@ -229,6 +239,7 @@ class TestFinalValueSuccessSemantics:
         stats = BUILDER.build(state)
         assert stats.success is False
         assert stats.failure_month == 1
+        assert stats.failure_state == "depleted"
 
     def test_target_zero_reproduces_depletion_semantics(self) -> None:
         """target=0.00 with a surviving portfolio -> success (trivially satisfied)."""
@@ -239,9 +250,14 @@ class TestFinalValueSuccessSemantics:
         )
         stats = BUILDER.build(state)
         assert stats.success is True
+        assert stats.failure_month is None
 
     def test_survived_but_zero_wealth_with_positive_target(self) -> None:
-        """Survived with zero final wealth + positive target -> failure."""
+        """Survived with zero final wealth + positive target -> failure.
+
+        The portfolio reached the horizon without an operational terminal
+        failure, so the target miss leaves ``failure_month`` unset.
+        """
         ctx = _make_context(INITIAL_WEALTH, final_value_target=Decimal("0.01"))
         state = _make_state(
             ctx,
@@ -249,3 +265,5 @@ class TestFinalValueSuccessSemantics:
         )
         stats = BUILDER.build(state)
         assert stats.success is False
+        assert stats.failure_month is None
+        assert stats.failure_state is None

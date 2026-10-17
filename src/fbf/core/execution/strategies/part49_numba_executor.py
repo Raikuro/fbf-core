@@ -469,12 +469,11 @@ def _apply_part49_fv_check(
 ) -> SimulationResult:
     """Apply the final-value success criterion, matching the legacy pipeline.
 
-    The legacy ``StatisticsBuilder`` flips only ``success``: when the FV target
-    is missed by a trajectory that survived to the horizon, ``failure_month``
-    and ``failure_state`` remain those of the underlying run (``None``).  This
-    differs from the shared ``_apply_fv_check`` helpers, which stamp the horizon
-    as the failure month, and is required for Part 49 to match the Decimal
-    reference exactly.
+    A final-value target miss alone sets ``success=False``: when the target is
+    missed by a trajectory that survived to the horizon, no operational
+    ``failure_month`` or ``failure_state`` is assigned, matching the legacy
+    ``StatisticsBuilder``.  Genuine terminal failures retain their recorded
+    month and state.
     """
     if context.final_value_target is None:
         return result

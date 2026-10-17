@@ -472,6 +472,7 @@ class TestPart49DecimalDifferential:
         ns = numba.statistics
         assert ns.success is False
         assert ns.failure_state == "depleted"
+        assert ns.failure_month is not None
         assert ns.final_wealth.amount == Decimal("0")
 
     def test_margin_call_terminal_matches_decimal_reference(self) -> None:
@@ -482,6 +483,7 @@ class TestPart49DecimalDifferential:
 
         ns = numba.statistics
         assert ns.failure_state == "margin_call_terminal"
+        assert ns.failure_month is not None
         assert ns.final_wealth.amount > Decimal("0")
 
     def test_final_value_target_pass_and_fail(self) -> None:
@@ -497,6 +499,9 @@ class TestPart49DecimalDifferential:
         numba_fail, legacy_fail = _numba_result(failing), _reference_result(failing)
         self._assert_matches(numba_fail, legacy_fail)
         assert numba_fail.statistics.success is False
+        for stats in (numba_fail.statistics, legacy_fail.statistics):
+            assert stats.failure_month is None
+            assert stats.failure_state is None
 
     def test_enforcement_off_matches(self) -> None:
         horizon = 60

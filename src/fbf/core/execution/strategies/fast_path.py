@@ -668,7 +668,13 @@ def _build_result(
 
 
 def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> SimulationResult:
-    """Return a copy of *result* with the FV check applied for *context*'s target."""
+    """Return a copy of *result* with the FV check applied for *context*'s target.
+
+    A final-value target miss is an evaluation-criterion failure, not an
+    operational terminal failure: only ``success`` is flipped, while
+    ``failure_month`` and ``failure_state`` remain those of the underlying
+    result (``None`` for a trajectory that survived to the horizon).
+    """
     if context.final_value_target is None:
         return result
     survived = result.statistics.success
@@ -682,8 +688,8 @@ def _apply_fv_check(result: SimulationResult, context: SimulationContext) -> Sim
         final_wealth=result.statistics.final_wealth,
         max_drawdown=result.statistics.max_drawdown,
         success=survived,
-        failure_month=None if survived else context.horizon_months,
-        failure_state=None if survived else result.statistics.failure_state,
+        failure_month=result.statistics.failure_month,
+        failure_state=result.statistics.failure_state,
         months_simulated=result.statistics.months_simulated,
         execution_time_seconds=result.statistics.execution_time_seconds,
     )

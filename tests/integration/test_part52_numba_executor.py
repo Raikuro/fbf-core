@@ -733,6 +733,9 @@ class TestPart52FinalValueTargetDerivation:
         alone_failer = _alone_statistics(failer)
         assert alone_survivor.success is True
         assert alone_failer.success is False
+        # A target miss is an evaluation-criterion failure: no terminal month.
+        assert alone_failer.failure_month is None
+        assert alone_failer.failure_state is None
 
         results = Part52NumbaExecutor().execute(
             EngineExperimentDefinition(
@@ -744,6 +747,8 @@ class TestPart52FinalValueTargetDerivation:
 
         assert results[0].statistics.success == alone_survivor.success
         assert results[1].statistics.success == alone_failer.success
+        assert results[1].statistics.failure_month is None
+        assert results[1].statistics.failure_state is None
         # Same trajectory -> identical final wealth; only the FV verdict differs.
         assert (
             results[0].statistics.final_wealth.amount
@@ -774,6 +779,8 @@ class TestPart52InitialWealthEvaluationDimension:
         alone_large = _alone_statistics(large)
         assert alone_small.success is True
         assert alone_large.success is False
+        assert alone_large.failure_month is None
+        assert alone_large.failure_state is None
 
         results = Part52NumbaExecutor().execute(
             EngineExperimentDefinition(
@@ -785,6 +792,8 @@ class TestPart52InitialWealthEvaluationDimension:
 
         assert results[0].statistics.success == alone_small.success
         assert results[1].statistics.success == alone_large.success
+        assert results[1].statistics.failure_month is None
+        assert results[1].statistics.failure_state is None
         # Same portfolio trajectory -> identical final wealth.
         assert (
             results[0].statistics.final_wealth.amount
