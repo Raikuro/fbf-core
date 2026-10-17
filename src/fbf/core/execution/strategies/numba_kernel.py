@@ -331,6 +331,158 @@ def _simulate_batch_constant_nominal_parallel(
 
 
 @numba.njit(cache=True)
+def _simulate_trajectory_escalating(
+    growth_factors: NDArray[np.float64],
+    initial_value: float,
+    withdrawal_rate: float,
+    escalation_rate: float,
+    horizon: int,
+    annual: bool,
+) -> tuple[float, bool, int, float]:
+    """Simulate one trajectory with an annually escalating withdrawal schedule.
+
+    Matches ``EscalatingWithdrawalPolicy``: the withdrawal is a fixed,
+    value-independent amount derived from the *initial* value,
+
+        C_year = initial_value * withdrawal_rate * (1 + escalation_rate) ** year
+
+    where ``year = m // 12``.  With ``annual=True`` a single lump withdrawal is
+    taken at each annual boundary (``m % 12 == 0``) and zero otherwise; with
+    ``annual=False`` the annual amount is divided by twelve and taken every
+    month.
+
+    The recurrence follows the workbook (beginning-of-period) convention used
+    by the other Numba kernels::
+
+        V_0 = initial_value
+        C_m = schedule(m)
+        if C_m > V_m: failure at month m
+        V_{m+1} = (V_m - C_m) * growth_factors[m]     (growth only for m < horizon-1)
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (length = horizon).  Only entries
+        ``0..horizon-2`` are used; the last entry is ignored.
+    initial_value:
+        Portfolio value at month 0 (the withdrawal base).
+    withdrawal_rate:
+        Initial annual withdrawal rate (e.g. ``0.035`` for 3.5%).
+    escalation_rate:
+        Annual escalation rate (e.g. ``0.02`` for 2%).
+    horizon:
+        Number of months to simulate.
+    annual:
+        ``True`` for one lump sum per year, ``False`` for monthly twelfth.
+
+    Returns
+    -------
+    tuple of (final_value, success, failure_month, post_withdrawal_value)
+
+    On depletion, final_value is 0.0.  On success, failure_month is -1.
+    """
+    value = initial_value
+    base_annual = initial_value * withdrawal_rate
+
+    for m in range(horizon):
+        year = m // 12
+        escalated = base_annual * (1.0 + escalation_rate) ** year
+
+        if annual and m % 12 != 0:
+            withdrawal = 0.0
+        elif annual:
+            withdrawal = escalated
+        else:
+            withdrawal = escalated / 12.0
+
+        if withdrawal > value:
+            return 0.0, False, m, 0.0
+
+        value -= withdrawal
+
+        if m < horizon - 1:
+            value *= growth_factors[m]
+
+    return value, True, -1, value
+
+
+@numba.njit(cache=True)
+def _simulate_batch_escalating(
+    growth_factors: NDArray[np.float64],
+    initial_values: NDArray[np.float64],
+    withdrawal_rates: NDArray[np.float64],
+    escalation_rates: NDArray[np.float64],
+    horizons: NDArray[np.int32],
+    n_trajectories: int,
+    annual: bool,
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.bool_],
+    NDArray[np.int32],
+    NDArray[np.float64],
+]:
+    """Simulate a batch of trajectories with annually escalating withdrawal."""
+    final_values = np.empty(n_trajectories, dtype=np.float64)
+    successes = np.empty(n_trajectories, dtype=np.bool_)
+    failure_months = np.empty(n_trajectories, dtype=np.int32)
+    post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
+
+    for i in range(n_trajectories):
+        fv, ok, fm, pwv = _simulate_trajectory_escalating(
+            growth_factors,
+            initial_values[i],
+            withdrawal_rates[i],
+            escalation_rates[i],
+            int(horizons[i]),
+            annual,
+        )
+        final_values[i] = fv
+        successes[i] = ok
+        failure_months[i] = fm
+        post_withdrawal_values[i] = pwv
+
+    return final_values, successes, failure_months, post_withdrawal_values
+
+
+@numba.njit(parallel=True, cache=True)
+def _simulate_batch_escalating_parallel(
+    growth_factors: NDArray[np.float64],
+    initial_values: NDArray[np.float64],
+    withdrawal_rates: NDArray[np.float64],
+    escalation_rates: NDArray[np.float64],
+    horizons: NDArray[np.int32],
+    n_trajectories: int,
+    annual: bool,
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.bool_],
+    NDArray[np.int32],
+    NDArray[np.float64],
+]:
+    """Simulate a batch of escalating-withdrawal trajectories in parallel."""
+    final_values = np.empty(n_trajectories, dtype=np.float64)
+    successes = np.empty(n_trajectories, dtype=np.bool_)
+    failure_months = np.empty(n_trajectories, dtype=np.int32)
+    post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
+
+    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+        fv, ok, fm, pwv = _simulate_trajectory_escalating(
+            growth_factors,
+            initial_values[i],
+            withdrawal_rates[i],
+            escalation_rates[i],
+            int(horizons[i]),
+            annual,
+        )
+        final_values[i] = fv
+        successes[i] = ok
+        failure_months[i] = fm
+        post_withdrawal_values[i] = pwv
+
+    return final_values, successes, failure_months, post_withdrawal_values
+
+
+@numba.njit(cache=True)
 def _simulate_batch(
     growth_factors: NDArray[np.float64],
     initial_values: NDArray[np.float64],
@@ -1010,6 +1162,114 @@ def simulate_batch_constant_nominal(
     else:
         final_vals, successes, fail_months, _ = _simulate_batch_constant_nominal(
             growth_factors, v0, r, h, n
+        )
+
+    results: list[tuple[bool, int | None, Money, int]] = []
+    for i in range(n):
+        fv = Money(Decimal(str(final_vals[i])), Currency.EUR)
+        if successes[i]:
+            results.append((True, None, fv, int(h[i])))
+        else:
+            results.append((False, int(fail_months[i]), fv, int(fail_months[i])))
+
+    return results
+
+
+def simulate_single_escalating(
+    growth_factors: NDArray[np.float64],
+    initial_value: Money,
+    withdrawal_rate: Decimal,
+    escalation_rate: Decimal,
+    horizon: int,
+    annual: bool,
+) -> tuple[bool, int | None, Money, int]:
+    """Simulate a single trajectory with an annually escalating withdrawal.
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (length = horizon).
+    initial_value:
+        Initial portfolio value (the withdrawal base).
+    withdrawal_rate:
+        Initial annual withdrawal rate (e.g. ``0.035`` for 3.5%).
+    escalation_rate:
+        Annual escalation rate (e.g. ``0.02`` for 2%).
+    horizon:
+        Number of months to simulate.
+    annual:
+        ``True`` for one lump sum per year, ``False`` for a monthly twelfth.
+
+    Returns
+    -------
+    tuple of (success, failure_month, final_wealth, months_simulated)
+    """
+    v0 = float(initial_value.amount)
+    r = float(withdrawal_rate)
+    esc = float(escalation_rate)
+
+    final_value, success, failure_month, _ = _simulate_trajectory_escalating(
+        growth_factors, v0, r, esc, horizon, annual
+    )
+
+    final_wealth = Money(Decimal(str(final_value)), Currency.EUR)
+    if success:
+        return True, None, final_wealth, horizon
+    return False, failure_month, final_wealth, failure_month
+
+
+def simulate_batch_escalating(
+    growth_factors: NDArray[np.float64],
+    initial_values: list[Money],
+    withdrawal_rates: list[Decimal],
+    escalation_rates: list[Decimal],
+    horizons: list[int],
+    annual: bool,
+    *,
+    parallel: bool = True,
+) -> list[tuple[bool, int | None, Money, int]]:
+    """Simulate a batch of annually escalating withdrawal trajectories.
+
+    All trajectories share one growth-factor array and one withdrawal cadence
+    (the executor groups contexts accordingly).
+
+    Parameters
+    ----------
+    growth_factors:
+        Precomputed growth factors (shared across all trajectories).
+    initial_values:
+        Initial portfolio values (the withdrawal bases).
+    withdrawal_rates:
+        Initial annual withdrawal rates.
+    escalation_rates:
+        Annual escalation rates.
+    horizons:
+        Horizon in months for each trajectory.
+    annual:
+        ``True`` for one lump sum per year, ``False`` for a monthly twelfth.
+    parallel:
+        If True, use Numba parallel execution (recommended for batch > 10).
+
+    Returns
+    -------
+    List of (success, failure_month, final_wealth, months_simulated) tuples.
+    """
+    n = len(initial_values)
+    if n == 0:
+        return []
+
+    v0 = np.array([float(m.amount) for m in initial_values], dtype=np.float64)
+    r = np.array([float(rate) for rate in withdrawal_rates], dtype=np.float64)
+    esc = np.array([float(rate) for rate in escalation_rates], dtype=np.float64)
+    h = np.array(horizons, dtype=np.int32)
+
+    if parallel and n > 10:
+        final_vals, successes, fail_months, _ = _simulate_batch_escalating_parallel(
+            growth_factors, v0, r, esc, h, n, annual
+        )
+    else:
+        final_vals, successes, fail_months, _ = _simulate_batch_escalating(
+            growth_factors, v0, r, esc, h, n, annual
         )
 
     results: list[tuple[bool, int | None, Money, int]] = []

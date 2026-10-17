@@ -297,9 +297,9 @@ def _auto_select_backend(
     """AUTO dispatch: select the best validated backend for the workload.
 
     Returns the SimulationExecutor for the selected backend.  When numba is
-    available and all units are FAST-eligible (Part52, FixedReal, or glidepath),
-    the optimized Numba executor is used.  Otherwise the Decimal fast-path
-    (REFERENCE fallback) is used.
+    available and all units are FAST-eligible (Part52, FixedReal, escalating,
+    or glidepath), the optimized Numba executor is used.  Otherwise the Decimal
+    fast-path (REFERENCE fallback) is used.
     """
     try:
         import numba as _numba_mod  # noqa: F401
@@ -323,11 +323,23 @@ def _auto_select_backend(
         return Part52NumbaExecutor(profiler=profiler)
 
     from fbf.core.execution.strategies.fast_path import is_fast_path_eligible
-    from fbf.core.execution.strategies.numba_executor import _is_glidepath_eligible
+    from fbf.core.execution.strategies.numba_executor import (
+        _is_escalating_eligible,
+        _is_glidepath_eligible,
+    )
 
     all_fixed_real = all(is_fast_path_eligible(ctx) for ctx in contexts)
 
     if all_fixed_real:
+        from fbf.core.execution.strategies.numba_executor import (
+            NumbaSimulationExecutor,
+        )
+
+        return NumbaSimulationExecutor(profiler=profiler)
+
+    all_escalating = all(_is_escalating_eligible(ctx) for ctx in contexts)
+
+    if all_escalating:
         from fbf.core.execution.strategies.numba_executor import (
             NumbaSimulationExecutor,
         )

@@ -66,8 +66,10 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import (
     ConstantAllocationPolicy,
     ConstantWithdrawalPolicy,
+    EscalatingWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
 )
+from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
@@ -94,6 +96,7 @@ from fbf.core.execution.strategies.numba_kernel import (
     _simulate_trajectory,
     _simulate_trajectory_constant_nominal,
     _simulate_trajectory_end_of_period,
+    _simulate_trajectory_escalating,
     _simulate_trajectory_varying,
     compute_growth_factors_varying_weights_batch,
 )
@@ -147,6 +150,31 @@ def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
     if not isinstance(context.withdrawal_policy, ConstantWithdrawalPolicy):
+        return False
+    if context.horizon_months is None or context.horizon_months < 1:
+        return False
+    if context.dataset is None or len(context.dataset.snapshots) < 1:
+        return False
+    if len(context.dataset.snapshots) < context.horizon_months:
+        return False
+    holdings = context.initial_portfolio.holdings
+    if not holdings or len(holdings) != 2:
+        return False
+    equity_count = sum(1 for h in holdings if h.asset_class.id == "equity")
+    if equity_count != 1:
+        return False
+    return not any(h.asset_class not in context.dataset[0].index_levels for h in holdings)
+
+
+def _is_escalating_eligible(context: SimulationContext) -> bool:
+    """Return True when *context* can use the Numba backend for escalating withdrawal.
+
+    Eligibility criteria: ConstantAllocationPolicy + EscalatingWithdrawalPolicy,
+    sufficient dataset, two-asset portfolio.
+    """
+    if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
+        return False
+    if not isinstance(context.withdrawal_policy, EscalatingWithdrawalPolicy):
         return False
     if context.horizon_months is None or context.horizon_months < 1:
         return False
@@ -222,6 +250,28 @@ def _constant_nominal_group_key(context: SimulationContext) -> tuple[object, ...
         context.start_date,
         allocation.equity_allocation,
         withdrawal.withdrawal_rate,
+        context.initial_portfolio,
+    )
+
+
+def _escalating_group_key(context: SimulationContext) -> tuple[object, ...]:
+    """Trajectory key for escalating withdrawal: excludes initial_wealth.
+
+    The withdrawal base is the value-independent initial portfolio value
+    (``v0``), escalated by ``(1 + escalation_rate) ** (m // 12)``.  Contexts
+    that share the trajectory parameters, withdrawal rate, escalation rate,
+    cadence, and initial portfolio therefore share one evaluated path; the FV
+    check is applied per-target afterwards.  ``initial_wealth`` does not enter
+    the kernel, so it is excluded (matching ``_constant_nominal_group_key``).
+    """
+    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    withdrawal = cast(EscalatingWithdrawalPolicy, context.withdrawal_policy)
+    return (
+        context.start_date,
+        allocation.equity_allocation,
+        withdrawal.withdrawal_rate,
+        withdrawal.escalation_rate,
+        withdrawal.frequency,
         context.initial_portfolio,
     )
 
@@ -381,6 +431,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 key = _group_key(context)
             elif _is_constant_nominal_eligible(context):
                 key = _constant_nominal_group_key(context)
+            elif _is_escalating_eligible(context):
+                key = _escalating_group_key(context)
             elif _is_glidepath_eligible(context):
                 key = _glidepath_group_key(context)
             else:
@@ -409,6 +461,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             if not (
                 _is_numba_eligible(sample_ctx)
                 or _is_constant_nominal_eligible(sample_ctx)
+                or _is_escalating_eligible(sample_ctx)
             ):
                 continue
             max_h = max(ctx.horizon_months for ctx in cluster)
@@ -596,6 +649,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 self._process_static_group(cluster, results, stats)
             elif _is_constant_nominal_eligible(sample_ctx):
                 self._process_constant_nominal_group(cluster, results, stats)
+            elif _is_escalating_eligible(sample_ctx):
+                self._process_escalating_group(cluster, results, stats)
             elif _is_glidepath_eligible(sample_ctx):
                 self._process_glidepath_group(cluster, results, stats)
         profiler.stop("numba_kernel_execution")
@@ -783,6 +838,81 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
             for ctx in h_contexts:
                 cache_key = (horizon, ctx.final_value_target)
+                if cache_key in horizon_result_cache:
+                    results[id(ctx)] = horizon_result_cache[cache_key]
+                    continue
+
+                if 0 <= fail_month < horizon:
+                    success = False
+                    failure_month = fail_month
+                    final_value = 0.0
+                    months_simulated = fail_month
+                else:
+                    final_value = _final_val
+                    success = True
+                    failure_month = None
+                    months_simulated = horizon
+
+                final_wealth = _money(final_value)
+
+                base = SimulationResult(
+                    timeline=SimulationTimeline(monthly_results=()),
+                    statistics=SimulationStatistics(
+                        final_wealth=final_wealth,
+                        max_drawdown=0.0,
+                        success=success,
+                        failure_month=failure_month,
+                        failure_state=None if success else "depleted",
+                        months_simulated=months_simulated,
+                        execution_time_seconds=0.0,
+                    ),
+                )
+                result = _apply_fv_check(base, ctx)
+                horizon_result_cache[cache_key] = result
+                results[id(ctx)] = result
+                stats["derived_count"] += 1
+
+    def _process_escalating_group(
+        self,
+        contexts: list[SimulationContext],
+        results: dict[int, SimulationResult],
+        stats: dict[str, int],
+    ) -> None:
+        """Process a group of annually escalating withdrawal contexts."""
+        horizon_to_ctxs: dict[int, list[SimulationContext]] = {}
+        for ctx in contexts:
+            horizon_to_ctxs.setdefault(ctx.horizon_months, []).append(ctx)
+
+        sample_ctx = contexts[0]
+        initial_snapshot = sample_ctx.dataset[0]
+        v0 = float(sum(
+            holding.units * initial_snapshot.index_levels[holding.asset_class]
+            for holding in sample_ctx.initial_portfolio.holdings
+        ))
+        withdrawal_policy = cast(EscalatingWithdrawalPolicy, sample_ctx.withdrawal_policy)
+        rate_f = float(withdrawal_policy.withdrawal_rate)
+        escalation_f = float(withdrawal_policy.escalation_rate)
+        annual = withdrawal_policy.frequency is WithdrawalFrequency.ANNUAL
+
+        gf_key = _gf_cache_key(sample_ctx)
+        growth_factors_full = self._gf_cache[gf_key]
+
+        # The FV verdict depends on ``initial_wealth * final_value_target``
+        # (see ``_apply_fv_check``), so both per-context evaluation dimensions
+        # are part of the cache key; sharing a verdict across contexts that
+        # differ in either would be incorrect.
+        horizon_result_cache: dict[tuple[int, object, object], SimulationResult] = {}
+
+        for horizon, h_contexts in horizon_to_ctxs.items():
+            stats["month_work"] += horizon
+            growth_factors_arr = growth_factors_full[:horizon]
+
+            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_escalating(
+                growth_factors_arr, v0, rate_f, escalation_f, horizon, annual
+            )
+
+            for ctx in h_contexts:
+                cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
                 if cache_key in horizon_result_cache:
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue

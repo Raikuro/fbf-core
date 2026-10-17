@@ -158,8 +158,10 @@ Every Numba/Decimal executor constructs its fallback with
 | Predicate | File:line | Requires |
 |-----------|-----------|----------|
 | `is_fast_path_eligible` | `fast_path.py:156` | `ConstantAllocationPolicy`, `FixedRealWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, exactly 2 holdings, exactly 1 `equity` |
-| `_is_numba_eligible` | `numba_executor.py:114` | alias of `is_fast_path_eligible` |
-| `_is_glidepath_eligible` | `numba_executor.py:123` | `GlidepathAllocationPolicy`, `FixedRealWithdrawalPolicy`, 2 holdings, 1 `equity` |
+| `_is_numba_eligible` | `numba_executor.py` | alias of `is_fast_path_eligible` |
+| `_is_constant_nominal_eligible` | `numba_executor.py` | `ConstantAllocationPolicy`, `ConstantWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity` |
+| `_is_escalating_eligible` | `numba_executor.py` | `ConstantAllocationPolicy`, `EscalatingWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity` |
+| `_is_glidepath_eligible` | `numba_executor.py` | `GlidepathAllocationPolicy`, `FixedRealWithdrawalPolicy`, 2 holdings, 1 `equity` |
 | `is_part52_eligible` | `part52_numba_executor.py:66` | `ConstantAllocationPolicy`, `Part52WithdrawalPolicy`, 2 holdings, 1 `equity`, `expense_ratio ∈ {None, 0}`, `interest_rate_schedule is not None` |
 
 **Verified gap:** the eligibility gates, not the numerical kernels, are the
@@ -199,7 +201,7 @@ Classification key:
 | 17 | Result persistence | `persistence/studies/sqlite/codecs.py` | 3 | Depends on #16 | FAST path cannot persist | Enable once #16 lands; relax CLI guard | `run_command.py` (`--persist-study` vs `--fast-path`) | #16 | Save/load round-trip preserves statistics and timelines |
 | 18 | Memory-bounded large grids | `reference.py:_MAX_UNITS_PER_WORKER`, `_DEFAULT_SLICE_COHORTS` | 2 | Works for summaries; breaks if timelines added | Whole-definition result lists held in memory | Unified slice/batch dispatch | `tests/benchmarks/`, ERN grid | #14, #16 | Peak RSS within documented host budget on 313k units |
 | 19 | Buy-and-hold allocation | `concrete.py:49` `BuyAndHoldAllocationPolicy`; `default_pipeline.py:108` | 3 | None; predicate rejects it | Weights drift (no monthly rebalance), so growth factors are path-dependent on units, not constant | New recurrence: track units, apply returns without rebalancing | `test_part49_buy_and_hold.py` | Different recurrence from rebalanced model | Buy-and-hold E2E / differential pass |
-| 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 3 | None | Withdrawal grows annually by `(1+esc)^years` | Value-independent scalar withdrawal schedule; easy to add | Part 20 Experiment E (`part20_experiment_e.py`) | Eligibility + schedule in kernel | Experiment E E2E pass |
+| 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` (`numba_executor.py`) for `ConstantAllocationPolicy`; AUTO routes all-escalating workloads to Numba | Glidepath + escalating not yet eligible; `execute_deterministic_trajectory` (Experiment E) still uses the legacy pipeline | Extend eligibility to `GlidepathAllocationPolicy`; reimplement the deterministic path (D3) | `tests/unit/strategies/test_numba_escalating.py` | Glidepath cadence and the deterministic-trajectory contract are separate migration items | Constant-allocation escalating matches the legacy pipeline (fee = 0) and an independent Decimal recurrence; hand-calculated flat-market values exact |
 | 21 | Supplemental cash flow | `supplemental_cash_flow_step.py` | 3 | None (inactive by default) | Additional external cash flow | Add once a real consumer activates it | None active today | No active consumer | Only migrate if a consumer exists |
 | 22 | CAPE-regime aggregation | `research/part20_*`, `cape_aggregation.py`, `cape_regime.py` | 4 | None | Regime classification layer | Keep as a post-processing layer over Numba results | Part 20 (`part20_pipeline.py`) | Aggregation, not simulation | Part 20 E2E pass |
 | 23 | `ReferenceSimulationExecutor` wrapper | `reference.py:312` | 5 | Redundant (derivation already in `FastPathSimulationExecutor`) | — | Delete after migrations | `test_reference.py`, `test_determinism.py` | Public export `execute_reference` | No production consumer |
@@ -661,7 +663,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | [current] | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
 | Numba cache/dataset identity fix | ✅ Complete | `test_numba_executor_differential.py`, `test_part52_numba_executor.py` | 99aa5a4 | Dataset-identity tokens + identity-prefix clustering in both Numba executors |
 | B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | [audit] | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
-| B3: Escalating withdrawal | ⬜ Not Started | — | — | Part 20 Experiment E |
+| B3: Escalating withdrawal | ✅ Complete (ConstantAllocation) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py` | [current] | Value-independent annual schedule; Glidepath + deterministic Experiment E path deferred (D3) |
 | B4: Buy-and-hold | ⬜ Not Started | — | — | Unit-tracking kernel |
 | B5: Multi-asset | ⬜ Not Started | — | — | Verify kernel support |
 | B6: Trajectory materialization | ⬜ Not Started | — | — | Requires B7 first |
@@ -775,6 +777,40 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   `initial_wealth` are excluded because the FV check is per context;
   `interest_rate_schedule` may only be excluded because its consumed prefix is
   now explicitly checked.
+
+**[current]** — "B3: Escalating withdrawal (ConstantAllocationPolicy)"
+- Added `_simulate_trajectory_escalating` (`numba_kernel.py`) plus sequential and
+  parallel batch variants and the `simulate_single_escalating` /
+  `simulate_batch_escalating` wrappers. The withdrawal schedule is
+  value-independent and frozen at
+  `initial_value * withdrawal_rate * (1 + escalation_rate) ** (m // 12)`, taken
+  as one lump sum per year (`ANNUAL`, at `m % 12 == 0`) or as a monthly twelfth
+  (`MONTHLY`).
+- Extended `NumbaSimulationExecutor` with `_is_escalating_eligible`,
+  `_escalating_group_key` (excludes `initial_wealth`; the withdrawal base is the
+  initial portfolio value `v0`), and `_process_escalating_group`. Growth factors
+  are shared through the existing static GF cache. AUTO backend dispatch now
+  routes all-escalating workloads to `NumbaSimulationExecutor`; the FAST backend
+  already reached it.
+- Semantics were established **before** implementing the kernel: an empirical
+  run of the legacy `create_default_pipeline()` for both frequencies reproduced
+  the hand-calculated flat-market final value exactly (fee = 0), confirming the
+  withdrawal timing and escalation recurrence. With a non-zero fee the Numba
+  path uses the workbook additive convention and intentionally differs from the
+  legacy `ExpenseDeductionStep`, consistent with B1/B2.
+- Validation in `tests/unit/strategies/test_numba_escalating.py`: closed-form
+  flat-market hand calculations, an independent Decimal recurrence, a
+  depletion-boundary case, batch sequential/parallel equivalence, differential
+  against the legacy pipeline (fee = 0) for `ANNUAL` and `MONTHLY`, per-context
+  `final_value_target` application, ineligible-allocations fall-through, and AUTO
+  routing.
+- **Scope note:** escalating withdrawal is migrated for `ConstantAllocationPolicy`
+  only. Glidepath allocation + escalating, and the deterministic Experiment E
+  path (`execute_deterministic_trajectory`, which uses the legacy pipeline
+  directly and honours an annual rebalance cadence), remain future work
+  (capability #4 / #15, D3).
+- All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
+  contract).
 
 ### Known Limitations
 
