@@ -186,6 +186,37 @@ after_simulation`. Same `DecisionContext` must produce identical
 
 ---
 
+## Withdrawal Timing Semantics
+
+A withdrawal strategy fixes both an *amount schedule* and a *cash-flow timing*.
+For the escalating-withdrawal strategy the timing is part of the strategy
+definition, not an incidental implementation detail, because it changes the
+simulated outcome:
+
+* **Annual lump sums occur at month 0.** The first annual withdrawal is taken at
+  `m = 0` using the base annual amount before any escalation; escalation then
+  advances once per year at `m % 12 == 0`, using
+  `(1 + escalation_rate) ** (m // 12)`.
+* **Monthly withdrawals are one twelfth of the applicable annual amount**, taken
+  every month, with the escalation step still advancing at annual boundaries.
+* **Withdrawal precedes growth.** Each month's withdrawal is applied to the
+  portfolio value before that month's market return.
+* **No growth after the final withdrawal.** Market growth is applied for months
+  `0 … horizon - 2`; the last scheduled withdrawal closes the trajectory.
+
+The failure boundary is likewise intentional: a scheduled withdrawal **strictly
+greater** than the available value fails at that month, whereas a withdrawal
+**exactly equal** to it drains the portfolio to zero without triggering that
+failure condition. This distinguishes running out before a withdrawal can be met
+from exhausting the portfolio exactly at the final withdrawal.
+
+These rules are mirrored by the legacy pipeline and the Numba kernel
+(`numba_kernel.py`) and are pinned by hand-calculated and independent-recurrence
+tests. Changing them changes results and is therefore a semantic change, not a
+refactor.
+
+---
+
 ## Performance Principles
 
 * **Profile before optimising.** Measure with benchmarks, change one thing

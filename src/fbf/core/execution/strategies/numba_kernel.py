@@ -380,6 +380,13 @@ def _simulate_trajectory_escalating(
     tuple of (final_value, success, failure_month, post_withdrawal_value)
 
     On depletion, final_value is 0.0.  On success, failure_month is -1.
+
+    The timing rules encoded here (first annual lump at ``m = 0``, withdrawal
+    before growth, no growth after the final withdrawal, and the depletion
+    boundary) are intentional strategy semantics documented in
+    ``docs/DESIGN.md`` ("Withdrawal Timing Semantics"), and pinned by the
+    independent-recurrence and schedule-contract tests in
+    ``tests/unit/strategies/test_numba_escalating.py``.
     """
     value = initial_value
     base_annual = initial_value * withdrawal_rate
