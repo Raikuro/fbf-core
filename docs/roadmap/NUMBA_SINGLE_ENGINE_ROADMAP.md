@@ -121,7 +121,7 @@ This section reflects the repository as inspected, not prior audit summaries.
 |----------|------|--------------------|---------------------|
 | `FastPathSimulationExecutor` | `strategies/fast_path.py` | Constant allocation + FixedReal, 2 assets, dataset covers horizon | Batches ineligible contexts to `self._reference` (`:1180`) |
 | `NumbaSimulationExecutor` | `strategies/numba_executor.py` | (a) Constant allocation + FixedReal; (b) Constant allocation + ConstantWithdrawal (B2); (c) Constant allocation + Escalating (B3); (d) Buy-and-hold + FixedReal, fee = 0 (B4); (e) Glidepath + FixedReal; all 2 assets | Per-context `self._reference` (`:768`) |
-| `Part52NumbaExecutor` | `strategies/part52_numba_executor.py` | Constant allocation + `Part52WithdrawalPolicy`, 2 assets, `expense_ratio ∈ {None, 0}`, `interest_rate_schedule` set | Per-context `self._reference` (`:487`) |
+| `Part52NumbaExecutor` | `strategies/part52_numba_executor.py` | Constant allocation + `Part52WithdrawalPolicy`, 2 assets, `interest_rate_schedule` set, `expense_ratio` supported (additive fee, B1) | Per-context `self._reference` (`:487`) |
 | `ReferenceSimulationExecutor` | `strategies/reference.py:312` | Any context (wraps legacy engine) | Delegates non-prefix to legacy engine per context (`:413`) |
 | `_create_default_simulation_executor()` | `strategies/parallel_executor.py:42` | Any context (legacy engine factory) | — |
 
@@ -165,7 +165,7 @@ Every Numba/Decimal executor constructs its fallback with
 | `_is_escalating_eligible` | `numba_executor.py:194` | `ConstantAllocationPolicy`, `EscalatingWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity` |
 | `_is_buy_and_hold_eligible` | `numba_executor.py:252` | `BuyAndHoldAllocationPolicy`, `FixedRealWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity`, `v0 == initial_wealth`, `expense_ratio ∈ {None, 0}` |
 | `_is_glidepath_eligible` | `numba_executor.py:224` | `GlidepathAllocationPolicy`, `FixedRealWithdrawalPolicy`, 2 holdings, 1 `equity` |
-| `is_part52_eligible` | `part52_numba_executor.py:69` | `ConstantAllocationPolicy`, `Part52WithdrawalPolicy`, 2 holdings, 1 `equity`, `expense_ratio ∈ {None, 0}`, `interest_rate_schedule is not None` |
+| `is_part52_eligible` | `part52_numba_executor.py:69` | `ConstantAllocationPolicy`, `Part52WithdrawalPolicy`, 2 holdings, 1 `equity`, `interest_rate_schedule is not None`, `expense_ratio` supported (additive fee, B1) |
 
 **Verified gap:** the eligibility gates, not the numerical kernels, are the
 dominant blocker. The growth-factor computation
@@ -192,7 +192,7 @@ Classification key:
 | 4 | Time-varying weights / glidepaths (dynamic, not in workbook) | `glidepath.py` `GlidepathAllocationPolicy` | 2 | `_is_glidepath_eligible` (`numba_executor.py:224`), `_compute_equity_weight_sequence` (`:396`), `compute_growth_factors_varying_weights_batch` (`numba_kernel.py:916`) | **Not adapted to workbook methodology**; uses legacy beginning-of-period recurrence with multiplicative fee | Document coherent extension spec; implement workbook-aligned timing/fee for glidepaths | Part 19/20 (`research/part19_*`, `part20_*`) | Workbook does not implement glidepaths; extension must be designed | Static workbook fidelity complete; glidepath fidelity NOT STARTED |
 | 5 | Two-asset portfolios | `fast_path.py:188`, `numba_executor.py:186` | 1 | All Numba kernels | None | None | ERN workloads | None | Already covered |
 | 6 | Multi-asset portfolios (3+) | `concrete.py` `ConstantAllocationPolicy.allocations`; `fast_path.py:195` `_weights_by_class` | 1 | Growth-factor helper is N-asset; `_weights_by_class` resolves per-class weights via `resolve_target_weights` (B5) | None for constant fixed-real; nominal/escalating/Part 52 gate to the legacy form | **COMPLETE** (B5) | `tests/unit/domain/test_multi_asset_allocation.py`, `tests/unit/strategies/test_multi_asset_allocation.py` | Deferred withdrawal policies fall back for explicit allocations | Independent N-asset Decimal oracle + differential test on 3 assets pass |
-| 7 | Expense ratios / fee application (workbook additive) | `expense_deduction_step.py` `ExpenseDeductionStep` | 1 | Workbook SCR formula uses additive fee in returns: `weighted_return - fee/12`; growth factors computed with fee embedded; end-of-period trajectory in `numba_kernel.py:104` and `fast_path.py:466` | Fee model aligned with workbook for static allocations; Part 49/52 may differ | **COMPLETE** (implemented in workbook SCR path) | `ern_grid.yaml` sets `expense_ratio: 0.0005`; Part20 tests updated | Fee model differs by study (Part 49 vs Part 52 vs legacy) | Static allocation: workbook additive fee validated; Dynamic glidepaths: pending |
+| 7 | Expense ratios / fee application (workbook additive) | `expense_deduction_step.py` `ExpenseDeductionStep` | 1 | Workbook SCR formula uses additive fee in returns: `weighted_return - fee/12`; growth factors computed with fee embedded; end-of-period trajectory in `numba_kernel.py:104` and `fast_path.py:466` | Fee model aligned with workbook for static allocations and Part 52 (C2); Part 49 fee semantics pending | **COMPLETE** (implemented in workbook SCR path and Part 52 kernel) | `ern_grid.yaml` sets `expense_ratio: 0.0005`; Part20 tests updated; Part 52 B1 tests | Fee model differs by study (Part 49 legacy vs Part 52/workbook additive) | Static allocation + Part 52: workbook additive fee validated; Dynamic glidepaths: pending |
 | 8 | Debt state + loan drawdown | `loan_draw_step.py` `LoanDrawStep`; `part49_withdrawal.py`, `part52_withdrawal.py` | 2 | Part52 kernel `_simulate_part52` (`numba_kernel.py:1559`) tracks `Y`, draws | Part 49 leverage (`Part49WithdrawalPolicy`) not eligible | Generalize debt kernel or add Part 49 eligibility | `tests/integration/test_part52_*`, Part 49 debt tests | Requires `interest_rate_schedule` for Part52 | Part 52 + Part 49 leverage E2E pass |
 | 9 | Repay at fresh ATH | `loan_repayment_step.py` `LoanRepaymentStep` | 1 | `_simulate_part52` repay branch (`numba_kernel.py:1559`, loan-repayment step) | None for Part52 | None | `test_part52_compound_drawdown.py` | None | Part 52 E2E pass |
 | 10 | Floating-rate interest (FFR) | `interest_accrual_step.py` `InterestAccrualStep` | 1 | `_compute_monthly_rates` (`part52_numba_executor.py:157`) | None for Part52 | None | `test_part52_ffr_floating_rate.py` | None | Part 52 FFR test pass |
@@ -210,7 +210,7 @@ Classification key:
 | 22 | CAPE-regime aggregation | `research/part20_*`, `cape_aggregation.py`, `cape_regime.py` | 4 | None | Regime classification layer | Keep as a post-processing layer over Numba results | Part 20 (`part20_pipeline.py`) | Aggregation, not simulation | Part 20 E2E pass |
 | 23 | `ReferenceSimulationExecutor` wrapper | `reference.py:312` | 5 | Redundant (derivation already in `FastPathSimulationExecutor`) | — | Delete after migrations | `test_reference.py`, `test_determinism.py` | Public export `execute_reference` | No production consumer |
 | 24 | `execute_reference()` public API | `reference.py:455` | 5 | Redundant | — | Redirect/delete | `test_reference.py::TestSliceDispatchMemorySafety` | Public export | No production consumer |
-| 25 | `ExpenseDeductionStep` | `expense_deduction_step.py` | 4 | Not used by Numba; Part 52/49 use legacy fee convention | Different fee model from canonical workbook | Preserve until every legacy-pipeline consumer is migrated | `test_part49_buy_and_hold.py:108` | Part 49/52 fee semantics | Only delete when no pipeline consumer remains |
+| 25 | `ExpenseDeductionStep` | `expense_deduction_step.py` | 4 | Not used by Numba; Part 52 Numba path uses the additive workbook fee (B1/C2); Part 49 still uses the legacy fee convention | Different fee model from canonical workbook | Preserve until every legacy-pipeline consumer is migrated | `test_part49_buy_and_hold.py:108` | Part 49 fee semantics | Only delete when no pipeline consumer remains |
 
 ---
 
@@ -315,13 +315,16 @@ Work items:
 
 1. **C1 — Part 52 Numba-only execution.**
    Remove fallback from `Part52NumbaExecutor` for eligible configurations.
-   Ineligible configurations (missing FFR schedule, non-zero expense ratio before B1)
-   fail with explicit `UnsupportedConfigurationError`. Do not silently fall back.
+   Ineligible configurations (e.g. no interest-rate source — non-zero expense
+   ratios are eligible under B1) fail with explicit `UnsupportedConfigurationError`.
+   Do not silently fall back.
 
-2. **C2 — Part 52 fee behavior (workbook additive).**
-   Implement additive fee in Part 52 kernel growth factors. Resolve against
-   workbook where defined; for Part 52-specific behavior not defined by workbook,
-   use explicit specification and independent numerical checks.
+2. **C2 — Part 52 fee behavior (workbook additive).** ✅ Implemented (B1):
+   the additive fee is embedded in the Part 52 kernel growth factors as
+   `g_m = Σ_j w_j · P_{j,m}/P_{j,m-1} − fee/12`, matching the workbook's
+   `1 + r − f/12`. Validated by independent numerical checks
+   (`TestPart52ExpenseRatioIndependentValidation`) plus the B1 audit tests.
+   Glidepath fee alignment is tracked under capability #4.
 
 3. **C3 — Part 49 debt (`loan_draw_rate`) migration.**
    Part 49 and Part 52 have different debt semantics (fixed draw rate vs
@@ -519,7 +522,7 @@ be imported by production code.
 | `src/fbf/core/execution/pipeline/steps/expense_deduction_step.py` | `ExpenseDeductionStep` | C/D | Migrate fee to Numba (B1); delete in Phase D4 |
 | `src/fbf/core/execution/strategies/fast_path.py` | `FastPathSimulationExecutor`, `self._reference` (`:1099`), `_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form` | C/D | **Workbook SCR COMPLETE**; retain as Decimal fast path if Numba optional; else delete in D4 |
 | `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `self._reference` (`:476`), `_use_workbook_scr`, `_process_static_group` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); multi-asset (B5); remove fallback in C1/D4 |
-| `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor`, `self._reference` (`:287`) | C | Generalize; remove fallback in C1; add expense ratio (B1) |
+| `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor`, `self._reference` (`:287`) | C | Generalize; fallback removed in C1 (complete); expense ratio supported (B1/C2) |
 | `src/fbf/core/execution/strategies/numba_kernel.py` | `_simulate_trajectory`, `_simulate_trajectory_end_of_period`, `_simulate_trajectory_varying`, `_compute_workbook_scr`, `_simulate_part52` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); trajectories (D1); debt snapshots |
 | `src/fbf/core/execution/deterministic.py` | `execute_deterministic_trajectory` | D | Reimplement on Numba (D3) |
 
@@ -633,8 +636,8 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | Buy-and-hold initial allocation | ✅ Complete (correction) | `default_pipeline.py`, `allocation_decision_step.py`, `portfolio_rebalance_step.py`, `test_part49_buy_and_hold.py` | 3f2f788 | Buy-and-hold applied the 50/50 default; allocation now applied once in period 0 |
 | B4: Buy-and-hold | ✅ Complete (non-debt, fee=0) | `numba_kernel.py`, `numba_executor.py`, `execution/__init__.py`, `test_numba_buy_and_hold.py` | 5179a3b | Unit-tracking kernel; Part 49 leverage → C4, multi-asset → B5, fee>0 deferred |
 | B5: Multi-asset | ✅ Complete | `concrete.py`, `fast_path.py`, `numba_executor.py`, `test_multi_asset_allocation.py` | 85d72582f047279d5d9c42ca3f3cb0e3d9099c7b | Explicit N-asset `allocations`; single `resolve_target_weights`; nominal/escalating/Part 52 gate to the legacy form and fall back for explicit allocations |
-| C1: Part 52 Numba-only | ⬜ Not Started | — | — | Remove fallback |
-| C2: Part 52 fee behavior | ⬜ Not Started | — | — | Additive in kernel |
+| C1: Part 52 Numba-only | ✅ Complete | `part52_numba_executor.py`, `execution/__init__.py`, `test_part52_dispatch_contract.py` | 2343c225278d1e02722a9567ab911e835215b6ff | Eligible Part 52 runs on Numba; explicit FAST on an ineligible Part 52 workload raises `UnsupportedConfigurationError` (no silent fallback) |
+| C2: Part 52 fee behavior | ✅ Complete (B1) | `_compute_growth_factors_numpy` (`numba_kernel.py`) fee passed by `part52_numba_executor.py`; `TestPart52ExpenseRatioSupport`, `TestPart52ExpenseRatioIndependentValidation` | 8dfbf24 (audited) | Additive fee `g_m = Σ_j w_j·P_{j,m}/P_{j,m-1} − fee/12` embedded in kernel growth factors |
 | C3: Part 49 debt migration | ⬜ Not Started | — | — | Separate kernel or mode |
 | C4: Part 49 buy-and-hold | ⬜ Not Started | — | — | Depends on B4 |
 | C5: LTV terminal state | ⬜ Not Started | — | — | `margin_call_terminal` |
