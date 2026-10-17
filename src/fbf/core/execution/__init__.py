@@ -332,6 +332,19 @@ def _auto_select_backend(
 
         return Part52NumbaExecutor(profiler=profiler)
 
+    from fbf.core.execution.strategies.part49_numba_executor import (
+        is_part49_eligible,
+    )
+
+    all_part49 = all(is_part49_eligible(ctx) for ctx in contexts)
+
+    if all_part49:
+        from fbf.core.execution.strategies.part49_numba_executor import (
+            Part49NumbaExecutor,
+        )
+
+        return Part49NumbaExecutor(profiler=profiler)
+
     from fbf.core.execution.strategies.fast_path import is_fast_path_eligible
     from fbf.core.execution.strategies.numba_executor import (
         _is_buy_and_hold_eligible,
@@ -444,6 +457,10 @@ def execute_study_plan(
         # workload must be entirely Part52-Numba-eligible, otherwise the
         # request is rejected rather than silently routed to the Decimal
         # reference engine.
+        from fbf.core.execution.strategies.part49_numba_executor import (
+            is_part49_context,
+            is_part49_eligible,
+        )
         from fbf.core.execution.strategies.part52_numba_executor import (
             is_part52_context,
             is_part52_eligible,
@@ -451,6 +468,7 @@ def execute_study_plan(
 
         fast_contexts = _extract_simulation_contexts(built.plan)
         has_part52 = any(is_part52_context(ctx) for ctx in fast_contexts)
+        has_part49 = any(is_part49_context(ctx) for ctx in fast_contexts)
 
         if has_part52:
             if not all(is_part52_eligible(ctx) for ctx in fast_contexts):
@@ -467,6 +485,23 @@ def execute_study_plan(
             )
 
             sim_executor = Part52NumbaExecutor(profiler=profiler)
+        elif has_part49:
+            if not all(is_part49_eligible(ctx) for ctx in fast_contexts):
+                raise UnsupportedConfigurationError(
+                    "FAST backend cannot execute this plan on Numba: it contains "
+                    "Part 49 workloads that are not Numba-eligible. Mixed plans "
+                    "(Part 49 combined with other policies) and unsupported "
+                    "Part 49 configurations (ANNUAL frequency, non-zero expense "
+                    "ratio, explicit multi-asset allocations, an insufficient "
+                    "dataset, or no interest-rate source) are unsupported by the "
+                    "FAST backend. Use backend=AUTO to route unsupported "
+                    "workloads through the reference engine."
+                )
+            from fbf.core.execution.strategies.part49_numba_executor import (
+                Part49NumbaExecutor,
+            )
+
+            sim_executor = Part49NumbaExecutor(profiler=profiler)
         else:
             from fbf.core.execution.strategies.numba_executor import (
                 NumbaSimulationExecutor,
@@ -494,12 +529,16 @@ def execute_study_plan(
         from fbf.core.execution.strategies.numba_executor import (
             NumbaSimulationExecutor,
         )
+        from fbf.core.execution.strategies.part49_numba_executor import (
+            Part49NumbaExecutor,
+        )
         from fbf.core.execution.strategies.part52_numba_executor import (
             Part52NumbaExecutor,
         )
 
         if backend == ExecutionBackend.FAST or isinstance(
-            sim_executor, (Part52NumbaExecutor, NumbaSimulationExecutor)
+            sim_executor,
+            (Part49NumbaExecutor, Part52NumbaExecutor, NumbaSimulationExecutor),
         ):
             raise ValueError(
                 "FAST backend does not support parallel execution. "
@@ -516,11 +555,17 @@ def execute_study_plan(
             from fbf.core.execution.strategies.numba_executor import (
                 NumbaSimulationExecutor,
             )
+            from fbf.core.execution.strategies.part49_numba_executor import (
+                Part49NumbaExecutor,
+            )
             from fbf.core.execution.strategies.part52_numba_executor import (
                 Part52NumbaExecutor,
             )
 
-            if isinstance(sim_executor, (Part52NumbaExecutor, NumbaSimulationExecutor)):
+            if isinstance(
+                sim_executor,
+                (Part49NumbaExecutor, Part52NumbaExecutor, NumbaSimulationExecutor),
+            ):
                 use_parallel = False
             else:
                 # REFERENCE path: use parallel when workers available.

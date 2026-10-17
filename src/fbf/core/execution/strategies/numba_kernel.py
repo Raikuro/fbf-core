@@ -1751,6 +1751,91 @@ def _simulate_part52(
     return V, True, -1, Y, _PART52_SUCCESS
 
 
+@numba.njit(cache=True)
+def _simulate_part49(
+    growth_factors: NDArray[np.float64],
+    monthly_rates: NDArray[np.float64],
+    initial_value: float,
+    portfolio_withdrawal: float,
+    loan_draw: float,
+    ltv_limit: float,
+    horizon: int,
+    ltv_enforcement: bool = True,
+) -> tuple[float, bool, int, float, int]:
+    """Simulate one Part 49 leverage trajectory using the scalar recurrence.
+
+    Part 49 differs from Part 52 in its debt mechanics: the loan draw is a fixed
+    monthly amount derived from initial wealth (``initial_wealth ×
+    loan_draw_rate / 12``) rather than a drawdown-triggered decision, there is no
+    compound-drawdown tracking, and there is no ATH-triggered repayment.
+
+    Recurrence per month ``m`` (mirrors the default pipeline ordering):
+    1. Accrue interest on the prior loan balance (step 26): ``Y += Y · r_m``.
+    2. Draw the fixed loan amount (step 28): ``Y += loan_draw``.
+    3. Consume the draw from cash first, then sell ``portfolio_withdrawal`` of
+       the portfolio (step 30): ``V -= portfolio_withdrawal``.
+    4. LTV evaluation / enforcement (step 66).
+    5. Failure detection (step 75).
+    6. Apply the market growth factor to the remaining portfolio.
+
+    ``monthly_rates`` is precomputed by the executor and already reflects the
+    ``debt_interest_rate_is_real`` convention (CPI bypass or CPI adjustment).
+
+    Returns
+    -------
+    tuple of (final_value, success, failure_month, final_loan_balance, reason)
+
+    ``reason`` uses the same ``_PART52_*`` codes as the Part 52 kernel.  On
+    depletion, final_value is 0; on a terminal margin-call liquidation,
+    final_value is the post-liquidation portfolio value.
+    """
+    V = initial_value
+    Y = 0.0
+
+    for m in range(horizon):
+        # --- Interest accrual (step 26): prior balance only ---
+        if Y > 0.0:
+            Y += Y * monthly_rates[m]
+
+        # --- Loan draw (step 28): fixed monthly draw ---
+        Y += loan_draw
+
+        # --- Withdrawal execution (step 30): cash-first, then portfolio ---
+        V -= portfolio_withdrawal
+        if V < 0.0:
+            V = 0.0
+
+        # --- LTV evaluation (step 66) ---
+        if ltv_enforcement and Y > 0.0 and V > 0.0:
+            ltv = Y / V
+            if ltv > ltv_limit:
+                # Margin call: liquidate to restore LTV to the limit
+                liq = (Y - ltv_limit * V) / (1.0 - ltv_limit)
+                if liq > V:
+                    # Unsatisfiable: sell entire portfolio; the depleted
+                    # portfolio is classified by the failure check below.
+                    Y -= V
+                    V = 0.0
+                else:
+                    # Satisfiable liquidation is terminal (C5 semantics),
+                    # matching ``LTVEvaluationStep`` and the oracle.
+                    V -= liq
+                    Y -= liq
+                    return V, False, m, Y, _PART52_MARGIN_CALL_TERMINAL
+
+        # --- Failure detection (step 75) ---
+        if V <= 0.0:
+            return 0.0, False, m, Y, _PART52_DEPLETED
+        if ltv_enforcement and Y > V and Y > 0.0:
+            return V, False, m, Y, _PART52_MARGIN_CALL_IMPOSSIBLE
+
+        # --- Growth (implicit in price change) ---
+        if m < horizon - 1:
+            V *= growth_factors[m]
+
+    return V, True, -1, Y, _PART52_SUCCESS
+
+
 @numba.njit(parallel=True, cache=True)
 def _simulate_part52_batch(
     growth_factors: NDArray[np.float64],
