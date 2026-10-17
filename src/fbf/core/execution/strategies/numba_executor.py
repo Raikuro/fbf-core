@@ -141,6 +141,29 @@ def _is_numba_eligible(context: SimulationContext) -> bool:
     return is_fast_path_eligible(context)
 
 
+def _initial_value_equals_wealth(context: SimulationContext) -> bool:
+    """Return True when the initial portfolio's value equals ``initial_wealth``.
+
+    ``build_initial_portfolio`` constructs the initial holdings so that their
+    month-0 value equals ``initial_wealth``.  The Numba trajectories derive
+    their withdrawal base from that initial portfolio value (``v0``) whereas the
+    legacy policies derive it from ``context.initial_wealth``.  Sharing one
+    evaluated path, and omitting ``initial_wealth`` from the trajectory key,
+    therefore requires the two to agree.  The equality is exact for the
+    supported two-asset portfolios; for larger portfolios the underlying
+    Decimal divisions may round, so a mismatch is detected here and the context
+    falls back to the legacy engine rather than being simulated incorrectly.
+    """
+    snapshot = context.dataset[0]
+    value = Decimal("0")
+    for holding in context.initial_portfolio.holdings:
+        price = snapshot.index_levels.get(holding.asset_class)
+        if price is None:
+            return False
+        value += holding.units * price
+    return value == context.initial_wealth.amount
+
+
 def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can use the Numba backend for constant nominal withdrawal.
 
@@ -188,7 +211,12 @@ def _is_escalating_eligible(context: SimulationContext) -> bool:
     equity_count = sum(1 for h in holdings if h.asset_class.id == "equity")
     if equity_count != 1:
         return False
-    return not any(h.asset_class not in context.dataset[0].index_levels for h in holdings)
+    if any(h.asset_class not in context.dataset[0].index_levels for h in holdings):
+        return False
+    # The escalating trajectory derives its withdrawal base from ``v0`` while
+    # the legacy policy uses ``initial_wealth``; they must agree (see
+    # ``_initial_value_equals_wealth``).
+    return _initial_value_equals_wealth(context)
 
 
 def _is_glidepath_eligible(context: SimulationContext) -> bool:

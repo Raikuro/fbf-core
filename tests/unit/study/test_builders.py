@@ -110,6 +110,53 @@ def test_build_initial_portfolio_does_not_use_synthetic_initial_asset() -> None:
     assert "initial" not in {h.asset_class.id for h in portfolio.holdings}
 
 
+def _make_priced_dataset(equity_price: Decimal, bond_price: Decimal) -> Dataset:
+    snapshot = MarketSnapshot(
+        date=date(2020, 1, 1),
+        index_levels={
+            _loader_asset("equity"): equity_price,
+            _loader_asset("bond"): bond_price,
+        },
+        inflation=Decimal("0"),
+        inflation_cumulative=Decimal("0"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100"),
+    )
+    return Dataset(snapshots=(snapshot,), frequency="monthly")
+
+
+@pytest.mark.parametrize(
+    ("wealth", "equity_price", "bond_price"),
+    [
+        ("1000000", "1", "1"),
+        ("1000000", "101.169089694984", "100.747178470726"),
+        ("1234567.89", "101.169089694984", "100.747178470726"),
+        ("500000.01", "77.3", "91.13"),
+    ],
+)
+def test_build_initial_portfolio_value_equals_initial_wealth_exactly(
+    wealth: str, equity_price: str, bond_price: str
+) -> None:
+    """Contract: two-asset portfolios are valued exactly at ``initial_wealth``.
+
+    Execution derives the Numba withdrawal base from the initial portfolio value
+    (``v0``) while the legacy policies use ``context.initial_wealth``.  The two
+    must agree exactly for the supported two-asset portfolios (see
+    ``numba_executor._initial_value_equals_wealth``).
+    """
+    initial_wealth = Money(Decimal(wealth), Money.ZERO.currency)
+    dataset = _make_priced_dataset(Decimal(equity_price), Decimal(bond_price))
+    portfolio = build_initial_portfolio(initial_wealth, dataset)
+
+    snapshot = dataset[0]
+    value = sum(
+        (h.units * snapshot.index_levels[h.asset_class] for h in portfolio.holdings),
+        Decimal("0"),
+    )
+    assert value == initial_wealth.amount
+
+
 def test_constant_allocation_policy_targets_loader_aligned_assets() -> None:
     policy = ConstantAllocationPolicy(equity_allocation=Decimal("0.75"))
     portfolio = build_initial_portfolio(

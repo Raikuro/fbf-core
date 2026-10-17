@@ -37,7 +37,10 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler
-from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
+from fbf.core.execution.strategies.numba_executor import (
+    NumbaSimulationExecutor,
+    _is_escalating_eligible,
+)
 from fbf.core.execution.strategies.numba_kernel import (
     _simulate_trajectory_escalating,
     simulate_batch_escalating,
@@ -471,18 +474,23 @@ class TestEscalatingExecutorDifferential:
         assert results[0][0] is True
         assert results[1][0] is False
 
-    def test_fv_threshold_independent_of_initial_wealth(self) -> None:
-        """Contexts sharing a path but differing in ``initial_wealth`` must not
-        share an FV verdict (the threshold is ``initial_wealth * target``)."""
+    def test_initial_portfolio_value_mismatch_is_not_escalating_eligible(self) -> None:
+        """Eligibility requires ``v0 == initial_wealth``.
+
+        The escalating trajectory derives its withdrawal base from the initial
+        portfolio value (``v0``) while the legacy policy uses
+        ``context.initial_wealth``.  A mismatch (only reachable by constructing
+        a context manually; ``build_initial_portfolio`` guarantees equality for
+        the supported two-asset portfolios) must fall back rather than be
+        simulated with an inconsistent base.
+        """
         base = _flat_dataset(37)
-        # Flat 36-month final value is 892886; target 0.9 gives thresholds
-        # 900000 (fail) and 891000 (pass) for the two wealth bases.
-        failing = _make_context(base, 36, wealth=Decimal("1000000"), fvt=Decimal("0.9"))
-        passing = _make_context(base, 36, wealth=Decimal("990000"), fvt=Decimal("0.9"))
-        results = _run_numba([failing, passing])
-        assert results[0][0] is False
-        assert results[0][1] == 36
-        assert results[1][0] is True
+        context = _make_context(base, 36, wealth=Decimal("990000"))
+        assert _is_escalating_eligible(context) is False
+
+        # Falls back to the reference executor and still yields a result.
+        results = _run_numba([context])
+        assert len(results) == 1
 
     def test_glidepath_allocation_is_not_escalating_eligible(self) -> None:
         from fbf.core.domain.policies import GlidepathAllocationPolicy
