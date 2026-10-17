@@ -1,6 +1,6 @@
 # Roadmap: Migration to a Single Numba Execution Engine
 
-**Status:** Phase A — Routing & Test Coverage Fixes **IN PROGRESS** 🔄
+**Status:** Phase B — Expand Numba's Generic Simulation Capabilities **IN PROGRESS** 🔄 (B1–B5 complete)
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
 **Objective:** Make Numba the sole simulation engine, progressively shrink and
 eventually delete the legacy Reference execution stack, and preserve
@@ -50,7 +50,7 @@ not be conflated:
 
 | Term | File / symbol | What it actually is today |
 |------|---------------|---------------------------|
-| `ExecutionBackend.REFERENCE` | `execution/__init__.py:140`, routed at `:436-439` | **Decimal closed-form fast path** (`FastPathSimulationExecutor`). It is *not* the legacy engine. |
+| `ExecutionBackend.REFERENCE` | `execution/__init__.py:140`, routed at `:458` | **Decimal closed-form fast path** (`FastPathSimulationExecutor`). It is *not* the legacy engine. |
 | `ReferenceSimulationExecutor` / `execute_reference()` | `execution/strategies/reference.py:312`, `:455` | The legacy 9-step Decimal pipeline wrapped with horizon derivation and memory-bounded slice dispatch. |
 | "the reference engine" (prose) | `_create_default_simulation_executor()` | The actual legacy Decimal engine: the 9/15-step pipeline built in `parallel_executor.py:42` and `default_pipeline.py:53`. |
 
@@ -84,7 +84,7 @@ not be conflated:
 ## 1.5 Memory-Safety Requirements
 
 - The ERN canonical grid (313,020 units × 720 months) materializes ~0.37 MiB/unit of timeline payload (~110 GiB total). Memory-bounded cohort-slice dispatch (`reference.py:_slice_plan_units`) is the **only** current protection.
-- Any trajectory materialization (Phase B6) **requires** cohort-slice dispatch (Phase B7) to be implemented first or concurrently.
+- Any trajectory materialization (Phase D1) **requires** cohort-slice dispatch (Phase D2) to be implemented first or concurrently.
 - Summary-only execution (`summary_only=True`) must remain efficient and is the default for large grids.
 - Timeline materialization is opt-in unless existing public behavior requires otherwise.
 - The 16 GB memory target is a validation target, not an assumed guarantee. Actual workload requirements and execution environments must be measured.
@@ -99,34 +99,36 @@ This section reflects the repository as inspected, not prior audit summaries.
 
 - Public enum: `ExecutionBackend.REFERENCE = "reference"`,
   `ExecutionBackend.FAST = "fast"` (`:140-141`).
-- `execute_study_plan(plan, options)` (`:354`):
+- `execute_study_plan(plan, options)` (`:376`):
   - `backend is None` → `_auto_select_backend()` (`:292`):
     1. Numba unavailable → `FastPathSimulationExecutor` (Decimal closed form).
     2. All units Part52-eligible → `Part52NumbaExecutor`.
     3. All units FixedReal-eligible → `NumbaSimulationExecutor`.
-    4. All units glidepath-eligible → `NumbaSimulationExecutor`.
-    5. Otherwise → `FastPathSimulationExecutor` (Decimal closed form).
+    4. All units escalating-eligible → `NumbaSimulationExecutor`.
+    5. All units buy-and-hold-eligible → `NumbaSimulationExecutor`.
+    6. All units glidepath-eligible → `NumbaSimulationExecutor`.
+    7. Otherwise → `FastPathSimulationExecutor` (Decimal closed form).
   - `backend == FAST` → requires Numba; selects `Part52NumbaExecutor` if all
-    Part52, else `NumbaSimulationExecutor` (`:402-435`).
-  - `backend == REFERENCE` → `FastPathSimulationExecutor` (`:436-439`).
-- Strategy: `REFERENCE`-routed work may use `parallel_execute` when
-  `units >= 500` and `workers > 1` (`:488`); Numba-routed work is always
-  sequential (`:468-485`).
+    Part52, else `NumbaSimulationExecutor` (`:424-457`).
+  - `backend == REFERENCE` → `FastPathSimulationExecutor` (`:458-461`).
+- Strategy: `REFERENCE`-routed work may use `parallel_execute` when more than
+  one worker is available (`:505-511`); Numba-routed work is always sequential
+  (`:480-503`).
 
 ### 2.2 Executors
 
 | Executor | File | Eligible workloads | Ineligible handling |
 |----------|------|--------------------|---------------------|
-| `FastPathSimulationExecutor` | `strategies/fast_path.py` | Constant allocation + FixedReal, 2 assets, dataset covers horizon | Batches ineligible contexts to `self._reference` (`:896`) |
-| `NumbaSimulationExecutor` | `strategies/numba_executor.py` | (a) Constant allocation + FixedReal; (b) Glidepath + FixedReal; 2 assets | Per-context `self._reference` (`:530`) |
-| `Part52NumbaExecutor` | `strategies/part52_numba_executor.py` | Constant allocation + `Part52WithdrawalPolicy`, 2 assets, `expense_ratio ∈ {None, 0}`, `interest_rate_schedule` set | Per-context `self._reference` (`:408`) |
-| `ReferenceSimulationExecutor` | `strategies/reference.py:312` | Any context (wraps legacy engine) | Delegates non-prefix to legacy engine per context (`:407`) |
+| `FastPathSimulationExecutor` | `strategies/fast_path.py` | Constant allocation + FixedReal, 2 assets, dataset covers horizon | Batches ineligible contexts to `self._reference` (`:1180`) |
+| `NumbaSimulationExecutor` | `strategies/numba_executor.py` | (a) Constant allocation + FixedReal; (b) Constant allocation + ConstantWithdrawal (B2); (c) Constant allocation + Escalating (B3); (d) Buy-and-hold + FixedReal, fee = 0 (B4); (e) Glidepath + FixedReal; all 2 assets | Per-context `self._reference` (`:768`) |
+| `Part52NumbaExecutor` | `strategies/part52_numba_executor.py` | Constant allocation + `Part52WithdrawalPolicy`, 2 assets, `expense_ratio ∈ {None, 0}`, `interest_rate_schedule` set | Per-context `self._reference` (`:487`) |
+| `ReferenceSimulationExecutor` | `strategies/reference.py:312` | Any context (wraps legacy engine) | Delegates non-prefix to legacy engine per context (`:413`) |
 | `_create_default_simulation_executor()` | `strategies/parallel_executor.py:42` | Any context (legacy engine factory) | — |
 
 Every Numba/Decimal executor constructs its fallback with
 `self._reference = reference_executor or _create_default_simulation_executor()`
-(`fast_path.py:817`, `numba_executor.py:255`,
-`part52_numba_executor.py:217`, `reference.py:322`).
+(`fast_path.py:1099`, `numba_executor.py:476`,
+`part52_numba_executor.py:287`, `reference.py:322`).
 
 ### 2.3 Legacy engine composition
 
@@ -157,19 +159,21 @@ Every Numba/Decimal executor constructs its fallback with
 
 | Predicate | File:line | Requires |
 |-----------|-----------|----------|
-| `is_fast_path_eligible` | `fast_path.py:156` | `ConstantAllocationPolicy`, `FixedRealWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, exactly 2 holdings, exactly 1 `equity` |
-| `_is_numba_eligible` | `numba_executor.py` | alias of `is_fast_path_eligible` |
-| `_is_constant_nominal_eligible` | `numba_executor.py` | `ConstantAllocationPolicy`, `ConstantWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity` |
-| `_is_escalating_eligible` | `numba_executor.py` | `ConstantAllocationPolicy`, `EscalatingWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity` |
-| `_is_glidepath_eligible` | `numba_executor.py` | `GlidepathAllocationPolicy`, `FixedRealWithdrawalPolicy`, 2 holdings, 1 `equity` |
-| `is_part52_eligible` | `part52_numba_executor.py:66` | `ConstantAllocationPolicy`, `Part52WithdrawalPolicy`, 2 holdings, 1 `equity`, `expense_ratio ∈ {None, 0}`, `interest_rate_schedule is not None` |
+| `is_fast_path_eligible` | `fast_path.py:161` | `ConstantAllocationPolicy`, `FixedRealWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, exactly 2 holdings, exactly 1 `equity` |
+| `_is_numba_eligible` | `numba_executor.py:137` | alias of `is_fast_path_eligible` |
+| `_is_constant_nominal_eligible` | `numba_executor.py:169` | `ConstantAllocationPolicy`, `ConstantWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity` |
+| `_is_escalating_eligible` | `numba_executor.py:194` | `ConstantAllocationPolicy`, `EscalatingWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity` |
+| `_is_buy_and_hold_eligible` | `numba_executor.py:252` | `BuyAndHoldAllocationPolicy`, `FixedRealWithdrawalPolicy`, horizon ≥ 1, dataset ≥ horizon, 2 holdings, 1 `equity`, `v0 == initial_wealth`, `expense_ratio ∈ {None, 0}` |
+| `_is_glidepath_eligible` | `numba_executor.py:224` | `GlidepathAllocationPolicy`, `FixedRealWithdrawalPolicy`, 2 holdings, 1 `equity` |
+| `is_part52_eligible` | `part52_numba_executor.py:69` | `ConstantAllocationPolicy`, `Part52WithdrawalPolicy`, 2 holdings, 1 `equity`, `expense_ratio ∈ {None, 0}`, `interest_rate_schedule is not None` |
 
 **Verified gap:** the eligibility gates, not the numerical kernels, are the
-dominant blocker. For example, `_weights_by_class` (`fast_path.py:190`) and the
-growth-factor computation (`numba_kernel.py:301`) already operate on an
-arbitrary number of asset classes; the 2-asset restriction is imposed by the
-predicates and by `ConstantAllocationPolicy` exposing only
-`equity_allocation`.
+dominant blocker. The growth-factor computation
+(`_compute_growth_factors_numpy`, `numba_kernel.py:830`) already accepts an
+arbitrary asset count, but `_weights_by_class` (`fast_path.py:195`) only
+implements the two-asset `equity → w`, `all others → 1-w` split. The 2-asset
+restriction is imposed by the predicates and by `ConstantAllocationPolicy`
+exposing only `equity_allocation`.
 
 ---
 
@@ -182,17 +186,17 @@ Classification key:
 
 | # | Capability | Current implementation (file:symbol) | Class | Numba support / fallback | Gap | Required migration | Tests / consumers | Blockers | Acceptance criteria |
 |---|------------|--------------------------------------|:----:|--------------------------|-----|--------------------|-------------------|----------|---------------------|
-| 1 | Fixed-real withdrawals (workbook SCR) | `concrete.py:119` `FixedRealWithdrawalPolicy` | 1 | `_simulate_trajectory_end_of_period` (`numba_kernel.py:116`), `_compute_workbook_scr` (`:43`), `_evaluate_workbook_scr_path` (`fast_path.py:402`), `_process_static_group` (`numba_executor.py:576`) | None for summary stats | None | `tests/unit/execution/test_fast_path.py`, Part20 tests | None | SCR-based success matches workbook SCR formula; end-of-period trajectory matches workbook timing |
-| 2 | Constant nominal withdrawals | `concrete.py:83` `ConstantWithdrawalPolicy` | 3 | None; falls back to legacy | Withdrawal is `V_m·rate/12`, not a constant `C` | Add kernel variant where withdrawal scales with current value; extend eligibility | `tests/unit/execution/test_backend_strategy_matrix.py:264`; generic studies | Recurrence change (`V_{m+1}=(V_m)(1-rate/12)g_m`) | A dedicated recurrence test + differential vs legacy |
-| 3 | Constant allocation weights | `concrete.py:23` `ConstantAllocationPolicy` | 1 | `_weights_by_class` (`fast_path.py:190`) | None | None | ERN grid, Part 19/20 | None | Already covered |
-| 4 | Time-varying weights / glidepaths (dynamic, not in workbook) | `glidepath.py` `GlidepathAllocationPolicy` | 2 | `_is_glidepath_eligible` (`numba_executor.py:123`), `_compute_equity_weight_sequence` (`:181`), `compute_growth_factors_varying_weights_batch` (`numba_kernel.py:378`) | **Not adapted to workbook methodology**; uses legacy beginning-of-period recurrence with multiplicative fee | Document coherent extension spec; implement workbook-aligned timing/fee for glidepaths | Part 19/20 (`research/part19_*`, `part20_*`) | Workbook does not implement glidepaths; extension must be designed | Static workbook fidelity complete; glidepath fidelity NOT STARTED |
-| 5 | Two-asset portfolios | `fast_path.py:183`, `numba_executor.py:143` | 1 | All Numba kernels | None | None | ERN workloads | None | Already covered |
-| 6 | Multi-asset portfolios (3+) | Eligibility rejects >2 holdings | 2 | Kernel math is generic; predicate is not | `_weights_by_class` assigns `equity→w`, all others→`1-w` (only valid for 2 assets) | Introduce explicit per-class target weights; relax predicate; verify rebalance semantics | Generic studies | `ConstantAllocationPolicy` exposes only `equity_allocation` | New policy/weight source + differential test on 3 assets |
-| 7 | Expense ratios / fee application (workbook additive) | `expense_deduction_step.py` `ExpenseDeductionStep` | 1 | Workbook SCR formula uses additive fee in returns: `weighted_return - fee/12`; growth factors computed with fee embedded; end-of-period trajectory in `numba_kernel.py:116` and `fast_path.py:434` | Fee model aligned with workbook for static allocations; Part 49/52 may differ | **COMPLETE** (implemented in workbook SCR path) | `ern_grid.yaml` sets `expense_ratio: 0.0005`; Part20 tests updated | Fee model differs by study (Part 49 vs Part 52 vs legacy) | Static allocation: workbook additive fee validated; Dynamic glidepaths: pending |
-| 8 | Debt state + loan drawdown | `loan_draw_step.py` `LoanDrawStep`; `part49_withdrawal.py`, `part52_withdrawal.py` | 2 | Part52 kernel `_simulate_part52` (`numba_kernel.py:703`) tracks `Y`, draws | Part 49 leverage (`Part49WithdrawalPolicy`) not eligible | Generalize debt kernel or add Part 49 eligibility | `tests/integration/test_part52_*`, Part 49 debt tests | Requires `interest_rate_schedule` for Part52 | Part 52 + Part 49 leverage E2E pass |
-| 9 | Repay at fresh ATH | `loan_repayment_step.py` `LoanRepaymentStep` | 1 | `_simulate_part52` repay branch (`numba_kernel.py:788-818`) | None for Part52 | None | `test_part52_compound_drawdown.py` | None | Part 52 E2E pass |
-| 10 | Floating-rate interest (FFR) | `interest_accrual_step.py` `InterestAccrualStep` | 1 | `_compute_monthly_rates` (`part52_numba_executor.py:112`) | None for Part52 | None | `test_part52_ffr_floating_rate.py` | None | Part 52 FFR test pass |
-| 11 | LTV evaluation / enforcement | `ltv_evaluation_step.py` `LTVEvaluationStep` | 1 | `_simulate_part52` LTV branch (`numba_kernel.py:824-849`) | None for Part52 | None | `test_part52_*`, Part 49 | None | Part 52/49 LTV tests pass |
+| 1 | Fixed-real withdrawals (workbook SCR) | `concrete.py:121` `FixedRealWithdrawalPolicy` | 1 | `_simulate_trajectory_end_of_period` (`numba_kernel.py:104`), `_compute_workbook_scr` (`:63`), `_evaluate_workbook_scr_path` (`fast_path.py:466`), `_process_static_group` (`numba_executor.py:811`) | None for summary stats | None | `tests/unit/execution/test_fast_path.py`, Part20 tests | None | SCR-based success matches workbook SCR formula; end-of-period trajectory matches workbook timing |
+| 2 | Constant nominal withdrawals | `concrete.py:85` `ConstantWithdrawalPolicy`; `_simulate_trajectory_constant_nominal` (`numba_kernel.py:204`) | 1 | Numba value-scaled recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` (B2) | Glidepath + constant-nominal not eligible | None for `ConstantAllocationPolicy` | `tests/unit/execution/test_backend_strategy_matrix.py`; generic studies | Additive fee convention (B1) | Recurrence test + differential vs legacy (fee = 0) |
+| 3 | Constant allocation weights | `concrete.py:23` `ConstantAllocationPolicy` | 1 | `_weights_by_class` (`fast_path.py:195`) | None for 2 assets | Explicit per-class weights for N assets (B5) | ERN grid, Part 19/20 | Only `equity_allocation` is exposed | Already covered for 2 assets |
+| 4 | Time-varying weights / glidepaths (dynamic, not in workbook) | `glidepath.py` `GlidepathAllocationPolicy` | 2 | `_is_glidepath_eligible` (`numba_executor.py:224`), `_compute_equity_weight_sequence` (`:396`), `compute_growth_factors_varying_weights_batch` (`numba_kernel.py:916`) | **Not adapted to workbook methodology**; uses legacy beginning-of-period recurrence with multiplicative fee | Document coherent extension spec; implement workbook-aligned timing/fee for glidepaths | Part 19/20 (`research/part19_*`, `part20_*`) | Workbook does not implement glidepaths; extension must be designed | Static workbook fidelity complete; glidepath fidelity NOT STARTED |
+| 5 | Two-asset portfolios | `fast_path.py:188`, `numba_executor.py:186` | 1 | All Numba kernels | None | None | ERN workloads | None | Already covered |
+| 6 | Multi-asset portfolios (3+) | `concrete.py` `ConstantAllocationPolicy.allocations`; `fast_path.py:195` `_weights_by_class` | 1 | Growth-factor helper is N-asset; `_weights_by_class` resolves per-class weights via `resolve_target_weights` (B5) | None for constant fixed-real; nominal/escalating/Part 52 gate to the legacy form | **COMPLETE** (B5) | `tests/unit/domain/test_multi_asset_allocation.py`, `tests/unit/strategies/test_multi_asset_allocation.py` | Deferred withdrawal policies fall back for explicit allocations | Independent N-asset Decimal oracle + differential test on 3 assets pass |
+| 7 | Expense ratios / fee application (workbook additive) | `expense_deduction_step.py` `ExpenseDeductionStep` | 1 | Workbook SCR formula uses additive fee in returns: `weighted_return - fee/12`; growth factors computed with fee embedded; end-of-period trajectory in `numba_kernel.py:104` and `fast_path.py:466` | Fee model aligned with workbook for static allocations; Part 49/52 may differ | **COMPLETE** (implemented in workbook SCR path) | `ern_grid.yaml` sets `expense_ratio: 0.0005`; Part20 tests updated | Fee model differs by study (Part 49 vs Part 52 vs legacy) | Static allocation: workbook additive fee validated; Dynamic glidepaths: pending |
+| 8 | Debt state + loan drawdown | `loan_draw_step.py` `LoanDrawStep`; `part49_withdrawal.py`, `part52_withdrawal.py` | 2 | Part52 kernel `_simulate_part52` (`numba_kernel.py:1559`) tracks `Y`, draws | Part 49 leverage (`Part49WithdrawalPolicy`) not eligible | Generalize debt kernel or add Part 49 eligibility | `tests/integration/test_part52_*`, Part 49 debt tests | Requires `interest_rate_schedule` for Part52 | Part 52 + Part 49 leverage E2E pass |
+| 9 | Repay at fresh ATH | `loan_repayment_step.py` `LoanRepaymentStep` | 1 | `_simulate_part52` repay branch (`numba_kernel.py:1559`, loan-repayment step) | None for Part52 | None | `test_part52_compound_drawdown.py` | None | Part 52 E2E pass |
+| 10 | Floating-rate interest (FFR) | `interest_accrual_step.py` `InterestAccrualStep` | 1 | `_compute_monthly_rates` (`part52_numba_executor.py:157`) | None for Part52 | None | `test_part52_ffr_floating_rate.py` | None | Part 52 FFR test pass |
+| 11 | LTV evaluation / enforcement | `ltv_evaluation_step.py` `LTVEvaluationStep` | 1 | `_simulate_part52` LTV branch (`numba_kernel.py:1559`, LTV-evaluation step) | None for Part52 | None | `test_part52_*`, Part 49 | None | Part 52/49 LTV tests pass |
 | 12 | Horizon derivation | `reference.py:330`, `fast_path.py:783`, `numba_executor.py:278`, `part52_numba_executor.py:228` | 1 | Present in all executors | None | Remove the legacy-only copy once `ReferenceSimulationExecutor` is deleted | `test_fast_path.py::test_executor_shares_longest_path` | None | Derivation report matches direct evaluation |
 | 13 | FV target deduplication | `reference.py:206`, `fast_path.py:470`, `numba_executor.py:708` | 1 | Present in all executors | None | None | `test_trajectory_deduplication.py` | None | Per-target classification preserved |
 | 14 | Cohort + slice execution | `reference.py:428` `_slice_plan_units`; `parallel_executor.py` | 2 | Executors process whole definitions; `parallel_execute` slices | Memory-bounded slice dispatch exists only in `execute_reference` | Port slice dispatch to the unified Numba path | `test_reference.py::TestSliceDispatchMemorySafety` | Empty timelines currently mask memory cost | Slice == whole-plan equality on a large grid |
@@ -200,7 +204,7 @@ Classification key:
 | 16 | Full monthly trajectory | `monthly_result_builder_step.py` `MonthlyResultBuilderStep` | 3 | None (empty timelines) | Numba kernels emit statistics only | Add optional trajectory materialization to Numba kernels | Persistence, Part 49/52 aggregation, deterministic | Memory/IPC cost; per-month portfolio reconstruction | Trajectory equals legacy month-by-month on a representative case |
 | 17 | Result persistence | `persistence/studies/sqlite/codecs.py` | 3 | Depends on #16 | FAST path cannot persist | Enable once #16 lands; relax CLI guard | `run_command.py` (`--persist-study` vs `--fast-path`) | #16 | Save/load round-trip preserves statistics and timelines |
 | 18 | Memory-bounded large grids | `reference.py:_MAX_UNITS_PER_WORKER`, `_DEFAULT_SLICE_COHORTS` | 2 | Works for summaries; breaks if timelines added | Whole-definition result lists held in memory | Unified slice/batch dispatch | `tests/benchmarks/`, ERN grid | #14, #16 | Peak RSS within documented host budget on 313k units |
-| 19 | Buy-and-hold allocation | `concrete.py:49` `BuyAndHoldAllocationPolicy`; `default_pipeline.py:108` | 3 | None; predicate rejects it | Weights drift (no monthly rebalance), so growth factors are path-dependent on units, not constant | New recurrence: track units, apply returns without rebalancing | `test_part49_buy_and_hold.py` | Different recurrence from rebalanced model | Buy-and-hold E2E / differential pass |
+| 19 | Buy-and-hold allocation | `concrete.py:49` `BuyAndHoldAllocationPolicy`; `_simulate_trajectory_buy_and_hold` (`numba_kernel.py:417`); `_is_buy_and_hold_eligible` (`numba_executor.py:252`) | 1 | Numba unit-tracking kernel (B4); weights drift endogenously | Non-zero fee, multi-asset, and Part 49 leverage fall back (see #6 and C4) | None for fee = 0, two assets | `tests/unit/strategies/test_numba_buy_and_hold.py`, `test_part49_buy_and_hold.py` | Non-zero-fee legacy `ExpenseDeductionStep` stale base (`TODO.md`) | Two-asset, fee = 0 differential vs legacy pipeline passes |
 | 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` (`numba_executor.py`) for `ConstantAllocationPolicy`; AUTO routes all-escalating workloads to Numba | Glidepath + escalating not yet eligible; `execute_deterministic_trajectory` (Experiment E) still uses the legacy pipeline | Extend eligibility to `GlidepathAllocationPolicy`; reimplement the deterministic path (D3) | `tests/unit/strategies/test_numba_escalating.py` | Glidepath cadence and the deterministic-trajectory contract are separate migration items | Constant-allocation escalating matches the legacy pipeline (fee = 0) and an independent Decimal recurrence; hand-calculated flat-market values exact |
 | 21 | Supplemental cash flow | `supplemental_cash_flow_step.py` | 3 | None (inactive by default) | Additional external cash flow | Add once a real consumer activates it | None active today | No active consumer | Only migrate if a consumer exists |
 | 22 | CAPE-regime aggregation | `research/part20_*`, `cape_aggregation.py`, `cape_regime.py` | 4 | None | Regime classification layer | Keep as a post-processing layer over Numba results | Part 20 (`part20_pipeline.py`) | Aggregation, not simulation | Part 20 E2E pass |
@@ -263,91 +267,45 @@ classes so they stop using the legacy fallback.
 
 Work items (each independently testable):
 
-1. **B1 — Non-zero expense ratio (additive fee).**
-   Add **additive** fee to the growth factor (`g_m' = g_m - fee/12`, matching
-   the workbook's `1 + r - f/12`) with the study's required semantics, and
-   remove the `expense_ratio` rejection from `is_part52_eligible`.
-   **Note:** The workbook uses additive fees (`V_{t+1} = (V_t - C) * (1 + r - f/12)`),
-   not the multiplicative form. The reference engine, fast path, and Numba
-   kernels must be updated to match. **Scope:** Static allocations (complete),
-   glidepaths (pending extension spec), Part 52 (kernel update required).
+1. **B1 — Non-zero expense ratio (additive fee).** ✅ Implemented for static
+   allocations and Part 52. Additive fee is embedded in the growth factors
+   (`g_m' = g_m - fee/12`, matching the workbook's `1 + r - f/12`), not the
+   multiplicative form. See the B1 milestone below. Glidepath fee alignment is
+   tracked under capability #4.
 
-2. **B2 — Constant nominal withdrawal.**
-   Trace the `ConstantWithdrawalPolicy` domain model and existing execution
-   order, then define the recurrence, withdrawal timing, failure conditions,
-   fees, and inflation adjustments explicitly. Validate with hand-calculated
-   examples and independent tests. Do not assume `V_{m+1} = V_m * (1 - rate/12) * g_m`
-   without verification.
+2. **B2 — Constant nominal withdrawal.** ✅ Implemented for
+   `ConstantAllocationPolicy`: value-scaled recurrence
+   `V_{m+1} = V_m * (1 - rate/12) * g_m`. Trace the domain model and execution
+   order before extending to other allocation policies.
 
-3. **B3 — Escalating withdrawal.**
-   Add a scalar withdrawal schedule input to the kernel and extend eligibility
-   to `EscalatingWithdrawalPolicy`. Validate with hand-calculated examples.
+3. **B3 — Escalating withdrawal.** ✅ Implemented for
+   `ConstantAllocationPolicy`: value-independent annual schedule
+   `v0 * withdrawal_rate * (1 + escalation_rate) ** (m // 12)`. Glidepath +
+   escalating and the deterministic path remain future work (D3).
 
 4. **B4 — Buy-and-hold.** ✅ Implemented: a non-rebalancing unit-tracking
    recurrence with explicit specification (a simulator extension — the workbook
    does not define buy-and-hold). See the B4 milestone below.
 
-5. **B5 — Multi-asset portfolios.**
-   Confirm whether existing Numba kernels genuinely support arbitrary asset
-   counts or only their numerical helper functions do. Introduce explicit
-   per-class target-weight source; relax the 2-asset predicate; verify
-   rebalance semantics.
+5. **B5 — Multi-asset portfolios.** ✅ Implemented (commit
+   `85d72582f047279d5d9c42ca3f3cb0e3d9099c7b`): an explicit `allocations`
+   mapping on `ConstantAllocationPolicy`, resolved through a single
+   `resolve_target_weights` authority, with the fixed-real workbook path
+   generalized to N assets. See capability #6.
 
-6. **B6 — Full monthly trajectory.**
-   Define trajectory semantics and required contents of `SimulationTimeline`
-   (including `portfolio`, `market_snapshot`, `debt_snapshot`) before
-   implementing materialization. Memory-bounded cohort processing (B7) must be
-   implemented first or concurrently.
-
-7. **B7 — Memory-bounded dispatch.**
-   Port cohort-aligned slice dispatch (`reference.py:_slice_plan_units`) into
-   the unified path so large grids stay within the host memory budget once B6
-   adds timeline payloads. Validate against actual ERN grid (313k units).
+Trajectory materialization and bounded-memory dispatch are **not** Phase B
+items. They were previously listed here as B6/B7 and are consolidated into the
+single Phase D milestones D1 (trajectory materialization) and D2 (cohort-slice
+dispatch); there are no separate B6/B7 milestones.
 
 Design rule: prefer extending the existing Numba executors and kernels over
 creating new engines. The executors already share `_group_key`, `_index_series`,
 `_weights_by_class`, `_apply_fv_check`, and growth-factor caching.
 
-Phase B gate: every non-debt workload that currently falls back to the legacy
-engine has either migrated to Numba with equivalent semantics or is recorded as
-a deliberate specialized path; large-grid memory and determinism gates pass.
-
-### Phase B — Expand Numba's generic simulation capabilities
-
-Goal: grow the unified Numba engine to cover the generic (non-debt) workload
-classes so they stop using the legacy fallback.
-
-Work items (each independently testable):
-
-1. **B1 — Non-zero expense ratio.** Add **additive** fee to the growth
-   factor (`g_m' = g_m - fee/12`, matching the workbook's `1 + r - f/12`)
-   with the study's required semantics, and remove the `expense_ratio`
-   rejection from `is_part52_eligible`. **Note:** The workbook and oracle
-   use additive fees (`V_{t+1} = (V_t - C) * (1 + r - f/12)`), not the
-   multiplicative form previously documented here. The reference engine,
-   fast path, and Numba kernels must be updated to match.
-2. **B2 — Constant nominal withdrawal.** Add a value-scaled withdrawal
-   recurrence and extend eligibility to `ConstantWithdrawalPolicy`.
-3. **B3 — Escalating withdrawal.** Add a scalar withdrawal schedule input to
-   the kernel and extend eligibility to `EscalatingWithdrawalPolicy`.
-4. **B4 — Buy-and-hold.** ✅ Implemented: a non-rebalancing unit-tracking
-   recurrence (per-asset growth factors; weights drift endogenously).
-5. **B5 — Multi-asset portfolios.** Add an explicit per-class target-weight
-   source and relax the 2-asset predicate. The kernel math already generalizes.
-6. **B6 — Full monthly trajectory.** Add optional per-month materialization to
-   the Numba kernels, preserving the `MonthlyResult` contract (including
-   `portfolio`, `market_snapshot`, `debt_snapshot` where applicable).
-7. **B7 — Memory-bounded dispatch.** Port cohort-aligned slice dispatch
-   (`reference.py:_slice_plan_units`) into the unified path so large grids stay
-   within the host memory budget once B6 adds timeline payloads.
-
-Design rule: prefer extending the existing Numba executors and kernels over
-creating new engines. The executors already share `_group_key`, `_index_series`,
-`_weights_by_class`, `_apply_fv_check`, and growth-factor caching.
-
-Phase B gate: every non-debt workload that currently falls back to the legacy
-engine has either migrated to Numba with equivalent semantics or is recorded as
-a deliberate specialized path; large-grid memory and determinism gates pass.
+Phase B gate: every generic (non-debt) workload that currently falls back to the
+legacy engine has either migrated to Numba with equivalent semantics or is
+recorded as a deliberate specialized path. Large-grid memory and determinism
+gates belong to Phase D (D1/D2).
 
 ### Phase C — Debt-Aware Workloads and Part 49/52 Migration
 
@@ -390,12 +348,20 @@ Phase C gate:
 Goal: implement trajectory materialization, bounded-memory dispatch, and
 remove all legacy pipeline code.
 
+Ordering: D2 (bounded-memory dispatch) is a hard prerequisite for enabling D1
+(trajectory materialization) at grid scale. D1 may be developed concurrently
+with D2, but timelines must not be materialized for the full ERN grid until D2
+lands. This resolves the former B6/B7 ordering contradiction (trajectory
+materialization consumed as much memory as it produced; bounded dispatch had to
+exist first).
+
 Work items:
 
 1. **D1 — Monthly trajectory materialization.**
    Define `SimulationTimeline` contents (`portfolio`, `market_snapshot`,
    `debt_snapshot`). Add optional `materialize_timeline` flag to Numba
-   executors. Implement in kernels with pre-allocated arrays.
+   executors. Implement in kernels with pre-allocated arrays. Gated on D2 at
+   grid scale (see ordering above).
 
 2. **D2 — Cohort-slice dispatch for bounded memory.**
    Port `_slice_plan_units` to unified Numba path. Validate ERN grid
@@ -405,14 +371,14 @@ Work items:
    Rewrite `execute_deterministic_trajectory` to use Numba kernel with
    trajectory output and checkpoint extraction.
 
-3. **D4 — Legacy pipeline removal.**
+4. **D4 — Legacy pipeline removal.**
    Delete `_create_default_simulation_executor()`, `create_default_pipeline()`,
    `create_buy_and_hold_pipeline()`, `ExpenseDeductionStep`, all pipeline
    steps, `ReferenceSimulationExecutor`, `execute_reference()`,
    `expected_reference_report`, `reference_month_work`, `FastPathSimulationExecutor`
    (if Numba is mandatory), and all fallback references.
 
-4. **D5 — Public API resolution.**
+5. **D5 — Public API resolution.**
    Decide on `ExecutionBackend.REFERENCE` rename/removal (breaking change).
    Update CLI to route `--reference` and default path through unified engine.
    Remove `--validate` (tied to Decimal fast path validation).
@@ -496,7 +462,7 @@ be imported by production code.
   decided before Phase D.**
 - Full trajectories (#16) block persistence (#17), debt aggregation, and
   deterministic execution.
-- Slice dispatch (#14/B7) blocks memory-bounded execution once #16 lands.
+- Slice dispatch (#14/D2) blocks memory-bounded execution once #16 lands.
 
 ### 6.2 Risks
 
@@ -511,7 +477,7 @@ be imported by production code.
 2. **Methodology drift.** Forcing Part 52 onto the Part 49 recurrence would
    silently change results. Preserve per-study semantics.
 3. **Trajectory payload size.** Materializing timelines for 313k units is
-   enormous (~0.37 MiB/unit per the legacy notes in `reference.py:419`); B7 is
+   enormous (~0.37 MiB/unit per the legacy notes in `reference.py:419`); D2 is
    a hard prerequisite for persistence at grid scale.
 4. **Public API breakage.** Removing `execute_reference`/`ExecutionBackend.REFERENCE`
    semantics is a breaking change and requires a Core minor version bump and
@@ -545,16 +511,16 @@ be imported by production code.
 
 | File | Symbols | Phase | Action |
 |------|---------|:-----:|--------|
-| `src/fbf/core/execution/strategies/reference.py` | `ReferenceSimulationExecutor`, `execute_reference`, `_slice_plan_units`, `expected_reference_report`, `_build_derived_result` | D | Delete after slice dispatch ported (B7/D2) and report duties migrated |
+| `src/fbf/core/execution/strategies/reference.py` | `ReferenceSimulationExecutor`, `execute_reference`, `_slice_plan_units`, `expected_reference_report`, `_build_derived_result` | D | Delete after slice dispatch ported (D2) and report duties migrated |
 | `src/fbf/core/execution/strategies/workbook_scr.py` | `compute_workbook_growth_factors`, `compute_workbook_scr`, `workbook_scr_success` | B | **COMPLETE** — workbook SCR core implementation |
-| `src/fbf/core/execution/__init__.py` | `execute_reference`, `expected_reference_report`, `reference_month_work` exports (`:53`,`:62`,`:70`); REFERENCE branch (`:436`) | D | Remove after Phase C; rename `ExecutionBackend.REFERENCE` in Phase C |
+| `src/fbf/core/execution/__init__.py` | `execute_reference`, `expected_reference_report`, `reference_month_work` exports (`:53`,`:62`,`:70`); REFERENCE branch (`:458`) | D | Remove after Phase C; rename `ExecutionBackend.REFERENCE` in Phase C |
 | `src/fbf/core/execution/strategies/parallel_executor.py` | `_create_default_simulation_executor` (`:42`) | D | Delete after all fallbacks removed (Phase D4) |
 | `src/fbf/core/execution/pipeline/default_pipeline.py` | `create_default_pipeline`, `create_buy_and_hold_pipeline` | D | Delete after all pipeline consumers migrated (Phase D4) |
 | `src/fbf/core/execution/pipeline/steps/expense_deduction_step.py` | `ExpenseDeductionStep` | C/D | Migrate fee to Numba (B1); delete in Phase D4 |
-| `src/fbf/core/execution/strategies/fast_path.py` | `FastPathSimulationExecutor`, `self._reference` (`:817`), `_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form` | C/D | **Workbook SCR COMPLETE**; retain as Decimal fast path if Numba optional; else delete in D4 |
-| `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `self._reference` (`:255`), `_use_workbook_scr`, `_process_static_group` | B/C/D | **Workbook SCR COMPLETE**; extend; remove fallback in C1/D4 |
-| `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor`, `self._reference` (`:217`) | C | Generalize; remove fallback in C1; add expense ratio (B1) |
-| `src/fbf/core/execution/strategies/numba_kernel.py` | `_simulate_trajectory`, `_simulate_trajectory_end_of_period`, `_simulate_trajectory_varying`, `_compute_workbook_scr`, `_simulate_part52` | B/C/D | **Workbook SCR COMPLETE**; add nominal/escalating withdrawal (B2/B3), trajectories (D1), debt snapshots |
+| `src/fbf/core/execution/strategies/fast_path.py` | `FastPathSimulationExecutor`, `self._reference` (`:1099`), `_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form` | C/D | **Workbook SCR COMPLETE**; retain as Decimal fast path if Numba optional; else delete in D4 |
+| `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `self._reference` (`:476`), `_use_workbook_scr`, `_process_static_group` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); multi-asset (B5); remove fallback in C1/D4 |
+| `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor`, `self._reference` (`:287`) | C | Generalize; remove fallback in C1; add expense ratio (B1) |
+| `src/fbf/core/execution/strategies/numba_kernel.py` | `_simulate_trajectory`, `_simulate_trajectory_end_of_period`, `_simulate_trajectory_varying`, `_compute_workbook_scr`, `_simulate_part52` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); trajectories (D1); debt snapshots |
 | `src/fbf/core/execution/deterministic.py` | `execute_deterministic_trajectory` | D | Reimplement on Numba (D3) |
 
 ### 7.2 Configuration / CLI / public surface
@@ -564,8 +530,8 @@ be imported by production code.
 | `ExecutionBackend` | `execution/__init__.py:123` | Rename/alias question (§6.3) |
 | `--reference`, `--fast-path` | `fbf-cli/src/fbf/cli/commands/run_command.py:234-243` | Verify/repair dispatch (§6.2.5) |
 | `--validate` | same file `:244` | Ties to fast-path validation of the Decimal fast path |
-| Persistence guard | same file `:397-402` | `--fast-path` + `--persist-study` blocked until B6 |
-| `ExecutionOptions` | `execution/__init__.py:191` | `summary_only`, `glidepath_gf_cache` |
+| Persistence guard | same file `:397-402` | `--fast-path` + `--persist-study` blocked until D1 |
+| `ExecutionOptions` | `execution/__init__.py:192` | `summary_only`, `glidepath_gf_cache` |
 
 ### 7.3 Test inventory
 
@@ -579,9 +545,9 @@ be imported by production code.
 | `tests/unit/execution/test_backend_equivalence.py` | Routing | A | Keep; fix "reference" naming |
 | `tests/unit/execution/test_backend_strategy_matrix.py` | Routing | A | Keep; replace `_make_reference_executor()` with `FastPathSimulationExecutor` |
 | `tests/unit/execution/test_pipeline_parity.py` | Behavioral/equivalence | C/D | Reclassify; keep behavioral contract tests |
-| `tests/unit/strategies/test_numba_executor_differential.py` | Differential vs legacy (legacy methodology) | B/C | **DELETED** — compared workbook-based numba vs legacy reference |
+| `tests/unit/strategies/test_numba_executor_differential.py` | Differential vs workbook oracle | B/C | **ACTIVE** — Numba executor vs workbook SCR oracle for static allocations |
 | `tests/unit/execution/test_grid_reference.py` | Legacy grid | C/D | Reclassify; keep routing tests |
-| `tests/integration/test_numba_e2e.py` | Numba E2E (legacy comparison) | B/C | **DELETED** — compared workbook-based numba vs legacy reference |
+| `tests/integration/test_numba_e2e.py` | Numba E2E (workbook oracle) | B/C | **ACTIVE** — full study path vs workbook oracle for static allocations |
 | `tests/integration/test_part52_*` | Behavioral (debt) | C | **REWRITE** to use `Part52NumbaExecutor`; add explicit Numba-path tests |
 | `tests/integration/test_part49_*` | Behavioral/canonical | C | **REWRITE** to use Numba executor; add explicit Numba-path tests |
 | `tests/benchmarks/test_*` | Performance | B/D | Keep; update to unified path |
@@ -589,7 +555,7 @@ be imported by production code.
 | `tests/unit/execution/test_fast_path.py` | Fast path workbook SCR | B | **PASSING** (22/22) — validates workbook SCR path, depletion boundary, multi-horizon equivalence |
 | `tests/unit/research/test_part20_corrected_methodology.py` | Part20 workbook fidelity | B | **PASSING** (9/9) — updated expectations for workbook methodology |
 | `tests/integration/test_part52_numba_executor.py` | Part 52 Numba path | A | **NEW** — prove eligible configs execute without fallback |
-| `tests/integration/test_part52_ineligible_error.py` | Unsupported config errors | A | **NEW** — explicit errors for ineligible configs |
+| `tests/integration/test_part52_numba_executor.py` (ineligibility cases) | Unsupported config errors | A | **ACTIVE** — ineligible Part 52 configs invoke fallback (e.g. `test_ineligible_context_invokes_fallback`) |
 
 ---
 
@@ -657,25 +623,23 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | Milestone | Status | Evidence | Commit | Notes |
 |-----------|--------|----------|--------|-------|
 | A1: Fix CLI default-routing bug | ✅ Complete | CLI dry-run works for all 3 paths | 8d142d3 (fbf-cli) | `run_command.py` default branch added |
-| A2: Part 52 Numba test coverage | ✅ Complete | 12 new tests exercise Numba path | [pending] | Tests prove eligible configs execute on Numba without fallback |
+| A2: Part 52 Numba test coverage | ✅ Complete | 12 new tests exercise Numba path | f427202 | Tests prove eligible configs execute on Numba without fallback |
 | A3: Document legacy consumers | ✅ Complete | §1.3 | b4ff4ad | Verified via grep |
 | B1: Expense ratios (additive fee) | ✅ Complete (audited & fixed) | `workbook_scr.py`, `test_fast_path.py`, `part52_numba_executor.py` | 8dfbf24 (audited) | Static + Part 52 complete; Glidepath pending; **Critical cache key + fee pass-through bug fixed** |
-| B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | [current] | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
+| B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | 00b5770 | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
 | Numba cache/dataset identity fix | ✅ Complete | `test_numba_executor_differential.py`, `test_part52_numba_executor.py` | 99aa5a4 | Dataset-identity tokens + identity-prefix clustering in both Numba executors |
-| B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | [audit] | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
+| B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | a00c0ec | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
 | B3: Escalating withdrawal | ✅ Complete (ConstantAllocation) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py` | 65f1f67 | Value-independent annual schedule; Glidepath + deterministic Experiment E path deferred (D3) |
 | Buy-and-hold initial allocation | ✅ Complete (correction) | `default_pipeline.py`, `allocation_decision_step.py`, `portfolio_rebalance_step.py`, `test_part49_buy_and_hold.py` | 3f2f788 | Buy-and-hold applied the 50/50 default; allocation now applied once in period 0 |
-| B4: Buy-and-hold | ✅ Complete (non-debt, fee=0) | `numba_kernel.py`, `numba_executor.py`, `execution/__init__.py`, `test_numba_buy_and_hold.py` | [current] | Unit-tracking kernel; Part 49 leverage → C4, multi-asset → B5, fee>0 deferred |
-| B5: Multi-asset | ⬜ Not Started | — | — | Verify kernel support |
-| B6: Trajectory materialization | ⬜ Not Started | — | — | Requires B7 first |
-| B7: Cohort-slice dispatch | ⬜ Not Started | — | — | Port `_slice_plan_units` |
+| B4: Buy-and-hold | ✅ Complete (non-debt, fee=0) | `numba_kernel.py`, `numba_executor.py`, `execution/__init__.py`, `test_numba_buy_and_hold.py` | 5179a3b | Unit-tracking kernel; Part 49 leverage → C4, multi-asset → B5, fee>0 deferred |
+| B5: Multi-asset | ✅ Complete | `concrete.py`, `fast_path.py`, `numba_executor.py`, `test_multi_asset_allocation.py` | 85d72582f047279d5d9c42ca3f3cb0e3d9099c7b | Explicit N-asset `allocations`; single `resolve_target_weights`; nominal/escalating/Part 52 gate to the legacy form and fall back for explicit allocations |
 | C1: Part 52 Numba-only | ⬜ Not Started | — | — | Remove fallback |
 | C2: Part 52 fee behavior | ⬜ Not Started | — | — | Additive in kernel |
 | C3: Part 49 debt migration | ⬜ Not Started | — | — | Separate kernel or mode |
 | C4: Part 49 buy-and-hold | ⬜ Not Started | — | — | Depends on B4 |
 | C5: LTV terminal state | ⬜ Not Started | — | — | `margin_call_terminal` |
-| D1: Trajectory materialization | ⬜ Not Started | — | — | Optional flag |
-| D2: Cohort-slice for memory | ⬜ Not Started | — | — | ERN grid validation |
+| D1: Trajectory materialization | ⬜ Not Started | — | — | Optional flag; gated on D2 at grid scale |
+| D2: Cohort-slice for memory | ⬜ Not Started | — | — | Prerequisite for D1; port `_slice_plan_units`; ERN grid validation |
 | D3: Deterministic trajectory | ⬜ Not Started | — | — | Checkpoint extraction |
 | D4: Legacy removal | ⬜ Not Started | — | — | Final deletion gate |
 | D5: Public API resolution | ⬜ Not Started | — | — | Breaking change decision |
@@ -701,7 +665,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   - SCR reduction: higher fee reduces SCR
 - All quality gates pass: ruff, mypy, pytest (19 Part 52 tests + all existing tests)
 
-**[current]** — "B2: Constant nominal withdrawal (ConstantWithdrawalPolicy)"
+**00b5770** — "B2: Constant nominal withdrawal (ConstantWithdrawalPolicy)"
 - Implemented recurrence `V_{m+1} = V_m * (1 - rate/12) * g_m` in `_simulate_trajectory_constant_nominal` (beginning-of-period, matching legacy pipeline)
 - Added eligibility predicate `_is_constant_nominal_eligible` and group key `_constant_nominal_group_key` (excludes `initial_wealth` since withdrawal scales with current value)
 - Extended `NumbaSimulationExecutor` with `_process_constant_nominal_group` for batch processing
@@ -710,7 +674,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 - AUTO routing now selects Numba for ConstantWithdrawalPolicy + ConstantAllocationPolicy
 - All quality gates pass: ruff, mypy, pytest (541 unit tests + integration tests)
 
-**audit** — "fix growth-factor / price cache identity collision in both Numba executors"
+**99aa5a4** — "fix growth-factor / price cache identity collision in both Numba executors"
 - Both Numba executors keyed cached growth factors, materialised prices, and
   index series by trajectory parameters (`start_date`, allocation) only. Two
   contexts built from *different* market datasets that shared a start date
@@ -745,7 +709,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 - All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
   contract, benchmarks).
 
-**[audit]** — "Part 52 derivation-key correctness audit"
+**a00c0ec** — "Part 52 derivation-key correctness audit"
 - Audited every context field consumed by the Part 52 kernel path against
   `_part52_group_key`. The shared path consumes `start_date`,
   `equity_allocation`, `expense_ratio`, `initial_portfolio`, `withdrawal_rate`,
@@ -813,7 +777,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 - All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
   contract).
 
-**[current]** — "B4: Buy-and-hold (BuyAndHoldAllocationPolicy)"
+**5179a3b** — "B4: Buy-and-hold (BuyAndHoldAllocationPolicy)"
 - Prerequisite correction (`3f2f788`): `create_buy_and_hold_pipeline()` never
   invoked `BuyAndHoldAllocationPolicy` — it omitted both `AllocationDecisionStep`
   and `PortfolioRebalanceStep`, so every buy-and-hold run started from
@@ -888,14 +852,14 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 ## Appendix A — Verified facts used in this roadmap
 
 - `ExecutionBackend.REFERENCE` routes to `FastPathSimulationExecutor`
-  (`execution/__init__.py:436-439`); it is not the legacy engine.
+  (`execution/__init__.py:458`); it is not the legacy engine.
 - `execute_reference()` (`reference.py:455`) is the legacy engine with
   cohort-sliced dispatch.
 - Every executor falls back to `_create_default_simulation_executor()`
-  (`fast_path.py:817`, `numba_executor.py:255`, `part52_numba_executor.py:217`,
+  (`fast_path.py:1099`, `numba_executor.py:476`, `part52_numba_executor.py:287`,
   `reference.py:322`).
-- Numba executors emit empty timelines (`numba_executor.py:616,686`;
-  `part52_numba_executor.py:380`).
+- Numba executors emit empty timelines (`numba_executor.py:890,959,1034,1114,1223`;
+  `part52_numba_executor.py:460`).
 - Debt aggregation reads monthly `debt_snapshot`
   (`research/part49_aggregation.py:126-129`,
   `optimization/part52_evaluator.py:192-194`).
@@ -910,8 +874,8 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 
 ## Appendix B — Capability classification summary
 
-- **Class 1 (already supported — workbook fidelity for static allocations):** 1, 3, 5, 7, 9, 10, 11, 12, 13.
-- **Class 2 (partial — glidepaths supported but not workbook-aligned):** 4, 6, 8, 14, 18.
-- **Class 3 (not supported):** 2, 16, 17, 19, 20, 21.
+- **Class 1 (already supported by Numba):** 1, 2, 3, 5, 7, 9, 10, 11, 12, 13, 19.
+- **Class 2 (partial):** 4, 6, 8, 14, 18, 20.
+- **Class 3 (not supported):** 16, 17, 21.
 - **Class 4 (specialized):** 15, 22, 25.
 - **Class 5 (obsolete/redundant):** 23, 24.
