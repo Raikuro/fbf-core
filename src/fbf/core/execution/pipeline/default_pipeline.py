@@ -109,14 +109,20 @@ def create_buy_and_hold_pipeline() -> SimulationPipeline:
     """Create a buy-and-hold pipeline for ERN Part 49 replication.
 
     Buy-and-hold means:
-    - Initial allocation is established once (InitializeAllocationStep at seq 0)
-    - NO periodic AllocationDecisionStep (seq 40 omitted)
-    - NO periodic PortfolioRebalanceStep (seq 50 omitted)
+    - The target equity/bond allocation is established once, in period 0
+    - NO periodic allocation decisions or rebalancing thereafter
     - Market evolution naturally changes portfolio weights
     - Withdrawals sell assets for cash without rebalancing the remainder
     - Debt/leverage mechanics operate unchanged
 
-    Pipeline order (based on default pipeline with rebalance steps removed):
+    The initial allocation is applied by the same ``AllocationDecisionStep`` /
+    ``PortfolioRebalanceStep`` as the default pipeline, but with
+    ``first_period_only=True`` so that they run only in period 0.  Because a
+    rebalance preserves portfolio value and withdrawals are weight-independent,
+    this matches the default pipeline's period-0 allocation timing.
+
+    Pipeline order (based on the default pipeline with the allocation and
+    rebalance steps restricted to period 0):
     0: InitializeAllocation
     5: ExpenseDeduction (ERN-precise expense + C-timing correction)
     10: BuildDecisionContext
@@ -126,6 +132,8 @@ def create_buy_and_hold_pipeline() -> SimulationPipeline:
     30: SupplementalCashFlow (inactive by default)
     32: WithdrawalExecution (consume cash first, then sell assets)
     32: LoanRepayment (Part 52: repay at fresh ATH)
+    40: AllocationDecision (period 0 only — establishes the initial target)
+    50: PortfolioRebalance (period 0 only — applies the initial allocation)
     60: MarketEvolution
     66: LTVEvaluation
     70: MonthlyResultBuilder
@@ -144,8 +152,8 @@ def create_buy_and_hold_pipeline() -> SimulationPipeline:
             # inactive by default
             WithdrawalExecutionStep(),  # Consume cash first, then sell assets
             LoanRepaymentStep(),  # Part 52: repay at fresh ATH
-            # AllocationDecisionStep OMITTED (no periodic allocation decisions)
-            # PortfolioRebalanceStep OMITTED (no periodic rebalancing)
+            AllocationDecisionStep(first_period_only=True),  # initial target only
+            PortfolioRebalanceStep(first_period_only=True),  # initial allocation only
             MarketEvolutionStep(),
             LTVEvaluationStep(),
             MonthlyResultBuilderStep(),

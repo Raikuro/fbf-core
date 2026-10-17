@@ -8,11 +8,21 @@ from fbf.core.execution.pipeline.simulation import SimulationState
 
 
 class AllocationDecisionStep(PipelineStep):
-    """PipelineStep that requests an allocation decision."""
+    """PipelineStep that requests an allocation decision.
+
+    With ``first_period_only=True`` the step is a no-op after period 0.  This
+    lets a buy-and-hold pipeline establish its initial target allocation once,
+    while omitting periodic allocation decisions.
+    """
 
     sequence_order = 40
 
+    def __init__(self, *, first_period_only: bool = False) -> None:
+        self.first_period_only = first_period_only
+
     def execute(self, state: SimulationState) -> SimulationState:
+        if self.first_period_only and state.period_index != 0:
+            return state
         self._validate_state(state)
         assert state.decision_context is not None
 

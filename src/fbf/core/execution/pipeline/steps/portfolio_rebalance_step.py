@@ -8,14 +8,27 @@ from fbf.core.execution.pipeline.simulation import SimulationState
 
 
 class PortfolioRebalanceStep(PipelineStep):
-    """PipelineStep that applies an allocation decision to the portfolio."""
+    """PipelineStep that applies an allocation decision to the portfolio.
+
+    With ``first_period_only=True`` the step is a no-op after period 0.  This
+    lets a buy-and-hold pipeline rebalance to its initial target allocation
+    once, then let weights drift with market movements.
+    """
 
     sequence_order = 50
 
-    def __init__(self, rebalance_service: PortfolioRebalanceService | None = None) -> None:
+    def __init__(
+        self,
+        rebalance_service: PortfolioRebalanceService | None = None,
+        *,
+        first_period_only: bool = False,
+    ) -> None:
         self.rebalance_service = rebalance_service or PortfolioRebalanceService()
+        self.first_period_only = first_period_only
 
     def execute(self, state: SimulationState) -> SimulationState:
+        if self.first_period_only and state.period_index != 0:
+            return state
         self._validate_state(state)
         assert state.allocation_decision is not None
         assert state.market_snapshot is not None

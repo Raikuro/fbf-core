@@ -23,6 +23,7 @@ from fbf.core.execution.pipeline.default_pipeline import (
 )
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.runner import SimulationRunner
+from fbf.core.execution.pipeline.simulation import MonthlyResult
 from fbf.core.execution.pipeline.steps.allocation_decision_step import (
     AllocationDecisionStep,
 )
@@ -123,34 +124,47 @@ class TestBuyAndHoldPipelineStructure:
         for step in required_steps:
             assert step in step_types, f"Missing required step: {step}"
 
-        # Steps that MUST NOT be present
-        forbidden_steps = {
-            "AllocationDecisionStep",
-            "PortfolioRebalanceStep",
-        }
+        # Allocation and rebalancing run only in period 0 (initial allocation).
+        allocation_step = next(
+            step for step in pipeline.steps if isinstance(step, AllocationDecisionStep)
+        )
+        rebalance_step = next(
+            step for step in pipeline.steps if isinstance(step, PortfolioRebalanceStep)
+        )
+        assert allocation_step.first_period_only is True
+        assert rebalance_step.first_period_only is True
 
-        for step in forbidden_steps:
-            assert step not in step_types, f"Forbidden step present: {step}"
+    def test_allocation_and_rebalance_are_first_period_only(self) -> None:
+        """There is no *periodic* allocation decision or rebalancing.
 
-    def test_pipeline_excludes_allocation_decision_and_rebalance(self) -> None:
-        """Explicitly verify the two periodic steps are absent."""
+        The two steps are present exactly once each, gated to period 0.
+        """
         pipeline = create_buy_and_hold_pipeline()
 
-        for step in pipeline.steps:
-            assert not isinstance(step, AllocationDecisionStep), (
-                f"AllocationDecisionStep found in buy-and-hold pipeline: {step}"
-            )
-            assert not isinstance(step, PortfolioRebalanceStep), (
-                f"PortfolioRebalanceStep found in buy-and-hold pipeline: {step}"
-            )
+        allocation_steps = [
+            step for step in pipeline.steps if isinstance(step, AllocationDecisionStep)
+        ]
+        rebalance_steps = [
+            step for step in pipeline.steps if isinstance(step, PortfolioRebalanceStep)
+        ]
 
-    def test_default_pipeline_includes_rebalance_steps(self) -> None:
-        """Verify default pipeline includes the steps we omit (sanity check)."""
+        assert len(allocation_steps) == 1
+        assert allocation_steps[0].first_period_only is True
+        assert len(rebalance_steps) == 1
+        assert rebalance_steps[0].first_period_only is True
+
+    def test_default_pipeline_has_periodic_rebalance(self) -> None:
+        """The default pipeline rebalances every period (sanity check)."""
         pipeline = create_default_pipeline()
-        step_types = {type(step).__name__ for step in pipeline.steps}
+        allocation_step = next(
+            step for step in pipeline.steps if isinstance(step, AllocationDecisionStep)
+        )
+        rebalance_step = next(
+            step for step in pipeline.steps if isinstance(step, PortfolioRebalanceStep)
+        )
 
-        assert "AllocationDecisionStep" in step_types
-        assert "PortfolioRebalanceStep" in step_types
+        assert allocation_step.first_period_only is False
+        assert rebalance_step.first_period_only is False
 
 
 class TestBuyAndHoldInitialAllocation:
@@ -174,26 +188,28 @@ class TestBuyAndHoldInitialAllocation:
         runner = SimulationRunner(pipeline=create_buy_and_hold_pipeline())
         result = runner.run(ctx)
 
-        # Verify initial holdings reflect 75/25 allocation from first monthly result
+        # Verify initial holdings reflect the configured 75/25 allocation.
         assert result.timeline.monthly_results
         first_month = result.timeline.monthly_results[0]
         portfolio = first_month.portfolio
         assert portfolio is not None
+        snapshot = first_month.market_snapshot
+        assert snapshot is not None
 
-        # At initialization, equity should be 75% and bonds 25%
-        # Note: exact units depend on initial prices in dataset
-        equity_holding = None
-        bond_holding = None
-        for holding in portfolio.holdings:
-            if holding.asset_class.id == "equity":
-                equity_holding = holding
-            elif holding.asset_class.id == "bond":
-                bond_holding = holding
-
-        assert equity_holding is not None, "Equity holding not found"
-        assert bond_holding is not None, "Bond holding not found"
-        assert equity_holding.units > 0
-        assert bond_holding.units > 0
+        value = sum(
+            (h.units * snapshot.index_levels[h.asset_class] for h in portfolio.holdings),
+            Decimal("0"),
+        )
+        assert value > 0
+        equity_value = sum(
+            (
+                h.units * snapshot.index_levels[h.asset_class]
+                for h in portfolio.holdings
+                if h.asset_class.id == "equity"
+            ),
+            Decimal("0"),
+        )
+        assert abs(equity_value / value - EQUITY_ALLOCATION) < Decimal("0.001")
 
 
 class TestBuyAndHoldWeightDrift:
@@ -215,17 +231,35 @@ class TestBuyAndHoldWeightDrift:
         ctx = executor._create_context_for_unit(built.experiment_definition, first_unit)
         runner = SimulationRunner(pipeline=create_buy_and_hold_pipeline())
 
-        # Run first month
         result1 = runner.run(ctx)
 
-        # Check that we have a result with timeline
         assert result1.timeline is not None
-        assert len(result1.timeline.monthly_results) >= 1
+        months = result1.timeline.monthly_results
+        assert len(months) >= 2
 
-        # The portfolio should have evolved - weights should not be exactly 75/25
-        # after market evolution (unless market returns are exactly 0)
-        # We can't easily check exact weights without re-running, but we can
-        # verify the pipeline executes without rebalancing steps
+        def _equity_weight(month: MonthlyResult) -> Decimal:
+            snap = month.market_snapshot
+            total = sum(
+                (
+                    h.units * snap.index_levels[h.asset_class]
+                    for h in month.portfolio.holdings
+                ),
+                Decimal("0"),
+            )
+            equity = sum(
+                (
+                    h.units * snap.index_levels[h.asset_class]
+                    for h in month.portfolio.holdings
+                    if h.asset_class.id == "equity"
+                ),
+                Decimal("0"),
+            )
+            return equity / total
+
+        # Period 0 establishes the configured 75/25 target exactly.
+        assert abs(_equity_weight(months[0]) - EQUITY_ALLOCATION) < Decimal("0.001")
+        # Without periodic rebalancing, later weights drift away from the target.
+        assert abs(_equity_weight(months[-1]) - EQUITY_ALLOCATION) > Decimal("0.0001")
 
 
 class TestBuyAndHoldWithdrawals:
