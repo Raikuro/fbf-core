@@ -116,6 +116,22 @@ def from_canonical_json(data: str) -> dict[str, Any]:
     return result
 
 
+def _fallback_allocation_params(policy: Any) -> dict[str, Any]:
+    """Encode an allocation policy when no registered codec is available.
+
+    Mirrors ``AllocationPolicyCodec.dump``: explicit multi-asset policies
+    serialize their ``allocations`` mapping, while legacy policies serialize
+    the scalar ``equity_allocation``. This prevents an explicit policy (whose
+    ``equity_allocation`` is ``None``) from being written as the string
+    ``"None"``.
+    """
+    allocations = getattr(policy, "allocations", None)
+    if allocations:
+        items = allocations.items() if isinstance(allocations, Mapping) else allocations
+        return {"allocations": {str(asset_id): str(weight) for asset_id, weight in items}}
+    return {"equity_allocation": str(getattr(policy, "equity_allocation", "1.0"))}
+
+
 def _serialize_policy(
     policy: Any,
     policy_kind: PolicyKind,
@@ -139,9 +155,7 @@ def _serialize_policy(
 
     if policy_kind == PolicyKind.ALLOCATION:
         if isinstance(policy, AllocationPolicy):
-            return "AllocationPolicy", {
-                "equity_allocation": str(getattr(policy, "equity_allocation", "1.0"))
-            }
+            return "AllocationPolicy", _fallback_allocation_params(policy)
         raise UnsupportedSerializationError(
             f"Unsupported allocation policy type: {type(policy).__name__}"
         )
@@ -1581,8 +1595,7 @@ class SQLiteRepository:
         if codec_params is None:
             if policy_kind == PolicyKind.ALLOCATION:
                 if isinstance(policy, AllocationPolicy):
-                    equity = str(getattr(policy, 'equity_allocation', '1.0'))
-                    codec_params = {"equity_allocation": equity}
+                    codec_params = _fallback_allocation_params(policy)
                     policy_type = "AllocationPolicy"
                 else:
                     raise UnsupportedSerializationError(
