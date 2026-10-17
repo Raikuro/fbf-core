@@ -5,9 +5,11 @@ FixedRealWithdrawalPolicy) using the Numba scalar kernel, reusing a
 longest-horizon evaluation to derive shorter-horizon results for
 prefix-consistent context families.
 
-Growth factors depend only on (start_date, equity_allocation) and are
-cached per executor instance to eliminate redundant computation across
-groups sharing the same trajectory and allocation.
+Growth factors depend only on (market trajectory, allocation weights) and
+are cached per executor instance to eliminate redundant computation across
+groups sharing the same trajectory and allocation.  Trajectory identity is
+part of the cache key (a dataset-identity token), so contexts built from
+different market data never share growth factors.
 
 The canonical reference engine remains untouched; this executor delegates
 every non-eligible context to the standard engine path.
@@ -38,12 +40,14 @@ Growth-factor caching
 ---------------------
 Growth factors are a function of (market trajectory, allocation weights)
 only.  They do not depend on withdrawal rate, initial wealth, or horizon.
-The cache key is (start_date, equity_allocation) for static strategies,
-or (start_date, glidepath_params) for glidepath strategies.  For the ERN
-workload this significantly reduces growth-factor computation.
+The cache key is (start_date, equity_allocation, dataset_token) for static
+strategies, or (start_date, glidepath_params, dataset_token) for glidepath
+strategies.  For the ERN workload this significantly reduces growth-factor
+computation.
 
 Glidepath growth-factor cache key:
-(start_date, glidepath_type, start_equity, end_equity, slope, mode)
+(start_date, glidepath_type, start_equity, end_equity, slope, mode,
+dataset_token)
 """
 
 from __future__ import annotations
@@ -51,7 +55,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -76,8 +80,10 @@ from fbf.core.execution.pipeline.simulation import (
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.strategies.fast_path import (
+    _dataset_token,
     _group_key,
     _index_series,
+    _trajectory_clusters,
     _weights_by_class,
     is_fast_path_eligible,
 )
@@ -95,15 +101,18 @@ from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
 )
 
-# Type for growth-factor cache key (static): (start_date, equity_allocation)
-GFKey = tuple[date, Decimal]
+# Growth-factor cache key (static): (start_date, equity_allocation, dataset_token).
+# The dataset token disambiguates contexts that share a start date but not a
+# market trajectory.
+GFKey = tuple[date, Decimal, int]
 
-# Type for glidepath growth-factor cache key:
+# Glidepath trajectory-parameter key (no dataset identity):
 # (start_date, glidepath_type, start_equity, end_equity, slope, mode)
-GlidepathGFKey = tuple[date, str, Decimal, Decimal, Decimal, str]
+GlidepathGroupKey = tuple[date, str, Decimal, Decimal, Decimal, str]
 
-# Type for price-float cache key: (start_date, number of price snapshots)
-_PriceCacheKey = tuple[date, int]
+# Glidepath growth-factor cache key:
+# (start_date, glidepath_type, start_equity, end_equity, slope, mode, dataset_token)
+GlidepathGFKey = tuple[date, str, Decimal, Decimal, Decimal, str, int]
 
 
 @dataclass(frozen=True)
@@ -186,12 +195,16 @@ def _gf_cache_key(context: SimulationContext) -> GFKey:
     """Minimal cache key for growth-factor identity (static strategies).
 
     Growth factors depend only on (market trajectory, allocation weights).
-    The start_date determines the trajectory prefix; the equity_allocation
-    determines the target weights.  Withdrawal rate, initial wealth,
-    horizon, and final_value_target do not affect growth factors.
+    The start_date and dataset token determine the trajectory; the
+    equity_allocation determines the target weights.  Withdrawal rate, initial
+    wealth, horizon, and final_value_target do not affect growth factors.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
-    return (context.start_date, allocation.equity_allocation)
+    return (
+        context.start_date,
+        allocation.equity_allocation,
+        _dataset_token(context),
+    )
 
 
 def _constant_nominal_group_key(context: SimulationContext) -> tuple[object, ...]:
@@ -213,12 +226,11 @@ def _constant_nominal_group_key(context: SimulationContext) -> tuple[object, ...
     )
 
 
-def _glidepath_gf_cache_key(context: SimulationContext) -> GlidepathGFKey:
-    """Cache key for glidepath growth factors.
+def _glidepath_group_key(context: SimulationContext) -> GlidepathGroupKey:
+    """Trajectory-parameter key for glidepath contexts (no dataset identity).
 
-    Growth factors depend on (market trajectory, glidepath weight sequence).
-    The weight sequence is determined by the glidepath parameters and the
-    canonical is_underwater sequence from the dataset.
+    Used to group contexts for cross-horizon derivation; trajectory identity is
+    enforced separately by the identity-prefix guard.
     """
     allocation = cast(GlidepathAllocationPolicy, context.allocation_policy)
     return (
@@ -229,6 +241,17 @@ def _glidepath_gf_cache_key(context: SimulationContext) -> GlidepathGFKey:
         allocation.slope,
         allocation.mode,
     )
+
+
+def _glidepath_gf_cache_key(context: SimulationContext) -> GlidepathGFKey:
+    """Cache key for glidepath growth factors.
+
+    Growth factors depend on (market trajectory, glidepath weight sequence).
+    The weight sequence is determined by the glidepath parameters and the
+    canonical is_underwater sequence from the dataset; the dataset token keeps
+    contexts built from different data from sharing growth factors.
+    """
+    return (*_glidepath_group_key(context), _dataset_token(context))
 
 
 def _compute_equity_weight_sequence(
@@ -277,16 +300,22 @@ class NumbaSimulationExecutor(SimulationExecutor):
     portfolio, allocation weights and withdrawal rate are evaluated together:
     the longest horizon is run once through the Numba kernel and every
     shorter horizon is derived by replaying the recurrence from the same
-    initial value and growth factors.
+    initial value and growth factors.  Grouping is further split into
+    identity-prefix clusters so a derived context only ever reuses a trajectory
+    whose snapshots are the very same objects (see
+    ``fast_path._trajectory_clusters``).
 
-    Growth factors are cached by (start_date, equity_allocation) to avoid
-    redundant computation across groups sharing the same trajectory and
-    allocation but differing in withdrawal rate.
+    Growth factors are cached by
+    (start_date, equity_allocation, dataset_token), so computation is shared
+    across groups with the same trajectory and allocation but differing in
+    withdrawal rate, while contexts built from different market data never
+    share growth factors.
 
     For glidepath strategies, growth factors are cached by
-    (start_date, glidepath_type, start_equity, end_equity, slope, mode).
-    An optional shared glidepath GF cache can be provided to persist growth
-    factors across multiple executor invocations (e.g., across bisection steps).
+    (start_date, glidepath_type, start_equity, end_equity, slope, mode,
+    dataset_token).  An optional shared glidepath GF cache can be provided to
+    persist growth factors across multiple executor invocations (e.g., across
+    bisection steps).
 
     Non-eligible contexts are delegated to the reference Decimal executor.
 
@@ -308,15 +337,16 @@ class NumbaSimulationExecutor(SimulationExecutor):
         self._reference = reference_executor or _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
         self._last_report: NumbaReport | None = None
-        self._gf_cache: dict[GFKey, Any] = {}
+        self._gf_cache: dict[GFKey, NDArray[np.float64]] = {}
         self._glidepath_gf_cache: dict[GlidepathGFKey, NDArray[np.float64]] = {}
         self._shared_glidepath_gf_cache: (
             dict[GlidepathGFKey, NDArray[np.float64]] | None
         ) = glidepath_gf_cache
-        self._price_float_cache: dict[_PriceCacheKey, NDArray[np.float64]] = {}
-        self._index_series_cache: dict[
-            _PriceCacheKey, dict[object, tuple[Decimal, ...]]
-        ] = {}
+        self._price_float_cache: dict[int, NDArray[np.float64]] = {}
+        self._index_series_cache: dict[int, dict[object, tuple[Decimal, ...]]] = {}
+        # Strong references that keep dataset-identity tokens unique for the
+        # executor's lifetime (see ``execute``).
+        self._dataset_refs: dict[int, Dataset] = {}
 
     @property
     def report(self) -> NumbaReport | None:
@@ -324,120 +354,93 @@ class NumbaSimulationExecutor(SimulationExecutor):
         return self._last_report
 
     @property
-    def gf_cache(self) -> dict[GFKey, Any]:
+    def gf_cache(self) -> dict[GFKey, NDArray[np.float64]]:
         """Return the current growth-factor cache (read-only for inspection)."""
         return self._gf_cache
 
     def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
         profiler = self._profiler
 
-        # --- Pass 1: group eligible contexts (static + glidepath) ---
-        profiler.start("numba_grouping")
-        key_to_group: dict[tuple[object, ...], int] = {}
-        group_contexts: list[list[SimulationContext]] = []
-        order: list[tuple[int, int]] = []
-        gf_key_to_max_horizon: dict[GFKey, int] = {}
-        gf_key_to_sample_ctx: dict[GFKey, SimulationContext] = {}
-        glidepath_gf_key_to_max_horizon: dict[GlidepathGFKey, int] = {}
-        glidepath_gf_key_to_sample_ctx: dict[GlidepathGFKey, SimulationContext] = {}
+        # Cache keys embed an object-identity token for each context's dataset
+        # (``_dataset_token``).  Holding a strong reference to every dataset the
+        # executor has seen keeps those tokens unique for the executor's
+        # lifetime, so cached growth factors and materialised prices remain
+        # valid across execute calls (e.g. a reused worker executor) without
+        # risking an id reused by a different trajectory.  The externally
+        # supplied glidepath cache is owned by the caller and left untouched.
+        for context in definition.simulation_contexts:
+            dataset = context.dataset
+            self._dataset_refs[id(dataset)] = dataset
 
-        for index, context in enumerate(definition.simulation_contexts):
-            # Check static eligibility first (FixedRealWithdrawalPolicy)
+        # --- Pass 1: group eligible contexts by trajectory parameters ---
+        profiler.start("numba_grouping")
+        key_to_contexts: dict[tuple[object, ...], list[SimulationContext]] = {}
+        is_eligible: list[bool] = []
+        for context in definition.simulation_contexts:
             if _is_numba_eligible(context):
                 key = _group_key(context)
-                if key not in key_to_group:
-                    group_id = len(group_contexts)
-                    key_to_group[key] = group_id
-                    group_contexts.append([])
-                else:
-                    group_id = key_to_group[key]
-                group_contexts[group_id].append(context)
-                order.append((index, group_id))
-
-                # Track max horizon and sample context per growth-factor cache key.
-                gf_k: GFKey = _gf_cache_key(context)
-                h = context.horizon_months
-                if h > gf_key_to_max_horizon.get(gf_k, 0):
-                    gf_key_to_max_horizon[gf_k] = h
-                    gf_key_to_sample_ctx[gf_k] = context
-            # Check constant nominal withdrawal eligibility (ConstantWithdrawalPolicy)
             elif _is_constant_nominal_eligible(context):
                 key = _constant_nominal_group_key(context)
-                if key not in key_to_group:
-                    group_id = len(group_contexts)
-                    key_to_group[key] = group_id
-                    group_contexts.append([])
-                else:
-                    group_id = key_to_group[key]
-                group_contexts[group_id].append(context)
-                order.append((index, group_id))
-
-                # Track max horizon and sample context per growth-factor cache key.
-                gf_k2: GFKey = _gf_cache_key(context)
-                h = context.horizon_months
-                if h > gf_key_to_max_horizon.get(gf_k2, 0):
-                    gf_key_to_max_horizon[gf_k2] = h
-                    gf_key_to_sample_ctx[gf_k2] = context
-            # Check glidepath eligibility
             elif _is_glidepath_eligible(context):
-                key = _glidepath_gf_cache_key(context)
-                if key not in key_to_group:
-                    group_id = len(group_contexts)
-                    key_to_group[key] = group_id
-                    group_contexts.append([])
-                else:
-                    group_id = key_to_group[key]
-                group_contexts[group_id].append(context)
-                order.append((index, group_id))
-
-                # Track max horizon and sample context per glidepath GF key.
-                glide_gf_k: GlidepathGFKey = _glidepath_gf_cache_key(context)
-                h = context.horizon_months
-                if h > glidepath_gf_key_to_max_horizon.get(glide_gf_k, 0):
-                    glidepath_gf_key_to_max_horizon[glide_gf_k] = h
-                    glidepath_gf_key_to_sample_ctx[glide_gf_k] = context
+                key = _glidepath_group_key(context)
             else:
-                # Non-eligible: delegate to reference
-                order.append((index, -1))
+                is_eligible.append(False)
+                continue
+            is_eligible.append(True)
+            key_to_contexts.setdefault(key, []).append(context)
         profiler.stop("numba_grouping")
+
+        # --- Pass 1b: split each parameter group into identity-prefix clusters ---
+        # Contexts that share trajectory parameters but were built from different
+        # market data must never derive from one another; the identity-prefix
+        # guard enforces this and keeps derivation correct.
+        prefix_memo: dict[tuple[int, int], bool] = {}
+        clusters: list[list[SimulationContext]] = []
+        for contexts in key_to_contexts.values():
+            clusters.extend(_trajectory_clusters(contexts, prefix_memo))
 
         # --- Pass 2a: precompute growth factors for static strategies ---
         profiler.start("numba_growth_factors_static")
 
         gf_cache_new = 0
         gf_cache_reused = 0
-        for gf_k, max_h in gf_key_to_max_horizon.items():
+        for cluster in clusters:
+            sample_ctx = cluster[0]
+            if not (
+                _is_numba_eligible(sample_ctx)
+                or _is_constant_nominal_eligible(sample_ctx)
+            ):
+                continue
+            max_h = max(ctx.horizon_months for ctx in cluster)
+            gf_k = _gf_cache_key(sample_ctx)
             cached = self._gf_cache.get(gf_k)
             if cached is not None and len(cached) >= max_h:
                 gf_cache_reused += 1
                 continue
             gf_cache_new += 1
-            # Use the precomputed sample context (longest horizon for this key).
-            sample_ctx = gf_key_to_sample_ctx[gf_k]
             weights = _weights_by_class(sample_ctx)
 
-            # Cache _index_series by (start_date, n_prices) — independent of allocation.
-            n_prices = sample_ctx.horizon_months
-            series_key: _PriceCacheKey = (gf_k[0], n_prices)
-            if series_key not in self._index_series_cache:
-                self._index_series_cache[series_key] = _index_series(sample_ctx)
-            series = self._index_series_cache[series_key]
+            # Materialised series/prices are per dataset object, independent of
+            # allocation and horizon.
+            dataset_key = _dataset_token(sample_ctx)
+            if dataset_key not in self._index_series_cache:
+                self._index_series_cache[dataset_key] = _index_series(sample_ctx)
+            series = self._index_series_cache[dataset_key]
             asset_classes = tuple(series.keys())
 
-            # Cache price arrays by (start_date, n_prices) — independent of allocation.
-            price_key: _PriceCacheKey = (
-                gf_k[0], len(series[asset_classes[0]])
-            )
-            if price_key not in self._price_float_cache:
-                self._price_float_cache[price_key] = _materialize_price_float(
+            if dataset_key not in self._price_float_cache:
+                self._price_float_cache[dataset_key] = _materialize_price_float(
                     asset_classes, series
                 )
-            prices_f = self._price_float_cache[price_key]
+            prices_f = self._price_float_cache[dataset_key]
             weights_f = np.array(
                 [float(weights[ac]) for ac in asset_classes], dtype=np.float64
             )
             self._gf_cache[gf_k] = _compute_growth_factors_numpy(
-                weights_f, prices_f, max_h, float(sample_ctx.expense_ratio or Decimal("0"))
+                weights_f,
+                prices_f,
+                max_h,
+                float(sample_ctx.expense_ratio or Decimal("0")),
             )
         profiler.stop("numba_growth_factors_static")
 
@@ -449,7 +452,12 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
         # Collect all glidepath GF computations that need to be performed
         glidepath_computations: list[tuple[GlidepathGFKey, int, SimulationContext]] = []
-        for glide_gf_k, max_h in glidepath_gf_key_to_max_horizon.items():
+        for cluster in clusters:
+            sample_ctx = cluster[0]
+            if not _is_glidepath_eligible(sample_ctx):
+                continue
+            max_h = max(ctx.horizon_months for ctx in cluster)
+            glide_gf_k = _glidepath_gf_cache_key(sample_ctx)
             # Check shared cache first (persists across bisection steps)
             shared_cached = None
             if self._shared_glidepath_gf_cache is not None:
@@ -465,7 +473,6 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 glidepath_gf_cache_reused += 1
                 continue
             glidepath_gf_cache_new += 1
-            sample_ctx = glidepath_gf_key_to_sample_ctx[glide_gf_k]
             glidepath_computations.append((glide_gf_k, max_h, sample_ctx))
 
         # Batch compute growth factors for all new glidepath entries
@@ -476,6 +483,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             batch_bond_prices = []
             batch_max_h = []
             batch_keys = []
+            batch_fees = []
 
             for glide_gf_k, max_h, sample_ctx in glidepath_computations:
                 # Extract is_underwater sequence from dataset
@@ -490,8 +498,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     [float(w) for w in equity_weights_decimal], dtype=np.float64
                 )
 
-                # Extract equity and bond price series
-                glide_series_key: _PriceCacheKey = (glide_gf_k[0], sample_ctx.horizon_months)
+                # Extract equity and bond price series (per dataset object).
+                glide_series_key = _dataset_token(sample_ctx)
                 if glide_series_key not in self._index_series_cache:
                     self._index_series_cache[glide_series_key] = _index_series(sample_ctx)
                 series = self._index_series_cache[glide_series_key]
@@ -519,27 +527,34 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 batch_bond_prices.append(bond_prices)
                 batch_max_h.append(max_h)
                 batch_keys.append(glide_gf_k)
+                batch_fees.append(float(sample_ctx.expense_ratio or Decimal("0")))
 
-            # Group by max_h to avoid shape mismatches
+            # Group by (max_h, fee) to avoid shape mismatches and to apply the
+            # correct fee per batch.
             from collections import defaultdict
 
             GroupTuple = tuple[
-                NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], GlidepathGFKey
+                NDArray[np.float64],
+                NDArray[np.float64],
+                NDArray[np.float64],
+                GlidepathGFKey,
+                float,
             ]
-            groups_by_max_h: dict[int, list[GroupTuple]] = defaultdict(list)
-            for _idx, (equity_w, eq_prices, bd_prices, max_h, glide_gf_k) in enumerate(
-                zip(
-                    batch_equity_weights,
-                    batch_equity_prices,
-                    batch_bond_prices,
-                    batch_max_h,
-                    batch_keys,
-                    strict=True,
-                )
+            groups_by_batch: dict[tuple[int, float], list[GroupTuple]] = defaultdict(list)
+            for equity_w, eq_prices, bd_prices, max_h, glide_gf_k, fee in zip(
+                batch_equity_weights,
+                batch_equity_prices,
+                batch_bond_prices,
+                batch_max_h,
+                batch_keys,
+                batch_fees,
+                strict=True,
             ):
-                groups_by_max_h[max_h].append((equity_w, eq_prices, bd_prices, glide_gf_k))
+                groups_by_batch[(max_h, fee)].append(
+                    (equity_w, eq_prices, bd_prices, glide_gf_k, fee)
+                )
 
-            for max_h, group in groups_by_max_h.items():
+            for (max_h, batch_fee), group in groups_by_batch.items():
                 if not group:
                     continue
                 # All sequences in this group have the same max_h, so we can stack them
@@ -550,8 +565,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
                 # Compute GFs for this batch
                 growth_factors_batch = compute_growth_factors_varying_weights_batch(
-                    batch_weights, batch_eq_prices, batch_bd_prices, max_h,
-                    float(sample_ctx.expense_ratio or Decimal("0"))
+                    batch_weights, batch_eq_prices, batch_bd_prices, max_h, batch_fee
                 )
 
                 # Store results
@@ -576,22 +590,21 @@ class NumbaSimulationExecutor(SimulationExecutor):
             "glidepath_gf_misses": glidepath_gf_cache_new,
         }
 
-        for _, contexts in enumerate(group_contexts):
-            sample_ctx = contexts[0]
+        for cluster in clusters:
+            sample_ctx = cluster[0]
             if _is_numba_eligible(sample_ctx):
-                self._process_static_group(contexts, results, stats)
+                self._process_static_group(cluster, results, stats)
             elif _is_constant_nominal_eligible(sample_ctx):
-                self._process_constant_nominal_group(contexts, results, stats)
+                self._process_constant_nominal_group(cluster, results, stats)
             elif _is_glidepath_eligible(sample_ctx):
-                self._process_glidepath_group(contexts, results, stats)
+                self._process_glidepath_group(cluster, results, stats)
         profiler.stop("numba_kernel_execution")
 
         # Assemble results in original definition order.
         profiler.start("numba_assembly")
         ordered_results: list[SimulationResult] = []
-        for index, group_id in order:
-            if group_id == -1:
-                context = definition.simulation_contexts[index]
+        for index, context in enumerate(definition.simulation_contexts):
+            if not is_eligible[index]:
                 single = EngineExperimentDefinition(
                     name=definition.name,
                     description=definition.description,
@@ -602,25 +615,24 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 stats["independent_count"] += 1
                 stats["month_work"] += context.horizon_months
             else:
-                ordered_results.append(results[id(definition.simulation_contexts[index])])
+                ordered_results.append(results[id(context)])
         profiler.stop("numba_assembly")
 
+        longest_path_evaluations = sum(
+            len({c.horizon_months for c in cluster}) for cluster in clusters
+        )
         self._last_report = NumbaReport(
             logical_units=len(definition.simulation_contexts),
-            groups=len(group_contexts),
-            longest_path_evaluations=sum(
-                len({c.horizon_months for c in g}) for g in group_contexts
-            ),
-            derived_results=stats["derived_count"] - sum(
-                len({c.horizon_months for c in g}) for g in group_contexts
-            ),
+            groups=len(clusters),
+            longest_path_evaluations=longest_path_evaluations,
+            derived_results=stats["derived_count"] - longest_path_evaluations,
             independent_evaluations=stats["independent_count"],
             month_work=stats["month_work"],
             gf_cache_hits=stats["gf_hits"],
             gf_cache_misses=stats["gf_misses"],
         )
 
-        profiler.record("numba_groups", len(group_contexts))
+        profiler.record("numba_groups", len(clusters))
         profiler.record("numba_derived", stats["derived_count"])
         profiler.record("numba_independent", stats["independent_count"])
         profiler.record("numba_month_work", stats["month_work"])

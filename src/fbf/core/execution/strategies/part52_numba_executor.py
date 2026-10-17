@@ -4,10 +4,12 @@ Implements a scalar-state Numba kernel that replicates the Part52 pipeline's
 behavioral semantics: compound drawdown tracking, FFR-based interest accrual,
 loan draw/repay, cash-first consumption, and LTV enforcement.
 
-The executor groups eligible Part52 contexts by (start_date, equity_allocation),
-precomputes growth factors and per-cohort monthly rates / equity prices, and
-runs the Part52 kernel per unique horizon.  Ineligible contexts are delegated
-to the reference Decimal engine.
+The executor groups eligible Part52 contexts by the parameters that drive the
+kernel (see ``_part52_group_key``), splits each group into identity-prefix
+clusters so derived horizons only reuse a trajectory whose snapshots are the
+very same objects, precomputes growth factors keyed by dataset identity and
+per-cohort monthly rates / equity prices, and runs the Part52 kernel per unique
+horizon.  Ineligible contexts are delegated to the reference Decimal engine.
 """
 
 from __future__ import annotations
@@ -15,11 +17,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
 
+from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
@@ -34,19 +37,19 @@ from fbf.core.execution.pipeline.simulation import (
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.strategies.fast_path import (
-    _group_key,
+    _dataset_token,
     _index_series,
+    _trajectory_clusters,
     _weights_by_class,
 )
 from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
 )
 
-# Type for growth-factor cache key: (start_date, equity_allocation, expense_ratio)
-GFKey = tuple[date, Decimal, Decimal]
-
-# Type for price-float cache key: (start_date, number of price snapshots)
-_PriceCacheKey = tuple[date, int]
+# Growth-factor cache key: (start_date, equity_allocation, expense_ratio,
+# dataset_token).  The dataset token disambiguates contexts that share a start
+# date but not a market trajectory.
+GFKey = tuple[date, Decimal, Decimal, int]
 
 
 @dataclass(frozen=True)
@@ -100,10 +103,47 @@ def is_part52_eligible(context: SimulationContext) -> bool:
 
 
 def _gf_cache_key(context: SimulationContext) -> GFKey:
-    """Cache key for growth-factor identity: (start_date, equity_allocation, expense_ratio)."""
+    """Cache key for growth-factor identity.
+
+    Includes the dataset token so growth factors computed from one trajectory
+    are never reused for a context built from different data (even when the
+    start date, allocation, and fee coincide).
+    """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     fee = context.expense_ratio or Decimal("0")
-    return (context.start_date, allocation.equity_allocation, fee)
+    return (context.start_date, allocation.equity_allocation, fee, _dataset_token(context))
+
+
+def _part52_group_key(context: SimulationContext) -> tuple[object, ...]:
+    """Derivation-group key for Part52 contexts.
+
+    Includes every context field that the Part52 kernel path consumes, except
+    ``horizon_months`` (the derivation dimension) and ``final_value_target``
+    (an evaluation dimension applied per context after the path is computed).
+    Sharing a group is only valid when all of these fields agree, because the
+    longest-horizon representative's parameters drive every derived horizon.
+
+    ``interest_rate_schedule`` is intentionally excluded: it is a per-horizon
+    prefix of the same FFR-aligned series for a given start date, so a shorter
+    horizon's schedule is always the prefix of the longest horizon's.  Dataset
+    identity is enforced separately by the identity-prefix guard.
+    """
+    allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
+    withdrawal = cast(Part52WithdrawalPolicy, context.withdrawal_policy)
+    return (
+        context.start_date,
+        allocation.equity_allocation,
+        context.expense_ratio,
+        context.initial_wealth,
+        context.initial_portfolio,
+        withdrawal.withdrawal_rate,
+        withdrawal.borrow_pct,
+        withdrawal.drawdown_threshold,
+        withdrawal.frequency,
+        context.interest_rate,
+        context.ltv_limit,
+        context.ltv_enforcement,
+    )
 
 
 def _compute_monthly_rates(
@@ -217,9 +257,12 @@ class Part52NumbaExecutor(SimulationExecutor):
         self._reference = reference_executor or _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
         self._last_report: Part52NumbaReport | None = None
-        self._gf_cache: dict[GFKey, Any] = {}
-        self._price_float_cache: dict[_PriceCacheKey, NDArray[np.float64]] = {}
-        self._index_series_cache: dict[_PriceCacheKey, dict[object, tuple[Decimal, ...]]] = {}
+        self._gf_cache: dict[GFKey, NDArray[np.float64]] = {}
+        self._price_float_cache: dict[int, NDArray[np.float64]] = {}
+        self._index_series_cache: dict[int, dict[object, tuple[Decimal, ...]]] = {}
+        # Strong references that keep dataset-identity tokens unique for the
+        # executor's lifetime (see ``execute``).
+        self._dataset_refs: dict[int, Dataset] = {}
 
     @property
     def report(self) -> Part52NumbaReport | None:
@@ -228,36 +271,38 @@ class Part52NumbaExecutor(SimulationExecutor):
     def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
         profiler = self._profiler
 
-        # --- Pass 1: group eligible contexts ---
+        # Cache keys embed an object-identity token for each context's dataset
+        # (``_dataset_token``).  Holding a strong reference to every dataset the
+        # executor has seen keeps those tokens unique for the executor's
+        # lifetime, so cached growth factors and materialised prices remain
+        # valid across execute calls without risking an id reused by a different
+        # trajectory.
+        for context in definition.simulation_contexts:
+            dataset = context.dataset
+            self._dataset_refs[id(dataset)] = dataset
+
+        # --- Pass 1: group eligible contexts by trajectory parameters ---
         profiler.start("part52_grouping")
-        key_to_group: dict[tuple[object, ...], int] = {}
-        group_contexts: list[list[SimulationContext]] = []
-        order: list[tuple[int, int]] = []
-        gf_key_to_max_horizon: dict[GFKey, int] = {}
-        gf_key_to_sample_ctx: dict[GFKey, SimulationContext] = {}
-
-        for index, context in enumerate(definition.simulation_contexts):
+        key_to_contexts: dict[tuple[object, ...], list[SimulationContext]] = {}
+        is_eligible: list[bool] = []
+        for context in definition.simulation_contexts:
             if not is_part52_eligible(context):
-                order.append((index, -1))
+                is_eligible.append(False)
                 continue
-            key = _group_key(context)
-            if key not in key_to_group:
-                group_id = len(group_contexts)
-                key_to_group[key] = group_id
-                group_contexts.append([])
-            else:
-                group_id = key_to_group[key]
-            group_contexts[group_id].append(context)
-            order.append((index, group_id))
-
-            gf_k = _gf_cache_key(context)
-            h = context.horizon_months
-            if h > gf_key_to_max_horizon.get(gf_k, 0):
-                gf_key_to_max_horizon[gf_k] = h
-                gf_key_to_sample_ctx[gf_k] = context
+            is_eligible.append(True)
+            key_to_contexts.setdefault(_part52_group_key(context), []).append(context)
         profiler.stop("part52_grouping")
 
-        # --- Pass 2: precompute growth factors ---
+        # --- Pass 1b: split each parameter group into identity-prefix clusters ---
+        # Contexts that share trajectory parameters but were built from different
+        # market data must never derive from one another; the identity-prefix
+        # guard enforces this and keeps derivation correct.
+        prefix_memo: dict[tuple[int, int], bool] = {}
+        clusters: list[list[SimulationContext]] = []
+        for contexts in key_to_contexts.values():
+            clusters.extend(_trajectory_clusters(contexts, prefix_memo))
+
+        # --- Pass 2: precompute growth factors per cluster representative ---
         profiler.start("part52_growth_factors")
         from fbf.core.execution.strategies.numba_kernel import (
             _compute_growth_factors_numpy,
@@ -266,40 +311,38 @@ class Part52NumbaExecutor(SimulationExecutor):
 
         gf_cache_new = 0
         gf_cache_reused = 0
-        for gf_k, max_h in gf_key_to_max_horizon.items():
+        for cluster in clusters:
+            representative = cluster[0]
+            max_h = max(ctx.horizon_months for ctx in cluster)
+            gf_k = _gf_cache_key(representative)
             cached = self._gf_cache.get(gf_k)
             if cached is not None and len(cached) >= max_h:
                 gf_cache_reused += 1
                 continue
             gf_cache_new += 1
-            sample_ctx = gf_key_to_sample_ctx[gf_k]
-            weights = _weights_by_class(sample_ctx)
+            weights = _weights_by_class(representative)
 
-            n_prices = sample_ctx.horizon_months
-            series_key: _PriceCacheKey = (gf_k[0], n_prices)
-            if series_key not in self._index_series_cache:
-                self._index_series_cache[series_key] = _index_series(sample_ctx)
-            series = self._index_series_cache[series_key]
+            dataset_key = _dataset_token(representative)
+            if dataset_key not in self._index_series_cache:
+                self._index_series_cache[dataset_key] = _index_series(representative)
+            series = self._index_series_cache[dataset_key]
             asset_classes = tuple(series.keys())
 
-            price_key: _PriceCacheKey = (
-                gf_k[0], len(series[asset_classes[0]])
-            )
-            if price_key not in self._price_float_cache:
-                self._price_float_cache[price_key] = _materialize_price_float(
+            if dataset_key not in self._price_float_cache:
+                self._price_float_cache[dataset_key] = _materialize_price_float(
                     asset_classes, series
                 )
-            prices_f = self._price_float_cache[price_key]
+            prices_f = self._price_float_cache[dataset_key]
             weights_f = np.array(
                 [float(weights[ac]) for ac in asset_classes], dtype=np.float64
             )
-            fee_annual = float(sample_ctx.expense_ratio or Decimal("0"))
+            fee_annual = float(representative.expense_ratio or Decimal("0"))
             self._gf_cache[gf_k] = _compute_growth_factors_numpy(
                 weights_f, prices_f, max_h, fee_annual
             )
         profiler.stop("part52_growth_factors")
 
-        # --- Pass 3: simulate each group ---
+        # --- Pass 3: simulate each cluster ---
         profiler.start("part52_kernel_execution")
         from fbf.core.execution.strategies.numba_kernel import _simulate_part52
 
@@ -310,7 +353,7 @@ class Part52NumbaExecutor(SimulationExecutor):
         gf_hits = gf_cache_reused
         gf_misses = gf_cache_new
 
-        for _, contexts in enumerate(group_contexts):
+        for contexts in clusters:
             horizon_to_ctxs: dict[int, list[SimulationContext]] = {}
             for ctx in contexts:
                 horizon_to_ctxs.setdefault(ctx.horizon_months, []).append(ctx)
@@ -398,9 +441,8 @@ class Part52NumbaExecutor(SimulationExecutor):
         # Assemble results in original order
         profiler.start("part52_assembly")
         ordered_results: list[SimulationResult] = []
-        for index, group_id in order:
-            if group_id == -1:
-                context = definition.simulation_contexts[index]
+        for index, context in enumerate(definition.simulation_contexts):
+            if not is_eligible[index]:
                 single = EngineExperimentDefinition(
                     name=definition.name,
                     description=definition.description,
@@ -411,25 +453,24 @@ class Part52NumbaExecutor(SimulationExecutor):
                 independent_count += 1
                 month_work += context.horizon_months
             else:
-                ordered_results.append(results[id(definition.simulation_contexts[index])])
+                ordered_results.append(results[id(context)])
         profiler.stop("part52_assembly")
 
+        longest_path_evaluations = sum(
+            len({c.horizon_months for c in cluster}) for cluster in clusters
+        )
         self._last_report = Part52NumbaReport(
             logical_units=len(definition.simulation_contexts),
-            groups=len(group_contexts),
-            longest_path_evaluations=sum(
-                len({c.horizon_months for c in g}) for g in group_contexts
-            ),
-            derived_results=derived_count - sum(
-                len({c.horizon_months for c in g}) for g in group_contexts
-            ),
+            groups=len(clusters),
+            longest_path_evaluations=longest_path_evaluations,
+            derived_results=derived_count - longest_path_evaluations,
             independent_evaluations=independent_count,
             month_work=month_work,
             gf_cache_hits=gf_hits,
             gf_cache_misses=gf_misses,
         )
 
-        profiler.record("part52_groups", len(group_contexts))
+        profiler.record("part52_groups", len(clusters))
         profiler.record("part52_derived", derived_count)
         profiler.record("part52_independent", independent_count)
         profiler.record("part52_month_work", month_work)

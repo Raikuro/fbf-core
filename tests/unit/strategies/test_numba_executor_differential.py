@@ -24,6 +24,7 @@ from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdraw
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
+    SimulationResult,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.fast_path import _index_series, _weights_by_class
@@ -67,6 +68,33 @@ def _make_dataset(n_months: int) -> Dataset:
     return Dataset(snapshots=snapshots, frequency="monthly")
 
 
+def _make_dataset_with_returns(
+    n_months: int,
+    eq_return: Decimal,
+    bd_return: Decimal,
+) -> Dataset:
+    """Dataset with configurable constant monthly equity/bond returns."""
+    pe = pb = Decimal("100")
+    snapshots = []
+    d = date(1900, 1, 1)
+    for _ in range(n_months):
+        snapshots.append(
+            MarketSnapshot(
+                date=d,
+                index_levels={_EQ: pe, _BD: pb},
+                inflation=Decimal("0"),
+                inflation_cumulative=Decimal("0"),
+                is_ath=True,
+                is_underwater=False,
+                running_ath=Decimal("100"),
+            )
+        )
+        pe *= Decimal("1") + eq_return
+        pb *= Decimal("1") + bd_return
+        d = date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
+    return Dataset(snapshots=snapshots, frequency="monthly")
+
+
 def _make_context(
     dataset: Dataset,
     horizon: int,
@@ -83,6 +111,35 @@ def _make_context(
         initial_wealth=Money(Decimal("1000000"), Currency.EUR),
         initial_portfolio=portfolio,
         dataset=dataset.slice(start, horizon),
+        allocation_policy=ConstantAllocationPolicy(Decimal(str(w))),
+        withdrawal_policy=FixedRealWithdrawalPolicy(Decimal(str(r))),
+    )
+
+
+def _make_context_on_dataset(
+    dataset: Dataset,
+    horizon: int,
+    w: float = 0.5,
+    r: float = 0.04,
+) -> SimulationContext:
+    """Like ``_make_context`` but uses *dataset* directly, without slicing.
+
+    Production reuses a single sliced ``Dataset`` object across every context
+    that shares its ``(start_date, horizon)`` (see
+    ``materialize_research_plan``), so cache-reuse tests must do the same:
+    ``_make_context`` slices on every call and would mint a distinct dataset
+    object per context.
+    """
+    start = dataset[0].date
+    portfolio = build_initial_portfolio(Money(Decimal("1000000"), Currency.EUR), dataset)
+    return SimulationContext(
+        experiment_name="test",
+        cohort=str(start),
+        start_date=start,
+        horizon_months=horizon,
+        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+        initial_portfolio=portfolio,
+        dataset=dataset,
         allocation_policy=ConstantAllocationPolicy(Decimal(str(w))),
         withdrawal_policy=FixedRealWithdrawalPolicy(Decimal(str(r))),
     )
@@ -285,23 +342,24 @@ class TestGrowthFactorCache:
 
     def test_same_start_date_reuses_cache(self) -> None:
         executor = NumbaSimulationExecutor()
-        ds1 = _make_dataset(241)
-        d1 = ds1[0].date
-        ctx1 = _make_context(ds1, horizon=120, w=0.5, r=0.04)
+        ds = _make_dataset(241)
+        d1 = ds[0].date
+        sliced = ds.slice(d1, 120)
+        ctx1 = _make_context_on_dataset(sliced, horizon=120, w=0.5, r=0.04)
         defn1 = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx1,),
         )
         executor.execute(defn1)
 
-        ds2 = _make_dataset(241)
-        ctx2 = _make_context(ds2, horizon=120, w=0.5, r=0.04)
+        # Same dataset object across execute calls → same trajectory token.
+        ctx2 = _make_context_on_dataset(sliced, horizon=120, w=0.5, r=0.04)
         defn2 = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx2,),
         )
         executor.execute(defn2)
 
         assert len(executor.gf_cache) == 1
-        assert (d1, Decimal("0.5")) in executor.gf_cache
+        assert (d1, Decimal("0.5"), id(sliced)) in executor.gf_cache
 
     def test_different_start_date_separate_entries(self) -> None:
         executor = NumbaSimulationExecutor()
@@ -347,49 +405,51 @@ class TestGrowthFactorCache:
         executor.execute(defn2)
 
         assert len(executor.gf_cache) == 2
-        key1 = (date(1900, 1, 1), Decimal("0.5"))
-        key2 = (date(2000, 1, 1), Decimal("0.5"))
+        key1 = (date(1900, 1, 1), Decimal("0.5"), id(ctx1.dataset))
+        key2 = (date(2000, 1, 1), Decimal("0.5"), id(ctx2.dataset))
         assert key1 in executor.gf_cache
         assert key2 in executor.gf_cache
 
     def test_different_weight_separate_entry(self) -> None:
         executor = NumbaSimulationExecutor()
         ds = _make_dataset(241)
-        ctx_a = _make_context(ds, horizon=120, w=0.3, r=0.04)
+        sliced = ds.slice(ds[0].date, 120)
+        ctx_a = _make_context_on_dataset(sliced, horizon=120, w=0.3, r=0.04)
         defn_a = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx_a,),
         )
         executor.execute(defn_a)
 
-        ctx_b = _make_context(ds, horizon=120, w=0.7, r=0.04)
+        ctx_b = _make_context_on_dataset(sliced, horizon=120, w=0.7, r=0.04)
         defn_b = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx_b,),
         )
         executor.execute(defn_b)
 
         assert len(executor.gf_cache) == 2
-        key_a = (ds[0].date, Decimal("0.3"))
-        key_b = (ds[0].date, Decimal("0.7"))
+        key_a = (ds[0].date, Decimal("0.3"), id(sliced))
+        key_b = (ds[0].date, Decimal("0.7"), id(sliced))
         assert key_a in executor.gf_cache
         assert key_b in executor.gf_cache
 
     def test_same_weight_different_rate_same_cache(self) -> None:
         executor = NumbaSimulationExecutor()
         ds = _make_dataset(241)
-        ctx_a = _make_context(ds, horizon=120, w=0.5, r=0.03)
+        sliced = ds.slice(ds[0].date, 120)
+        ctx_a = _make_context_on_dataset(sliced, horizon=120, w=0.5, r=0.03)
         defn_a = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx_a,),
         )
         executor.execute(defn_a)
 
-        ctx_b = _make_context(ds, horizon=120, w=0.5, r=0.05)
+        ctx_b = _make_context_on_dataset(sliced, horizon=120, w=0.5, r=0.05)
         defn_b = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx_b,),
         )
         executor.execute(defn_b)
 
         assert len(executor.gf_cache) == 1
-        key = (ds[0].date, Decimal("0.5"))
+        key = (ds[0].date, Decimal("0.5"), id(sliced))
         assert key in executor.gf_cache
 
     def test_cached_array_not_mutated(self) -> None:
@@ -403,7 +463,7 @@ class TestGrowthFactorCache:
         )
         executor.execute(defn)
 
-        key = (ds[0].date, Decimal("0.5"))
+        key = (ds[0].date, Decimal("0.5"), id(ctx.dataset))
         arr1 = executor.gf_cache[key].copy()
         executor.execute(defn)
         arr2 = executor.gf_cache[key]
@@ -436,10 +496,12 @@ class TestGrowthFactorCache:
 
         executor.execute(defn)
 
-        # The GF array must use the longest horizon (240 months).
-        key = (ds[0].date, Decimal("0.5"))
-        assert key in executor.gf_cache
-        assert len(executor.gf_cache[key]) == 240  # max horizon - 1 for the dummy entry
+        # Cross-horizon derivation shares one GF per identity-prefix cluster:
+        # the longest-horizon context (240 months) is evaluated once and every
+        # shorter horizon is derived from it.
+        assert len(executor.gf_cache) == 1
+        (gf_array,) = executor.gf_cache.values()
+        assert len(gf_array) == 240  # max horizon - 1 for the dummy entry
 
 
 class TestPriceFloatCache:
@@ -448,13 +510,15 @@ class TestPriceFloatCache:
     def test_same_start_date_reuses_prices(self) -> None:
         executor = NumbaSimulationExecutor()
         ds = _make_dataset(241)
-        ctx1 = _make_context(ds, horizon=120, w=0.5, r=0.04)
-        ctx2 = _make_context(ds, horizon=120, w=0.75, r=0.04)
+        sliced = ds.slice(ds[0].date, 120)
+        ctx1 = _make_context_on_dataset(sliced, horizon=120, w=0.5, r=0.04)
+        ctx2 = _make_context_on_dataset(sliced, horizon=120, w=0.75, r=0.04)
         defn = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx1, ctx2),
         )
         executor.execute(defn)
-        # Same start_date, same n_prices → one price cache entry
+        # Same dataset object → one materialised-price cache entry, shared
+        # across allocations.
         assert len(executor._price_float_cache) == 1
 
     def test_different_start_dates_separate_entries(self) -> None:
@@ -522,8 +586,8 @@ class TestPriceFloatCache:
             name="t", description="t", simulation_contexts=(ctx,),
         )
         executor.execute(defn)
-        # Cache key is (start_date, n_prices) where n_prices = horizon
-        key = (ds[0].date, 120)
+        # Cache key is the dataset-identity token.
+        key = id(ctx.dataset)
         arr1 = executor._price_float_cache[key].copy()
         executor.execute(defn)
         arr2 = executor._price_float_cache[key]
@@ -555,8 +619,8 @@ class TestPriceFloatCache:
         )
         executor.execute(defn)
 
-        # Get cached prices — key uses horizon (120), not dataset length (241)
-        key = (ds[0].date, 120)
+        # Get cached prices — keyed by the dataset-identity token.
+        key = id(ctx.dataset)
         prices_f = executor._price_float_cache[key]
 
         # Compute using old path
@@ -579,13 +643,15 @@ class TestIndexSeriesCache:
     def test_same_key_reuses_series(self) -> None:
         executor = NumbaSimulationExecutor()
         ds = _make_dataset(241)
-        ctx1 = _make_context(ds, horizon=120, w=0.5, r=0.04)
-        ctx2 = _make_context(ds, horizon=120, w=0.75, r=0.04)
+        sliced = ds.slice(ds[0].date, 120)
+        ctx1 = _make_context_on_dataset(sliced, horizon=120, w=0.5, r=0.04)
+        ctx2 = _make_context_on_dataset(sliced, horizon=120, w=0.75, r=0.04)
         defn = EngineExperimentDefinition(
             name="t", description="t", simulation_contexts=(ctx1, ctx2),
         )
         executor.execute(defn)
-        # Same start_date, same n_prices → one index_series cache entry
+        # Same dataset object → one index-series cache entry, shared across
+        # allocations.
         assert len(executor._index_series_cache) == 1
 
     def test_different_start_dates_separate_entries(self) -> None:
@@ -651,7 +717,7 @@ class TestIndexSeriesCache:
             name="t", description="t", simulation_contexts=(ctx,),
         )
         executor.execute(defn)
-        key = (ds[0].date, 120)
+        key = id(ctx.dataset)
         series1 = executor._index_series_cache[key]
         # Make a copy of the first value
         first_vals = dict(series1.items())
@@ -684,7 +750,7 @@ class TestIndexSeriesCache:
         executor.execute(defn)
 
         # Get cached series
-        key = (ds[0].date, 120)
+        key = id(ctx.dataset)
         cached_series = executor._index_series_cache[key]
 
         # Compute uncached
@@ -692,3 +758,61 @@ class TestIndexSeriesCache:
 
         for ac in cached_series:
             assert cached_series[ac] == uncached_series[ac]
+
+
+class TestDatasetIdentityIsolation:
+    """Regression: contexts built from *different* trajectories that share a
+    start date and allocation must never share cached growth factors or
+    materialised prices.
+
+    Before the dataset-identity cache key, growth factors were keyed by
+    ``(start_date, equity_allocation)``, so the first trajectory processed in a
+    definition silently supplied growth factors for every later trajectory with
+    the same start date.
+    """
+
+    @staticmethod
+    def _contexts() -> tuple[SimulationContext, SimulationContext]:
+        flat = _make_dataset_with_returns(121, Decimal("0"), Decimal("0"))
+        grow = _make_dataset_with_returns(121, Decimal("0.006"), Decimal("0.002"))
+        return (
+            _make_context(flat, horizon=120, w=0.5, r=0.04),
+            _make_context(grow, horizon=120, w=0.5, r=0.04),
+        )
+
+    def _alone(self, ctx: SimulationContext) -> SimulationResult:
+        run = NumbaSimulationExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx,)
+            )
+        )
+        return run.simulation_results[0]
+
+    def test_isolated_in_declaration_order(self) -> None:
+        ctx_flat, ctx_grow = self._contexts()
+        alone_flat = self._alone(ctx_flat).statistics
+        alone_grow = self._alone(ctx_grow).statistics
+
+        together = NumbaSimulationExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx_flat, ctx_grow)
+            )
+        ).simulation_results
+
+        assert together[0].statistics.final_wealth == alone_flat.final_wealth
+        assert together[1].statistics.final_wealth == alone_grow.final_wealth
+        assert alone_flat.final_wealth != alone_grow.final_wealth
+
+    def test_isolated_in_reverse_order(self) -> None:
+        ctx_flat, ctx_grow = self._contexts()
+        alone_flat = self._alone(ctx_flat).statistics
+        alone_grow = self._alone(ctx_grow).statistics
+
+        together = NumbaSimulationExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx_grow, ctx_flat)
+            )
+        ).simulation_results
+
+        assert together[0].statistics.final_wealth == alone_grow.final_wealth
+        assert together[1].statistics.final_wealth == alone_flat.final_wealth

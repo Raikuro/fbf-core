@@ -7,6 +7,7 @@ fallback pipeline.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from types import EllipsisType
@@ -358,6 +359,122 @@ class TestPart52NumbaExecutorDirect:
         # Fallback should NOT have been invoked for eligible contexts
         assert len(fallback_invoked) == 0, "Legacy fallback invoked for eligible contexts!"
         assert len(result.simulation_results) == 2
+
+
+class TestPart52DatasetIdentityIsolation:
+    """Regression: distinct trajectories sharing a start date must not share
+    cached growth factors (the cache key must include dataset identity)."""
+
+    @staticmethod
+    def _contexts() -> tuple[SimulationContext, SimulationContext]:
+        flat = _create_growth_dataset(12, Decimal("0"), Decimal("0"))
+        grow = _create_growth_dataset(12, Decimal("0.01"), Decimal("0.005"))
+        return _make_context(flat, 12), _make_context(grow, 12)
+
+    @staticmethod
+    def _alone(ctx: SimulationContext) -> Decimal:
+        run = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx,)
+            )
+        )
+        return run.simulation_results[0].statistics.final_wealth.amount
+
+    def test_isolated_in_declaration_order(self) -> None:
+        ctx_flat, ctx_grow = self._contexts()
+        alone_flat = self._alone(ctx_flat)
+        alone_grow = self._alone(ctx_grow)
+
+        results = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx_flat, ctx_grow)
+            )
+        ).simulation_results
+
+        assert results[0].statistics.final_wealth.amount == alone_flat
+        assert results[1].statistics.final_wealth.amount == alone_grow
+        assert alone_flat != alone_grow
+
+    def test_isolated_in_reverse_order(self) -> None:
+        ctx_flat, ctx_grow = self._contexts()
+        alone_flat = self._alone(ctx_flat)
+        alone_grow = self._alone(ctx_grow)
+
+        results = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx_grow, ctx_flat)
+            )
+        ).simulation_results
+
+        assert results[0].statistics.final_wealth.amount == alone_grow
+        assert results[1].statistics.final_wealth.amount == alone_flat
+
+
+class TestPart52DerivationGrouping:
+    """Regression: contexts that share a trajectory but differ in parameters the
+    Part 52 kernel consumes must not share a derivation cluster.
+
+    ``borrow_pct`` scales the loan draw and ``drawdown_threshold`` arms the
+    borrow condition; both feed directly into the kernel, so grouping contexts
+    that differ in them would silently apply the representative's parameters to
+    every derived horizon.
+    """
+
+    @staticmethod
+    def _context(
+        borrow_pct: Decimal,
+        drawdown_threshold: Decimal,
+    ) -> SimulationContext:
+        dataset = _create_ffr_dataset(6, (Decimal("0.015"),) * 6)
+        return replace(
+            _make_context(dataset, 6),
+            withdrawal_policy=Part52WithdrawalPolicy(
+                withdrawal_rate=WITHDRAWAL_RATE,
+                borrow_pct=borrow_pct,
+                drawdown_threshold=drawdown_threshold,
+            ),
+        )
+
+    @staticmethod
+    def _alone(ctx: SimulationContext) -> Decimal:
+        run = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx,)
+            )
+        )
+        return run.simulation_results[0].statistics.final_wealth.amount
+
+    def test_different_borrow_pct_not_merged(self) -> None:
+        low = self._context(Decimal("0.20"), DRAWDOWN_THRESHOLD)
+        high = self._context(Decimal("0.80"), DRAWDOWN_THRESHOLD)
+        alone_low = self._alone(low)
+        alone_high = self._alone(high)
+        assert alone_low != alone_high  # the parameter must matter
+
+        results = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(low, high)
+            )
+        ).simulation_results
+
+        assert results[0].statistics.final_wealth.amount == alone_low
+        assert results[1].statistics.final_wealth.amount == alone_high
+
+    def test_different_drawdown_threshold_not_merged(self) -> None:
+        shallow = self._context(BORROW_PCT, Decimal("0.05"))
+        deep = self._context(BORROW_PCT, Decimal("0.60"))
+        alone_shallow = self._alone(shallow)
+        alone_deep = self._alone(deep)
+        assert alone_shallow != alone_deep  # the parameter must matter
+
+        results = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(shallow, deep)
+            )
+        ).simulation_results
+
+        assert results[0].statistics.final_wealth.amount == alone_shallow
+        assert results[1].statistics.final_wealth.amount == alone_deep
 
 
 class TestPart52NumbaKernelBehavior:

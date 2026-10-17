@@ -266,6 +266,52 @@ def _dataset_is_identity_prefix_memo(
     return result
 
 
+def _dataset_token(context: SimulationContext) -> int:
+    """Return an O(1) object-identity token for *context*'s exact dataset.
+
+    Two contexts share a token iff they reference the very same ``Dataset``
+    object.  Because ``Dataset.slice`` creates a new object per ``(start_date,
+    horizon)`` slice, the token distinguishes different trajectories *and*
+    different horizons.
+
+    It is safe for cache keys only while the referenced dataset stays alive.
+    Executors that key caches on it retain a strong reference to every dataset
+    they have seen for their own lifetime, so a token is never reused by a
+    different dataset and cached entries remain valid across ``execute`` calls.
+    """
+    return id(context.dataset)
+
+
+def _trajectory_clusters(
+    contexts: list[SimulationContext],
+    memo: dict[tuple[int, int], bool],
+) -> list[list[SimulationContext]]:
+    """Partition *contexts* into identity-prefix trajectory clusters.
+
+    Each returned cluster's first element is its longest-horizon representative,
+    and every other member's dataset is an object-identity prefix of the
+    representative's dataset (see :func:`_dataset_is_identity_prefix`).  Contexts
+    built from different data therefore never share a cluster, so deriving a
+    shorter member's trajectory from the representative is always valid.  Failing
+    to cluster is always safe: a lone context is evaluated independently.
+    """
+    clusters: list[list[SimulationContext]] = []
+    for context in contexts:
+        for cluster in clusters:
+            representative = cluster[0]
+            if _dataset_is_identity_prefix_memo(
+                context, representative, memo
+            ) or _dataset_is_identity_prefix_memo(representative, context, memo):
+                if context.horizon_months > representative.horizon_months:
+                    cluster.insert(0, context)
+                else:
+                    cluster.append(context)
+                break
+        else:
+            clusters.append([context])
+    return clusters
+
+
 def _group_key(context: SimulationContext) -> tuple[object, ...]:
     """Trajectory key: excludes final_value_target (an evaluation dimension).
 

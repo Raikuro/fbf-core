@@ -705,6 +705,41 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 - AUTO routing now selects Numba for ConstantWithdrawalPolicy + ConstantAllocationPolicy
 - All quality gates pass: ruff, mypy, pytest (541 unit tests + integration tests)
 
+**audit** — "fix growth-factor / price cache identity collision in both Numba executors"
+- Both Numba executors keyed cached growth factors, materialised prices, and
+  index series by trajectory parameters (`start_date`, allocation) only. Two
+  contexts built from *different* market datasets that shared a start date
+  therefore shared one trajectory's cached results: whichever context was
+  processed first supplied growth factors for every later one. The bug was
+  reachable by any `EngineExperimentDefinition`/`ResearchPlan` mixing per-unit
+  datasets that share a start date.
+- Fixed by keying every dataset-derived cache on a dataset-identity token
+  (`fast_path._dataset_token`) and, for cross-horizon derivation, splitting each
+  parameter group into identity-prefix clusters (`fast_path._trajectory_clusters`)
+  so a shorter horizon is only ever derived from a trajectory that is a
+  snapshot-identity prefix of it.
+- The glidepath batch path additionally grouped by `(max_h, fee)` and now applies
+  each entry's own expense ratio (previously the per-batch fee leaked from an
+  unrelated loop variable).
+- The Part 52 executor previously reused `fast_path._group_key`, which keys on
+  the withdrawal *rate* only. Contexts differing in `borrow_pct`,
+  `drawdown_threshold`, fee, LTV settings, or interest rate were merged into one
+  derivation cluster and silently ran with the representative's parameters. It
+  now uses a Part 52-specific grouping key (`_part52_group_key`) covering every
+  kernel-consumed field except the horizon and `final_value_target`.
+- Executors retain strong references to every dataset they have seen, keeping
+  identity tokens unique for the executor's lifetime so caches remain valid
+  across `execute` calls (reused worker executors) without risk of an id being
+  reused by a different trajectory.
+- Cache-reuse unit tests were updated: contexts must share the same sliced
+  `Dataset` object (as `materialize_research_plan` does), not merely the same
+  start date. Added regression tests for both executors verifying that distinct
+  trajectories sharing a start date produce the same results together as alone,
+  in either declaration order, plus Part 52 tests verifying that contexts
+  differing only in `borrow_pct` or `drawdown_threshold` are not merged.
+- All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
+  contract, benchmarks).
+
 ### Known Limitations
 
 1. **Workbook recalculation not completed** — LibreOffice headless timed out; validation against pre-calculated saved values.
