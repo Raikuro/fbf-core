@@ -659,6 +659,8 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | A3: Document legacy consumers | ✅ Complete | §1.3 | b4ff4ad | Verified via grep |
 | B1: Expense ratios (additive fee) | ✅ Complete (audited & fixed) | `workbook_scr.py`, `test_fast_path.py`, `part52_numba_executor.py` | 8dfbf24 (audited) | Static + Part 52 complete; Glidepath pending; **Critical cache key + fee pass-through bug fixed** |
 | B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | [current] | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
+| Numba cache/dataset identity fix | ✅ Complete | `test_numba_executor_differential.py`, `test_part52_numba_executor.py` | 99aa5a4 | Dataset-identity tokens + identity-prefix clustering in both Numba executors |
+| B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | [audit] | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
 | B3: Escalating withdrawal | ⬜ Not Started | — | — | Part 20 Experiment E |
 | B4: Buy-and-hold | ⬜ Not Started | — | — | Unit-tracking kernel |
 | B5: Multi-asset | ⬜ Not Started | — | — | Verify kernel support |
@@ -739,6 +741,40 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   differing only in `borrow_pct` or `drawdown_threshold` are not merged.
 - All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
   contract, benchmarks).
+
+**[audit]** — "Part 52 derivation-key correctness audit"
+- Audited every context field consumed by the Part 52 kernel path against
+  `_part52_group_key`. The shared path consumes `start_date`,
+  `equity_allocation`, `expense_ratio`, `initial_portfolio`, `withdrawal_rate`,
+  `borrow_pct`, `drawdown_threshold`, `frequency`, `interest_rate`, `ltv_limit`,
+  and `ltv_enforcement`; all are in the key. Dataset identity is enforced by the
+  identity-prefix guard.
+- **Defect found and fixed:** `interest_rate_schedule` was excluded on the
+  assumption that it is prefix-consistent for a fixed start date, but the
+  identity-prefix cluster guard only checked the market dataset.
+  `_compute_monthly_rates` is evaluated once per cluster from the representative
+  and reused for every derived horizon, so a shorter context whose own schedule
+  diverged within its horizon silently inherited the representative's rates
+  (reproduced: the same context produced a different `final_wealth` / `success`
+  when clustered than when run alone). Clustering now also
+  requires an explicit monthly-rate prefix match
+  (`_monthly_rates_prefix_compatible`), threaded through
+  `fast_path._trajectory_clusters` as an optional predicate.
+- `initial_wealth` and `final_value_target` are per-context *evaluation*
+  dimensions consumed only by `_apply_fv_check`, which runs per context after
+  the shared path. `initial_wealth` was removed from the group key, and the
+  per-horizon result cache is now keyed by
+  `(horizon, initial_wealth, final_value_target)` so the FV verdict is never
+  shared across contexts that differ in the threshold base.
+- Added regression tests for: divergent-within-horizon schedules (not merged),
+  shared-prefix schedules (still derived), different horizons, different FV
+  targets, different `initial_wealth`, reused-executor sequential calls, and
+  dataset pinning.
+- Verified invariants (proven by tests): `horizon_months` is excluded because
+  each horizon is simulated independently; `final_value_target` and
+  `initial_wealth` are excluded because the FV check is per context;
+  `interest_rate_schedule` may only be excluded because its consumed prefix is
+  now explicitly checked.
 
 ### Known Limitations
 

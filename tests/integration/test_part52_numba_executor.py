@@ -24,6 +24,7 @@ from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     ExperimentRun,
+    SimulationStatistics,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.part52_numba_executor import (
@@ -100,6 +101,17 @@ def _create_growth_dataset(
     return Dataset(snapshots=tuple(snapshots), frequency="monthly")
 
 
+def _create_decline_dataset(horizon_months: int) -> Dataset:
+    """Dataset with a steady equity decline (weighted gf = 0.95 per month).
+
+    The slope keeps the compound drawdown below -0.20 after a few months, so a
+    Part 52 context borrows and accrues interest on a growing loan balance.
+    """
+    return _create_growth_dataset(
+        horizon_months, Decimal("-0.0666666666666667"), Decimal("0")
+    )
+
+
 def _create_ffr_dataset(horizon_months: int, ffr_schedule: tuple[Decimal, ...]) -> Dataset:
     """Create a dataset with is_underwater variation for FFR testing."""
     snapshots = []
@@ -171,6 +183,16 @@ def _make_context(
         ltv_enforcement=ltv_enforcement,
         expense_ratio=expense_ratio,
     )
+
+
+def _alone_statistics(ctx: SimulationContext) -> SimulationStatistics:
+    """Execute *ctx* on a fresh executor and return its statistics."""
+    run = Part52NumbaExecutor().execute(
+        EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(ctx,)
+        )
+    )
+    return run.simulation_results[0].statistics
 
 
 class TestPart52Eligibility:
@@ -409,6 +431,41 @@ class TestPart52DatasetIdentityIsolation:
         assert results[0].statistics.final_wealth.amount == alone_grow
         assert results[1].statistics.final_wealth.amount == alone_flat
 
+    def test_reused_executor_sequential_calls_isolated(self) -> None:
+        """A reused executor must not leak cache state between execute calls."""
+        ctx_flat, ctx_grow = self._contexts()
+        alone_flat = self._alone(ctx_flat)
+        alone_grow = self._alone(ctx_grow)
+
+        executor = Part52NumbaExecutor()
+        first = executor.execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx_flat, ctx_grow)
+            )
+        ).simulation_results
+        second = executor.execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx_grow, ctx_flat)
+            )
+        ).simulation_results
+
+        assert first[0].statistics.final_wealth.amount == alone_flat
+        assert first[1].statistics.final_wealth.amount == alone_grow
+        assert second[0].statistics.final_wealth.amount == alone_grow
+        assert second[1].statistics.final_wealth.amount == alone_flat
+
+    def test_executor_pins_seen_datasets(self) -> None:
+        """The executor retains a strong reference to every dataset it has seen
+        so identity tokens cannot be reused by a different dataset."""
+        ctx = _make_context(_create_dataset(12), 12)
+        executor = Part52NumbaExecutor()
+        executor.execute(
+            EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(ctx,)
+            )
+        )
+        assert executor._dataset_refs[id(ctx.dataset)] is ctx.dataset
+
 
 class TestPart52DerivationGrouping:
     """Regression: contexts that share a trajectory but differ in parameters the
@@ -475,6 +532,191 @@ class TestPart52DerivationGrouping:
 
         assert results[0].statistics.final_wealth.amount == alone_shallow
         assert results[1].statistics.final_wealth.amount == alone_deep
+
+
+class TestPart52SchedulePrefixDerivation:
+    """Regression: a derived horizon must not reuse the representative's FFR
+    schedule when the member's own schedule diverges within its horizon.
+
+    ``_compute_monthly_rates`` is evaluated once per cluster from the
+    representative, so two contexts may only share a cluster when their consumed
+    monthly-rate prefixes agree over the shorter horizon.
+    """
+
+    _WR = Decimal("0.1")
+    _BORROW_PCT = Decimal("2.0")
+    _LTV_LIMIT = Decimal("0.2")
+
+    @classmethod
+    def _context(
+        cls, dataset: Dataset, horizon: int, schedule: tuple[Decimal, ...]
+    ) -> SimulationContext:
+        return replace(
+            _make_context(
+                dataset, horizon, interest_rate_schedule=schedule,
+                ltv_enforcement=True,
+            ),
+            withdrawal_policy=Part52WithdrawalPolicy(
+                withdrawal_rate=cls._WR,
+                borrow_pct=cls._BORROW_PCT,
+                drawdown_threshold=DRAWDOWN_THRESHOLD,
+            ),
+            ltv_limit=cls._LTV_LIMIT,
+        )
+
+    def test_divergent_schedule_within_horizon_not_merged(self) -> None:
+        dataset = _create_decline_dataset(24)
+        long_schedule = tuple(Decimal("0.015") for _ in range(24))
+        short_schedule = tuple(Decimal("0.200") for _ in range(12))
+        ctx_long = self._context(dataset, 24, long_schedule)
+        ctx_short = self._context(dataset, 12, short_schedule)
+
+        alone_short = _alone_statistics(ctx_short)
+        # Control: reusing the representative's (0.015) schedule for the short
+        # horizon yields a different result, so an incorrect merge is observable.
+        control = _alone_statistics(self._context(dataset, 12, long_schedule[:12]))
+        assert alone_short.final_wealth.amount != control.final_wealth.amount
+
+        results = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t",
+                description="t",
+                simulation_contexts=(ctx_short, ctx_long),
+            )
+        ).simulation_results
+
+        assert (
+            results[0].statistics.final_wealth.amount
+            == alone_short.final_wealth.amount
+        )
+        assert results[0].statistics.success == alone_short.success
+
+    def test_shared_prefix_schedule_still_derived(self) -> None:
+        dataset = _create_decline_dataset(24)
+        short_schedule = tuple(Decimal("0.015") for _ in range(12))
+        long_schedule = short_schedule + tuple(Decimal("0.200") for _ in range(12))
+        ctx_long = self._context(dataset, 24, long_schedule)
+        ctx_short = self._context(dataset, 12, short_schedule)
+
+        alone_short = _alone_statistics(ctx_short)
+        executor = Part52NumbaExecutor()
+        results = executor.execute(
+            EngineExperimentDefinition(
+                name="t",
+                description="t",
+                simulation_contexts=(ctx_short, ctx_long),
+            )
+        ).simulation_results
+
+        assert (
+            results[0].statistics.final_wealth.amount
+            == alone_short.final_wealth.amount
+        )
+        # Genuinely compatible prefixes remain clustered (derived).
+        assert executor.report is not None
+        assert executor.report.groups == 1
+
+
+class TestPart52HorizonDerivation:
+    """Regression: ``horizon_months`` may be excluded from the group key because
+    each horizon is simulated independently from the representative's data."""
+
+    def test_different_horizons_match_independent_runs(self) -> None:
+        dataset = _create_ffr_dataset(12, (Decimal("0.015"),) * 12)
+        ctx_short = _make_context(dataset, 6)
+        ctx_long = _make_context(dataset, 12)
+        alone_short = _alone_statistics(ctx_short)
+        alone_long = _alone_statistics(ctx_long)
+
+        results = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t",
+                description="t",
+                simulation_contexts=(ctx_short, ctx_long),
+            )
+        ).simulation_results
+
+        assert (
+            results[0].statistics.final_wealth.amount
+            == alone_short.final_wealth.amount
+        )
+        assert (
+            results[1].statistics.final_wealth.amount
+            == alone_long.final_wealth.amount
+        )
+
+
+class TestPart52FinalValueTargetDerivation:
+    """Regression: ``final_value_target`` may be excluded from the group key
+    because the FV check is applied per context after the shared path."""
+
+    def test_final_value_target_applied_per_context(self) -> None:
+        dataset = _create_growth_dataset(12, Decimal("0.01"), Decimal("0.005"))
+        base = _make_context(dataset, 12)
+        survivor = replace(base, final_value_target=Decimal("0.5"))
+        failer = replace(base, final_value_target=Decimal("3.0"))
+
+        alone_survivor = _alone_statistics(survivor)
+        alone_failer = _alone_statistics(failer)
+        assert alone_survivor.success is True
+        assert alone_failer.success is False
+
+        results = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t",
+                description="t",
+                simulation_contexts=(survivor, failer),
+            )
+        ).simulation_results
+
+        assert results[0].statistics.success == alone_survivor.success
+        assert results[1].statistics.success == alone_failer.success
+        # Same trajectory -> identical final wealth; only the FV verdict differs.
+        assert (
+            results[0].statistics.final_wealth.amount
+            == results[1].statistics.final_wealth.amount
+        )
+
+
+class TestPart52InitialWealthEvaluationDimension:
+    """Regression: ``initial_wealth`` affects only the per-context FV check, so
+    contexts that differ only in it must each get their own FV verdict."""
+
+    def test_initial_wealth_applied_per_context(self) -> None:
+        dataset = _create_growth_dataset(12, Decimal("0.01"), Decimal("0.005"))
+        base = _make_context(dataset, 12)
+        target = Decimal("1.5")
+        small = replace(
+            base,
+            initial_wealth=Money(Decimal("500000"), Currency.EUR),
+            final_value_target=target,
+        )
+        large = replace(
+            base,
+            initial_wealth=Money(Decimal("2000000"), Currency.EUR),
+            final_value_target=target,
+        )
+
+        alone_small = _alone_statistics(small)
+        alone_large = _alone_statistics(large)
+        assert alone_small.success is True
+        assert alone_large.success is False
+
+        results = Part52NumbaExecutor().execute(
+            EngineExperimentDefinition(
+                name="t",
+                description="t",
+                simulation_contexts=(small, large),
+            )
+        ).simulation_results
+
+        assert results[0].statistics.success == alone_small.success
+        assert results[1].statistics.success == alone_large.success
+        # Same portfolio trajectory -> identical final wealth.
+        assert (
+            results[0].statistics.final_wealth.amount
+            == results[1].statistics.final_wealth.amount
+        )
 
 
 class TestPart52NumbaKernelBehavior:

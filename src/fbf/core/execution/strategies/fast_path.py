@@ -30,6 +30,7 @@ explicit backend is specified.
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import cast
@@ -285,6 +286,7 @@ def _dataset_token(context: SimulationContext) -> int:
 def _trajectory_clusters(
     contexts: list[SimulationContext],
     memo: dict[tuple[int, int], bool],
+    compatible: Callable[[SimulationContext, SimulationContext], bool] | None = None,
 ) -> list[list[SimulationContext]]:
     """Partition *contexts* into identity-prefix trajectory clusters.
 
@@ -294,19 +296,31 @@ def _trajectory_clusters(
     built from different data therefore never share a cluster, so deriving a
     shorter member's trajectory from the representative is always valid.  Failing
     to cluster is always safe: a lone context is evaluated independently.
+
+    ``compatible`` is an optional, symmetric predicate that a candidate and a
+    cluster representative must additionally satisfy to share a cluster.  It is
+    used by executors whose derived quantity depends on more than the market
+    trajectory (e.g. a debt interest-rate schedule), so that two contexts are
+    only clustered when every quantity derived from the representative is valid
+    for the candidate.  It is consulted only after the identity-prefix guard
+    succeeds, so it may assume the datasets are identity-prefixed.
     """
     clusters: list[list[SimulationContext]] = []
     for context in contexts:
         for cluster in clusters:
             representative = cluster[0]
-            if _dataset_is_identity_prefix_memo(
-                context, representative, memo
-            ) or _dataset_is_identity_prefix_memo(representative, context, memo):
-                if context.horizon_months > representative.horizon_months:
-                    cluster.insert(0, context)
-                else:
-                    cluster.append(context)
-                break
+            if not (
+                _dataset_is_identity_prefix_memo(context, representative, memo)
+                or _dataset_is_identity_prefix_memo(representative, context, memo)
+            ):
+                continue
+            if compatible is not None and not compatible(context, representative):
+                continue
+            if context.horizon_months > representative.horizon_months:
+                cluster.insert(0, context)
+            else:
+                cluster.append(context)
+            break
         else:
             clusters.append([context])
     return clusters

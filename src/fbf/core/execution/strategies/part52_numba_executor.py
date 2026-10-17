@@ -117,16 +117,25 @@ def _gf_cache_key(context: SimulationContext) -> GFKey:
 def _part52_group_key(context: SimulationContext) -> tuple[object, ...]:
     """Derivation-group key for Part52 contexts.
 
-    Includes every context field that the Part52 kernel path consumes, except
-    ``horizon_months`` (the derivation dimension) and ``final_value_target``
-    (an evaluation dimension applied per context after the path is computed).
-    Sharing a group is only valid when all of these fields agree, because the
-    longest-horizon representative's parameters drive every derived horizon.
+    Includes every context field that the shared Part52 kernel path consumes,
+    except:
 
-    ``interest_rate_schedule`` is intentionally excluded: it is a per-horizon
-    prefix of the same FFR-aligned series for a given start date, so a shorter
-    horizon's schedule is always the prefix of the longest horizon's.  Dataset
-    identity is enforced separately by the identity-prefix guard.
+    - ``horizon_months``: the derivation dimension.  Each horizon is simulated
+      independently from the representative's growth factors/equity prices
+      sliced to that horizon.
+    - ``final_value_target`` and ``initial_wealth``: per-context *evaluation*
+      dimensions.  They are consumed only by ``_apply_fv_check``, which is
+      applied per context after the shared path is computed, so they do not
+      affect the shared trajectory.
+    - ``interest_rate_schedule``: allowed to differ in length across horizons
+      (it is a per-horizon prefix of the same FFR-aligned series), so it cannot
+      be part of a horizon-independent key.  Its shared-prefix requirement is
+      enforced by ``_monthly_rates_prefix_compatible`` during clustering.
+    - dataset identity, enforced separately by the identity-prefix guard.
+
+    Sharing a group is only valid when all of the remaining fields agree,
+    because the longest-horizon representative's parameters drive every derived
+    horizon.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(Part52WithdrawalPolicy, context.withdrawal_policy)
@@ -134,7 +143,6 @@ def _part52_group_key(context: SimulationContext) -> tuple[object, ...]:
         context.start_date,
         allocation.equity_allocation,
         context.expense_ratio,
-        context.initial_wealth,
         context.initial_portfolio,
         withdrawal.withdrawal_rate,
         withdrawal.borrow_pct,
@@ -184,6 +192,28 @@ def _compute_monthly_rates(
             rates.append(real_monthly)
 
     return tuple(rates)
+
+
+def _monthly_rates_prefix_compatible(
+    candidate: SimulationContext, representative: SimulationContext
+) -> bool:
+    """Return True when two contexts can share a derived monthly-rate prefix.
+
+    ``_compute_monthly_rates`` for a derived horizon is evaluated once from the
+    cluster representative and reused by every member, so clustering two
+    contexts is only valid when their consumed monthly-rate prefixes agree over
+    the shorter horizon.  Datasets are already required to be object-identity
+    prefixed by the caller, so the CPI component matches; this check therefore
+    isolates the interest-rate schedule (and the static ``interest_rate``
+    fallback beyond a schedule's length).
+
+    The predicate is symmetric and cheap relative to a kernel run: it is only
+    consulted once per (candidate, representative) pair while clustering.
+    """
+    horizon = min(candidate.horizon_months, representative.horizon_months)
+    return _compute_monthly_rates(candidate, horizon) == _compute_monthly_rates(
+        representative, horizon
+    )
 
 
 def _compute_growth_factors_for_part52(
@@ -296,11 +326,17 @@ class Part52NumbaExecutor(SimulationExecutor):
         # --- Pass 1b: split each parameter group into identity-prefix clusters ---
         # Contexts that share trajectory parameters but were built from different
         # market data must never derive from one another; the identity-prefix
-        # guard enforces this and keeps derivation correct.
+        # guard enforces this and keeps derivation correct.  The monthly-rate
+        # prefix guard additionally prevents deriving from a representative whose
+        # FFR schedule diverges within a shorter member's horizon.
         prefix_memo: dict[tuple[int, int], bool] = {}
         clusters: list[list[SimulationContext]] = []
         for contexts in key_to_contexts.values():
-            clusters.extend(_trajectory_clusters(contexts, prefix_memo))
+            clusters.extend(
+                _trajectory_clusters(
+                    contexts, prefix_memo, _monthly_rates_prefix_compatible
+                )
+            )
 
         # --- Pass 2: precompute growth factors per cluster representative ---
         profiler.start("part52_growth_factors")
@@ -381,7 +417,7 @@ class Part52NumbaExecutor(SimulationExecutor):
             gf_key = _gf_cache_key(sample_ctx)
             growth_factors_full = self._gf_cache[gf_key]
 
-            horizon_result_cache: dict[tuple[int, object], SimulationResult] = {}
+            horizon_result_cache: dict[tuple[int, object, object], SimulationResult] = {}
 
             for horizon, h_contexts in horizon_to_ctxs.items():
                 month_work += horizon
@@ -402,7 +438,7 @@ class Part52NumbaExecutor(SimulationExecutor):
                 )
 
                 for ctx in h_contexts:
-                    cache_key = (horizon, ctx.final_value_target)
+                    cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
                     if cache_key in horizon_result_cache:
                         results[id(ctx)] = horizon_result_cache[cache_key]
                         continue
