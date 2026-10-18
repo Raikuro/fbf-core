@@ -249,7 +249,7 @@ def test_decimal_matches_workbook_oracle(horizon: int, weight: float, rate: floa
             withdrawal_policy=unit.withdrawal_policy,
             expense_ratio=unit.expense_ratio,
         )
-        scr, success, fv = _evaluate_workbook_scr_path(ctx)
+        _scr, success, fv, _failure_month = _evaluate_workbook_scr_path(ctx)
 
         # Compare with oracle
         oracle_success, oracle_fv = oracle_results[i]

@@ -859,18 +859,27 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 # horizon includes the pre-retirement snapshot, so the number of
                 # return / withdrawal periods is ``horizon - 1``.  Withdraw
                 # before growth in every period and compound the final month's
-                # return, exactly as ``fast_path._evaluate_workbook_scr_path``
-                # (including its failure reporting: success is decided by the
-                # SCR, failure_month is the horizon).
+                # return, exactly as ``fast_path._evaluate_workbook_scr_path``.
+                #
+                # ``success`` is the SCR verdict (``scr >= rate``).  The
+                # operational terminal failure -- the month the trajectory
+                # reaches zero -- is taken from the trajectory itself and is
+                # never inferred from ``scr < rate``; the reported month uses
+                # the same convention as ``fast_path.evaluate_workbook_path``
+                # (0-based period index + 1, since month 0 is pre-retirement).
                 periods = horizon - 1
                 growth_factors_arr = growth_factors_full[:periods]
                 scr = _compute_workbook_scr(growth_factors_arr, periods, fee_annual)
                 success = scr >= rate_f
-                final_value, _traj_success, _fail_month, _ = _simulate_trajectory_workbook(
+                final_value, _traj_success, fail_month, _ = _simulate_trajectory_workbook(
                     growth_factors_arr, v0, c, periods
                 )
-                failure_month = None if success else horizon
-                months_simulated = horizon
+                failure_month = (
+                    fail_month + 1 if 0 <= fail_month < periods else None
+                )
+                months_simulated = (
+                    failure_month if failure_month is not None else horizon
+                )
             else:
                 growth_factors_arr = growth_factors_full[:horizon]
                 _final_val, _kernel_success, fail_month, _ = _simulate_trajectory(
@@ -903,7 +912,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                         max_drawdown=0.0,
                         success=success,
                         failure_month=failure_month,
-                        failure_state=None if success else "depleted",
+                        failure_state=None if failure_month is None else "depleted",
                         months_simulated=months_simulated,
                         execution_time_seconds=0.0,
                     ),

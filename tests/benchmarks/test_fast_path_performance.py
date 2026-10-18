@@ -129,8 +129,8 @@ def test_decimal_fast_path_vs_reference_throughput() -> None:
             withdrawal_policy=unit.withdrawal_policy,
             expense_ratio=unit.expense_ratio,
         )
-        scr, success, fv = _evaluate_workbook_scr_path(ctx)
-        oracle_results.append((success, fv))
+        _scr, success, fv, failure_month = _evaluate_workbook_scr_path(ctx)
+        oracle_results.append((success, fv, failure_month))
 
     t0 = time.perf_counter()
     _ = sequential_execute(plan, summary_only=True)
@@ -148,15 +148,13 @@ def test_decimal_fast_path_vs_reference_throughput() -> None:
     for i, (got, oracle_tuple) in enumerate(
         zip(decimal_path.results, oracle_results, strict=True)
     ):
-        oracle_success, oracle_fv = oracle_tuple
+        oracle_success, oracle_fv, oracle_failure_month = oracle_tuple
         assert got.statistics.success == oracle_success
         unit_horizon = plan.units[i].horizon_months
         assert unit_horizon is not None
-        assert got.statistics.failure_month == (
-            None if oracle_success else unit_horizon - 1
-        )
+        assert got.statistics.failure_month == oracle_failure_month
         assert got.statistics.months_simulated == (
-            unit_horizon if oracle_success else unit_horizon
+            unit_horizon if oracle_failure_month is None else oracle_failure_month
         )
         diff = abs(got.statistics.final_wealth.amount - oracle_fv)
         assert diff < Decimal("0.05"), (

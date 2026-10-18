@@ -500,11 +500,15 @@ def _workbook_monthly_returns(
 
 def _evaluate_workbook_scr_path(
     context: SimulationContext,
-) -> tuple[Decimal, bool, Decimal]:
+) -> tuple[Decimal, bool, Decimal, int | None]:
     """Evaluate workbook SCR for a context.
 
-    Returns (SCR, success, final_wealth) where success = SCR >= withdrawal_rate.
-    Uses workbook methodology: fee embedded in returns, end-of-period trajectory.
+    Returns ``(SCR, success, final_wealth, failure_month)`` where
+    ``success = SCR >= withdrawal_rate``.  ``failure_month`` is the month in
+    which the monthly trajectory reaches zero, or ``None`` when the trajectory
+    survives to the horizon.  It is never inferred from ``SCR < rate`` alone.
+    Uses workbook methodology: fee embedded in returns, beginning-of-period
+    withdrawals.
     """
     withdrawal_policy = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
     target_rate = withdrawal_policy.withdrawal_rate
@@ -537,12 +541,12 @@ def _evaluate_workbook_scr_path(
     for m in range(horizon):
         # Withdraw first (beginning-of-period, ERN convention)
         if V < C:
-            return scr, success, Decimal("0")
+            return scr, success, Decimal("0"), m + 1
         V = V - C
         # Then grow (end-of-period)
         V = V * (Decimal("1") + monthly_returns[m])
 
-    return scr, success, V
+    return scr, success, V, None
 
 
 def evaluate_workbook_path(
@@ -722,7 +726,7 @@ def evaluate_closed_form(
     """
     if _use_workbook_scr(context):
         try:
-            scr, success, final_wealth = _evaluate_workbook_scr_path(context)
+            _scr, success, final_wealth, failure_month = _evaluate_workbook_scr_path(context)
         except InsufficientDataError:
             # Fall back to trajectory simulation for insufficient data
             path = evaluate_path(context)
@@ -731,9 +735,11 @@ def evaluate_closed_form(
             final_wealth=Money(final_wealth, Currency.EUR),
             max_drawdown=0.0,
             success=success,
-            failure_month=None if success else context.horizon_months,
-            failure_state=None if success else "depleted",
-            months_simulated=context.horizon_months if success else context.horizon_months,
+            failure_month=failure_month,
+            failure_state=None if failure_month is None else "depleted",
+            months_simulated=(
+                failure_month if failure_month is not None else context.horizon_months
+            ),
             execution_time_seconds=0.0,
         )
         result = SimulationResult(
@@ -1008,7 +1014,7 @@ def run_fast_path_validation(
     oracle_results = []
     for unit in sample:
         ctx = _unit_simulation_context(plan, unit)
-        scr, success, fv = _evaluate_workbook_scr_path(ctx)
+        _scr, success, fv, _failure_month = _evaluate_workbook_scr_path(ctx)
         oracle_results.append((success, fv))
 
     # Run fast path evaluation

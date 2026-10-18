@@ -447,7 +447,9 @@ class TestWorkbookConventionBoundaries:
         assert oracle.scr == Decimal("0.08")  # 12 / 150 periods
         assert oracle.success is False
         assert oracle.final_wealth == Decimal("0")
-        assert oracle.failure_month == 151
+        # Zero returns, monthly withdrawal 10,000: the portfolio is exhausted on
+        # the 100th withdrawal (period 100, 0-based) -> month 101.
+        assert oracle.failure_month == 101
 
     def test_withdrawal_exceeding_available_wealth(self) -> None:
         # Zero returns: rate far above the SCR depletes the portfolio early.
@@ -458,7 +460,9 @@ class TestWorkbookConventionBoundaries:
 
         assert oracle.success is False
         assert oracle.final_wealth == Decimal("0")
-        assert oracle.failure_month == 101
+        # Zero returns, monthly withdrawal 25,000: the portfolio is exhausted on
+        # the 40th withdrawal (period 40, 0-based) -> month 41.
+        assert oracle.failure_month == 41
 
 
 class TestGrowthFactorCache:

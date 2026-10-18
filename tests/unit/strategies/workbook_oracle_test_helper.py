@@ -88,15 +88,16 @@ def compute_workbook_oracle_result(context: SimulationContext) -> WorkbookOracle
     initial_value = _compute_initial_value(context)
     monthly_withdrawal = initial_value * target_rate / Decimal("12")
 
-    final_wealth, _failure = _simulate_workbook_trajectory(
+    final_wealth, failure = _simulate_workbook_trajectory(
         eq_returns, bd_returns, w_eq, fee_monthly, initial_value,
         monthly_withdrawal, periods,
     )
-    # Match the canonical Decimal fast path: success is decided by the SCR and
-    # failure is reported at the horizon (the workbook model has no notion of a
-    # trajectory depletion month).
-    failure_month = None if success else horizon
-    months_simulated = horizon
+    # The operational terminal failure month comes from the trajectory itself
+    # (the workbook model defines no SCR-derived failure month).  The trajectory
+    # uses a 0-based period index, so the reported month is ``period + 1`` to
+    # match ``fast_path`` (month 0 is the pre-retirement snapshot).
+    failure_month = None if failure is None else failure + 1
+    months_simulated = horizon if failure_month is None else failure_month
 
     return WorkbookOracleResult(
         success=success,
