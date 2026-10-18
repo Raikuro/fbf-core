@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 
+from fbf.core.domain.policies import BuyAndHoldAllocationPolicy
 from fbf.core.execution.executor import ResearchExecutor
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.pipeline import SimulationPipeline
@@ -93,6 +94,88 @@ def _create_default_simulation_executor(
     )
     runner = SimulationRunner(pipeline)
     return SimulationExecutor(runner)
+
+
+def _create_buy_and_hold_simulation_executor() -> SimulationExecutor:
+    """Create an engine SimulationExecutor with the buy-and-hold pipeline.
+
+    Buy-and-hold establishes the target equity/bond split once (period 0) and
+    never rebalances, so the portfolio drifts with the market.  This is the
+    reference for buy-and-hold workloads that cannot run on an optimized
+    (fast-path/Numba) backend; it must never be confused with the default
+    pipeline, which rebalances every period.
+    """
+    from fbf.core.execution.pipeline.default_pipeline import (
+        create_buy_and_hold_pipeline,
+    )
+
+    return SimulationExecutor(SimulationRunner(create_buy_and_hold_pipeline()))
+
+
+class _AllocationRoutedSimulationExecutor(SimulationExecutor):
+    """Reference executor that routes each context by allocation policy.
+
+    A buy-and-hold context must never be simulated by the default pipeline: the
+    default pipeline rebalances every period, which silently changes
+    buy-and-hold semantics.  The optimized executors (fast path, Numba) delegate
+    ineligible contexts to their reference; routing those delegations through
+    this executor keeps buy-and-hold workloads on the buy-and-hold pipeline and
+    every other workload on the default pipeline.
+
+    Contexts are grouped by target pipeline and each group is executed in a
+    single delegate call; results are reassembled in the original definition
+    order.
+    """
+
+    processes_whole_definition = True
+
+    def __init__(self) -> None:
+        self._default = _create_default_simulation_executor()
+        self._buy_and_hold = _create_buy_and_hold_simulation_executor()
+
+    def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
+        contexts = definition.simulation_contexts
+        buy_and_hold_indices = [
+            index
+            for index, context in enumerate(contexts)
+            if isinstance(context.allocation_policy, BuyAndHoldAllocationPolicy)
+        ]
+        buy_and_hold_set = set(buy_and_hold_indices)
+        default_indices = [
+            index for index in range(len(contexts)) if index not in buy_and_hold_set
+        ]
+
+        by_index: dict[int, SimulationResult] = {}
+        for executor, indices in (
+            (self._default, default_indices),
+            (self._buy_and_hold, buy_and_hold_indices),
+        ):
+            if not indices:
+                continue
+            sub = EngineExperimentDefinition(
+                name=definition.name,
+                description=definition.description,
+                simulation_contexts=tuple(contexts[index] for index in indices),
+            )
+            for index, result in zip(
+                indices, executor.execute(sub).simulation_results, strict=True
+            ):
+                by_index[index] = result
+        return ExperimentRun(
+            definition=definition,
+            simulation_results=tuple(by_index[index] for index in range(len(contexts))),
+        )
+
+
+def _create_reference_simulation_executor() -> SimulationExecutor:
+    """Create the allocation-aware reference executor.
+
+    Used by the fast path and Numba executors as the delegate for contexts they
+    cannot simulate themselves, so that an ineligible buy-and-hold context falls
+    back to the buy-and-hold pipeline rather than to the rebalancing default
+    pipeline (see :class:`_AllocationRoutedSimulationExecutor`).
+    """
+    return _AllocationRoutedSimulationExecutor()
 
 
 class _ProgressReportingSimulationExecutor(SimulationExecutor):

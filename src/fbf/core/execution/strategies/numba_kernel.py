@@ -1836,6 +1836,105 @@ def _simulate_part49(
     return V, True, -1, Y, _PART52_SUCCESS
 
 
+@numba.njit(cache=True)
+def _simulate_part49_buy_and_hold(
+    equity_growth: NDArray[np.float64],
+    bond_growth: NDArray[np.float64],
+    monthly_rates: NDArray[np.float64],
+    initial_value: float,
+    equity_weight: float,
+    portfolio_withdrawal: float,
+    loan_draw: float,
+    ltv_limit: float,
+    horizon: int,
+    ltv_enforcement: bool = True,
+) -> tuple[float, bool, int, float, int]:
+    """Simulate one leveraged buy-and-hold trajectory (Part 49 debt + drift).
+
+    Combines the Part 49 fixed-draw debt recurrence (:func:`_simulate_part49`)
+    with the buy-and-hold unit-tracking growth of
+    :func:`_simulate_trajectory_buy_and_hold`: the target equity/bond split is
+    established once and never rebalanced, so between withdrawals the weights
+    drift with the asset-specific returns while the portfolio still carries the
+    fixed Part 49 loan.
+
+    Recurrence per month ``m`` (mirrors the buy-and-hold pipeline ordering):
+    1. Accrue interest on the prior loan balance (step 26): ``Y += Y · r_m``.
+    2. Draw the fixed loan amount (step 28): ``Y += loan_draw``.
+    3. Consume the draw from cash first, then sell ``portfolio_withdrawal`` of
+       the portfolio pro rata (step 30, weights preserved): ``V -=
+       portfolio_withdrawal``.
+    4. LTV evaluation / enforcement (step 66).
+    5. Failure detection (step 75).
+    6. Apply the per-asset blend to the remaining portfolio, updating the
+       drifting equity weight: ``G = w·ge + (1-w)·gb``, ``w = w·ge/G``,
+       ``V *= G`` (only for ``m < horizon - 1``).
+
+    ``monthly_rates`` is precomputed by the executor and already reflects the
+    ``debt_interest_rate_is_real`` convention (CPI bypass or CPI adjustment).
+
+    Returns
+    -------
+    tuple of (final_value, success, failure_month, final_loan_balance, reason)
+
+    ``reason`` uses the same ``_PART52_*`` codes as the Part 49/52 kernels.  On
+    depletion, final_value is 0; on a terminal margin-call liquidation,
+    final_value is the post-liquidation portfolio value.
+    """
+    V = initial_value
+    Y = 0.0
+    w = equity_weight
+
+    for m in range(horizon):
+        # --- Interest accrual (step 26): prior balance only ---
+        if Y > 0.0:
+            Y += Y * monthly_rates[m]
+
+        # --- Loan draw (step 28): fixed monthly draw ---
+        Y += loan_draw
+
+        # --- Withdrawal execution (step 30): cash-first, then portfolio ---
+        # Pro-rata sale preserves the equity weight, so the weight is unchanged.
+        V -= portfolio_withdrawal
+        if V < 0.0:
+            V = 0.0
+
+        # --- LTV evaluation (step 66) ---
+        if ltv_enforcement and Y > 0.0 and V > 0.0:
+            ltv = Y / V
+            if ltv > ltv_limit:
+                # Margin call: liquidate to restore LTV to the limit
+                liq = (Y - ltv_limit * V) / (1.0 - ltv_limit)
+                if liq > V:
+                    # Unsatisfiable: sell entire portfolio; the depleted
+                    # portfolio is classified by the failure check below.
+                    Y -= V
+                    V = 0.0
+                else:
+                    # Satisfiable liquidation is terminal (C5 semantics),
+                    # matching ``LTVEvaluationStep`` and the oracle.
+                    V -= liq
+                    Y -= liq
+                    return V, False, m, Y, _PART52_MARGIN_CALL_TERMINAL
+
+        # --- Failure detection (step 75) ---
+        if V <= 0.0:
+            return 0.0, False, m, Y, _PART52_DEPLETED
+        if ltv_enforcement and Y > V and Y > 0.0:
+            return V, False, m, Y, _PART52_MARGIN_CALL_IMPOSSIBLE
+
+        # --- Growth (step 60): per-asset blend, weights drift endogenously ---
+        if m < horizon - 1:
+            ge = equity_growth[m]
+            gb = bond_growth[m]
+            blended = w * ge + (1.0 - w) * gb
+            if blended != 0.0:
+                w = w * ge / blended
+            V *= blended
+
+    return V, True, -1, Y, _PART52_SUCCESS
+
+
 @numba.njit(parallel=True, cache=True)
 def _simulate_part52_batch(
     growth_factors: NDArray[np.float64],

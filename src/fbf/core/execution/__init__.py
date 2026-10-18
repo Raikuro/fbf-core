@@ -315,8 +315,14 @@ def _auto_select_backend(
         import numba as _numba_mod  # noqa: F401
     except ModuleNotFoundError:
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
+        from fbf.core.execution.strategies.parallel_executor import (
+            _create_reference_simulation_executor,
+        )
 
-        return FastPathSimulationExecutor(profiler=profiler)
+        return FastPathSimulationExecutor(
+            reference_executor=_create_reference_simulation_executor(),
+            profiler=profiler,
+        )
 
     from fbf.core.execution.strategies.part52_numba_executor import (
         is_part52_eligible,
@@ -344,6 +350,21 @@ def _auto_select_backend(
         )
 
         return Part49NumbaExecutor(profiler=profiler)
+
+    from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
+        is_part49_buy_and_hold_eligible,
+    )
+
+    all_part49_buy_and_hold = all(
+        is_part49_buy_and_hold_eligible(ctx) for ctx in contexts
+    )
+
+    if all_part49_buy_and_hold:
+        from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
+            Part49BuyAndHoldNumbaExecutor,
+        )
+
+        return Part49BuyAndHoldNumbaExecutor(profiler=profiler)
 
     from fbf.core.execution.strategies.fast_path import is_fast_path_eligible
     from fbf.core.execution.strategies.numba_executor import (
@@ -392,8 +413,18 @@ def _auto_select_backend(
         )
 
     from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
+    from fbf.core.execution.strategies.parallel_executor import (
+        _create_reference_simulation_executor,
+    )
 
-    return FastPathSimulationExecutor(profiler=profiler)
+    # No optimized backend matches the whole workload.  The fast path's
+    # ineligible-context fallback is allocation-aware, so a buy-and-hold unit
+    # that reaches here is delegated to the buy-and-hold pipeline rather than to
+    # the rebalancing default pipeline.
+    return FastPathSimulationExecutor(
+        reference_executor=_create_reference_simulation_executor(),
+        profiler=profiler,
+    )
 
 
 def execute_study_plan(
@@ -486,7 +517,25 @@ def execute_study_plan(
 
             sim_executor = Part52NumbaExecutor(profiler=profiler)
         elif has_part49:
-            if not all(is_part49_eligible(ctx) for ctx in fast_contexts):
+            from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
+                is_part49_buy_and_hold_eligible,
+            )
+
+            if all(is_part49_eligible(ctx) for ctx in fast_contexts):
+                from fbf.core.execution.strategies.part49_numba_executor import (
+                    Part49NumbaExecutor,
+                )
+
+                sim_executor = Part49NumbaExecutor(profiler=profiler)
+            elif all(
+                is_part49_buy_and_hold_eligible(ctx) for ctx in fast_contexts
+            ):
+                from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
+                    Part49BuyAndHoldNumbaExecutor,
+                )
+
+                sim_executor = Part49BuyAndHoldNumbaExecutor(profiler=profiler)
+            else:
                 raise UnsupportedConfigurationError(
                     "FAST backend cannot execute this plan on Numba: it contains "
                     "Part 49 workloads that are not Numba-eligible. Mixed plans "
@@ -497,24 +546,29 @@ def execute_study_plan(
                     "FAST backend. Use backend=AUTO to route unsupported "
                     "workloads through the reference engine."
                 )
-            from fbf.core.execution.strategies.part49_numba_executor import (
-                Part49NumbaExecutor,
-            )
-
-            sim_executor = Part49NumbaExecutor(profiler=profiler)
         else:
             from fbf.core.execution.strategies.numba_executor import (
                 NumbaSimulationExecutor,
             )
+            from fbf.core.execution.strategies.parallel_executor import (
+                _create_reference_simulation_executor,
+            )
 
             sim_executor = NumbaSimulationExecutor(
+                reference_executor=_create_reference_simulation_executor(),
                 profiler=profiler,
                 glidepath_gf_cache=opt.glidepath_gf_cache,
             )
     elif backend == ExecutionBackend.REFERENCE:
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
+        from fbf.core.execution.strategies.parallel_executor import (
+            _create_reference_simulation_executor,
+        )
 
-        sim_executor = FastPathSimulationExecutor(profiler=profiler)
+        sim_executor = FastPathSimulationExecutor(
+            reference_executor=_create_reference_simulation_executor(),
+            profiler=profiler,
+        )
     profiler.stop("backend_selection")
 
     # --- Strategy selection ---
@@ -529,6 +583,9 @@ def execute_study_plan(
         from fbf.core.execution.strategies.numba_executor import (
             NumbaSimulationExecutor,
         )
+        from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
+            Part49BuyAndHoldNumbaExecutor,
+        )
         from fbf.core.execution.strategies.part49_numba_executor import (
             Part49NumbaExecutor,
         )
@@ -538,7 +595,12 @@ def execute_study_plan(
 
         if backend == ExecutionBackend.FAST or isinstance(
             sim_executor,
-            (Part49NumbaExecutor, Part52NumbaExecutor, NumbaSimulationExecutor),
+            (
+                Part49NumbaExecutor,
+                Part49BuyAndHoldNumbaExecutor,
+                Part52NumbaExecutor,
+                NumbaSimulationExecutor,
+            ),
         ):
             raise ValueError(
                 "FAST backend does not support parallel execution. "
@@ -555,6 +617,9 @@ def execute_study_plan(
             from fbf.core.execution.strategies.numba_executor import (
                 NumbaSimulationExecutor,
             )
+            from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
+                Part49BuyAndHoldNumbaExecutor,
+            )
             from fbf.core.execution.strategies.part49_numba_executor import (
                 Part49NumbaExecutor,
             )
@@ -564,7 +629,12 @@ def execute_study_plan(
 
             if isinstance(
                 sim_executor,
-                (Part49NumbaExecutor, Part52NumbaExecutor, NumbaSimulationExecutor),
+                (
+                    Part49NumbaExecutor,
+                    Part49BuyAndHoldNumbaExecutor,
+                    Part52NumbaExecutor,
+                    NumbaSimulationExecutor,
+                ),
             ):
                 use_parallel = False
             else:
