@@ -1,12 +1,13 @@
-"""SQLite schema DDL constants (v0.4).
+"""SQLite schema DDL constants (v0.5).
 
-Schema version 2 adds the ``deleted_at`` soft-delete column to ``experiments``
-and ``research_plans`` to support idempotent logical deletion / restoration
-(see INFRASTRUCTURE_SQLITE_PERSISTENCE_SPECIFICATION.md and the semantic
-equivalence rule implemented in ``SQLiteRepository``).
+Schema version 4 adds incremental execution state to ``execution_results``:
+``status``, ``attempt_id``, ``completed_units``, ``updated_at``,
+``completed_at``, and ``error``.  Incomplete executions are invisible to the
+completed-result loading API.  Schema version 2 added the ``deleted_at``
+soft-delete columns to ``experiments`` and ``research_plans``.
 """
 
-SCHEMA_VERSION: int = 3
+SCHEMA_VERSION: int = 4
 
 PRAGMA_FOREIGN_KEYS = "PRAGMA foreign_keys = ON"
 PRAGMA_WAL = "PRAGMA journal_mode = WAL"
@@ -109,11 +110,18 @@ CREATE_EXECUTION_RESULTS_TABLE = """
 CREATE TABLE IF NOT EXISTS execution_results (
     result_id TEXT PRIMARY KEY,
     plan_id TEXT NOT NULL UNIQUE REFERENCES research_plans(plan_id),
+    attempt_id TEXT,
+    status TEXT NOT NULL DEFAULT 'completed'
+        CHECK(status IN ('executing', 'completed', 'failed')),
     executed_at TEXT NOT NULL,
+    updated_at TEXT,
+    completed_at TEXT,
     duration_seconds REAL NOT NULL CHECK(duration_seconds >= 0),
     success_count INTEGER NOT NULL CHECK(success_count >= 0),
     failure_count INTEGER NOT NULL CHECK(failure_count >= 0),
-    total_units INTEGER NOT NULL CHECK(total_units > 0)
+    completed_units INTEGER NOT NULL DEFAULT 0 CHECK(completed_units >= 0),
+    total_units INTEGER NOT NULL CHECK(total_units > 0),
+    error TEXT
 );
 """
 
@@ -137,6 +145,7 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_plans_experiment ON research_plans(experiment_id);",
     "CREATE INDEX IF NOT EXISTS idx_units_plan ON planned_units(plan_id, unit_index);",
     "CREATE INDEX IF NOT EXISTS idx_results_plan ON execution_results(plan_id);",
+    "CREATE INDEX IF NOT EXISTS idx_results_status ON execution_results(status);",
     "CREATE INDEX IF NOT EXISTS idx_results_execution ON "
     "simulation_results(execution_result_id, unit_index, month_index);",
     "CREATE INDEX IF NOT EXISTS idx_experiments_deleted ON experiments(deleted_at);",
@@ -161,6 +170,51 @@ MIGRATIONS = [
         "final_value_target",
         "ALTER TABLE planned_units ADD COLUMN final_value_target TEXT",
     ),
+    (
+        "execution_results",
+        "attempt_id",
+        "ALTER TABLE execution_results ADD COLUMN attempt_id TEXT",
+    ),
+    (
+        "execution_results",
+        "status",
+        "ALTER TABLE execution_results ADD COLUMN status TEXT NOT NULL "
+        "DEFAULT 'completed'",
+    ),
+    (
+        "execution_results",
+        "updated_at",
+        "ALTER TABLE execution_results ADD COLUMN updated_at TEXT",
+    ),
+    (
+        "execution_results",
+        "completed_at",
+        "ALTER TABLE execution_results ADD COLUMN completed_at TEXT",
+    ),
+    (
+        "execution_results",
+        "completed_units",
+        "ALTER TABLE execution_results ADD COLUMN completed_units INTEGER "
+        "NOT NULL DEFAULT 0",
+    ),
+    (
+        "execution_results",
+        "error",
+        "ALTER TABLE execution_results ADD COLUMN error TEXT",
+    ),
+]
+
+# Data backfill applied after column migrations.  These statements are
+# idempotent and only ever promote legacy completed rows to the v4 shape; rows
+# written by the streaming API are left untouched.
+DATA_MIGRATIONS = [
+    "UPDATE execution_results SET attempt_id = result_id WHERE attempt_id IS NULL",
+    "UPDATE execution_results SET completed_units = total_units "
+    "WHERE status = 'completed' AND completed_units = 0",
+    "UPDATE execution_results SET completed_at = executed_at "
+    "WHERE status = 'completed' AND completed_at IS NULL",
+    "UPDATE execution_results SET updated_at = "
+    "COALESCE(completed_at, executed_at) WHERE updated_at IS NULL",
 ]
 
 ALL_DDL = [

@@ -10,6 +10,7 @@ simulation engine or the canonical datasets.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import (
@@ -142,47 +143,66 @@ def _build_failure_record(
     )
 
 
-def aggregate_part49_results(
-    units: tuple[Any, ...],
-    simulation_results: tuple[SimulationResult, ...],
-) -> Part49AggregationResult:
-    """Aggregate Part 49 simulation results by (equity, interest_rate) cell.
+class Part49Aggregator:
+    """Incremental Part 49 aggregation over slices of results.
 
-    For each unique combination of (equity_allocation, interest_rate),
-    computes the success rate and captures failure details.
-
-    Parameters
-    ----------
-    units:
-        Ordered tuple of ``PlannedSimulationUnit`` objects.
-    simulation_results:
-        Ordered tuple of ``SimulationResult`` objects from engine
-        execution.  Must be index-aligned with *units*.
-
-    Returns
-    -------
-    Part49AggregationResult
-        Frozen aggregation with per-cell success rates and failure records.
-
-    Raises
-    ------
-    ValueError
-        If input sequences have mismatched lengths.
+    Each call to :meth:`add` consumes one ordered, index-aligned slice.  The
+    accumulator retains only the per-cell terminal values and failure records;
+    callers can release slice timelines after ``add`` returns.
     """
-    if len(units) != len(simulation_results):
-        raise ValueError(
-            f"Input sequences must have matching lengths: "
-            f"units={len(units)}, results={len(simulation_results)}"
+
+    def __init__(self) -> None:
+        self._accumulators: dict[tuple[Decimal, Decimal], dict[str, Any]] = {}
+        self._total_units = 0
+
+    def add(
+        self,
+        units: Sequence[Any],
+        simulation_results: Sequence[SimulationResult],
+    ) -> None:
+        """Add one index-aligned slice to the aggregation."""
+        if len(units) != len(simulation_results):
+            raise ValueError(
+                f"Input sequences must have matching lengths: "
+                f"units={len(units)}, results={len(simulation_results)}"
+            )
+        for unit, result in zip(units, simulation_results, strict=True):
+            self._add_one(unit, result)
+
+    def build(self) -> Part49AggregationResult:
+        """Return the frozen aggregation built from all added slices."""
+        cell_aggs = []
+        for (equity, ir), acc in sorted(self._accumulators.items()):
+            cell_aggs.append(
+                CellAggregation(
+                    equity_allocation=equity,
+                    interest_rate=ir,
+                    withdrawal_rate=acc["withdrawal_rate"],
+                    loan_draw_rate=acc["loan_draw_rate"],
+                    horizon_years=acc["horizon_years"],
+                    ltv_enforcement=acc["ltv_enforcement"],
+                    total_cohorts=acc["total"],
+                    successful_cohorts=acc["success"],
+                    failed_cohorts=acc["total"] - acc["success"],
+                    failure_records=tuple(acc["failures"]),
+                    terminal_wealths=tuple(acc["wealths"]),
+                    terminal_loan_balances=tuple(acc["loans"]),
+                    terminal_ltvs=tuple(acc["ltvs"]),
+                )
+            )
+        return Part49AggregationResult(
+            cell_aggregations=tuple(cell_aggs),
+            total_units=self._total_units,
         )
 
-    # Cell key -> accumulator
-    cell_key_type = tuple[Decimal, Decimal]
-    CellAccumulator = dict[str, Any]
-    accumulators: dict[cell_key_type, CellAccumulator] = {}
-
-    def _get_acc(key: cell_key_type) -> CellAccumulator:
-        if key not in accumulators:
-            accumulators[key] = {
+    def _add_one(self, unit: Any, result: SimulationResult) -> None:
+        equity = Decimal(
+            str(unit.parameter_config.values.get("equity_allocation", "0"))
+        )
+        ir = unit.interest_rate if unit.interest_rate is not None else Decimal("0")
+        key = (equity, ir)
+        if key not in self._accumulators:
+            self._accumulators[key] = {
                 "success": 0,
                 "total": 0,
                 "failures": [],
@@ -194,17 +214,10 @@ def aggregate_part49_results(
                 "horizon_years": 0,
                 "ltv_enforcement": False,
             }
-        return accumulators[key]
-
-    for unit, result in zip(units, simulation_results, strict=True):
-        equity = Decimal(
-            str(unit.parameter_config.values.get("equity_allocation", "0"))
-        )
-        ir = unit.interest_rate if unit.interest_rate is not None else Decimal("0")
-        key = (equity, ir)
-        acc = _get_acc(key)
+        acc = self._accumulators[key]
 
         acc["total"] += 1
+        self._total_units += 1
         successful = result.statistics.success if result.statistics is not None else False
         if successful:
             acc["success"] += 1
@@ -234,31 +247,35 @@ def aggregate_part49_results(
         acc["horizon_years"] = (horizon // 12) if horizon is not None else 0
         acc["ltv_enforcement"] = unit.ltv_enforcement
 
-    # Build sorted cell aggregations
-    cell_aggs = []
-    for (equity, ir), acc in sorted(accumulators.items()):
-        cell_aggs.append(
-            CellAggregation(
-                equity_allocation=equity,
-                interest_rate=ir,
-                withdrawal_rate=acc["withdrawal_rate"],
-                loan_draw_rate=acc["loan_draw_rate"],
-                horizon_years=acc["horizon_years"],
-                ltv_enforcement=acc["ltv_enforcement"],
-                total_cohorts=acc["total"],
-                successful_cohorts=acc["success"],
-                failed_cohorts=acc["total"] - acc["success"],
-                failure_records=tuple(acc["failures"]),
-                terminal_wealths=tuple(acc["wealths"]),
-                terminal_loan_balances=tuple(acc["loans"]),
-                terminal_ltvs=tuple(acc["ltvs"]),
-            )
-        )
 
-    return Part49AggregationResult(
-        cell_aggregations=tuple(cell_aggs),
-        total_units=len(simulation_results),
-    )
+def aggregate_part49_results(
+    units: Sequence[Any],
+    simulation_results: Sequence[SimulationResult],
+) -> Part49AggregationResult:
+    """Aggregate Part 49 simulation results by (equity, interest_rate) cell.
+
+    Backward-compatible wrapper around :class:`Part49Aggregator`.
+
+    Parameters
+    ----------
+    units:
+        Ordered units aligned with *simulation_results*.
+    simulation_results:
+        Ordered simulation results.  Must be index-aligned with *units*.
+
+    Returns
+    -------
+    Part49AggregationResult
+        Frozen aggregation with per-cell success rates and failure records.
+
+    Raises
+    ------
+    ValueError
+        If input sequences have mismatched lengths.
+    """
+    aggregator = Part49Aggregator()
+    aggregator.add(units, simulation_results)
+    return aggregator.build()
 
 
 def get_cell_table(

@@ -14,7 +14,8 @@ import json
 import sqlite3
 import uuid
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -22,14 +23,16 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from .errors import (
     DuplicateStudyError,
+    ExecutionInProgressError,
     PersistenceError,
     PlanNotFoundError,
     ReconstructionContextError,
     ResultsNotFoundError,
+    StaleExecutionAttemptError,
     StudyNotFoundError,
     UnsupportedSerializationError,
 )
-from .schema import ALL_DDL, SCHEMA_VERSION
+from .schema import ALL_DDL, DATA_MIGRATIONS, SCHEMA_VERSION
 
 JSONScalar = None | bool | int | float | str
 JSONValue = JSONScalar | Mapping[str, JSONScalar]
@@ -315,6 +318,22 @@ class ExperimentIdentity:
     revision: str
 
 
+@dataclass(frozen=True)
+class ExecutionAttempt:
+    """Snapshot of one incremental execution attempt."""
+    result_id: str
+    plan_id: str
+    attempt_id: str
+    status: str
+    expected_units: int
+    completed_units: int
+    success_count: int
+    failure_count: int
+    executed_at: str
+    updated_at: str
+    error: str | None
+
+
 class DatasetLoader(Protocol):
     """Protocol for loading the canonical dataset."""
     def load(self) -> Dataset: ...
@@ -439,6 +458,8 @@ class SQLiteRepository:
             for statement in ALL_DDL:
                 conn.execute(statement)
             self._apply_migrations(conn)
+            for statement in DATA_MIGRATIONS:
+                conn.execute(statement)
             # Indexes are created after migrations because some indexes added by
             # a newer schema version reference columns that only exist after the
             # migration has run on databases created by an older version.
@@ -837,6 +858,497 @@ class SQLiteRepository:
                 units=tuple(units),
             )
 
+    @contextmanager
+    def _immediate_transaction(self) -> Iterator[sqlite3.Connection]:
+        """Open one explicit ``BEGIN IMMEDIATE`` write transaction."""
+        conn = self._connect()
+        conn.isolation_level = None
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    _ATTEMPT_COLUMNS = (
+        "result_id, plan_id, attempt_id, status, total_units, "
+        "completed_units, success_count, failure_count, executed_at, "
+        "updated_at, error"
+    )
+
+    @staticmethod
+    def _attempt_from_row(row: Sequence[Any]) -> ExecutionAttempt:
+        return ExecutionAttempt(
+            result_id=str(row[0]),
+            plan_id=str(row[1]),
+            attempt_id=str(row[2] or ""),
+            status=str(row[3]),
+            expected_units=int(row[4]),
+            completed_units=int(row[5]),
+            success_count=int(row[6]),
+            failure_count=int(row[7]),
+            executed_at=str(row[8]),
+            updated_at=str(row[9] or row[8]),
+            error=None if row[10] is None else str(row[10]),
+        )
+
+    def _load_attempt_row(
+        self, conn: sqlite3.Connection, result_id: str
+    ) -> ExecutionAttempt | None:
+        row = conn.execute(
+            f"SELECT {self._ATTEMPT_COLUMNS} FROM execution_results "
+            "WHERE result_id = ?",
+            (result_id,),
+        ).fetchone()
+        return self._attempt_from_row(row) if row else None
+
+    def get_execution_attempt(self, result_id: str) -> ExecutionAttempt | None:
+        """Return the current attempt snapshot for ``result_id``.
+
+        Unlike ``load_execution_result`` this exposes incomplete attempts so
+        operators can inspect and explicitly recover them.
+        """
+        with self._connect() as conn:
+            return self._load_attempt_row(conn, result_id)
+
+    def list_incomplete_executions(self) -> list[ExecutionAttempt]:
+        """List attempts still marked ``executing``.
+
+        This is a diagnostic/recovery API.  It never changes state based on
+        elapsed time; callers must explicitly abandon or retry an attempt.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT {self._ATTEMPT_COLUMNS} FROM execution_results "
+                "WHERE status = 'executing' ORDER BY updated_at, executed_at"
+            ).fetchall()
+        return [self._attempt_from_row(row) for row in rows]
+
+    def begin_execution(
+        self,
+        plan_id: str,
+        expected_units: int,
+        context: PersistenceReconstructionContext,
+    ) -> ExecutionAttempt:
+        """Start (or retry) an incremental execution for ``plan_id``.
+
+        A failed attempt is reset in place with a fresh ``attempt_id`` and its
+        partial result rows are deleted.  An attempt already marked
+        ``executing`` raises ``ExecutionInProgressError``; it is never
+        abandoned automatically.
+        """
+        validate_context(context)
+        if expected_units <= 0:
+            raise ValueError("expected_units must be positive")
+
+        def _do_begin() -> ExecutionAttempt:
+            with self._immediate_transaction() as conn:
+                plan = conn.execute(
+                    "SELECT status, unit_count FROM research_plans "
+                    "WHERE plan_id = ?",
+                    (plan_id,),
+                ).fetchone()
+                if not plan:
+                    raise PlanNotFoundError(f"Plan not found: {plan_id}")
+                plan_status = str(plan[0])
+                unit_count = int(plan[1])
+                if unit_count != expected_units:
+                    raise PersistenceError(
+                        "expected_units does not match plan unit_count: "
+                        f"{expected_units} != {unit_count}"
+                    )
+                if plan_status == "completed":
+                    raise PersistenceError(
+                        f"Cannot start execution for completed plan: {plan_id}"
+                    )
+
+                existing = conn.execute(
+                    "SELECT result_id, status FROM execution_results "
+                    "WHERE plan_id = ?",
+                    (plan_id,),
+                ).fetchone()
+                now = utc_now_iso()
+
+                if existing:
+                    existing_id = str(existing[0])
+                    existing_status = str(existing[1])
+                    if existing_status == "completed":
+                        raise PersistenceError(
+                            f"Execution already completed for plan: {plan_id}"
+                        )
+                    if existing_status == "executing":
+                        raise ExecutionInProgressError(
+                            "Execution already in progress for plan "
+                            f"{plan_id}; resolve it explicitly before retrying"
+                        )
+                    attempt_id = generate_uuid()
+                    conn.execute(
+                        "DELETE FROM simulation_results "
+                        "WHERE execution_result_id = ?",
+                        (existing_id,),
+                    )
+                    conn.execute(
+                        """
+                        UPDATE execution_results
+                        SET attempt_id = ?, status = 'executing',
+                            executed_at = ?, updated_at = ?, completed_at = NULL,
+                            duration_seconds = 0, success_count = 0,
+                            failure_count = 0, completed_units = 0,
+                            total_units = ?, error = NULL
+                        WHERE result_id = ?
+                        """,
+                        (
+                            attempt_id,
+                            now,
+                            now,
+                            expected_units,
+                            existing_id,
+                        ),
+                    )
+                    result_id = existing_id
+                else:
+                    if plan_status == "executing":
+                        raise PersistenceError(
+                            "Plan is marked executing but has no execution "
+                            f"attempt: {plan_id}"
+                        )
+                    result_id = generate_uuid()
+                    attempt_id = generate_uuid()
+                    conn.execute(
+                        """
+                        INSERT INTO execution_results (
+                            result_id, plan_id, attempt_id, status, executed_at,
+                            updated_at, completed_at, duration_seconds,
+                            success_count, failure_count, completed_units,
+                            total_units, error
+                        ) VALUES (?, ?, ?, 'executing', ?, ?, NULL, 0, 0, 0, 0, ?, NULL)
+                        """,
+                        (
+                            result_id,
+                            plan_id,
+                            attempt_id,
+                            now,
+                            now,
+                            expected_units,
+                        ),
+                    )
+
+                conn.execute(
+                    "UPDATE research_plans SET status = 'executing' "
+                    "WHERE plan_id = ?",
+                    (plan_id,),
+                )
+                return ExecutionAttempt(
+                    result_id=result_id,
+                    plan_id=plan_id,
+                    attempt_id=attempt_id,
+                    status="executing",
+                    expected_units=expected_units,
+                    completed_units=0,
+                    success_count=0,
+                    failure_count=0,
+                    executed_at=now,
+                    updated_at=now,
+                    error=None,
+                )
+
+        result = self._retry_on_lock(_do_begin)
+        assert isinstance(result, ExecutionAttempt)
+        return result
+
+    def append_execution_slice(
+        self,
+        result_id: str,
+        attempt_id: str,
+        start_index: int,
+        simulation_results: Sequence[Any],
+        context: PersistenceReconstructionContext,
+    ) -> ExecutionAttempt:
+        """Persist one contiguous slice and update counters atomically.
+
+        The write is idempotent for an already-persisted range in the current
+        attempt.  Slices must be appended in unit-index order; a gap or overlap
+        is rejected.
+        """
+        validate_context(context)
+        if start_index < 0:
+            raise ValueError("start_index must be non-negative")
+        results = tuple(simulation_results)
+        if not results:
+            raise ValueError("simulation_results must not be empty")
+
+        def _do_append() -> ExecutionAttempt:
+            with self._immediate_transaction() as conn:
+                attempt = self._load_attempt_row(conn, result_id)
+                if attempt is None:
+                    raise ResultsNotFoundError(
+                        f"Execution result not found: {result_id}"
+                    )
+                if attempt.attempt_id != attempt_id:
+                    raise StaleExecutionAttemptError(
+                        "Attempt token does not match the current execution"
+                    )
+                if attempt.status != "executing":
+                    raise PersistenceError(
+                        f"Execution {result_id} is not executing "
+                        f"(status={attempt.status})"
+                    )
+
+                end_index = start_index + len(results)
+                if end_index > attempt.expected_units:
+                    raise PersistenceError(
+                        f"Slice end {end_index} exceeds expected units "
+                        f"{attempt.expected_units}"
+                    )
+                if start_index < attempt.completed_units:
+                    if end_index <= attempt.completed_units:
+                        return attempt
+                    raise PersistenceError(
+                        "Slice overlaps already-persisted units: "
+                        f"start={start_index}, end={end_index}, "
+                        f"completed={attempt.completed_units}"
+                    )
+                if start_index != attempt.completed_units:
+                    raise PersistenceError(
+                        "Slices must be appended contiguously: expected start "
+                        f"{attempt.completed_units}, got {start_index}"
+                    )
+
+                for offset, unit_result in enumerate(results):
+                    self._save_simulation_result(
+                        conn,
+                        result_id,
+                        start_index + offset,
+                        unit_result,
+                        context,
+                    )
+
+                added_success = sum(
+                    1 for item in results if item.statistics.success
+                )
+                added_failure = len(results) - added_success
+                now = utc_now_iso()
+                conn.execute(
+                    """
+                    UPDATE execution_results
+                    SET success_count = success_count + ?,
+                        failure_count = failure_count + ?,
+                        completed_units = ?, updated_at = ?
+                    WHERE result_id = ?
+                    """,
+                    (
+                        added_success,
+                        added_failure,
+                        end_index,
+                        now,
+                        result_id,
+                    ),
+                )
+                return ExecutionAttempt(
+                    result_id=result_id,
+                    plan_id=attempt.plan_id,
+                    attempt_id=attempt.attempt_id,
+                    status="executing",
+                    expected_units=attempt.expected_units,
+                    completed_units=end_index,
+                    success_count=attempt.success_count + added_success,
+                    failure_count=attempt.failure_count + added_failure,
+                    executed_at=attempt.executed_at,
+                    updated_at=now,
+                    error=None,
+                )
+
+        result = self._retry_on_lock(_do_append)
+        assert isinstance(result, ExecutionAttempt)
+        return result
+
+    def complete_execution(
+        self,
+        result_id: str,
+        attempt_id: str,
+        duration_seconds: float,
+    ) -> ExecutionAttempt:
+        """Finalize an attempt after verifying all expected unit rows exist."""
+        if duration_seconds < 0:
+            raise ValueError("duration_seconds must be non-negative")
+
+        def _do_complete() -> ExecutionAttempt:
+            with self._immediate_transaction() as conn:
+                attempt = self._load_attempt_row(conn, result_id)
+                if attempt is None:
+                    raise ResultsNotFoundError(
+                        f"Execution result not found: {result_id}"
+                    )
+                if attempt.attempt_id != attempt_id:
+                    raise StaleExecutionAttemptError(
+                        "Attempt token does not match the current execution"
+                    )
+                if attempt.status != "executing":
+                    raise PersistenceError(
+                        f"Execution {result_id} is not executing "
+                        f"(status={attempt.status})"
+                    )
+                if attempt.completed_units != attempt.expected_units:
+                    raise PersistenceError(
+                        "Cannot complete execution before all units are "
+                        f"persisted: {attempt.completed_units}/"
+                        f"{attempt.expected_units}"
+                    )
+                if (
+                    attempt.success_count + attempt.failure_count
+                    != attempt.expected_units
+                ):
+                    raise PersistenceError(
+                        "Execution counters are inconsistent: "
+                        f"success={attempt.success_count}, "
+                        f"failure={attempt.failure_count}, "
+                        f"expected={attempt.expected_units}"
+                    )
+
+                row = conn.execute(
+                    """
+                    SELECT COUNT(*), COUNT(DISTINCT unit_index),
+                           MIN(unit_index), MAX(unit_index)
+                    FROM simulation_results
+                    WHERE execution_result_id = ? AND final_month = 1
+                    """,
+                    (result_id,),
+                ).fetchone()
+                assert row is not None
+                final_rows = int(row[0])
+                distinct_units = int(row[1])
+                min_unit = row[2]
+                max_unit = row[3]
+                if (
+                    final_rows != attempt.expected_units
+                    or distinct_units != attempt.expected_units
+                    or min_unit != 0
+                    or max_unit != attempt.expected_units - 1
+                ):
+                    raise PersistenceError(
+                        "Persisted results are incomplete or inconsistent: "
+                        f"final_rows={final_rows}, "
+                        f"distinct_units={distinct_units}, "
+                        f"min_unit={min_unit}, max_unit={max_unit}, "
+                        f"expected={attempt.expected_units}"
+                    )
+
+                now = utc_now_iso()
+                conn.execute(
+                    """
+                    UPDATE execution_results
+                    SET status = 'completed', completed_at = ?,
+                        updated_at = ?, duration_seconds = ?
+                    WHERE result_id = ?
+                    """,
+                    (now, now, duration_seconds, result_id),
+                )
+                conn.execute(
+                    "UPDATE research_plans SET status = 'completed' "
+                    "WHERE plan_id = ?",
+                    (attempt.plan_id,),
+                )
+                return ExecutionAttempt(
+                    result_id=attempt.result_id,
+                    plan_id=attempt.plan_id,
+                    attempt_id=attempt.attempt_id,
+                    status="completed",
+                    expected_units=attempt.expected_units,
+                    completed_units=attempt.completed_units,
+                    success_count=attempt.success_count,
+                    failure_count=attempt.failure_count,
+                    executed_at=attempt.executed_at,
+                    updated_at=now,
+                    error=None,
+                )
+
+        result = self._retry_on_lock(_do_complete)
+        assert isinstance(result, ExecutionAttempt)
+        return result
+
+    def fail_execution(
+        self,
+        result_id: str,
+        attempt_id: str,
+        error: str,
+        duration_seconds: float = 0.0,
+    ) -> ExecutionAttempt:
+        """Mark the current attempt failed, retaining partial rows for diagnosis."""
+        if duration_seconds < 0:
+            raise ValueError("duration_seconds must be non-negative")
+
+        def _do_fail() -> ExecutionAttempt:
+            with self._immediate_transaction() as conn:
+                attempt = self._load_attempt_row(conn, result_id)
+                if attempt is None:
+                    raise ResultsNotFoundError(
+                        f"Execution result not found: {result_id}"
+                    )
+                if attempt.attempt_id != attempt_id:
+                    raise StaleExecutionAttemptError(
+                        "Attempt token does not match the current execution"
+                    )
+                if attempt.status == "completed":
+                    raise PersistenceError(
+                        f"Cannot fail completed execution: {result_id}"
+                    )
+                if attempt.status == "failed":
+                    return attempt
+
+                now = utc_now_iso()
+                conn.execute(
+                    """
+                    UPDATE execution_results
+                    SET status = 'failed', error = ?, completed_at = ?,
+                        updated_at = ?, duration_seconds = ?
+                    WHERE result_id = ?
+                    """,
+                    (error, now, now, duration_seconds, result_id),
+                )
+                conn.execute(
+                    "UPDATE research_plans SET status = 'failed' "
+                    "WHERE plan_id = ?",
+                    (attempt.plan_id,),
+                )
+                return ExecutionAttempt(
+                    result_id=attempt.result_id,
+                    plan_id=attempt.plan_id,
+                    attempt_id=attempt.attempt_id,
+                    status="failed",
+                    expected_units=attempt.expected_units,
+                    completed_units=attempt.completed_units,
+                    success_count=attempt.success_count,
+                    failure_count=attempt.failure_count,
+                    executed_at=attempt.executed_at,
+                    updated_at=now,
+                    error=error,
+                )
+
+        result = self._retry_on_lock(_do_fail)
+        assert isinstance(result, ExecutionAttempt)
+        return result
+
+    def abandon_execution(
+        self,
+        result_id: str,
+        attempt_id: str,
+        reason: str = "abandoned by operator",
+    ) -> ExecutionAttempt:
+        """Explicitly abandon an interrupted attempt.
+
+        Recovery is operator-driven: no attempt is failed solely because its
+        timestamp is old.  The caller must hold (or have established) the
+        current ``attempt_id``.
+        """
+        return self.fail_execution(
+            result_id,
+            attempt_id,
+            f"abandoned: {reason}",
+        )
+
     def save_execution_result(
         self,
         plan_id: str,
@@ -871,6 +1383,18 @@ class SQLiteRepository:
 
         def _do_save() -> str:
             with self._connect_immediate() as conn:
+                existing = conn.execute(
+                    "SELECT result_id, status FROM execution_results "
+                    "WHERE plan_id = ?",
+                    (plan_id,),
+                ).fetchone()
+                if existing:
+                    raise PersistenceError(
+                        "An execution attempt already exists for this plan; "
+                        "use the streaming execution API to finalize it"
+                    )
+
+                now = utc_now_iso()
                 conn.execute(
                     "UPDATE research_plans SET status = ? WHERE plan_id = ?",
                     ("completed", plan_id),
@@ -879,17 +1403,23 @@ class SQLiteRepository:
                 conn.execute(
                     """
                     INSERT INTO execution_results (
-                        result_id, plan_id, executed_at, duration_seconds,
-                        success_count, failure_count, total_units
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        result_id, plan_id, attempt_id, status, executed_at,
+                        updated_at, completed_at, duration_seconds,
+                        success_count, failure_count, completed_units,
+                        total_units, error
+                    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     (
                         result_id,
                         plan_id,
-                        utc_now_iso(),
+                        result_id,
+                        now,
+                        now,
+                        now,
                         duration_seconds,
                         success_count,
                         failure_count,
+                        total_units,
                         total_units,
                     ),
                 )
@@ -912,25 +1442,25 @@ class SQLiteRepository:
         validate_context(context)
 
         with self._connect() as conn:
-            if "-" in plan_id_or_result_id:
+            # IDs are opaque UUIDs; try result first, then plan.  This keeps
+            # the documented dual lookup working even though both are UUIDs.
+            row = conn.execute(
+                """
+                SELECT result_id, plan_id, executed_at, duration_seconds,
+                       success_count, failure_count, total_units, status
+                FROM execution_results WHERE result_id = ?
+                """,
+                (plan_id_or_result_id,),
+            ).fetchone()
+            if not row:
                 row = conn.execute(
                     """
                     SELECT result_id, plan_id, executed_at, duration_seconds,
-                           success_count, failure_count, total_units
-                    FROM execution_results WHERE result_id = ?
-                    """,
-                    (plan_id_or_result_id,),
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    """
-                    SELECT result_id, plan_id, executed_at, duration_seconds,
-                           success_count, failure_count, total_units
+                           success_count, failure_count, total_units, status
                     FROM execution_results WHERE plan_id = ?
                     """,
                     (plan_id_or_result_id,),
                 ).fetchone()
-
             if not row:
                 if "-" in plan_id_or_result_id:
                     raise ResultsNotFoundError(
@@ -941,26 +1471,22 @@ class SQLiteRepository:
                         f"Results for plan not found: {plan_id_or_result_id}"
                     )
 
-            if "-" in plan_id_or_result_id:
-                (
-                    result_id,
-                    plan_id,
-                    executed_at,
-                    duration_seconds,
-                    success_count,
-                    failure_count,
-                    total_units,
-                ) = row
-            else:
-                (
-                    result_id,
-                    plan_id,
-                    executed_at,
-                    duration_seconds,
-                    success_count,
-                    failure_count,
-                    total_units,
-                ) = (plan_id_or_result_id,) + row
+            if row[7] != "completed":
+                raise ResultsNotFoundError(
+                    "Execution result is not completed: "
+                    f"{plan_id_or_result_id} (status={row[7]})"
+                )
+
+            (
+                result_id,
+                plan_id,
+                executed_at,
+                duration_seconds,
+                success_count,
+                failure_count,
+                total_units,
+                _status,
+            ) = row
 
             # Load simulation results via context codec
             loaded_sim_results = self._load_simulation_results(conn, result_id, context)
@@ -1183,7 +1709,8 @@ class SQLiteRepository:
         """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT result_id FROM execution_results WHERE plan_id = ?", (plan_id,)
+                "SELECT result_id FROM execution_results "
+                "WHERE plan_id = ? AND status = 'completed'", (plan_id,)
             ).fetchone()
             return row[0] if row else None
 
@@ -1194,7 +1721,8 @@ class SQLiteRepository:
         """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT plan_id FROM execution_results WHERE result_id = ?",
+                "SELECT plan_id FROM execution_results "
+                "WHERE result_id = ? AND status = 'completed'",
                 (result_id,),
             ).fetchone()
             return row[0] if row else None
@@ -1214,7 +1742,7 @@ class SQLiteRepository:
                 SELECT result_id, plan_id, executed_at, duration_seconds,
                        success_count, failure_count, total_units
                 FROM execution_results
-                WHERE plan_id = ?
+                WHERE plan_id = ? AND status = 'completed'
                 """,
                 (plan_id,),
             ).fetchone()
@@ -1275,7 +1803,8 @@ class SQLiteRepository:
                 """
                 SELECT result_id, executed_at, duration_seconds,
                        success_count, failure_count, total_units
-                FROM execution_results WHERE plan_id = ?
+                FROM execution_results
+                WHERE plan_id = ? AND status = 'completed'
                 """,
                 (plan_id,),
             ).fetchone()
@@ -1411,7 +1940,8 @@ class SQLiteRepository:
         with self._connect() as conn:
             erow = conn.execute(
                 "SELECT result_id, total_units, success_count, failure_count "
-                "FROM execution_results WHERE result_id = ?",
+                "FROM execution_results "
+                "WHERE result_id = ? AND status = 'completed'",
                 (result_id,),
             ).fetchone()
             if not erow:
@@ -1506,7 +2036,8 @@ class SQLiteRepository:
         """
         with self._connect() as conn:
             erow = conn.execute(
-                "SELECT result_id FROM execution_results WHERE result_id = ?",
+                "SELECT result_id FROM execution_results "
+                "WHERE result_id = ? AND status = 'completed'",
                 (result_id,),
             ).fetchone()
             if not erow:
@@ -2181,7 +2712,8 @@ class SQLiteRepository:
         """
         with self._connect() as conn:
             erow = conn.execute(
-                "SELECT result_id FROM execution_results WHERE result_id = ?",
+                "SELECT result_id FROM execution_results "
+                "WHERE result_id = ? AND status = 'completed'",
                 (result_id,),
             ).fetchone()
             if not erow:
@@ -2195,7 +2727,7 @@ class SQLiteRepository:
                 FROM planned_units pu
                 JOIN parameter_configurations pc ON pu.param_config_id = pc.param_config_id
                 JOIN execution_results er ON er.plan_id = pu.plan_id
-                WHERE er.result_id = ?
+                WHERE er.result_id = ? AND er.status = 'completed'
                   AND json_extract(pc.params_json, '$.equity_allocation') IS NOT NULL
                 ORDER BY equity_allocation, withdrawal_rate
                 """,
@@ -2240,7 +2772,8 @@ class SQLiteRepository:
         """
         with self._connect() as conn:
             erow = conn.execute(
-                "SELECT result_id FROM execution_results WHERE result_id = ?",
+                "SELECT result_id FROM execution_results "
+                "WHERE result_id = ? AND status = 'completed'",
                 (result_id,),
             ).fetchone()
             if not erow:

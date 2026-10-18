@@ -8,10 +8,13 @@ from typing import Any, Protocol
 from fbf.core.persistence.studies.sqlite.context import create_persistence_context
 from fbf.core.persistence.studies.sqlite.errors import (
     DuplicateStudyError,
+    ExecutionInProgressError,
     PersistenceError,
     RepositoryError,
+    StaleExecutionAttemptError,
 )
 from fbf.core.persistence.studies.sqlite.sqlite_repository import (
+    ExecutionAttempt,
     ExperimentIdentity,
     SQLiteRepository,
     SQLiteStudyRepository,
@@ -35,9 +38,12 @@ __all__ = [
     "create_study_repository",
     "SQLiteRepository",
     "SQLiteStudyRepository",
+    "ExecutionAttempt",
+    "ExecutionInProgressError",
     "ExperimentIdentity",
     "create_persistence_context",
     "DuplicateStudyError",
     "PersistenceError",
     "RepositoryError",
+    "StaleExecutionAttemptError",
 ]

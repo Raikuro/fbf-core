@@ -259,6 +259,17 @@ retrieved must be field-for-field identical.
 serialized while reads can be parallelized. WAL mode and synchronous NORMAL
 provide durability with acceptable performance.
 
+**Incremental execution:** Large materialized runs cannot retain the whole
+result set in memory, so persistence accepts completed slices. Each slice's
+result rows and counters commit in one `BEGIN IMMEDIATE` transaction. A
+per-attempt token makes retries and stale writers detectable, and slice
+appends must be contiguous and idempotent for an already-committed range.
+Completion verifies expected unit and result coverage before the execution
+becomes visible to completed-result readers. An `executing` attempt is never
+failed by age; it must be completed, failed, or abandoned explicitly. This
+keeps an interrupted run out of historical results without conflating
+"unknown" with "failed".
+
 **Soft deletion:** Implemented via `deleted_at` columns. Restoration requires
 semantic equivalence of content fields (name, revision, description, dataset
 configuration, policy definitions), not ID matching. Storage-generated UUIDs

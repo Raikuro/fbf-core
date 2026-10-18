@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -49,8 +50,8 @@ def _make_mock_result(
     success: bool,
     count: int = 1739,
     max_ltv: Decimal = Decimal("0.001"),
-) -> MagicMock:
-    """Create a mock ResearchExecutionResult."""
+) -> list[SimpleNamespace]:
+    """Create a mock ResearchExecutionResult chunk."""
     sim_results = []
     for _ in range(count):
         stats = MagicMock(spec=SimulationStatistics)
@@ -64,7 +65,7 @@ def _make_mock_result(
 
     result = MagicMock(spec=ResearchExecutionResult)
     result.results = tuple(sim_results)
-    return result
+    return [SimpleNamespace(start_index=0, result=result)]
 
 
 class TestPart52EvaluatorContract:
@@ -75,7 +76,7 @@ class TestPart52EvaluatorContract:
         evaluator = Part52Evaluator(config)
         assert hasattr(evaluator, "evaluate")
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_returns_evaluation_outcome(self, mock_exec: MagicMock) -> None:
         mock_exec.return_value = _make_mock_result(success=True)
         config = _make_config()
@@ -83,7 +84,7 @@ class TestPart52EvaluatorContract:
         result = evaluator.evaluate(Decimal("0.035"))
         assert isinstance(result, EvaluationOutcome)
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_provenance_contains_required_keys(self, mock_exec: MagicMock) -> None:
         mock_exec.return_value = _make_mock_result(success=True)
         config = _make_config()
@@ -125,7 +126,7 @@ class TestPart52EvaluatorConfig:
 class TestPart52EvaluatorFeasibility:
     """Verify evaluator logic with mocked execution."""
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_success_when_all_cohorts_succeed(self, mock_exec: MagicMock) -> None:
         mock_exec.return_value = _make_mock_result(success=True)
         config = _make_config()
@@ -135,7 +136,7 @@ class TestPart52EvaluatorFeasibility:
         assert result.provenance["all_success"] is True
         assert result.provenance["total_count"] == 1739
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_failure_when_any_cohort_fails(self, mock_exec: MagicMock) -> None:
         mock_exec.return_value = _make_mock_result(success=False)
         config = _make_config()
@@ -144,7 +145,7 @@ class TestPart52EvaluatorFeasibility:
         assert result.success is False
         assert result.provenance["all_success"] is False
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_multi_b_pct_returns_first_feasible(self, mock_exec: MagicMock) -> None:
         # First call (B%=0%) succeeds
         mock_exec.return_value = _make_mock_result(success=True)
@@ -156,7 +157,7 @@ class TestPart52EvaluatorFeasibility:
         assert result.success is True
         assert result.provenance["borrow_pct"] == "0"
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_skips_infeasible_b_pct(self, mock_exec: MagicMock) -> None:
         # First call (B%=0%) fails, second (B%=50%) succeeds
         fail_result = _make_mock_result(success=False)
@@ -168,7 +169,7 @@ class TestPart52EvaluatorFeasibility:
         assert result.success is True
         assert result.provenance["borrow_pct"] == "0.50"
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_ltv_recorded_in_provenance(self, mock_exec: MagicMock) -> None:
         mock_exec.return_value = _make_mock_result(success=True, max_ltv=Decimal("0.03"))
         config = _make_config()
@@ -179,10 +180,23 @@ class TestPart52EvaluatorFeasibility:
         assert ltv <= Decimal("0.50")
 
 
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
+    def test_aggregates_across_multiple_slices(self, mock_exec: MagicMock) -> None:
+        first = _make_mock_result(success=True, count=2)
+        second = _make_mock_result(success=False, count=3)
+        mock_exec.return_value = first + second
+        config = _make_config()
+        evaluator = Part52Evaluator(config)
+        result = evaluator.evaluate(Decimal("0.035"))
+        assert result.provenance["total_count"] == 5
+        assert result.provenance["success_count"] == 2
+        assert result.provenance["all_success"] is False
+
+
 class TestPart52EvaluatorProvenance:
     """Verify provenance distinguishes feasible B%=0% from infeasibility."""
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_feasible_borrow_pct_on_success(self, mock_exec: MagicMock) -> None:
         """feasible_borrow_pct equals the B% that achieved success."""
         mock_exec.return_value = _make_mock_result(success=True)
@@ -197,7 +211,7 @@ class TestPart52EvaluatorProvenance:
         # B%=0% succeeds immediately so only that one is tested.
         assert result.provenance["tested_borrow_pcts"] == (Decimal("0"),)
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_feasible_borrow_pct_on_success_at_higher_b(self, mock_exec: MagicMock) -> None:
         """feasible_borrow_pct is the first B% that succeeds, not B%=0%."""
         fail_result = _make_mock_result(success=False)
@@ -212,7 +226,7 @@ class TestPart52EvaluatorProvenance:
             Decimal("0"), Decimal("0.50"),
         )
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_feasible_borrow_pct_none_when_infeasible(self, mock_exec: MagicMock) -> None:
         """feasible_borrow_pct is None when no B% achieves success."""
         mock_exec.return_value = _make_mock_result(success=False)
@@ -227,7 +241,7 @@ class TestPart52EvaluatorProvenance:
             Decimal("0"), Decimal("0.20"), Decimal("0.50"),
         )
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_infeasible_returns_last_failure_provenance(self, mock_exec: MagicMock) -> None:
         """When infeasible, provenance reflects the last tested B%, not the first."""
         mock_exec.return_value = _make_mock_result(success=False)
@@ -240,7 +254,7 @@ class TestPart52EvaluatorProvenance:
         # borrow_pct should be the last-tested value (0.50), not the first (0)
         assert result.provenance["borrow_pct"] == "0.50"
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_empty_borrow_pcts_returns_error(self, mock_exec: MagicMock) -> None:
         """Empty borrow_pcts grid returns error provenance."""
         config = Part52EvaluatorConfig(
@@ -258,7 +272,7 @@ class TestPart52EvaluatorProvenance:
         assert result.provenance["tested_borrow_pcts"] == ()
         mock_exec.assert_not_called()
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_single_b_pct_zero_feasible(self, mock_exec: MagicMock) -> None:
         """Single B%=0% that succeeds — distinguishes from multi-B% grid."""
         mock_exec.return_value = _make_mock_result(success=True)
@@ -273,13 +287,13 @@ class TestPart52EvaluatorProvenance:
 class TestSWROptimizerIntegration:
     """Verify Part52Evaluator works with SWROptimizer binary search."""
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_optimizer_finds_boundary(self, mock_exec: MagicMock) -> None:
         """Binary search converges to feasibility boundary."""
         # Use a counter to simulate: first few calls succeed, later fail
         call_count = 0
 
-        def side_effect(*args: Any, **kwargs: Any) -> MagicMock:
+        def side_effect(*args: Any, **kwargs: Any) -> list[SimpleNamespace]:
             nonlocal call_count
             call_count += 1
             # First 3 calls succeed (low WR), rest fail (high WR)
@@ -302,7 +316,7 @@ class TestSWROptimizerIntegration:
 class TestOptimizePart52API:
     """Verify optimize_part52() convenience function."""
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_returns_optimizer_outcome(self, mock_exec: MagicMock) -> None:
         mock_exec.return_value = _make_mock_result(success=True)
         from fbf.core.optimization import optimize_part52
@@ -320,7 +334,7 @@ class TestOptimizePart52API:
         )
         assert result.candidate_value is not None
 
-    @patch("fbf.core.optimization.part52_evaluator.execute_study_plan")
+    @patch("fbf.core.optimization.part52_evaluator.iter_execute_study_plan")
     def test_provenance_structure(self, mock_exec: MagicMock) -> None:
         mock_exec.return_value = _make_mock_result(success=True)
         from fbf.core.optimization import optimize_part52

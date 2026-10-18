@@ -18,7 +18,7 @@ from fbf.core.domain.model.money import Money
 from fbf.core.execution import (
     ExecutionOptions,
     ExecutionStrategy,
-    execute_study_plan,
+    iter_execute_study_plan,
 )
 from fbf.core.optimization.swr_optimizer import EvaluationOutcome
 from fbf.core.study import StudyConfiguration, build_study_plan
@@ -180,19 +180,19 @@ class Part52Evaluator:
             materialize_timeline=True,
         )
 
-        result = execute_study_plan(built, options)
-
-        sims = result.results
-        total = len(sims)
-        successful = sum(1 for s in sims if s.statistics.success)
-        all_success = successful == total
-
-        # Compute max post-liquidation LTV across all cohorts
+        total = 0
+        successful = 0
         max_ltv = Decimal("0")
-        for sim in sims:
-            for mr in sim.timeline.monthly_results:
-                if mr.debt_snapshot and mr.debt_snapshot.ltv > max_ltv:
-                    max_ltv = mr.debt_snapshot.ltv
+        for chunk in iter_execute_study_plan(built, options):
+            for sim in chunk.result.results:
+                total += 1
+                if sim.statistics.success:
+                    successful += 1
+                for mr in sim.timeline.monthly_results:
+                    if mr.debt_snapshot and mr.debt_snapshot.ltv > max_ltv:
+                        max_ltv = mr.debt_snapshot.ltv
+            del chunk
+        all_success = successful == total
 
         provenance: dict[str, Any] = {
             "withdrawal_rate": str(wr),

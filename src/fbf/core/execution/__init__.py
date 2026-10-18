@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -17,6 +17,7 @@ from fbf.core.execution.deterministic import (
     execute_deterministic_trajectory,
 )
 from fbf.core.execution.errors import UnsupportedConfigurationError
+from fbf.core.execution.executor import ResearchExecutor
 from fbf.core.execution.profiling import (
     CompositeProfiler,
     CpuProfiler,
@@ -29,9 +30,11 @@ from fbf.core.execution.profiling import (
     ProfileReport,
 )
 from fbf.core.execution.result import ResearchExecutionResult
+from fbf.core.execution.slicing import iter_cohort_slices
 from fbf.core.execution.strategies.fast_path import FastPathValidationError
 from fbf.core.execution.strategies.numba_executor import GlidepathGFKey
 from fbf.core.study.builder import BuiltStudy, StudyPlanResult
+from fbf.core.study.plan import ResearchPlan
 
 if TYPE_CHECKING:
     from fbf.core.execution.pipeline.simulation_context import SimulationContext
@@ -188,6 +191,12 @@ class ExecutionStrategy(StrEnum):
 # it may be adjusted as batching, overhead, or host hardware changes.
 _DEFAULT_PARALLEL_UNIT_THRESHOLD: int = 500
 
+# Slice targets for the streaming API.  These are memory-control targets, not
+# hard bounds: a cohort is never split.  They are validated empirically by the
+# isolated memory benchmark.
+_DEFAULT_SUMMARY_SLICE_UNITS: int = 20_000
+_DEFAULT_MATERIALIZED_SLICE_UNITS: int = 500
+
 
 @dataclass(frozen=True)
 class ExecutionOptions:
@@ -233,6 +242,12 @@ class ExecutionOptions:
         empty timelines.  This is opt-in because it increases the aggregation
         cost and memory footprint substantially.  Mutually exclusive with
         ``summary_only``.  Default is ``False``.
+    max_materialized_units:
+        Safety limit for full-plan execution when ``materialize_timeline`` is
+        enabled.  Plans above this unit count raise
+        ``UnsupportedConfigurationError``; use ``iter_execute_study_plan`` for
+        bounded, slice-at-a-time processing.  ``None`` disables the guard.
+        Default is ``1_000``.
     """
 
     backend: ExecutionBackend | None = None
@@ -246,6 +261,7 @@ class ExecutionOptions:
     # across multiple execute_study_plan invocations within a single bisection search.
     glidepath_gf_cache: Any = field(default=None)
     materialize_timeline: bool = False
+    max_materialized_units: int | None = 1_000
 
     def __post_init__(self) -> None:
         if self.materialize_timeline and self.summary_only:
@@ -253,6 +269,13 @@ class ExecutionOptions:
                 "ExecutionOptions.summary_only and materialize_timeline are "
                 "mutually exclusive: summary_only strips the timelines that "
                 "materialize_timeline requests."
+            )
+        if self.max_materialized_units is not None and (
+            self.max_materialized_units <= 0
+        ):
+            raise ValueError(
+                "ExecutionOptions.max_materialized_units must be positive or "
+                f"None, got {self.max_materialized_units}"
             )
 
     @staticmethod
@@ -456,50 +479,13 @@ def _auto_select_backend(
     )
 
 
-def execute_study_plan(
-    plan: StudyPlanResult | BuiltStudy,
-    options: ExecutionOptions | None = None,
-    **kwargs: Any,
-) -> ResearchExecutionResult:
-    """High-level application service to execute a study plan.
-
-    The ``profiler`` in ``options`` (default: ``NoOpProfiler``) is resolved
-    once and propagated to the underlying sequential or parallel execution.
-    When an ``ExecutionProfiler`` is provided, phase timings and metrics
-    are recorded and accessible via ``options.profiler.get_report()``.
-
-    Backend and strategy are read from ``options.backend`` and
-    ``options.strategy``.  Unsupported combinations (``FAST`` + ``PARALLEL``)
-    raise ``ValueError``.
-
-    Backend selection (``options.backend``):
-
-    - ``None`` (default): AUTO dispatch selects the best validated backend.
-      FAST when all units are Part52-eligible or FixedReal-eligible,
-      REFERENCE otherwise.
-    - ``FAST``: explicitly request the optimized Numba backend.
-    - ``REFERENCE``: explicitly request the authoritative Decimal reference.
-
-    Strategy selection (``options.strategy``):
-
-    - ``AUTO``: ``FAST`` always resolves to sequential.  ``REFERENCE`` selects
-      parallel when the plan has at least ``_DEFAULT_PARALLEL_UNIT_THRESHOLD``
-      units *and* more than one worker is available; otherwise sequential.
-    - ``SEQUENTIAL``: force single-process execution.
-    - ``PARALLEL``: explicitly request multiprocessing.  Not supported by
-      ``FAST``; raises ``ValueError``.
-    """
-    opt = options or ExecutionOptions()
-    built = plan if isinstance(plan, BuiltStudy) else plan.built_study
+def _select_simulation_executor(
+    built: Any,
+    opt: ExecutionOptions,
+) -> Any:
+    """Resolve the backend executor for a complete plan exactly once."""
     profiler = opt.profiler
-
-    profiler.start("total")
-
     backend = opt.backend
-    strategy = opt.strategy
-
-    # --- Backend selection ---
-    profiler.start("backend_selection")
     sim_executor: Any = None
     if backend is None:
         # AUTO dispatch: capability-driven routing
@@ -607,14 +593,17 @@ def execute_study_plan(
             reference_executor=_create_reference_simulation_executor(),
             profiler=profiler,
         )
-    profiler.stop("backend_selection")
+    return sim_executor
 
-    # --- Strategy selection ---
-    profiler.start("strategy_selection")
-    # ``workers`` is an optional resource hint, not a strategy directive.
-    # When not provided, the execution layer inspects host capabilities.
-    workers = opt.workers if opt.workers is not None else kwargs.get("workers")
 
+def _use_parallel_execution(
+    opt: ExecutionOptions,
+    workers: int | None,
+    sim_executor: Any,
+) -> bool:
+    """Resolve the execution strategy for a complete plan without side effects."""
+    backend = opt.backend
+    strategy = opt.strategy
     if strategy == ExecutionStrategy.SEQUENTIAL:
         use_parallel = False
     elif strategy == ExecutionStrategy.PARALLEL:
@@ -683,6 +672,74 @@ def execute_study_plan(
             # REFERENCE: use parallel when workers available.
             available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
             use_parallel = available_workers > 1
+    return use_parallel
+
+
+def execute_study_plan(
+    plan: StudyPlanResult | BuiltStudy,
+    options: ExecutionOptions | None = None,
+    **kwargs: Any,
+) -> ResearchExecutionResult:
+    """High-level application service to execute a study plan.
+
+    The ``profiler`` in ``options`` (default: ``NoOpProfiler``) is resolved
+    once and propagated to the underlying sequential or parallel execution.
+    When an ``ExecutionProfiler`` is provided, phase timings and metrics
+    are recorded and accessible via ``options.profiler.get_report()``.
+
+    Backend and strategy are read from ``options.backend`` and
+    ``options.strategy``.  Unsupported combinations (``FAST`` + ``PARALLEL``)
+    raise ``ValueError``.
+
+    Backend selection (``options.backend``):
+
+    - ``None`` (default): AUTO dispatch selects the best validated backend.
+      FAST when all units are Part52-eligible or FixedReal-eligible,
+      REFERENCE otherwise.
+    - ``FAST``: explicitly request the optimized Numba backend.
+    - ``REFERENCE``: explicitly request the authoritative Decimal reference.
+
+    Strategy selection (``options.strategy``):
+
+    - ``AUTO``: ``FAST`` always resolves to sequential.  ``REFERENCE`` selects
+      parallel when the plan has at least ``_DEFAULT_PARALLEL_UNIT_THRESHOLD``
+      units *and* more than one worker is available; otherwise sequential.
+    - ``SEQUENTIAL``: force single-process execution.
+    - ``PARALLEL``: explicitly request multiprocessing.  Not supported by
+      ``FAST``; raises ``ValueError``.
+    """
+    opt = options or ExecutionOptions()
+    built = plan if isinstance(plan, BuiltStudy) else plan.built_study
+    profiler = opt.profiler
+
+    if (
+        opt.materialize_timeline
+        and opt.max_materialized_units is not None
+        and len(built.plan.units) > opt.max_materialized_units
+    ):
+        raise UnsupportedConfigurationError(
+            "Full-plan trajectory materialization is potentially "
+            f"memory-intensive: the plan has {len(built.plan.units)} units, "
+            "above ExecutionOptions.max_materialized_units="
+            f"{opt.max_materialized_units}. Use iter_execute_study_plan for "
+            "bounded slice-at-a-time processing, or raise/disable "
+            "max_materialized_units explicitly if the full result is required."
+        )
+
+    profiler.start("total")
+
+    # --- Backend selection ---
+    profiler.start("backend_selection")
+    sim_executor = _select_simulation_executor(built, opt)
+    profiler.stop("backend_selection")
+
+    # --- Strategy selection ---
+    profiler.start("strategy_selection")
+    # ``workers`` is an optional resource hint, not a strategy directive.
+    # When not provided, the execution layer inspects host capabilities.
+    workers = opt.workers if opt.workers is not None else kwargs.get("workers")
+
+    use_parallel = _use_parallel_execution(opt, workers, sim_executor)
 
     if use_parallel:
         profiler.stop("strategy_selection")
@@ -714,6 +771,111 @@ def execute_study_plan(
     return result
 
 
+@dataclass(frozen=True, slots=True)
+class ExecutionSlice:
+    """One contiguous cohort-aligned slice of a streamed execution.
+
+    ``result.plan.units`` are the original unit objects and
+    ``result.results`` are positionally aligned with them.  ``start_index`` is
+    the global index of the first unit in the complete plan, so callers can
+    reconstruct full-plan provenance without retaining every slice.
+    """
+
+    start_index: int
+    result: ResearchExecutionResult
+
+
+def iter_execute_study_plan(
+    plan: StudyPlanResult | BuiltStudy,
+    options: ExecutionOptions | None = None,
+    *,
+    max_units_per_slice: int | None = None,
+) -> Iterator[ExecutionSlice]:
+    """Execute a study plan lazily in cohort-aligned slices.
+
+    The backend and executor are resolved once for the complete plan.  Every
+    unit is validated before the first slice is yielded, preserving the
+    full-plan fail-fast guarantee without retaining translated contexts.  Each
+    yielded slice holds only its own results; the iterator never accumulates
+    slices internally.
+
+    ``max_units_per_slice`` overrides the default target.  The target is not an
+    absolute memory bound: a cohort larger than the target is emitted intact.
+
+    To keep only one slice resident, release the previous slice before advancing
+    (for example ``del chunk`` at the end of the loop body).  The iterator drops
+    its own reference on resume, but a plain ``for`` loop keeps the previous
+    slice bound until the next slice is yielded.
+    """
+    opt = options or ExecutionOptions()
+    built = plan if isinstance(plan, BuiltStudy) else plan.built_study
+    profiler = opt.profiler
+
+    if max_units_per_slice is None:
+        slice_limit = (
+            _DEFAULT_SUMMARY_SLICE_UNITS
+            if opt.summary_only
+            else _DEFAULT_MATERIALIZED_SLICE_UNITS
+        )
+    else:
+        slice_limit = max_units_per_slice
+        if slice_limit <= 0:
+            raise ValueError(
+                f"max_units_per_slice must be positive, got {slice_limit}"
+            )
+
+    profiler.start("total")
+    try:
+        profiler.start("backend_selection")
+        sim_executor = _select_simulation_executor(built, opt)
+        profiler.stop("backend_selection")
+
+        workers = opt.workers
+        use_parallel = _use_parallel_execution(opt, workers, sim_executor)
+
+        profiler.start("context_translation")
+        ResearchExecutor(sim_executor).validate_units(built.plan)
+        profiler.stop("context_translation")
+
+        total_units = len(built.plan.units)
+        completed = 0
+        start_index = 0
+        for units in iter_cohort_slices(
+            built.plan, max_units_per_slice=slice_limit
+        ):
+            sub_plan = ResearchPlan(
+                experiment_definition=built.plan.experiment_definition,
+                units=units,
+            )
+            if use_parallel:
+                slice_result = parallel_execute(
+                    plan=sub_plan,
+                    max_workers=workers,
+                    simulation_executor=sim_executor,
+                    progress_callback=None,
+                    summary_only=opt.summary_only,
+                    profiler=profiler,
+                )
+            else:
+                slice_result = sequential_execute(
+                    plan=sub_plan,
+                    simulation_executor=sim_executor,
+                    progress_callback=None,
+                    summary_only=opt.summary_only,
+                    profiler=profiler,
+                )
+            completed += len(units)
+            if opt.progress_callback is not None:
+                opt.progress_callback(completed, total_units)
+            slice_start = start_index
+            start_index += len(units)
+            yield ExecutionSlice(start_index=slice_start, result=slice_result)
+            del slice_result
+            del sub_plan
+            del units
+    finally:
+        profiler.stop("total")
+
 __all__ = [
     "DeterministicTrajectory",
     "DeterministicResult",
@@ -721,7 +883,9 @@ __all__ = [
     "ExecutionBackend",
     "ExecutionStrategy",
     "ExecutionOptions",
+    "ExecutionSlice",
     "execute_study_plan",
+    "iter_execute_study_plan",
     "ResearchExecutionResult",
     "parallel_execute",
     "sequential_execute",

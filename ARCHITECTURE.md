@@ -324,6 +324,12 @@ properties:
 * **Write serialization:** SQLite allows one writer at a time. Writes are
   serialized; reads are parallelized. WAL mode and synchronous NORMAL provide
   durability.
+* **Incremental execution:** An execution result has an explicit lifecycle
+  (`executing`, `completed`, `failed`, `abandoned`) and an attempt token.
+  Completed slices are committed with their counters in one transaction;
+  appends are contiguous and idempotent per attempt. Completed-result readers
+  expose only `completed` rows. Interrupted work is recovered or failed
+  explicitly, never by age.
 * **Soft deletion:** Entities are soft-deleted via `deleted_at` columns.
   Restoration requires semantic equivalence of content fields, not ID matching.
 * **Schema evolution:** A version-tracking table records applied migrations.

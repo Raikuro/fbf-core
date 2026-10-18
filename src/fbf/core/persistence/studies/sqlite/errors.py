@@ -18,6 +18,12 @@ class DuplicateStudyError(RepositoryError):
 class PersistenceError(RepositoryError):
     """Raised for general database constraint or operational failures."""
 
+class ExecutionInProgressError(PersistenceError):
+    """Raised when an execution attempt is already active for a plan."""
+
+class StaleExecutionAttemptError(PersistenceError):
+    """Raised when a writer presents an attempt token that is no longer current."""
+
 class CorruptedDatabaseError(RepositoryError):
     """Raised when the database schema or data is structurally invalid."""
 

@@ -26,6 +26,7 @@ from fbf.core.research.part49_aggregation import (
     CellAggregation,
     FailureRecord,
     Part49AggregationResult,
+    Part49Aggregator,
     aggregate_part49_results,
     get_cell_table,
 )
@@ -80,8 +81,8 @@ def _make_canonical_config() -> StudyConfiguration:
 
 
 @pytest.fixture(scope="module")
-def canonical_aggregation() -> tuple[Part49AggregationResult, dict[str, Any]]:
-    """Execute canonical workload and aggregate results."""
+def canonical_execution() -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    """Execute the reduced canonical workload once."""
     config = _make_canonical_config()
 
     # Build plan
@@ -95,7 +96,6 @@ def canonical_aggregation() -> tuple[Part49AggregationResult, dict[str, Any]]:
         experiment_definition=built.plan.experiment_definition,
         units=limited_units,
     )
-    units = limited_plan.units
 
     # Execute through production path
     executor = ResearchExecutor(
@@ -104,14 +104,21 @@ def canonical_aggregation() -> tuple[Part49AggregationResult, dict[str, Any]]:
         )
     )
     result = executor.execute(limited_plan)
+    return limited_plan.units, result.results
 
-    # Aggregate
-    agg = aggregate_part49_results(units, result.results)
+
+@pytest.fixture(scope="module")
+def canonical_aggregation(
+    canonical_execution: tuple[tuple[Any, ...], tuple[Any, ...]],
+) -> tuple[Part49AggregationResult, dict[str, Any]]:
+    """Aggregate the reduced canonical workload."""
+    units, results = canonical_execution
+    agg = aggregate_part49_results(units, results)
 
     # Metadata for tests
     meta = {
         "unit_count": len(units),
-        "result_count": len(result.results),
+        "result_count": len(results),
         "cell_count": agg.cell_count,
         "total_units": agg.total_units,
     }
@@ -427,3 +434,14 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("S5.5 AGGREGATION COMPLETE")
     print("=" * 70)
+
+
+def test_incremental_aggregation_matches_legacy_wrapper(
+    canonical_execution: tuple[tuple[Any, ...], tuple[Any, ...]],
+) -> None:
+    units, results = canonical_execution
+    expected = aggregate_part49_results(units, results)
+    aggregator = Part49Aggregator()
+    for start in range(0, len(units), 5):
+        aggregator.add(units[start : start + 5], results[start : start + 5])
+    assert aggregator.build() == expected

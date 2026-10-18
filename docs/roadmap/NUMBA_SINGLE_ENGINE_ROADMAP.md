@@ -83,7 +83,11 @@ not be conflated:
 
 ## 1.5 Memory-Safety Requirements
 
-- The ERN canonical grid (313,020 units × 720 months) materializes ~0.37 MiB/unit of timeline payload (~110 GiB total). Memory-bounded cohort-slice dispatch (`reference.py:_slice_plan_units`) is the **only** current protection.
+- The ERN canonical grid (313,020 units × 720 months) serializes ~0.32 MiB/unit of timeline payload (~100 GiB total). Retaining materialized results in memory costs roughly 1.5 MiB/unit on a 64-bit CPython host, so whole-grid retention is a multi-hundred-GiB proposition; the serialized payload is not an RSS estimate.
+- `iter_execute_study_plan()` (D2) executes a plan lazily in cohort-aligned slices and does not retain slices internally. `execute_study_plan()` remains the whole-plan API and rejects materialized plans above `ExecutionOptions.max_materialized_units` (default 1,000) with `UnsupportedConfigurationError`.
+- Default slice targets are 500 units for materialized execution and 20,000 units for summary-only execution. A cohort larger than the target is emitted intact, so the target is a memory-control parameter, not a hard bound. Consumers must release each slice before advancing (for example `del chunk`) to keep only one slice resident.
+- Measured on a synthetic 720-month, fixed-real workload (isolated subprocesses): 200-unit materialized slices peaked ~272–294 MiB above the post-plan baseline across 200–800 total units; 500-unit slices peaked ~628–645 MiB across 500–1,000 total units; 20,000-unit summary slices peaked ~59–64 MiB across 20,000–40,000 total units. Peak residency tracked the slice target rather than total workload size. These figures are indicative, not a guarantee for every host or workload.
+- Incremental persistence (D2, schema v4) writes each completed slice in its own `BEGIN IMMEDIATE` transaction. The 200-unit materialized streaming run peaked ~284 MiB above the post-setup baseline whether or not slices were persisted, and a 400-unit run peaked ~289 MiB; persistence added ~4 MiB peak residency. The resulting SQLite database was ~204 MiB for 200 units and ~408 MiB for 400 units (~1.02 MiB/unit). Persistence cost is therefore storage-bound, not resident-memory bound, when the writer receives released slices.
 - Any trajectory materialization (Phase D1) **requires** cohort-slice dispatch (Phase D2) to be implemented first or concurrently.
 - Summary-only execution (`summary_only=True`) must remain efficient and is the default for large grids.
 - Timeline materialization is opt-in unless existing public behavior requires otherwise.
@@ -152,8 +156,18 @@ Every Numba/Decimal executor constructs its fallback with
   `Part52NumbaExecutor` → `SimulationTimeline(monthly_results=())` (empty).
 - Persistence (`persistence/studies/sqlite/codecs.py`) round-trips
   `monthly_results`; empty timelines therefore persist nothing per month.
+- Streaming persistence (schema v4) stores an explicit execution lifecycle in
+  `execution_results.status` plus `attempt_id`/`completed_units` metadata.
+  `begin_execution`, `append_execution_slice`, and `complete_execution` are
+  crash-safe: slice rows and counters commit atomically, appends are contiguous
+  and idempotent per attempt, and completion verifies expected unit/result
+  coverage. `list_incomplete_executions` and explicit `fail_execution`/
+  `abandon_execution` replace age-based cleanup. Completed-result read APIs
+  filter `status = 'completed'`.
 - `ui`/CLI: `--fast-path` is rejected together with `--persist-study` because
-  the fast path cannot supply persisted timelines.
+  the fast path cannot supply persisted timelines. The CLI still executes whole
+  plans and does not yet use the streaming persistence writer; that integration
+  is a remaining D2 consumer task.
 
 ### 2.5 Eligibility predicates (source of truth)
 
@@ -199,11 +213,11 @@ Classification key:
 | 11 | LTV evaluation / enforcement | `ltv_evaluation_step.py` `LTVEvaluationStep` | 1 | `_simulate_part52` LTV branch (`numba_kernel.py:1559`, LTV-evaluation step) | None for Part52 | None | `test_part52_*`, Part 49 | None | Part 52/49 LTV tests pass |
 | 12 | Horizon derivation | `reference.py:330`, `fast_path.py:783`, `numba_executor.py:278`, `part52_numba_executor.py:228` | 1 | Present in all executors | None | Remove the legacy-only copy once `ReferenceSimulationExecutor` is deleted | `test_fast_path.py::test_executor_shares_longest_path` | None | Derivation report matches direct evaluation |
 | 13 | FV target deduplication | `reference.py:206`, `fast_path.py:470`, `numba_executor.py:708` | 1 | Present in all executors | None | None | `test_trajectory_deduplication.py` | None | Per-target classification preserved |
-| 14 | Cohort + slice execution | `reference.py:428` `_slice_plan_units`; `parallel_executor.py` | 2 | Executors process whole definitions; `parallel_execute` slices | Memory-bounded slice dispatch exists only in `execute_reference` | Port slice dispatch to the unified Numba path | `test_reference.py::TestSliceDispatchMemorySafety` | Empty timelines currently mask memory cost | Slice == whole-plan equality on a large grid |
+| 14 | Cohort + slice execution | `execution/slicing.py` `iter_cohort_slices`; `execution/__init__.py` `iter_execute_study_plan`; `reference.py:428` `_slice_plan_units` | 2 | Lazy cohort-aligned slices for the unified Numba path; whole-plan `execute_study_plan` guarded; SQLite streaming writer consumes slices | Legacy `execute_reference` slice dispatch remains separate; CLI still persists whole plans | Wire the streaming writer into the CLI; retire legacy slice dispatch | `test_plan_slicing.py`, `test_streaming_execution.py`, `test_memory_bounded_execution.py`, `test_streaming_persistence.py` | Slice target is not a hard bound; consumers must release slices | Slice == whole-plan equality across backends; per-slice failure metadata |
 | 15 | Deterministic execution | `execution/deterministic.py` `execute_deterministic_trajectory` | 4 | None; uses pipeline directly | Requires monthly checkpoints | Decide: reimplement on Numba with trajectory output, or keep as a specialized feature | `tests/unit/execution/test_deterministic.py` | Depends on #16 | Deterministic result contract preserved |
-| 16 | Full monthly trajectory | `monthly_result_builder_step.py` `MonthlyResultBuilderStep` | 3 | None (empty timelines) | Numba kernels emit statistics only | Add optional trajectory materialization to Numba kernels | Persistence, Part 49/52 aggregation, deterministic | Memory/IPC cost; per-month portfolio reconstruction | Trajectory equals legacy month-by-month on a representative case |
-| 17 | Result persistence | `persistence/studies/sqlite/codecs.py` | 3 | Depends on #16 | FAST path cannot persist | Enable once #16 lands; relax CLI guard | `run_command.py` (`--persist-study` vs `--fast-path`) | #16 | Save/load round-trip preserves statistics and timelines |
-| 18 | Memory-bounded large grids | `reference.py:_MAX_UNITS_PER_WORKER`, `_DEFAULT_SLICE_COHORTS` | 2 | Works for summaries; breaks if timelines added | Whole-definition result lists held in memory | Unified slice/batch dispatch | `tests/benchmarks/`, ERN grid | #14, #16 | Peak RSS within documented host budget on 313k units |
+| 16 | Full monthly trajectory | `monthly_result_builder_step.py` `MonthlyResultBuilderStep`; `execution/strategies/trajectory.py` | 3 | Numba executors emit optional `SimulationTimeline` (D1, 46687ce) | Reference/pipeline paths remain separate; materialization at grid scale needs D2 streaming | Keep materialization opt-in; consume through streaming slices | `test_timeline_materialization.py` | Memory/IPC cost; per-month portfolio reconstruction | Trajectory equals legacy month-by-month on a representative case |
+| 17 | Result persistence | `persistence/studies/sqlite/codecs.py`; `sqlite_repository.py`; `run_command.py` | 3 | Schema v4 incremental writer: per-slice transactions, attempt tokens, explicit status, completion verification; completed-result readers filter incomplete executions | CLI still executes whole plans and does not call the writer; no automatic age-based recovery | Integrate the writer into CLI persistence; document operational recovery | `test_streaming_persistence.py`, `test_sqlite_persistence.py`, `test_schema_migration.py` | #16, #18 | Save/load round-trip preserves statistics and timelines; interrupted runs are invisible until explicitly completed |
+| 18 | Memory-bounded large grids | `execution/slicing.py`, `execution/__init__.py`; legacy `reference.py:_MAX_UNITS_PER_WORKER`, `_DEFAULT_SLICE_COHORTS` | 2 | Streaming API bounds residency by slice target; streaming persistence measured at ~284–289 MiB for 200–400 materialized units | Full 313k-unit grid benchmark not yet validated; CLI persistence remains whole-plan | Validate full grid and wire CLI persistence | `tests/benchmarks/test_memory_bounded_execution.py` | #14, #16 | Peak RSS within documented host budget on 313k units |
 | 19 | Buy-and-hold allocation | `concrete.py:49` `BuyAndHoldAllocationPolicy`; `_simulate_trajectory_buy_and_hold` (`numba_kernel.py:417`); `_is_buy_and_hold_eligible` (`numba_executor.py:252`) | 1 | Numba unit-tracking kernel (B4); weights drift endogenously | Non-zero fee, multi-asset, and Part 49 leverage fall back (see #6 and C4) | None for fee = 0, two assets | `tests/unit/strategies/test_numba_buy_and_hold.py`, `test_part49_buy_and_hold.py` | Non-zero-fee legacy `ExpenseDeductionStep` stale base (`TODO.md`) | Two-asset, fee = 0 differential vs legacy pipeline passes |
 | 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` (`numba_executor.py`) for `ConstantAllocationPolicy`; AUTO routes all-escalating workloads to Numba | Glidepath + escalating not yet eligible; `execute_deterministic_trajectory` (Experiment E) still uses the legacy pipeline | Extend eligibility to `GlidepathAllocationPolicy`; reimplement the deterministic path (D3) | `tests/unit/strategies/test_numba_escalating.py` | Glidepath cadence and the deterministic-trajectory contract are separate migration items | Constant-allocation escalating matches the legacy pipeline (fee = 0) and an independent Decimal recurrence; hand-calculated flat-market values exact |
 | 21 | Supplemental cash flow | `supplemental_cash_flow_step.py` | 3 | None (inactive by default) | Additional external cash flow | Add once a real consumer activates it | None active today | No active consumer | Only migrate if a consumer exists |
@@ -367,8 +381,15 @@ Work items:
    grid scale (see ordering above).
 
 2. **D2 — Cohort-slice dispatch for bounded memory.**
-   Port `_slice_plan_units` to unified Numba path. Validate ERN grid
-   (313k units) stays within memory budget with timelines enabled.
+   Implemented `iter_cohort_slices` + `iter_execute_study_plan` with
+   cohort-aligned, lazy slices and a 1,000-unit materialization guard on the
+   whole-plan API. Default targets: 500 materialized, 20,000 summary.
+   Part 52 consumes streaming slices; `Part49Aggregator` supports incremental
+   aggregation. Schema v4 adds an incremental SQLite writer (`begin_execution`,
+   `append_execution_slice`, `complete_execution`, `fail_execution`,
+   `abandon_execution`) with attempt tokens and explicit status; interrupted
+   executions are invisible to completed-result readers. Remaining: wire the
+   writer into CLI persistence and validate the full 313k-unit grid.
 
 3. **D3 — Deterministic trajectory on Numba.**
    Rewrite `execute_deterministic_trajectory` to use Numba kernel with
@@ -641,8 +662,8 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | C3: Part 49 debt migration | ⬜ Not Started | — | — | Separate kernel or mode |
 | C4: Part 49 buy-and-hold | ⬜ Not Started | — | — | Depends on B4 |
 | C5: LTV terminal state | ⬜ Not Started | — | — | `margin_call_terminal` |
-| D1: Trajectory materialization | ⬜ Not Started | — | — | Optional flag; gated on D2 at grid scale |
-| D2: Cohort-slice for memory | ⬜ Not Started | — | — | Prerequisite for D1; port `_slice_plan_units`; ERN grid validation |
+| D1: Trajectory materialization | ✅ Complete | `execution/strategies/*`, `execution/strategies/trajectory.py`, `test_timeline_materialization.py` | 46687ce | Optional flag; use D2 streaming at grid scale |
+| D2: Cohort-slice for memory | 🔄 In Progress | `execution/slicing.py`, `execution/__init__.py`, `part52_evaluator.py`, `part49_aggregation.py`, `persistence/studies/sqlite/sqlite_repository.py` | — | Streaming API + guard + consumer migration + incremental persistence complete; CLI persistence wiring and full-grid validation pending |
 | D3: Deterministic trajectory | ⬜ Not Started | — | — | Checkpoint extraction |
 | D4: Legacy removal | ⬜ Not Started | — | — | Final deletion gate |
 | D5: Public API resolution | ⬜ Not Started | — | — | Breaking change decision |

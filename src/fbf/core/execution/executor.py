@@ -98,33 +98,9 @@ class ResearchExecutor:
         """
         profiler = self._profiler
 
-        # --- Step 1: Defensive structural validation ---
-        if not isinstance(plan, ResearchPlan):
-            raise InvalidResearchPlanError(f"execute() expected a ResearchPlan, got {type(plan)!r}")
-        # ResearchPlan.__post_init__ already enforces non-empty, but we validate again
-        # here as per the approved defensive boundary at the executor's public entry point.
-        if len(plan) == 0:
-            raise InvalidResearchPlanError(
-                "Cannot execute an empty ResearchPlan: units tuple must be non-empty"
-            )
-
-        # --- Step 2: Translate all units before calling SimulationExecutor ---
-        # Full upfront translation ensures the complete plan can be expressed as engine
-        # contexts before we make any engine call (fail-fast guarantee).
+        self._validate_plan_structure(plan)
         profiler.start("context_translation")
-        contexts: list[SimulationContext] = []
-        for idx, unit in enumerate(plan.units):
-            try:
-                context = self._create_context_for_unit(plan.experiment_definition, unit)
-                contexts.append(context)
-            except (InvalidResearchPlanError, ResearchExecutionError):
-                raise
-            except Exception as err:
-                raise InvalidResearchPlanError(
-                    f"Failed to translate plan unit at index {idx} "
-                    f"(cohort={unit.cohort.start_date.isoformat()!r}) "
-                    f"to SimulationContext: {err}"
-                ) from err
+        contexts = self._translate_units(plan)
         profiler.stop("context_translation")
 
         # --- Step 3: Build the engine experiment definition and delegate exactly once ---
@@ -145,6 +121,49 @@ class ResearchExecutor:
 
         # --- Step 4: Return result preserving lossless index provenance ---
         return ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
+
+    def validate_units(self, plan: ResearchPlan) -> None:
+        """Validate and translate every unit, discarding the contexts.
+
+        The translation is identical to ``execute`` and therefore surfaces any
+        invalid unit before an executor call, while retaining no more than one
+        transient context at a time.
+        """
+        self._validate_plan_structure(plan)
+        for idx, unit in enumerate(plan.units):
+            self._translate_unit(plan.experiment_definition, unit, idx)
+
+    def _validate_plan_structure(self, plan: ResearchPlan) -> None:
+        if not isinstance(plan, ResearchPlan):
+            raise InvalidResearchPlanError(
+                f"execute() expected a ResearchPlan, got {type(plan)!r}"
+            )
+        # ResearchPlan.__post_init__ already enforces non-empty, but we validate again
+        # here as per the approved defensive boundary at the executor's public entry point.
+        if len(plan) == 0:
+            raise InvalidResearchPlanError(
+                "Cannot execute an empty ResearchPlan: units tuple must be non-empty"
+            )
+
+    def _translate_units(self, plan: ResearchPlan) -> list[SimulationContext]:
+        return [
+            self._translate_unit(plan.experiment_definition, unit, idx)
+            for idx, unit in enumerate(plan.units)
+        ]
+
+    def _translate_unit(
+        self, experiment_def: ExperimentDefinition, unit: PlannedSimulationUnit, idx: int
+    ) -> SimulationContext:
+        try:
+            return self._create_context_for_unit(experiment_def, unit)
+        except (InvalidResearchPlanError, ResearchExecutionError):
+            raise
+        except Exception as err:
+            raise InvalidResearchPlanError(
+                f"Failed to translate plan unit at index {idx} "
+                f"(cohort={unit.cohort.start_date.isoformat()!r}) "
+                f"to SimulationContext: {err}"
+            ) from err
 
     def _create_context_for_unit(
         self,
