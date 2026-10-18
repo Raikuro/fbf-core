@@ -224,9 +224,11 @@ class Part49NumbaExecutor(SimulationExecutor):
         self,
         reference_executor: SimulationExecutor | None = None,
         profiler: Profiler | None = None,
+        materialize_timeline: bool = False,
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
+        self._materialize_timeline = materialize_timeline
         self._last_report: Part49NumbaReport | None = None
         self._gf_cache: dict[GFKey, NDArray[np.float64]] = {}
         self._price_float_cache: dict[int, NDArray[np.float64]] = {}
@@ -376,6 +378,16 @@ class Part49NumbaExecutor(SimulationExecutor):
                 monthly_rates = _compute_part49_monthly_rates(sample_ctx, horizon)
                 mr_arr = np.array([float(r) for r in monthly_rates], dtype=np.float64)
 
+                out_values = (
+                    np.empty(horizon, dtype=np.float64)
+                    if self._materialize_timeline
+                    else None
+                )
+                out_loan = (
+                    np.empty(horizon, dtype=np.float64)
+                    if self._materialize_timeline
+                    else None
+                )
                 (
                     _final_val,
                     _kernel_success,
@@ -386,6 +398,8 @@ class Part49NumbaExecutor(SimulationExecutor):
                     growth_factors_arr, mr_arr, v0, portfolio_withdrawal,
                     loan_draw, ltv_limit, horizon,
                     ltv_enforcement,
+                    out_values,
+                    out_loan,
                 )
 
                 for ctx in h_contexts:
@@ -414,10 +428,32 @@ class Part49NumbaExecutor(SimulationExecutor):
                         failure_state = None
                         months_simulated = horizon
 
+                    timeline = None
+                    if out_values is not None:
+                        from fbf.core.execution.strategies.trajectory import (
+                            build_simulation_timeline,
+                        )
+
+                        timeline = build_simulation_timeline(
+                            ctx,
+                            out_values,
+                            n_months=months_simulated,
+                            withdrawal_reason=type(
+                                ctx.withdrawal_policy
+                            ).__name__,
+                            withdrawal_amounts=[
+                                Decimal(str(portfolio_withdrawal))
+                            ]
+                            * months_simulated,
+                            loan_draw_amount=Decimal(str(loan_draw)),
+                            loan_balances=out_loan,
+                        )
+
                     final_wealth = _money(final_value)
 
                     base = SimulationResult(
-                        timeline=SimulationTimeline(monthly_results=()),
+                        timeline=timeline
+                        or SimulationTimeline(monthly_results=()),
                         statistics=SimulationStatistics(
                             final_wealth=final_wealth,
                             max_drawdown=0.0,

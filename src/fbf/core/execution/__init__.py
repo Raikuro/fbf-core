@@ -227,6 +227,12 @@ class ExecutionOptions:
         unchanged; only the returned ``SimulationResult`` objects carry
         empty timelines.  Default is ``False`` to preserve existing
         behaviour for callers that require full timeline data.
+    materialize_timeline:
+        When ``True``, the optimized (Numba) executors reconstruct the full
+        per-month ``SimulationTimeline`` for every unit instead of returning
+        empty timelines.  This is opt-in because it increases the aggregation
+        cost and memory footprint substantially.  Mutually exclusive with
+        ``summary_only``.  Default is ``False``.
     """
 
     backend: ExecutionBackend | None = None
@@ -239,6 +245,15 @@ class ExecutionOptions:
     # Optional shared glidepath growth-factor cache for persistent caching
     # across multiple execute_study_plan invocations within a single bisection search.
     glidepath_gf_cache: Any = field(default=None)
+    materialize_timeline: bool = False
+
+    def __post_init__(self) -> None:
+        if self.materialize_timeline and self.summary_only:
+            raise ValueError(
+                "ExecutionOptions.summary_only and materialize_timeline are "
+                "mutually exclusive: summary_only strips the timelines that "
+                "materialize_timeline requests."
+            )
 
     @staticmethod
     def with_profiling(**kwargs: Any) -> ExecutionOptions:
@@ -303,6 +318,7 @@ def _auto_select_backend(
     built: Any,
     profiler: Any,
     glidepath_gf_cache: dict[GlidepathGFKey, NDArray[np.float64]] | None = None,
+    materialize_timeline: bool = False,
 ) -> Any:
     """AUTO dispatch: select the best validated backend for the workload.
 
@@ -336,7 +352,9 @@ def _auto_select_backend(
             Part52NumbaExecutor,
         )
 
-        return Part52NumbaExecutor(profiler=profiler)
+        return Part52NumbaExecutor(
+            profiler=profiler, materialize_timeline=materialize_timeline
+        )
 
     from fbf.core.execution.strategies.part49_numba_executor import (
         is_part49_eligible,
@@ -349,7 +367,9 @@ def _auto_select_backend(
             Part49NumbaExecutor,
         )
 
-        return Part49NumbaExecutor(profiler=profiler)
+        return Part49NumbaExecutor(
+            profiler=profiler, materialize_timeline=materialize_timeline
+        )
 
     from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
         is_part49_buy_and_hold_eligible,
@@ -364,7 +384,9 @@ def _auto_select_backend(
             Part49BuyAndHoldNumbaExecutor,
         )
 
-        return Part49BuyAndHoldNumbaExecutor(profiler=profiler)
+        return Part49BuyAndHoldNumbaExecutor(
+            profiler=profiler, materialize_timeline=materialize_timeline
+        )
 
     from fbf.core.execution.strategies.fast_path import is_fast_path_eligible
     from fbf.core.execution.strategies.numba_executor import (
@@ -380,7 +402,9 @@ def _auto_select_backend(
             NumbaSimulationExecutor,
         )
 
-        return NumbaSimulationExecutor(profiler=profiler)
+        return NumbaSimulationExecutor(
+            profiler=profiler, materialize_timeline=materialize_timeline
+        )
 
     all_escalating = all(_is_escalating_eligible(ctx) for ctx in contexts)
 
@@ -389,7 +413,9 @@ def _auto_select_backend(
             NumbaSimulationExecutor,
         )
 
-        return NumbaSimulationExecutor(profiler=profiler)
+        return NumbaSimulationExecutor(
+            profiler=profiler, materialize_timeline=materialize_timeline
+        )
 
     all_buy_and_hold = all(_is_buy_and_hold_eligible(ctx) for ctx in contexts)
 
@@ -398,7 +424,9 @@ def _auto_select_backend(
             NumbaSimulationExecutor,
         )
 
-        return NumbaSimulationExecutor(profiler=profiler)
+        return NumbaSimulationExecutor(
+            profiler=profiler, materialize_timeline=materialize_timeline
+        )
 
     all_glidepath = all(_is_glidepath_eligible(ctx) for ctx in contexts)
 
@@ -410,6 +438,7 @@ def _auto_select_backend(
         return NumbaSimulationExecutor(
             profiler=profiler,
             glidepath_gf_cache=glidepath_gf_cache,
+            materialize_timeline=materialize_timeline,
         )
 
     from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
@@ -474,7 +503,9 @@ def execute_study_plan(
     sim_executor: Any = None
     if backend is None:
         # AUTO dispatch: capability-driven routing
-        sim_executor = _auto_select_backend(built, profiler, opt.glidepath_gf_cache)
+        sim_executor = _auto_select_backend(
+            built, profiler, opt.glidepath_gf_cache, opt.materialize_timeline
+        )
     elif backend == ExecutionBackend.FAST:
         try:
             import numba as _numba_mod  # noqa: F401
@@ -515,7 +546,9 @@ def execute_study_plan(
                 Part52NumbaExecutor,
             )
 
-            sim_executor = Part52NumbaExecutor(profiler=profiler)
+            sim_executor = Part52NumbaExecutor(
+                profiler=profiler, materialize_timeline=opt.materialize_timeline
+            )
         elif has_part49:
             from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
                 is_part49_buy_and_hold_eligible,
@@ -526,7 +559,9 @@ def execute_study_plan(
                     Part49NumbaExecutor,
                 )
 
-                sim_executor = Part49NumbaExecutor(profiler=profiler)
+                sim_executor = Part49NumbaExecutor(
+                    profiler=profiler, materialize_timeline=opt.materialize_timeline
+                )
             elif all(
                 is_part49_buy_and_hold_eligible(ctx) for ctx in fast_contexts
             ):
@@ -534,7 +569,9 @@ def execute_study_plan(
                     Part49BuyAndHoldNumbaExecutor,
                 )
 
-                sim_executor = Part49BuyAndHoldNumbaExecutor(profiler=profiler)
+                sim_executor = Part49BuyAndHoldNumbaExecutor(
+                    profiler=profiler, materialize_timeline=opt.materialize_timeline
+                )
             else:
                 raise UnsupportedConfigurationError(
                     "FAST backend cannot execute this plan on Numba: it contains "
@@ -558,6 +595,7 @@ def execute_study_plan(
                 reference_executor=_create_reference_simulation_executor(),
                 profiler=profiler,
                 glidepath_gf_cache=opt.glidepath_gf_cache,
+                materialize_timeline=opt.materialize_timeline,
             )
     elif backend == ExecutionBackend.REFERENCE:
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor

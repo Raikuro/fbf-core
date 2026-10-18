@@ -209,6 +209,7 @@ class SimulationResultCodec:
             "max_drawdown": stats.max_drawdown,
             "success": stats.success,
             "failure_month": stats.failure_month,
+            "failure_state": stats.failure_state,
             "months_simulated": stats.months_simulated,
             "execution_time_seconds": stats.execution_time_seconds,
         }
@@ -283,6 +284,17 @@ class SimulationResultCodec:
 
         payload["events"] = [str(e) for e in mr.events]
 
+        payload["is_repayment"] = mr.is_repayment
+        if mr.debt_snapshot is not None:
+            payload["debt_snapshot"] = {
+                "loan_balance": str(mr.debt_snapshot.loan_balance),
+                "cash_balance": str(mr.debt_snapshot.cash_balance),
+                "ltv": str(mr.debt_snapshot.ltv),
+                "net_worth": str(mr.debt_snapshot.net_worth),
+                "ltv_enforcement": mr.debt_snapshot.ltv_enforcement,
+                "is_repayment": mr.debt_snapshot.is_repayment,
+            }
+
         return payload
 
     def _deserialize_monthly(
@@ -292,7 +304,7 @@ class SimulationResultCodec:
         from fbf.core.domain.model.asset import AssetClass
         from fbf.core.domain.model.market_snapshot import MarketSnapshot
         from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
-        from fbf.core.execution.pipeline.simulation import MonthlyResult
+        from fbf.core.execution.pipeline.simulation import DebtSnapshot, MonthlyResult
 
         ms_data = data.get("market_snapshot", {})
         asset_cache: dict[str, AssetClass] = {}
@@ -351,6 +363,18 @@ class SimulationResultCodec:
                     weights=target_weights
                 )
 
+        debt_snapshot = None
+        if "debt_snapshot" in data:
+            ds = data["debt_snapshot"]
+            debt_snapshot = DebtSnapshot(
+                loan_balance=Decimal(ds["loan_balance"]),
+                cash_balance=Decimal(ds["cash_balance"]),
+                ltv=Decimal(ds["ltv"]),
+                net_worth=Decimal(ds["net_worth"]),
+                ltv_enforcement=ds.get("ltv_enforcement", True),
+                is_repayment=ds.get("is_repayment", False),
+            )
+
         return MonthlyResult(
             date=date.fromisoformat(data["date"]),
             period_index=data["period_index"],
@@ -365,4 +389,6 @@ class SimulationResultCodec:
             cumulative_return=data["cumulative_return"],
             cumulative_inflation=data["cumulative_inflation"],
             events=data.get("events", []),
+            debt_snapshot=debt_snapshot,
+            is_repayment=data.get("is_repayment", False),
         )

@@ -106,6 +106,7 @@ def _simulate_trajectory_workbook(
     initial_value: float,
     withdrawal_monthly: float,
     horizon: int,
+    out_values: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float]:
     """Simulate one trajectory with the SWR Toolbox workbook recurrence.
 
@@ -143,6 +144,8 @@ def _simulate_trajectory_workbook(
     On depletion, final_value is 0.0.  On success, failure_month is -1.
     """
     value = initial_value
+    if out_values is not None:
+        out_values[0] = value
 
     for m in range(horizon):
         if value < withdrawal_monthly:
@@ -150,6 +153,8 @@ def _simulate_trajectory_workbook(
 
         value -= withdrawal_monthly
         value *= growth_factors[m]
+        if out_values is not None:
+            out_values[m + 1] = value
 
     return value, True, -1, value
 
@@ -160,6 +165,7 @@ def _simulate_trajectory(
     initial_value: float,
     withdrawal_monthly: float,
     horizon: int,
+    out_values: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float]:
     """Simulate one trajectory using the scalar recurrence (beginning-of-period).
 
@@ -203,6 +209,8 @@ def _simulate_trajectory(
             return 0.0, False, m, 0.0
 
         value -= withdrawal_monthly
+        if out_values is not None:
+            out_values[m] = value
 
         if m < horizon - 1:
             value *= growth_factors[m]
@@ -216,6 +224,7 @@ def _simulate_trajectory_constant_nominal(
     initial_value: float,
     withdrawal_rate: float,
     horizon: int,
+    out_values: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float]:
     """Simulate one trajectory with constant nominal withdrawal (beginning-of-period).
 
@@ -264,6 +273,8 @@ def _simulate_trajectory_constant_nominal(
 
         # Apply withdrawal
         value = value * factor
+        if out_values is not None:
+            out_values[m] = value
 
         # Apply growth (except for the last month)
         if m < horizon - 1:
@@ -348,6 +359,7 @@ def _simulate_trajectory_escalating(
     escalation_rate: float,
     horizon: int,
     annual: bool,
+    out_values: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float]:
     """Simulate one trajectory with an annually escalating withdrawal schedule.
 
@@ -416,6 +428,8 @@ def _simulate_trajectory_escalating(
             return 0.0, False, m, 0.0
 
         value -= withdrawal
+        if out_values is not None:
+            out_values[m] = value
 
         if m < horizon - 1:
             value *= growth_factors[m]
@@ -431,6 +445,8 @@ def _simulate_trajectory_buy_and_hold(
     equity_weight: float,
     withdrawal_monthly: float,
     horizon: int,
+    out_values: NDArray[np.float64] | None = None,
+    out_weights: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float]:
     """Simulate one buy-and-hold trajectory with explicit unit/weight tracking.
 
@@ -483,6 +499,10 @@ def _simulate_trajectory_buy_and_hold(
             return 0.0, False, m, 0.0
 
         value -= withdrawal_monthly
+        if out_values is not None:
+            out_values[m] = value
+        if out_weights is not None:
+            out_weights[m] = weight
 
         if m < horizon - 1:
             ge = equity_growth[m]
@@ -977,6 +997,7 @@ def _simulate_trajectory_varying(
     initial_value: float,
     withdrawal_monthly: float,
     horizon: int,
+    out_values: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float]:
     """Simulate one trajectory using precomputed growth factors.
 
@@ -1011,6 +1032,8 @@ def _simulate_trajectory_varying(
             return 0.0, False, m, 0.0
 
         value -= withdrawal_monthly
+        if out_values is not None:
+            out_values[m] = value
 
         if m < horizon - 1:
             value *= growth_factors[m]
@@ -1586,6 +1609,10 @@ def _simulate_part52(
     ltv_limit: float,
     horizon: int,
     ltv_enforcement: bool = True,
+    out_values: NDArray[np.float64] | None = None,
+    out_loan: NDArray[np.float64] | None = None,
+    out_repay: NDArray[np.bool_] | None = None,
+    out_draw: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float, int]:
     """Simulate one Part52 trajectory using the scalar recurrence.
 
@@ -1732,6 +1759,15 @@ def _simulate_part52(
         if ltv_enforcement and Y > V and Y > 0.0:
             return V, False, m, Y, _PART52_MARGIN_CALL_IMPOSSIBLE
 
+        if out_values is not None:
+            out_values[m] = V
+        if out_loan is not None:
+            out_loan[m] = Y
+        if out_repay is not None:
+            out_repay[m] = is_repay
+        if out_draw is not None:
+            out_draw[m] = draw
+
         # --- Growth (implicit in price change) ---
         # Applied AFTER LTV evaluation.  gf[m] corresponds to the pipeline's
         # MarketEvolutionStep at period m+1 (dataset[m] → dataset[m+1]).
@@ -1761,6 +1797,8 @@ def _simulate_part49(
     ltv_limit: float,
     horizon: int,
     ltv_enforcement: bool = True,
+    out_values: NDArray[np.float64] | None = None,
+    out_loan: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float, int]:
     """Simulate one Part 49 leverage trajectory using the scalar recurrence.
 
@@ -1829,6 +1867,11 @@ def _simulate_part49(
         if ltv_enforcement and Y > V and Y > 0.0:
             return V, False, m, Y, _PART52_MARGIN_CALL_IMPOSSIBLE
 
+        if out_values is not None:
+            out_values[m] = V
+        if out_loan is not None:
+            out_loan[m] = Y
+
         # --- Growth (implicit in price change) ---
         if m < horizon - 1:
             V *= growth_factors[m]
@@ -1848,6 +1891,9 @@ def _simulate_part49_buy_and_hold(
     ltv_limit: float,
     horizon: int,
     ltv_enforcement: bool = True,
+    out_values: NDArray[np.float64] | None = None,
+    out_loan: NDArray[np.float64] | None = None,
+    out_weights: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float, int]:
     """Simulate one leveraged buy-and-hold trajectory (Part 49 debt + drift).
 
@@ -1922,6 +1968,13 @@ def _simulate_part49_buy_and_hold(
             return 0.0, False, m, Y, _PART52_DEPLETED
         if ltv_enforcement and Y > V and Y > 0.0:
             return V, False, m, Y, _PART52_MARGIN_CALL_IMPOSSIBLE
+
+        if out_values is not None:
+            out_values[m] = V
+        if out_loan is not None:
+            out_loan[m] = Y
+        if out_weights is not None:
+            out_weights[m] = w
 
         # --- Growth (step 60): per-asset blend, weights drift endogenously ---
         if m < horizon - 1:

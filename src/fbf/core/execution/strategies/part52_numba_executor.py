@@ -318,9 +318,11 @@ class Part52NumbaExecutor(SimulationExecutor):
         self,
         reference_executor: SimulationExecutor | None = None,
         profiler: Profiler | None = None,
+        materialize_timeline: bool = False,
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
+        self._materialize_timeline = materialize_timeline
         self._last_report: Part52NumbaReport | None = None
         self._gf_cache: dict[GFKey, NDArray[np.float64]] = {}
         self._price_float_cache: dict[int, NDArray[np.float64]] = {}
@@ -486,6 +488,26 @@ class Part52NumbaExecutor(SimulationExecutor):
                 # Extract equity prices
                 eq_prices = _extract_equity_prices(sample_ctx, horizon)
 
+                out_values = (
+                    np.empty(horizon, dtype=np.float64)
+                    if self._materialize_timeline
+                    else None
+                )
+                out_loan = (
+                    np.empty(horizon, dtype=np.float64)
+                    if self._materialize_timeline
+                    else None
+                )
+                out_repay = (
+                    np.empty(horizon, dtype=np.bool_)
+                    if self._materialize_timeline
+                    else None
+                )
+                out_draw = (
+                    np.empty(horizon, dtype=np.float64)
+                    if self._materialize_timeline
+                    else None
+                )
                 # Run kernel
                 (
                     _final_val,
@@ -497,6 +519,10 @@ class Part52NumbaExecutor(SimulationExecutor):
                     growth_factors_arr, mr_arr, eq_prices,
                     v0, c, threshold, borrow_pct, ltv_limit, horizon,
                     ltv_enforcement,
+                    out_values,
+                    out_loan,
+                    out_repay,
+                    out_draw,
                 )
 
                 for ctx in h_contexts:
@@ -526,10 +552,36 @@ class Part52NumbaExecutor(SimulationExecutor):
                         failure_state = None
                         months_simulated = horizon
 
+                    timeline = None
+                    if out_values is not None:
+                        from fbf.core.execution.strategies.trajectory import (
+                            build_simulation_timeline,
+                        )
+
+                        timeline = build_simulation_timeline(
+                            ctx,
+                            out_values,
+                            n_months=months_simulated,
+                            withdrawal_reason=type(
+                                ctx.withdrawal_policy
+                            ).__name__,
+                            withdrawal_amounts=[Decimal(str(c))]
+                            * months_simulated,
+                            loan_draw_amounts=[
+                                Decimal(str(float(out_draw[m])))
+                                for m in range(months_simulated)
+                            ]
+                            if out_draw is not None
+                            else None,
+                            is_repayments=out_repay,
+                            loan_balances=out_loan,
+                        )
+
                     final_wealth = _money(final_value)
 
                     base = SimulationResult(
-                        timeline=SimulationTimeline(monthly_results=()),
+                        timeline=timeline
+                        or SimulationTimeline(monthly_results=()),
                         statistics=SimulationStatistics(
                             final_wealth=final_wealth,
                             max_drawdown=0.0,

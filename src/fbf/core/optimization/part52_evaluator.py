@@ -177,6 +177,7 @@ class Part52Evaluator:
         options = ExecutionOptions(
             strategy=ExecutionStrategy.AUTO,
             workers=config.workers,
+            materialize_timeline=True,
         )
 
         result = execute_study_plan(built, options)

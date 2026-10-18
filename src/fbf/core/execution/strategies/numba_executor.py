@@ -106,6 +106,7 @@ from fbf.core.execution.strategies.numba_kernel import (
 from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
 )
+from fbf.core.execution.strategies.trajectory import build_simulation_timeline
 
 # Growth-factor cache key (static): (start_date, allocation_identity, dataset_token).
 # The allocation identity is the canonical, order-insensitive ``(asset_id, weight)``
@@ -486,9 +487,11 @@ class NumbaSimulationExecutor(SimulationExecutor):
         glidepath_gf_cache: (
             dict[GlidepathGFKey, NDArray[np.float64]] | None
         ) = None,
+        materialize_timeline: bool = False,
     ) -> None:
         self._reference = reference_executor or _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
+        self._materialize_timeline = materialize_timeline
         self._last_report: NumbaReport | None = None
         self._gf_cache: dict[GFKey, NDArray[np.float64]] = {}
         self._glidepath_gf_cache: dict[GlidepathGFKey, NDArray[np.float64]] = {}
@@ -871,8 +874,13 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 growth_factors_arr = growth_factors_full[:periods]
                 scr = _compute_workbook_scr(growth_factors_arr, periods, fee_annual)
                 success = scr >= rate_f
+                out_values = (
+                    np.empty(periods + 1, dtype=np.float64)
+                    if self._materialize_timeline
+                    else None
+                )
                 final_value, _traj_success, fail_month, _ = _simulate_trajectory_workbook(
-                    growth_factors_arr, v0, c, periods
+                    growth_factors_arr, v0, c, periods, out_values
                 )
                 failure_month = (
                     fail_month + 1 if 0 <= fail_month < periods else None
@@ -880,10 +888,17 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 months_simulated = (
                     failure_month if failure_month is not None else horizon
                 )
+                captured = out_values
+                workbook_convention = True
             else:
                 growth_factors_arr = growth_factors_full[:horizon]
+                out_values = (
+                    np.empty(horizon, dtype=np.float64)
+                    if self._materialize_timeline
+                    else None
+                )
                 _final_val, _kernel_success, fail_month, _ = _simulate_trajectory(
-                    growth_factors_arr, v0, c, horizon
+                    growth_factors_arr, v0, c, horizon, out_values
                 )
 
                 if 0 <= fail_month < horizon:
@@ -896,6 +911,23 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     success = True
                     failure_month = None
                     months_simulated = horizon
+                captured = out_values
+                workbook_convention = False
+
+            timeline = None
+            if captured is not None:
+                c_decimal = Decimal(str(c))
+                if workbook_convention:
+                    amounts = [Decimal("0")] + [c_decimal] * (months_simulated - 1)
+                else:
+                    amounts = [c_decimal] * months_simulated
+                timeline = build_simulation_timeline(
+                    sample_ctx,
+                    captured,
+                    n_months=months_simulated,
+                    withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
+                    withdrawal_amounts=amounts,
+                )
 
             for ctx in h_contexts:
                 cache_key = (horizon, ctx.final_value_target)
@@ -906,7 +938,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 final_wealth = _money(final_value)
 
                 base = SimulationResult(
-                    timeline=SimulationTimeline(monthly_results=()),
+                    timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
                         max_drawdown=0.0,
@@ -951,9 +983,46 @@ class NumbaSimulationExecutor(SimulationExecutor):
             stats["month_work"] += horizon
             growth_factors_arr = growth_factors_full[:horizon]
 
-            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_constant_nominal(
-                growth_factors_arr, v0, rate_f, horizon
+            out_values = (
+                np.empty(horizon, dtype=np.float64)
+                if self._materialize_timeline
+                else None
             )
+            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_constant_nominal(
+                growth_factors_arr, v0, rate_f, horizon, out_values
+            )
+
+            if 0 <= fail_month < horizon:
+                success = False
+                failure_month = fail_month
+                final_value = 0.0
+                months_simulated = fail_month
+            else:
+                final_value = _final_val
+                success = True
+                failure_month = None
+                months_simulated = horizon
+
+            timeline = None
+            if out_values is not None:
+                rate_monthly = Decimal(str(rate_f)) / Decimal("12")
+                factor = Decimal("1") - rate_monthly
+                amounts = []
+                for m in range(months_simulated):
+                    post = Decimal(str(float(out_values[m])))
+                    amount = (
+                        post * rate_monthly / factor
+                        if factor != Decimal("0")
+                        else post
+                    )
+                    amounts.append(amount)
+                timeline = build_simulation_timeline(
+                    sample_ctx,
+                    out_values,
+                    n_months=months_simulated,
+                    withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
+                    withdrawal_amounts=amounts,
+                )
 
             for ctx in h_contexts:
                 cache_key = (horizon, ctx.final_value_target)
@@ -961,21 +1030,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue
 
-                if 0 <= fail_month < horizon:
-                    success = False
-                    failure_month = fail_month
-                    final_value = 0.0
-                    months_simulated = fail_month
-                else:
-                    final_value = _final_val
-                    success = True
-                    failure_month = None
-                    months_simulated = horizon
-
                 final_wealth = _money(final_value)
 
                 base = SimulationResult(
-                    timeline=SimulationTimeline(monthly_results=()),
+                    timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
                         max_drawdown=0.0,
@@ -1026,9 +1084,44 @@ class NumbaSimulationExecutor(SimulationExecutor):
             stats["month_work"] += horizon
             growth_factors_arr = growth_factors_full[:horizon]
 
-            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_escalating(
-                growth_factors_arr, v0, rate_f, escalation_f, horizon, annual
+            out_values = (
+                np.empty(horizon, dtype=np.float64)
+                if self._materialize_timeline
+                else None
             )
+            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_escalating(
+                growth_factors_arr, v0, rate_f, escalation_f, horizon, annual, out_values
+            )
+
+            if 0 <= fail_month < horizon:
+                success = False
+                failure_month = fail_month
+                final_value = 0.0
+                months_simulated = fail_month
+            else:
+                final_value = _final_val
+                success = True
+                failure_month = None
+                months_simulated = horizon
+
+            timeline = None
+            if out_values is not None:
+                amounts = []
+                for m in range(months_simulated):
+                    escalated = (
+                        Decimal(str(v0))
+                        * Decimal(str(rate_f))
+                        * (Decimal("1") + Decimal(str(escalation_f)))
+                        ** (m // 12)
+                    )
+                    amounts.append(escalated if annual else escalated / Decimal("12"))
+                timeline = build_simulation_timeline(
+                    sample_ctx,
+                    out_values,
+                    n_months=months_simulated,
+                    withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
+                    withdrawal_amounts=amounts,
+                )
 
             for ctx in h_contexts:
                 cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
@@ -1036,21 +1129,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue
 
-                if 0 <= fail_month < horizon:
-                    success = False
-                    failure_month = fail_month
-                    final_value = 0.0
-                    months_simulated = fail_month
-                else:
-                    final_value = _final_val
-                    success = True
-                    failure_month = None
-                    months_simulated = horizon
-
                 final_wealth = _money(final_value)
 
                 base = SimulationResult(
-                    timeline=SimulationTimeline(monthly_results=()),
+                    timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
                         max_drawdown=0.0,
@@ -1106,9 +1188,48 @@ class NumbaSimulationExecutor(SimulationExecutor):
             equity_growth = equity_growth_full[:horizon]
             bond_growth = bond_growth_full[:horizon]
 
-            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_buy_and_hold(
-                equity_growth, bond_growth, v0, equity_weight, c, horizon
+            out_values = (
+                np.empty(horizon, dtype=np.float64)
+                if self._materialize_timeline
+                else None
             )
+            out_weights = (
+                np.empty(horizon, dtype=np.float64)
+                if self._materialize_timeline
+                else None
+            )
+            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_buy_and_hold(
+                equity_growth,
+                bond_growth,
+                v0,
+                equity_weight,
+                c,
+                horizon,
+                out_values,
+                out_weights,
+            )
+
+            if 0 <= fail_month < horizon:
+                success = False
+                failure_month = fail_month
+                final_value = 0.0
+                months_simulated = fail_month
+            else:
+                final_value = _final_val
+                success = True
+                failure_month = None
+                months_simulated = horizon
+
+            timeline = None
+            if out_values is not None:
+                timeline = build_simulation_timeline(
+                    sample_ctx,
+                    out_values,
+                    n_months=months_simulated,
+                    withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
+                    withdrawal_amounts=[Decimal(str(c))] * months_simulated,
+                    actual_equity_weights=out_weights,
+                )
 
             for ctx in h_contexts:
                 cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
@@ -1116,21 +1237,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue
 
-                if 0 <= fail_month < horizon:
-                    success = False
-                    failure_month = fail_month
-                    final_value = 0.0
-                    months_simulated = fail_month
-                else:
-                    final_value = _final_val
-                    success = True
-                    failure_month = None
-                    months_simulated = horizon
-
                 final_wealth = _money(final_value)
 
                 base = SimulationResult(
-                    timeline=SimulationTimeline(monthly_results=()),
+                    timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
                         max_drawdown=0.0,
@@ -1215,9 +1325,45 @@ class NumbaSimulationExecutor(SimulationExecutor):
             stats["month_work"] += horizon
             growth_factors_arr = growth_factors_full[:horizon]
 
-            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_varying(
-                growth_factors_arr, v0, c, horizon
+            out_values = (
+                np.empty(horizon, dtype=np.float64)
+                if self._materialize_timeline
+                else None
             )
+            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_varying(
+                growth_factors_arr, v0, c, horizon, out_values
+            )
+
+            if 0 <= fail_month < horizon:
+                success = False
+                failure_month = fail_month
+                final_value = 0.0
+                months_simulated = fail_month
+            else:
+                final_value = _final_val
+                success = True
+                failure_month = None
+                months_simulated = horizon
+
+            timeline = None
+            if out_values is not None:
+                policy = cast(
+                    GlidepathAllocationPolicy, sample_ctx.allocation_policy
+                )
+                is_underwater = _extract_is_underwater(
+                    sample_ctx.dataset, months_simulated
+                )
+                equity_weights = _compute_equity_weight_sequence(
+                    policy, is_underwater, months_simulated
+                )
+                timeline = build_simulation_timeline(
+                    sample_ctx,
+                    out_values,
+                    n_months=months_simulated,
+                    withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
+                    withdrawal_amounts=[Decimal(str(c))] * months_simulated,
+                    target_equity_weights=equity_weights,
+                )
 
             for ctx in h_contexts:
                 cache_key = (horizon, ctx.final_value_target)
@@ -1225,21 +1371,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue
 
-                if 0 <= fail_month < horizon:
-                    success = False
-                    failure_month = fail_month
-                    final_value = 0.0
-                    months_simulated = fail_month
-                else:
-                    final_value = _final_val
-                    success = True
-                    failure_month = None
-                    months_simulated = horizon
-
                 final_wealth = _money(final_value)
 
                 base = SimulationResult(
-                    timeline=SimulationTimeline(monthly_results=()),
+                    timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
                         max_drawdown=0.0,
