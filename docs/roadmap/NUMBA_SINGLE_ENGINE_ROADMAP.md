@@ -689,7 +689,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | C5: LTV terminal state | ⬜ Not Started | — | — | `margin_call_terminal` |
 | D1: Trajectory materialization | ✅ Complete | `execution/strategies/*`, `execution/strategies/trajectory.py`, `test_timeline_materialization.py` | 46687ce | Optional flag; use D2 streaming at grid scale |
 | D2: Cohort-slice for memory | 🔄 In Progress | `execution/slicing.py`, `execution/__init__.py`, `part52_evaluator.py`, `part49_aggregation.py`, `persistence/studies/sqlite/sqlite_repository.py` | — | Streaming API + guard + consumer migration + incremental persistence complete; CLI persistence wiring and full-grid validation pending |
-| D3: Deterministic trajectory | 🔄 In Progress (implementation validated; phase commit pending) | `execution/deterministic.py`, `execution/strategies/deterministic_kernel.py`, `test_deterministic_kernel.py`, `test_part20_experiment_e.py` | — | Dedicated unit-tracking kernel; additive fee; annual/monthly rebalance; corrected Experiment E values pinned; published anchors remain unresolved |
+| D3: Deterministic trajectory | ✅ Complete | `execution/deterministic.py`, `execution/strategies/deterministic_kernel.py`, `test_deterministic_kernel.py`, `test_part20_experiment_e.py` | ccedb79 | Dedicated unit-tracking kernel; additive fee; annual/monthly rebalance; corrected Experiment E values pinned; published anchors remain unresolved |
 | D4: Legacy removal | ⬜ Not Started | — | — | Final deletion gate |
 | D5: Public API resolution | ⬜ Not Started | — | — | Breaking change decision |
 
