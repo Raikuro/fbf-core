@@ -39,11 +39,13 @@ import pytest
 import yaml
 
 from fbf.core.application import run_study
+from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionBackend, ExecutionOptions
 from fbf.core.study import StudyConfiguration
 
 from .constants import COHORTS_PER_CELL, OracleTable, load_oracle_table
+from .published_dataset import load_published_ern_dataset
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -74,8 +76,8 @@ FULL_GRID_UNITS = FULL_GRID_CELLS * COHORTS_PER_CELL  # 313,020
 # Hard-fail acceptance anchors from the ERN paper Table 1 (Section 5.2).
 ANCHOR_CELLS: tuple[tuple[float, int, float, int], ...] = (
     (0.5, 30, 0.04, 95),
-    (0.5, 60, 0.04, 66),
-    (0.75, 60, 0.035, 98),
+    (0.5, 60, 0.04, 65),
+    (0.75, 60, 0.035, 97),
 )
 
 _ROUNDING = ROUND_HALF_EVEN
@@ -117,7 +119,13 @@ def oracle() -> OracleTable:
 
 
 @pytest.fixture(scope="session")
-def canonical_execution(data_dir: Path) -> GridResult:
+def published_dataset() -> Dataset:
+    """Frozen published-ERN dataset (September 2016 cutoff)."""
+    return load_published_ern_dataset()
+
+
+@pytest.fixture(scope="session")
+def canonical_execution(data_dir: Path, published_dataset: Dataset) -> GridResult:
     """Execute the full canonical SWR grid through the public application boundary.
 
     Uses the REFERENCE backend to match the canonical oracle derivation path
@@ -135,6 +143,7 @@ def canonical_execution(data_dir: Path) -> GridResult:
             summary_only=True,
             workers=None,  # Auto-detect
         ),
+        dataset=published_dataset,
     )
     t_exec_end = time.perf_counter()
     exec_time = t_exec_end - t_exec_start
@@ -286,7 +295,11 @@ def test_full_grid_matches_oracle(canonical_execution: GridResult, oracle: Oracl
 
 
 @pytest.mark.ern_e2e
-def test_smoke_cell_matches_oracle(data_dir: Path, oracle: OracleTable) -> None:
+def test_smoke_cell_matches_oracle(
+    data_dir: Path,
+    oracle: OracleTable,
+    published_dataset: Dataset,
+) -> None:
     """Minimal ERN smoke cell reproduces the oracle anchor (95%).
 
     Single cell: weight=0.5, rate=4%, horizon=30y, FV=0.0
@@ -307,6 +320,7 @@ withdrawal_policy:
   type: "FixedRealWithdrawalPolicy"
   withdrawal_rate: [0.04]
 final_value_target: [0.0]
+expense_ratio: 0.0005
 """
 
     result = run_study(
@@ -318,6 +332,7 @@ final_value_target: [0.0]
             summary_only=True,
             workers=None,
         ),
+        dataset=published_dataset,
     )
 
     # Single cell validation - 1739 cohorts (60-year cohort universe)

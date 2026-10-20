@@ -1,0 +1,15 @@
+{
+  "purpose": "Published-ERN historical replication fixture (September 2016 cutoff).",
+  "historical_end": "2016-09-01",
+  "projection_start": "2016-10-01",
+  "cohort_range": "1871-02-01 to 2015-12-01",
+  "cohort_count": 1739,
+  "projection": {
+    "equity_real_annual": "0.066",
+    "bond_real_annual_first_120_months": "0.0",
+    "bond_real_annual_after": "0.026",
+    "phase_months": 120
+  },
+  "derived_from": "Rounded canonical CSVs committed before workbook exact-return extraction.",
+  "authority": "Historical reference only. Not production data."
+}

@@ -42,7 +42,7 @@ from tools.ern.reference_oracle import (
     prefix_tables,
 )
 
-from .constants import COHORTS_PER_CELL, RATES
+from .constants import COHORTS_PER_CELL, RATES, RETURNS_DIR
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
 HORIZON_MONTHS = {30: 361, 40: 481, 50: 601, 60: 721}
@@ -90,7 +90,7 @@ def _units_by_horizon(plan: ResearchPlan) -> dict[int, list[PlannedSimulationUni
 def _oracle_success(weight: float, rate: float, horizon_years: int) -> list[bool]:
     """Per-cohort oracle success for a cell (cohort start 1..1739)."""
     T = HORIZON_MONTHS[horizon_years] - 1
-    r_eq, r_bd = load_real_returns(DATA_DIR)
+    r_eq, r_bd = load_real_returns(RETURNS_DIR)
     P, pre = prefix_tables(*build_extended(r_eq, r_bd), Decimal(str(weight)))
     return [
         cohort_annual_swr(P, pre, start, T) >= Decimal(str(rate))
@@ -234,17 +234,17 @@ def test_plan_exposes_pre_retirement_snapshot(grid_plan: BuiltStudy) -> None:
     assert len(by_horizon[HORIZON_MONTHS[30]]) == COHORTS_PER_CELL
 
 
-def test_boundary_cohort_306_pipeline_fails_on_canonical_data(
+def test_boundary_cohort_306_exposes_scr_simulation_boundary(
     grid_plan: BuiltStudy,
 ) -> None:
-    """Cohort 306 (0% / 3.25% / 30y) fails on the canonical CSV returns.
+    """Cohort 306 (0% / 3.25% / 30y) is a precision boundary.
 
-    The engine's cohort 306 retires in July-1896 (base snapshot 1896-07-01);
-    the published-ERN oracle's cohort start 307 covers the same window and also
-    classifies it as a failure.  The Excel workbook's unrounded Q/R returns
-    classify this single cohort as a success; the canonical CSV returns differ
-    at sub-0.01pp precision, so the verdict is data-precision-sensitive.  Both
-    inputs produce a 77% cell success rate.
+    The engine's cohort 306 retires in July-1896 (base snapshot 1896-07-01).
+    With exact workbook returns the closed-form SCR is 3.2506386%, marginally
+    above the 3.25% withdrawal rate.  The full portfolio pipeline nevertheless
+    depletes in the final month, while the workbook SCR / fast path classifies
+    the cohort as a success.  The published-ERN oracle also classifies it as a
+    failure.  The published-ERN cell is 79%; the workbook cell is 77%.
     """
     by_horizon = _units_by_horizon(grid_plan.plan)
     unit = by_horizon[HORIZON_MONTHS[30]][306]
@@ -257,8 +257,9 @@ def test_boundary_cohort_306_pipeline_fails_on_canonical_data(
     result = _production_pipeline().run(context)
 
     assert oracle_ok is False
+    assert _workbook_cell_ok(0.0, 0.0325, 30)[306] is True
     assert result.statistics.success is False
-    assert result.statistics.failure_month is not None
+    assert result.statistics.failure_month == 360
 
 
 def test_boundary_cell_306_engine_percentage_matches_workbook(

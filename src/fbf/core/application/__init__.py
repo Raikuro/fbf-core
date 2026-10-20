@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from fbf.core.domain.model.dataset import Dataset
 from fbf.core.execution import ExecutionOptions, ResearchExecutionResult, execute_study_plan
 from fbf.core.study import StudyConfiguration, build_study_plan
 
@@ -13,6 +14,8 @@ def run_study(
     data_dir: str,
     initial_wealth: Any,
     options: ExecutionOptions | None = None,
+    *,
+    dataset: Dataset | None = None,
 ) -> Any:
     """Execute a standard study from configuration to results.
 
@@ -29,13 +32,21 @@ def run_study(
         The initial portfolio wealth for the study.
     options:
         Execution options controlling backend, strategy, workers, etc.
+    dataset:
+        Optional pre-built dataset.  When supplied, it is used directly
+        instead of loading CSV data from ``data_dir``.
 
     Returns
     -------
     ResearchExecutionResult
         The complete execution result containing per-unit simulation results.
     """
-    built = build_study_plan(config, data_dir, initial_wealth)
+    built = build_study_plan(
+        config,
+        data_dir,
+        initial_wealth,
+        dataset=dataset,
+    )
     return execute_study_plan(built, options=options)
 
 

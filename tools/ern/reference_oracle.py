@@ -8,9 +8,9 @@ NEVER called by the E2E test.  The E2E asserts against the pinned oracle matrix
 
 Inputs (source, from ERN's public SWR Toolbox Google Sheet "Asset Returns" tab,
     spreadsheet id 1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8):
-    data/ern/spx_tr_real.csv           (canonical YYYY-MM-DD,value)
+    data/ern/published_2016/spx_tr_real.csv     (YYYY-MM-DD,value)
         S&P 500 total-return monthly REAL return
-    data/ern/bond_10y_tr_real.csv      (canonical YYYY-MM-DD,value)
+    data/ern/published_2016/bond_10y_tr_real.csv (YYYY-MM-DD,value)
         10Y Treasury total-return monthly REAL return
 
 Methodology (ERN "Safe Withdrawal Rates"):
@@ -42,7 +42,7 @@ from pathlib import Path
 
 _TOOL_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOL_DIR.parents[1]
-_DATA_DIR = _REPO_ROOT / "data" / "ern"
+_DATA_DIR = _REPO_ROOT / "data" / "ern" / "published_2016"
 
 FEE = Decimal("0.0005")
 _R_EQ_FWD_ANNUAL = Decimal("1.066")
@@ -50,8 +50,8 @@ _R_BD_FWD_ANNUAL = Decimal("1.026")
 _R_BD_FWD0 = Decimal("0")
 START_FIRST = 1
 START_LAST = 1739
-# Historical returns end Sep 2016; only the historical portion of the canonical
-# CSV is loaded.  Forward projections use the constant ERN Part 1 §4 rates.
+# Historical returns end Sep 2016; the frozen published fixture ends there.
+# Forward projections use the constant ERN Part 1 §4 rates.
 _HISTORICAL_END = "2016-10-01"
 # N must cover all cohorts (1..1739) + max horizon (720 months)
 MAX_INDEX = max(1739 + 720 - 1, 0)
@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         "--source",
         type=Path,
         default=_DATA_DIR,
-        help="Directory containing canonical real-return CSV files",
+        help="Directory containing the published-2016 real-return CSVs",
     )
     parser.add_argument(
         "--output",

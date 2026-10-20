@@ -1,14 +1,15 @@
 """ERN SWR replication: constants and oracle-table access.
 
-Source data lives in the repository under ``data/ern/`` (see the P4.9
-investigation report, docs/continuity/P4_9_E2E_REPLICATION_INVESTIGATION.md):
+The frozen published-ERN fixtures live in ``data/ern/published_2016/`` (see the
+P4.9 investigation report,
+docs/continuity/P4_9_E2E_REPLICATION_INVESTIGATION.md):
 
-- ``spx_tr_real.csv``                   canonical S&P 500 real returns (YYYY-MM-DD,value).
-- ``bond_10y_tr_real.csv``              canonical 10Y bond real returns (YYYY-MM-DD,value).
-- ``ern_swr_h720.json``                 primary 60-year horizon dataset (derived).
-- ``p49_oracle_table.csv``              pinned ERN oracle matrix (derived).
+- ``published_2016/spx_tr_real.csv``      frozen S&P 500 real returns through 2016-09.
+- ``published_2016/bond_10y_tr_real.csv`` frozen 10Y bond real returns through 2016-09.
+- ``p49_oracle_table.csv``                pinned published-ERN oracle matrix.
+- ``ern_swr_h720.json``                   legacy published 60-year snapshot dataset.
 
-Provenance of every file is documented in Section 4 of that report.
+Production data is workbook-derived and is not a published-ERN fixture.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = _REPO_ROOT / "data" / "ern"
 ORACLE_CSV = DATA_DIR / "p49_oracle_table.csv"
-RETURNS_DIR = DATA_DIR
+RETURNS_DIR = DATA_DIR / "published_2016"
 
 # ---------------------------------------------------------------------------
 # E2E worker selection

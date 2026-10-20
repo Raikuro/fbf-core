@@ -10,11 +10,13 @@ import pytest
 import yaml
 
 from fbf.core.application import run_study
+from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionOptions
 from fbf.core.study import StudyConfiguration
 
 from .constants import OracleTable, load_oracle_table
+from .published_dataset import load_published_ern_dataset
 
 
 class CanonicalResult(TypedDict):
@@ -71,8 +73,16 @@ def oracle() -> OracleTable:
 
 
 @pytest.fixture(scope="session")
+def published_dataset() -> Dataset:
+    """Frozen published-ERN dataset (September 2016 cutoff)."""
+    return load_published_ern_dataset()
+
+
+@pytest.fixture(scope="session")
 def canonical_execution(
-    data_dir: Path, tmp_path_factory: pytest.TempPathFactory
+    data_dir: Path,
+    published_dataset: Dataset,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> CanonicalResult:
     """Execute the full canonical workload through the public application boundary."""
     import time
@@ -96,6 +106,7 @@ def canonical_execution(
             summary_only=True,
             workers=None,  # Auto-detect
         ),
+        dataset=published_dataset,
     )
     t_exec_end = time.perf_counter()
     exec_time = t_exec_end - t_exec_start

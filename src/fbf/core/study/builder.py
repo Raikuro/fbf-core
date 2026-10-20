@@ -1366,14 +1366,20 @@ def build_study_plan(
     initial_wealth: Money,
     *,
     withdrawal_frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
+    dataset: Dataset | None = None,
 ) -> BuiltStudy:
     """Build the single unified ResearchPlan for a normalized study.
 
     Every unit is sliced from the single canonical ``dataset``; per-unit
     horizons and policies come from the study's declared value arrays.  This
     is the only plan construction path for every CLI consumer.
+
+    When ``dataset`` is supplied, it is used directly instead of loading CSV
+    data from ``data_dir``.  ``data_dir`` is still required for auxiliary
+    series (for example FFR) when the configuration requests them.
     """
-    dataset = load_canonical_dataset(Path(data_dir))
+    if dataset is None:
+        dataset = load_canonical_dataset(Path(data_dir))
     # Cohort horizon: use cohort_horizon_years if set, otherwise longest horizon.
     # ERN uses a fixed cohort set determined by the longest horizon (60y) across
     # ALL studies for comparability. When cohort_horizon_years is set, cohorts
