@@ -1,6 +1,6 @@
 # Roadmap: Migration to a Single Numba Execution Engine
 
-**Status:** Phase B — Expand Numba's Generic Simulation Capabilities **IN PROGRESS** 🔄 (B1–B5 complete)
+**Status:** Phase C **IN PROGRESS** 🔄 (C1–C2 complete; C3–C4 implementations present, canonical validation pending; C5 complete); D1 and D3 complete; D2 in progress
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
 **Objective:** Make Numba the sole simulation engine, progressively shrink and
 eventually delete the legacy Reference execution stack, and preserve
@@ -692,9 +692,9 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | B5: Multi-asset | ✅ Complete | `concrete.py`, `fast_path.py`, `numba_executor.py`, `test_multi_asset_allocation.py` | 85d72582f047279d5d9c42ca3f3cb0e3d9099c7b | Explicit N-asset `allocations`; single `resolve_target_weights`; nominal/escalating/Part 52 gate to the legacy form and fall back for explicit allocations |
 | C1: Part 52 Numba-only | ✅ Complete | `part52_numba_executor.py`, `execution/__init__.py`, `test_part52_dispatch_contract.py` | 2343c225278d1e02722a9567ab911e835215b6ff | Eligible Part 52 runs on Numba; explicit FAST on an ineligible Part 52 workload raises `UnsupportedConfigurationError` (no silent fallback) |
 | C2: Part 52 fee behavior | ✅ Complete (B1) | `_compute_growth_factors_numpy` (`numba_kernel.py`) fee passed by `part52_numba_executor.py`; `TestPart52ExpenseRatioSupport`, `TestPart52ExpenseRatioIndependentValidation` | 8dfbf24 (audited) | Additive fee `g_m = Σ_j w_j·P_{j,m}/P_{j,m-1} − fee/12` embedded in kernel growth factors |
-| C3: Part 49 debt migration | ⬜ Not Started | — | — | Separate kernel or mode |
-| C4: Part 49 buy-and-hold | ⬜ Not Started | — | — | Depends on B4 |
-| C5: LTV terminal state | ⬜ Not Started | — | — | `margin_call_terminal` |
+| C3: Part 49 debt migration | 🔄 In Progress | `part49_numba_executor.py`, `test_part49_numba_executor.py`; production flag propagation corrected and covered in `test_research_layer_debt_flow.py` | 5d5a569 | Numba implementation present and production `debt_interest_rate_is_real` propagation verified; canonical/full-path validation remains pending |
+| C4: Part 49 buy-and-hold | 🔄 In Progress | `part49_buy_and_hold_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`; production flag propagation corrected and covered in `test_research_layer_debt_flow.py` | 6abda00 | Numba implementation present and production `debt_interest_rate_is_real` propagation verified; canonical/full-path validation remains pending |
+| C5: LTV terminal state | ✅ Complete | `numba_kernel.py`, `part49_numba_executor.py`, `part49_buy_and_hold_numba_executor.py`, `part52_numba_executor.py`; `test_part49_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`, `test_part52_numba_executor.py` | b5ad4a2, 5d5a569, 6abda00 | Part 49 debt, Part 49 buy-and-hold, and Part 52 Numba kernels emit `margin_call_terminal` and match Decimal/legacy references. Targeted Numba executor and debt flag propagation tests pass. Limitation: C3/C4 remain In Progress until the 10,434-unit canonical E2E is run. |
 | D1: Trajectory materialization | ✅ Complete | `execution/strategies/*`, `execution/strategies/trajectory.py`, `test_timeline_materialization.py` | 46687ce | Optional flag; use D2 streaming at grid scale |
 | D2: Cohort-slice for memory | 🔄 In Progress | `execution/slicing.py`, `execution/__init__.py`, `part52_evaluator.py`, `part49_aggregation.py`, `persistence/studies/sqlite/sqlite_repository.py` | — | Streaming API + guard + consumer migration + incremental persistence complete; CLI persistence wiring and full-grid validation pending |
 | D3: Deterministic trajectory | ✅ Complete | `execution/deterministic.py`, `execution/strategies/deterministic_kernel.py`, `test_deterministic_kernel.py`, `test_part20_experiment_e.py` | ccedb79 | Dedicated unit-tracking kernel; additive fee; annual/monthly rebalance; corrected Experiment E values pinned; published anchors remain unresolved |
