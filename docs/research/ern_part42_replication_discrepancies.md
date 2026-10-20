@@ -2,7 +2,7 @@
 
 **Status:** Documented as of T5.1 implementation completion  
 **Source Article:** Early Retirement Now Part 42 — "The Effect of 'One More Year'" (2021-01-13)  
-**Canonical Data Vintage:** 2026-09-15 (extracted from ERN SWR Toolbox Google Sheet)  
+**Canonical Data Vintage:** Current workbook extraction (`SWR_Toolbox_v2.0.xlsx`)  
 **Article Data Boundary:** Historical data through 2015-12; forward extrapolation from 2026-07
 
 ---
@@ -84,7 +84,7 @@ These are **intentionally blank** in the published article (relative improvement
 | Parameter | Article (2021) | Canonical Data (2026) | Impact |
 |-----------|----------------|------------------------|--------|
 | Article date | 2021-01-13 | — | Source vintage |
-| Canonical extraction | — | 2026-09-15 | +5.5 years |
+| Canonical extraction | — | 2026-10-20 | +5.5 years |
 | Historical end | 2015-12 | 2026-06 | +10.5 years history |
 | Forward extrapolation | Article's rules | Two-zone model | Affects post-2015 cohorts |
 | Cohort universe | 1871-2015 | 1871-2015 | Same universe |
@@ -117,15 +117,15 @@ Note: "0" failures in many 50Y scenarios produce exact matches (0.0% failure rat
 
 ## Data Vintage Documentation
 
-**Canonical Data Source:** ERN SWR Toolbox Google Sheet (extracted 2026-09-15)  
+**Canonical Data Source:** `SWR_Toolbox_v2.0.xlsx`, `Asset Returns` sheet (exact cached values)  
 **Article Publication:** 2021-01-13  
-**Canonical Data Vintage:** Historical through 2026-06, forward extrapolation 2026-07 to 2076-12  
+**Canonical Data Vintage:** Historical through 2026-06; loader-generated projection 2026-07 to 2075-11  
 **Article Cohort End:** 2015-12  
 **Canonical Historical End:** 2026-06 (+10.5 years)  
 
 **Forward Extrapolation Rules (from canonical data):**
-- Zone 1 (2026-07 to 2036-06): SPX-TR 0.33%/mo (4.03%/yr), 10Y BM 0.21%/mo (2.55%/yr)
-- Zone 2 (2036-07 to 2076-12): SPX-TR 0.45%/mo (5.54%/yr), 10Y BM 0.19%/mo (2.30%/yr)
+- Zone 1 (2026-07 to 2036-06): equity 4.0%/yr, bonds 2.5%/yr
+- Zone 2 (2036-07 to 2075-11): equity 5.5%/yr, bonds 2.25%/yr
 
 **Effect:** The 2026 canonical data includes ~10.5 years of additional historical observations not available to the 2021 article. Forward extrapolation methodology differs. These are documented replication variables, not implementation errors.
 

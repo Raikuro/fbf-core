@@ -6,8 +6,8 @@ Provides:
 - ``build_prescribed_dataset`` — builds a Dataset from a prescribed
   deterministic ReturnSequence for research/experiment use.
 
-Canonical source: ERN SWR Toolbox Google Sheet, Asset Returns tab.
-  https://docs.google.com/spreadsheets/d/1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8
+Canonical production source: ``SWR_Toolbox_v2.0.xlsx``, ``Asset Returns``
+sheet, extracted exactly by ``tools/ern/extract_workbook_returns.py``.
 """
 
 from __future__ import annotations
@@ -26,7 +26,8 @@ def load_canonical_dataset(data_dir: Path) -> Dataset:
     ----------
     data_dir:
         Directory containing the canonical CSV files
-        (``spx_tr_real.csv``, ``bond_10y_tr_real.csv``).
+        (``spx_tr_real.csv``, ``bond_10y_tr_real.csv``, ``spx_tr.csv``,
+        ``cpi.csv``).
 
     Returns
     -------

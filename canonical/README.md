@@ -1,6 +1,9 @@
-# Canonical ERN Data
+# Historical ERN Google Sheet Extraction (Superseded)
 
-This directory contains canonical data extracted from the ERN SWR Toolbox Google Sheet.
+> **Not a source of truth.** Production ERN data is generated from
+> `SWR_Toolbox_v2.0.xlsx` into `data/ern/` by
+> `tools/ern/extract_workbook_returns.py`. This directory is retained only as
+> an audit artifact of the pre-workbook Google Sheet extraction.
 
 ## Source
 
@@ -30,7 +33,10 @@ This directory contains canonical data extracted from the ERN SWR Toolbox Google
 
 ## Usage
 
+Production extraction:
+
 ```bash
-# Re-extract runtime CSVs from master
-python3 -m tools.ern.extract_canonical_series
+python3 tools/ern/extract_workbook_returns.py \
+  --workbook /path/to/SWR_Toolbox_v2.0.xlsx \
+  --output-dir data/ern
 ```

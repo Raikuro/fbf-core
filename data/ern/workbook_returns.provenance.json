@@ -1,0 +1,12 @@
+{
+  "source_file": "SWR_Toolbox_v2.0.xlsx",
+  "source_sheet": "Asset Returns",
+  "source_field": "Q (equity real return), R (bond real return)",
+  "source_date_format": "year (column B), month (column A)",
+  "source_numeric_type": "cached Excel value (preserved exactly)",
+  "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, or normalization.",
+  "observation_count": 1865,
+  "date_range": "1871-02-01 to 2026-06-01",
+  "validation_result": "PASS",
+  "notes": "Exact combined oracle fixture for tools/ern/workbook_oracle.py"
+}

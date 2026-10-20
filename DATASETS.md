@@ -149,6 +149,9 @@ repeat this mapping.
 --data-dir/
   ├── spx_tr_real.csv            → equity asset
   ├── bond_10y_tr_real.csv       → bond / fixed-income asset
+  ├── spx_tr.csv                 → nominal equity index (interest-rate inflation adjustment)
+  ├── bm10.csv                   → nominal 10-year bond index (auxiliary)
+  ├── cpi.csv                    → CPI levels (interest-rate inflation adjustment)
   └── ffr.csv                    → Federal Funds Rate (rate-only time series)
 ```
 
@@ -156,6 +159,9 @@ repeat this mapping.
 |---|---|---|
 | `spx_tr_real.csv` | S&P 500 total-return real returns | `fbf.core.datasets.ern` → `AssetClass(id="equity")` |
 | `bond_10y_tr_real.csv` | 10-Year Bond Market real returns | `fbf.core.datasets.ern` → `AssetClass(id="bond")` |
+| `spx_tr.csv` | S&P 500 total-return nominal index | `fbf.core.datasets.ern` (nominal equity state) |
+| `bm10.csv` | 10-Year Bond Market cumulative nominal index | auxiliary data; not loaded by `load_ern_dataset` |
+| `cpi.csv` | CPI index level | `fbf.core.datasets.ern` (interest-rate inflation adjustment) |
 | `ffr.csv` | Federal Funds Rate (annual, nominal) | `fbf.core.study.builder.load_ffr_rates` → `tuple[date, Decimal]` |
 
 The equity and bond CSVs are loaded by the canonical ERN dataset loader and
@@ -163,23 +169,36 @@ materialised as `MarketSnapshot.index_levels` entries. The FFR CSV is a
 rate-only time series loaded separately by `load_ffr_rates` for Part 52
 floating-rate interest schedules; it does not produce `MarketSnapshot` entries.
 
-### Real-return provenance note
+### Workbook provenance (current production)
 
-`spx_tr_real.csv` and `bond_10y_tr_real.csv` are source-provided canonical
-outputs extracted directly from the ERN Google Sheet (`spx_tr_real` and
-`y10_bm_real` columns). Both series are mathematically derivable from the
-cumulative index and CPI series:
+All canonical ERN data files in `data/ern/` are generated from the authoritative
+`SWR_Toolbox_v2.0.xlsx` workbook by `tools/ern/extract_workbook_returns.py`.
+The extractor reads the **cached values** of the workbook's `Asset Returns`
+sheet, validates contiguous monthly dates and the `Q`/`R` formulas, and writes:
 
-- `spx_tr_real ← spx_tr_cum + cpi`
-- `bond_10y_tr_real ← y10_bm_cum + cpi`
+| Output | Workbook source |
+|---|---|
+| `spx_tr_real.csv` | `Q` (S&P 500 total-return real return) |
+| `bond_10y_tr_real.csv` | `R` (10-year bond market total-return real return) |
+| `spx_tr.csv` | `F` (S&P 500 total-return nominal index) |
+| `bm10.csv` | `G` (10-year bond market cumulative nominal index) |
+| `cpi.csv` | `E` (CPI level) |
+| `workbook_returns.csv` | `Q` and `R`, combined oracle fixture |
 
-However, the runtime cumulative-index and CPI representations are rounded
-(`spx_tr.csv` / `bm10.csv` to 2 decimals, `cpi.csv` to 3 decimals). The
-resulting tiny monthly differences (max ~1.4 bp) compound over the 1748-month
-historical period and produce measurable index-level differences (~0.067%
-equity, ~0.054% bonds at 2016-09) that would break pinned oracle matrix
-comparisons. These files are therefore retained as exact source extractions
-and must not be replaced by runtime derivation.
+The cached values are preserved exactly: no formula is re-evaluated and no
+rounding, normalization, or reconstruction is applied. Each output has a
+sibling `<name>.provenance.json` recording the workbook sheet, source column,
+observation count, and date range.
+
+Do not replace `spx_tr_real.csv` or `bond_10y_tr_real.csv` with a derivation
+from the nominal index and CPI files. The workbook stores the real-return
+columns directly, and deriving them from rounded runtime series changes
+compounded index levels enough to break exact oracle comparisons.
+
+The frozen `data/ern/published_2016/` directory is a separate historical
+replication fixture. It contains rounded returns through September 2016 under
+the published ERN forward assumptions and is used only by the published-ERN E2E
+and reference oracle. It is not current production data.
 
 The canonical loader is the **single source of truth** for CSV → `AssetClass`
 mapping. No second mapping (e.g. in study YAML) is needed or desirable.
@@ -257,9 +276,12 @@ occupies that role.
   bundle's version for easy provenance checks.
 - Reproducibility at the run level is anchored by `dataset.identifier` in the study YAML,
   plus the recorded `dataset_identifier` column in persisted studies.
-- The ERN certification is the reference case: the oracle matrix is pinned, and
-  acceptance is exact-`Decimal` equality against it. Changing the dataset bundle requires
-  re-certifying against the pinned matrix.
+- The ERN certification has two separate targets. The published-ERN historical
+  replication uses the frozen `data/ern/published_2016/` fixture and the pinned
+  `p49_oracle_table.csv`. Current production is workbook-conformant and is checked
+  independently by `tools/ern/workbook_oracle.py` against `workbook_returns.csv`.
+  Changing the production data requires re-certifying the workbook oracle; it does not
+  re-baseline the published-ERN fixture.
 - Consumers should record `dataset.identifier` **and** `dataset.version` (both available on
   the resolved `fbf.core.domain.model.dataset.Dataset`) alongside results for full
   reproducibility.

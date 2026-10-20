@@ -560,7 +560,7 @@ Per §17:
 
 | Asset | Content | Fitness for T6.2 |
 |---|---|---|
-| `data/ern/spx_tr_real.csv`, `data/ern/bond_10y_tr_real.csv` | 2,471 obs, 1871-02 → 2076-12; **real** price/return series; `inflation_cumulative` populated (CPI index 31.75 → 133.70 over 1965–1990) | Usable. Article vintage is Nov 2021; 1925–1990 cohorts × 30y horizon end ≤ 2020, i.e. **entirely before the 2036-07 constant-extrapolation tail** (equity 0.0045, bond 0.0019). No extrapolation contamination for Experiments A–F. |
+| `data/ern/spx_tr_real.csv`, `data/ern/bond_10y_tr_real.csv` | 1,865 historical observations, 1871-02 → 2026-06; **real** price/return series; `inflation_cumulative` populated from `cpi.csv` | Usable. Article vintage is Nov 2021; 1925–1990 cohorts × 30y horizon end ≤ 2020, i.e. **entirely before the 2036-07 workbook projection boundary**. No projection contamination for Experiments A–F. |
 | `data/ern/ern_swr_h720.json` | 2,459 snapshots 1871-01-31 → 2075-11-01 | Used by SWR harness; not required for Part 49 leverage. |
 | `data/ern/p49_oracle_table.csv` | 21×9 SWR success-rate matrix | **Not** a Part 49 leverage oracle (Q-3). |
 

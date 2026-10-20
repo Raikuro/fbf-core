@@ -1,11 +1,12 @@
 {
-  "source_file": "canonical/ern_asset_returns.csv",
-  "source_field": "spx_tr_real",
-  "source_date_format": "year,month (integer columns)",
-  "source_numeric_type": "string (preserved exactly)",
-  "extraction_method": "Direct column extraction. date = YYYY-MM-01 mapped to YYYY-MM-DD. Value preserved as source string (no rounding, no normalization).",
-  "observation_count": 2471,
-  "date_range": "1871-02-01 to 2076-12-01",
+  "source_file": "SWR_Toolbox_v2.0.xlsx",
+  "source_sheet": "Asset Returns",
+  "source_field": "Q",
+  "source_date_format": "year (column B), month (column A)",
+  "source_numeric_type": "cached Excel value (preserved exactly)",
+  "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, or normalization.",
+  "observation_count": 1865,
+  "date_range": "1871-02-01 to 2026-06-01",
   "validation_result": "PASS",
-  "notes": "S&P 500 TR real returns (monthly)"
+  "notes": "S&P 500 total-return monthly real returns"
 }

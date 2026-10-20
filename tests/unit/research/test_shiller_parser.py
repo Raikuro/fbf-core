@@ -278,12 +278,12 @@ class TestMarketReturnsLineage:
                 date_str = row["date"]
                 if date_str.endswith("-10-01"):
                     oct_dates.append(date_str[:7])
-        # Historical (1871-2026) has 156 Octobers; extrapolation adds 50 more
-        assert len(oct_dates) == 206
+        # Production history runs 1871-02 through 2026-06: 155 Octobers.
+        assert len(oct_dates) == 155
 
     def test_existing_csv_row_count(self) -> None:
-        """The canonical CSV has 2471 rows (historical + extrapolated)."""
+        """The production CSV has 1,865 historical rows (no projection rows)."""
         with open(_EXISTING_RETURNS_CSV) as f:
             reader = csv.DictReader(f)
             rows = list(reader)
-        assert len(rows) == 2471
+        assert len(rows) == 1865

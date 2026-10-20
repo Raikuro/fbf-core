@@ -13,29 +13,24 @@ from tools.ern import workbook_oracle as wo
 _DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
 
 
-def _write_returns(path: Path, rows: list[tuple[str, str]]) -> None:
+def _write_returns(path: Path, rows: list[tuple[str, str, str]]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["date", "value"])
+        writer.writerow(["date", "equity_real_return", "bond_real_return"])
         writer.writerows(rows)
 
 
 def test_load_real_returns_stops_after_june_2026(tmp_path: Path) -> None:
-    """Historical loading includes June 2026 and excludes projected rows."""
-    eq_rows = [
-        ("2026-05-01", "0.01"),
-        ("2026-06-01", "0.02"),
-        ("2026-07-01", "0.03"),
-        ("2026-08-01", "0.04"),
-    ]
-    bd_rows = [
-        ("2026-05-01", "0.05"),
-        ("2026-06-01", "0.06"),
-        ("2026-07-01", "0.07"),
-        ("2026-08-01", "0.08"),
-    ]
-    _write_returns(tmp_path / "spx_tr_real.csv", eq_rows)
-    _write_returns(tmp_path / "bond_10y_tr_real.csv", bd_rows)
+    """Historical loading includes June 2026 and excludes later rows."""
+    _write_returns(
+        tmp_path / "workbook_returns.csv",
+        [
+            ("2026-05-01", "0.01", "0.05"),
+            ("2026-06-01", "0.02", "0.06"),
+            ("2026-07-01", "0.03", "0.07"),
+            ("2026-08-01", "0.04", "0.08"),
+        ],
+    )
 
     r_eq, r_bd = wo.load_real_returns(tmp_path)
 
@@ -48,7 +43,7 @@ def test_projection_matches_workbook_phase_boundary_and_end() -> None:
     r_eq, r_bd = wo.load_real_returns(_DATA_DIR)
     eq, bd = wo.build_extended(r_eq, r_bd)
 
-    with open(_DATA_DIR / "spx_tr_real.csv", newline="", encoding="utf-8") as f:
+    with open(_DATA_DIR / "workbook_returns.csv", newline="", encoding="utf-8") as f:
         historical_dates = [
             row["date"] for row in csv.DictReader(f) if row["date"] < wo._HISTORICAL_END
         ]
@@ -116,3 +111,63 @@ def test_expense_ratio_is_additive_to_weighted_monthly_return() -> None:
 
     assert actual == expected
     assert actual < zero_fee
+
+
+def test_workbook_fixture_matches_canonical_production_columns() -> None:
+    """The combined fixture and the production real-return CSVs stay in sync."""
+    with open(_DATA_DIR / "workbook_returns.csv", newline="", encoding="utf-8") as f:
+        combined = list(csv.DictReader(f))
+    with open(_DATA_DIR / "spx_tr_real.csv", newline="", encoding="utf-8") as f:
+        equity = list(csv.DictReader(f))
+    with open(_DATA_DIR / "bond_10y_tr_real.csv", newline="", encoding="utf-8") as f:
+        bond = list(csv.DictReader(f))
+
+    assert [row["date"] for row in combined] == [row["date"] for row in equity]
+    assert [row["date"] for row in combined] == [row["date"] for row in bond]
+    assert [row["equity_real_return"] for row in combined] == [
+        row["value"] for row in equity
+    ]
+    assert [row["bond_real_return"] for row in combined] == [
+        row["value"] for row in bond
+    ]
+    assert combined[0]["date"] == "1871-02-01"
+    assert combined[-1]["date"] == "2026-06-01"
+    assert len(combined) == 1865
+
+
+def test_first_cohort_scr_matches_workbook_scr_time_series() -> None:
+    """First cohort (75/25, 50y) matches the workbook's cached SCR value."""
+    r_eq, r_bd = wo.load_real_returns(_DATA_DIR)
+    eq, bd = wo.build_extended(r_eq, r_bd)
+    scr = wo.compute_workbook_scr(eq, bd, Decimal("0.75"), 0, 600)
+    assert scr.quantize(Decimal("0.0000000001")) == Decimal("0.0778554756")
+
+
+def test_boundary_cell_matches_workbook_exact_returns() -> None:
+    """0% equity / 30y / 3.25% is 77% with exact workbook returns."""
+    r_eq, r_bd = wo.load_real_returns(_DATA_DIR)
+    eq, bd = wo.build_extended(r_eq, r_bd)
+    assert wo.success_rate(eq, bd, Decimal("0"), 360, Decimal("0.0325")) == 77
+
+
+def test_committed_workbook_oracle_table_uses_exact_fixture() -> None:
+    """The pinned workbook matrix reflects the exact workbook returns."""
+    with open(
+        _DATA_DIR / "workbook_oracle_table.csv", newline="", encoding="utf-8"
+    ) as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 20
+
+    zero_thirty = next(
+        row for row in rows
+        if float(row["equity_weight"]) == 0.0 and int(row["horizon_years"]) == 30
+    )
+    assert [int(zero_thirty[f"{float(rate):g}"]) for rate in wo.RATES] == [
+        89, 77, 64, 56, 49, 45, 41, 38, 32
+    ]
+
+    full_forty = next(
+        row for row in rows
+        if float(row["equity_weight"]) == 1.0 and int(row["horizon_years"]) == 40
+    )
+    assert int(full_forty["0.045"]) == 84

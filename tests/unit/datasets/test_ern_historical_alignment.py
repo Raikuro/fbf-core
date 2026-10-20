@@ -27,8 +27,8 @@ _DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
 _DEFAULT_TOLERANCE = Decimal("1e-24")
 _FEE_ANNUAL = Decimal("0.0005")
 _HORIZON_MONTHS = 360
-_FEBRUARY_EQUITY_RETURN = Decimal("-0.0115000000")
-_FEBRUARY_BOND_RETURN = Decimal("-0.0074000000")
+_FEBRUARY_EQUITY_RETURN = Decimal("-0.0115146124")
+_FEBRUARY_BOND_RETURN = Decimal("-0.007375011804")
 
 
 def _monthly_return(annual_return: Decimal) -> Decimal:
@@ -98,40 +98,40 @@ def test_first_historical_intervals_use_same_month_returns(dataset: Dataset) -> 
     """The February return is not duplicated into the March interval."""
     _assert_close(
         _interval_return(dataset, "1871-02-01", "1871-03-01", "equity"),
-        Decimal("0.0144000000"),
+        Decimal("0.0144157692"),
     )
     _assert_close(
         _interval_return(dataset, "1871-02-01", "1871-03-01", "bond"),
-        Decimal("-0.0036000000"),
+        Decimal("-0.003552413693"),
     )
     _assert_close(
         _interval_return(dataset, "1871-03-01", "1871-04-01", "equity"),
-        Decimal("0.0733000000"),
+        Decimal("0.07330801661"),
     )
     _assert_close(
         _interval_return(dataset, "1871-03-01", "1871-04-01", "bond"),
-        Decimal("0.0540000000"),
+        Decimal("0.05404830716"),
     )
 
-    assert _asset_level(dataset.snapshots[2], "equity") == Decimal("101.4400")
-    assert _asset_level(dataset.snapshots[3], "equity") == Decimal("108.875552")
-    assert _asset_level(dataset.snapshots[2], "bond") == Decimal("99.6400")
-    assert _asset_level(dataset.snapshots[3], "bond") == Decimal("105.020560")
+    assert _asset_level(dataset.snapshots[2], "equity") == Decimal("101.44157692")
+    assert _asset_level(dataset.snapshots[3], "equity") == Decimal("108.878057725795952641200")
+    assert _asset_level(dataset.snapshots[2], "bond") == Decimal("99.644758630700")
+    assert _asset_level(dataset.snapshots[3], "bond") == Decimal("105.03038915205613460581200")
 
 
 def test_may_june_july_2026_transition(dataset: Dataset) -> None:
     """June 2026 is the last historical return; July 2026 starts projection."""
     _assert_close(
         _interval_return(dataset, "2026-04-01", "2026-05-01", "equity"),
-        Decimal("0.0477000000"),
+        Decimal("0.04767843451"),
     )
     _assert_close(
         _interval_return(dataset, "2026-05-01", "2026-06-01", "equity"),
-        Decimal("-0.0053000000"),
+        Decimal("-0.005320897265"),
     )
     _assert_close(
         _interval_return(dataset, "2026-05-01", "2026-06-01", "bond"),
-        Decimal("0.0075000000"),
+        Decimal("0.007513216583"),
     )
     _assert_close(
         _interval_return(dataset, "2026-06-01", "2026-07-01", "equity"),

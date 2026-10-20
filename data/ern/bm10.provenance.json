@@ -1,11 +1,12 @@
 {
-  "source_file": "canonical/ern_asset_returns.csv",
-  "source_field": "y10_bm_cum",
-  "source_date_format": "year,month (integer columns)",
-  "source_numeric_type": "string (preserved exactly)",
-  "extraction_method": "Direct column extraction. date = YYYY-MM-01 mapped to YYYY-MM-DD. Value preserved as source string (no rounding, no normalization).",
+  "source_file": "SWR_Toolbox_v2.0.xlsx",
+  "source_sheet": "Asset Returns",
+  "source_field": "G",
+  "source_date_format": "year (column B), month (column A)",
+  "source_numeric_type": "cached Excel value (preserved exactly)",
+  "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, or normalization.",
   "observation_count": 1866,
   "date_range": "1871-01-01 to 2026-06-01",
   "validation_result": "PASS",
-  "notes": "10-Year Bond Market cumulative nominal return index"
+  "notes": "10-year bond market cumulative nominal index"
 }

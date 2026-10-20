@@ -691,8 +691,8 @@ aggregation:
 # Data Vintage Note
 # ---------------------------------------------------------------------------
 # The ERN Part 42 article was published January 2021.
-# The canonical FBF market data (data/ern/) was extracted from the ERN Google Sheet
-# on 2026-09-15 and includes historical data through 2026-06 with forward extrapolation.
+# The production FBF market data (data/ern/) is extracted from SWR_Toolbox_v2.0.xlsx
+# and includes historical data through 2026-06 with forward extrapolation.
 # The article's cohort universe ends December 2015 (for 30Y/50Y horizons).
 # The additional historical data (2016-2026) does not affect the cohort universe used
 # for the published tables but may affect forward extrapolation behavior.
@@ -700,7 +700,7 @@ aggregation:
 
 data_vintage:
   article_date: "2021-01-13"
-  canonical_data_extraction_date: "2026-09-15"
+  canonical_data_extraction_date: "2026-10-20"
   canonical_historical_end: "2026-06"
   article_cohort_end: "2015-12"
   note: "Canonical data includes ~10.5 years of additional historical observations not available to the 2021 article. This is a known replication variable."
