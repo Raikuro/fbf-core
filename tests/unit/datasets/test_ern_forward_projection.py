@@ -1,15 +1,13 @@
 """ERN forward-projection constants and boundary behaviour.
 
-Source: ERN Part 1 §4 (Dec 7 2016) — first-party ERN evidence.
-Updated: SWR Toolbox v2.0 workbook contains actual historical data through 2026-06.
-Forward projection begins at 2026-07 per the authoritative workbook.
+Source: SWR Toolbox v2.0 workbook, Parameters & Main Results B787:B790.
 
 Verifies:
-- Canonical constants (6.6% equity, 0% bond for 120 months, 2.6% bond after)
+- First phase (months 1–120): 4.0% equity, 2.5% bonds
+- Second phase (month 121+): 5.5% equity, 2.25% bonds
+- Annual-to-monthly conversion matches workbook cached values
 - June 2026 uses historical data; July 2026 uses forward projection
-- Bond zero-rate period: Jul 2026 – Jun 2036 (months 1–120)
-- Bond long-term rate: Jul 2036 onward (month 121+)
-- Equity forward rate applied consistently across the full projection
+- Phase boundary: Jul 2026 – Jun 2036, then Jul 2036 onward
 """
 
 from __future__ import annotations
@@ -23,8 +21,9 @@ import pytest
 from fbf.core.datasets.ern import (
     _BOND_FORWARD_ANNUAL,
     _BOND_FORWARD_ANNUAL_AFTER,
-    _BOND_FORWARD_DELAY_MONTHS,
     _EQUITY_FORWARD_ANNUAL,
+    _EQUITY_FORWARD_ANNUAL_AFTER,
+    _FORWARD_PHASE_MONTHS,
     _HISTORICAL_END,
     _PROJECTION_END,
     load_ern_dataset,
@@ -43,26 +42,49 @@ _DATA_DIR = Path("data/ern")
 
 
 class TestForwardConstants:
-    """Verify constants match ERN Part 1 §4 canonical specification."""
+    """Verify constants match the SWR Toolbox v2.0 workbook."""
 
-    def test_equity_forward_is_6_6_percent(self) -> None:
-        """Equity forward = 6.6% real p.a. (Part 1 §4)."""
-        assert Decimal("0.066") == _EQUITY_FORWARD_ANNUAL
+    def test_equity_forward_first_phase(self) -> None:
+        """First-phase equity = 4.0% real p.a."""
+        assert Decimal("0.04") == _EQUITY_FORWARD_ANNUAL
 
-    def test_bond_forward_is_zero(self) -> None:
-        """Bond zero-rate = 0.0% real p.a. for first 120 months."""
-        assert Decimal("0") == _BOND_FORWARD_ANNUAL
+    def test_equity_forward_second_phase(self) -> None:
+        """Second-phase equity = 5.5% real p.a."""
+        assert Decimal("0.055") == _EQUITY_FORWARD_ANNUAL_AFTER
 
-    def test_bond_forward_after_is_2_6_percent(self) -> None:
-        """Bond long-term = 2.6% real p.a. after month 120."""
-        assert Decimal("0.026") == _BOND_FORWARD_ANNUAL_AFTER
+    def test_bond_forward_first_phase(self) -> None:
+        """First-phase bonds = 2.5% real p.a."""
+        assert Decimal("0.025") == _BOND_FORWARD_ANNUAL
 
-    def test_bond_delay_is_120_months(self) -> None:
-        """Bond zero-rate period = 120 months (10 years)."""
-        assert _BOND_FORWARD_DELAY_MONTHS == 120
+    def test_bond_forward_second_phase(self) -> None:
+        """Second-phase bonds = 2.25% real p.a."""
+        assert Decimal("0.0225") == _BOND_FORWARD_ANNUAL_AFTER
 
-    def test_historical_end_is_july_2026(self) -> None:
-        """Forward projection begins July 2026 (per SWR Toolbox v2.0 workbook).
+    def test_forward_phase_is_120_months(self) -> None:
+        """Both asset classes switch phase after 120 months (10 years)."""
+        assert _FORWARD_PHASE_MONTHS == 120
+
+    @pytest.mark.parametrize(
+        ("annual_rate", "expected_monthly"),
+        [
+            ("0.04", Decimal("0.003273739782")),
+            ("0.055", Decimal("0.004471698917")),
+            ("0.025", Decimal("0.002059836270")),
+            ("0.0225", Decimal("0.001855937535")),
+        ],
+    )
+    def test_monthly_conversion_matches_workbook(
+        self, annual_rate: str, expected_monthly: Decimal
+    ) -> None:
+        """Monthly conversion matches Asset Returns cached values."""
+        monthly = (
+            (Decimal("1") + Decimal(annual_rate)) ** (Decimal("1") / Decimal("12"))
+            - Decimal("1")
+        )
+        assert monthly.quantize(Decimal("0.000000000001")) == expected_monthly
+
+    def test_projection_starts_july_2026(self) -> None:
+        """Historical data ends June 2026; forward projection begins July 2026.
 
         The workbook's Asset Returns sheet contains actual historical observations
         through June 2026. Projection begins at the first month after historical
@@ -104,8 +126,8 @@ class TestFirstForwardMonth:
         jul = self._snapshot_by_date(dataset, 2026, 7)
         jun_eq = self._eq_level(jun)
         jul_eq = self._eq_level(jul)
-        # Forward rate monthly: (1.066)^(1/12) - 1
-        expected_jul_eq = jun_eq * (1 + (1.066) ** (1 / 12) - 1)
+        # First-phase monthly equity: (1.04)^(1/12) - 1
+        expected_jul_eq = jun_eq * (1 + (1.04) ** (1 / 12) - 1)
         assert jul_eq == pytest.approx(expected_jul_eq, rel=1e-9), (
             f"Jul 2026 equity {jul_eq} should be Jun equity "
             f"{jun_eq} × forward monthly rate, not Jun historical return"
@@ -116,7 +138,7 @@ class TestFirstForwardMonth:
         jun = self._snapshot_by_date(dataset, 2026, 6)
         jul = self._snapshot_by_date(dataset, 2026, 7)
         ratio = self._eq_level(jul) / self._eq_level(jun)
-        expected_ratio = (1.066) ** (1 / 12)
+        expected_ratio = (1.04) ** (1 / 12)
         assert ratio == pytest.approx(expected_ratio, rel=1e-9)
 
     def test_august_2026_also_uses_forward_rate(self, dataset: Dataset) -> None:
@@ -124,18 +146,17 @@ class TestFirstForwardMonth:
         jul = self._snapshot_by_date(dataset, 2026, 7)
         aug = self._snapshot_by_date(dataset, 2026, 8)
         ratio = self._eq_level(aug) / self._eq_level(jul)
-        expected_ratio = (1.066) ** (1 / 12)
+        expected_ratio = (1.04) ** (1 / 12)
         assert ratio == pytest.approx(expected_ratio, rel=1e-9)
 
 
 # ---------------------------------------------------------------------------
-# 120-month bond zero-rate boundary
+# 120-month projection phase boundary
 # ---------------------------------------------------------------------------
 
 
-class TestBondZeroRateBoundary:
-    """Bond must be at 0% for months 1–120 (Jul 2026 – Jun 2036)
-    and switch to 2.6% at month 121 (Jul 2036)."""
+class TestBondPhaseBoundary:
+    """Bonds grow at 2.5% for months 1–120 and 2.25% from month 121."""
 
     @pytest.fixture(scope="class")
     def dataset(self) -> Dataset:
@@ -151,51 +172,76 @@ class TestBondZeroRateBoundary:
         keys = list(snapshot.index_levels.keys())
         return float(snapshot.index_levels[keys[1]])
 
-    def test_bond_zero_rate_jun_2036(self, dataset: Dataset) -> None:
-        """Bond level at Jun 2036 must equal May 2036 (0% return, no fee drag)."""
+    def test_bond_first_phase_jun_2036(self, dataset: Dataset) -> None:
+        """Jun 2036 is the last first-phase month: 2.5% annual monthly growth."""
         may = self._snapshot_by_date(dataset, 2036, 5)
         jun = self._snapshot_by_date(dataset, 2036, 6)
-        may_bond = self._bond_level(may)
-        jun_bond = self._bond_level(jun)
-        # 0% real return for months 1-120; dataset is raw (no fee embedding)
-        assert jun_bond == may_bond
+        ratio = self._bond_level(jun) / self._bond_level(may)
+        expected_ratio = (1.025) ** (1 / 12)
+        assert ratio == pytest.approx(expected_ratio, rel=1e-9)
 
     def test_bond_switches_at_jul_2036(self, dataset: Dataset) -> None:
-        """Jul 2036 bond growth from Jun 2036 must be ≈ 2.6% p.a. monthly."""
+        """Jul 2036 bond growth from Jun 2036 must be 2.25% p.a. monthly."""
         jun = self._snapshot_by_date(dataset, 2036, 6)
         jul = self._snapshot_by_date(dataset, 2036, 7)
-        jun_bond = self._bond_level(jun)
-        jul_bond = self._bond_level(jul)
-        ratio = jul_bond / jun_bond
-        expected_ratio = (1.026) ** (1 / 12)
+        ratio = self._bond_level(jul) / self._bond_level(jun)
+        expected_ratio = (1.0225) ** (1 / 12)
         assert ratio == pytest.approx(expected_ratio, rel=1e-9), (
             f"Jul 2036 bond ratio {ratio} should match "
-            f"(1.026)^(1/12) = {expected_ratio}"
+            f"(1.0225)^(1/12) = {expected_ratio}"
         )
 
-    def test_bond_stays_at_2_6_after_jul_2036(self, dataset: Dataset) -> None:
-        """Aug 2036 bond growth continues at 2.6% p.a. monthly."""
+    def test_bond_stays_in_second_phase_after_jul_2036(self, dataset: Dataset) -> None:
+        """Aug 2036 bond growth continues at 2.25% p.a. monthly."""
         jul = self._snapshot_by_date(dataset, 2036, 7)
         aug = self._snapshot_by_date(dataset, 2036, 8)
         ratio = self._bond_level(aug) / self._bond_level(jul)
-        expected_ratio = (1.026) ** (1 / 12)
+        expected_ratio = (1.0225) ** (1 / 12)
         assert ratio == pytest.approx(expected_ratio, rel=1e-9)
 
-    def test_bond_zero_rate_applies_for_120_months(self, dataset: Dataset) -> None:
-        """Bond at zero rate for exactly 120 months (Jul 2026 – Jun 2036).
 
-        Month 1 = Jul 2026, Month 120 = Jun 2036.
-        Month 121 = Jul 2036 switches to 2.6%.
-        """
-        jul_2026 = self._snapshot_by_date(dataset, 2026, 7)
-        jun_2036 = self._snapshot_by_date(dataset, 2036, 6)
-        jul_2036 = self._snapshot_by_date(dataset, 2036, 7)
+class TestEquityPhaseBoundary:
+    """Equity grows at 4.0% for months 1–120 and 5.5% from month 121."""
 
-        # Bond level is constant during zero-rate period (raw dataset, no fee embedding)
-        assert self._bond_level(jun_2036) == self._bond_level(jul_2026)
+    @pytest.fixture(scope="class")
+    def dataset(self) -> Dataset:
+        return load_ern_dataset(_DATA_DIR)
 
-        # Bond at Jul 2036 should be GREATER than at Jun 2036 (2.6% kicks in)
-        assert self._bond_level(jul_2036) > self._bond_level(jun_2036)
+    def _snapshot_by_date(self, dataset: Dataset, year: int, month: int) -> MarketSnapshot:
+        for s in dataset.snapshots:
+            if s.date.year == year and s.date.month == month:
+                return s
+        raise AssertionError(f"No snapshot for {year}-{month:02d}")
+
+    def _eq_level(self, snapshot: MarketSnapshot) -> float:
+        return float(snapshot.index_levels[list(snapshot.index_levels.keys())[0]])
+
+    def test_equity_first_phase_jun_2036(self, dataset: Dataset) -> None:
+        """Jun 2036 is the last first-phase month: 4.0% annual monthly growth."""
+        may = self._snapshot_by_date(dataset, 2036, 5)
+        jun = self._snapshot_by_date(dataset, 2036, 6)
+        ratio = self._eq_level(jun) / self._eq_level(may)
+        expected_ratio = (1.04) ** (1 / 12)
+        assert ratio == pytest.approx(expected_ratio, rel=1e-9)
+
+    def test_equity_switches_at_jul_2036(self, dataset: Dataset) -> None:
+        """Jul 2036 equity growth from Jun 2036 must be 5.5% p.a. monthly."""
+        jun = self._snapshot_by_date(dataset, 2036, 6)
+        jul = self._snapshot_by_date(dataset, 2036, 7)
+        ratio = self._eq_level(jul) / self._eq_level(jun)
+        expected_ratio = (1.055) ** (1 / 12)
+        assert ratio == pytest.approx(expected_ratio, rel=1e-9), (
+            f"Jul 2036 equity ratio {ratio} should match "
+            f"(1.055)^(1/12) = {expected_ratio}"
+        )
+
+    def test_equity_stays_in_second_phase_after_jul_2036(self, dataset: Dataset) -> None:
+        """Aug 2036 equity growth continues at 5.5% p.a. monthly."""
+        jul = self._snapshot_by_date(dataset, 2036, 7)
+        aug = self._snapshot_by_date(dataset, 2036, 8)
+        ratio = self._eq_level(aug) / self._eq_level(jul)
+        expected_ratio = (1.055) ** (1 / 12)
+        assert ratio == pytest.approx(expected_ratio, rel=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +250,7 @@ class TestBondZeroRateBoundary:
 
 
 class TestEquityForwardConsistency:
-    """Equity must grow at 6.6% p.a. consistently through the entire projection."""
+    """Equity must grow at the phase rate through the entire projection."""
 
     @pytest.fixture(scope="class")
     def dataset(self) -> Dataset:
@@ -220,25 +266,25 @@ class TestEquityForwardConsistency:
         return float(snapshot.index_levels[list(snapshot.index_levels.keys())[0]])
 
     def test_equity_rate_at_start_of_projection(self, dataset: Dataset) -> None:
-        """First two forward months: equity ratio matches (1.066)^(1/12)."""
+        """First two forward months: equity ratio matches (1.04)^(1/12)."""
         jul = self._snapshot_by_date(dataset, 2026, 7)
         aug = self._snapshot_by_date(dataset, 2026, 8)
         ratio = self._eq_level(aug) / self._eq_level(jul)
-        assert ratio == pytest.approx((1.066) ** (1 / 12), rel=1e-9)
+        assert ratio == pytest.approx((1.04) ** (1 / 12), rel=1e-9)
 
     def test_equity_rate_mid_projection(self, dataset: Dataset) -> None:
-        """Mid-projection months: equity ratio still matches (1.066)^(1/12)."""
+        """Mid-projection months: equity ratio matches (1.055)^(1/12)."""
         jan = self._snapshot_by_date(dataset, 2050, 1)
         feb = self._snapshot_by_date(dataset, 2050, 2)
         ratio = self._eq_level(feb) / self._eq_level(jan)
-        assert ratio == pytest.approx((1.066) ** (1 / 12), rel=1e-9)
+        assert ratio == pytest.approx((1.055) ** (1 / 12), rel=1e-9)
 
     def test_equity_rate_end_of_projection(self, dataset: Dataset) -> None:
-        """End-of-projection months: equity ratio still matches (1.066)^(1/12)."""
+        """End-of-projection months: equity ratio matches (1.055)^(1/12)."""
         oct = self._snapshot_by_date(dataset, 2075, 10)
         nov = self._snapshot_by_date(dataset, 2075, 11)
         ratio = self._eq_level(nov) / self._eq_level(oct)
-        assert ratio == pytest.approx((1.066) ** (1 / 12), rel=1e-9)
+        assert ratio == pytest.approx((1.055) ** (1 / 12), rel=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -346,9 +392,10 @@ class TestNominalAthRegression:
         """Running ATH must be monotonically non-decreasing after the first data point.
 
         The base snapshot (1871-01-31) is a special pre-market snapshot with
-        a different initial value (101.169...). The first actual data point
-        (1871-02-01) starts at 100 with running_ath=100. This is pre-existing
-        behavior. We check monotonicity from the first data point onward.
+        a different initial value (the raw February-implied level). The first
+        actual data point (1871-02-01) starts at 100 with running_ath=100.
+        This is pre-existing behavior. We check monotonicity from the first
+        data point onward.
         """
         # Start from the first data point (index 1), not the base snapshot (index 0)
         prev_ath = dataset.snapshots[1].running_ath

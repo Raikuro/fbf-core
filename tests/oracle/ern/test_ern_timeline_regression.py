@@ -1,20 +1,20 @@
-"""P1.12R remediation regression: corrected engine timeline vs canonical oracle.
+"""P1.12R remediation regression: workbook timeline and published-ERN oracle.
 
 The engine remediation changed the cohort window from ``d_c..d_{c+T-1}`` (old,
 defective: initial withdrawal deferred until d_c, T observations) to the literal
 ERN window ``d_{c-1}..d_{c+T-1}`` (initial withdrawal at the previous month's
-closing price, T+1 observations, T return intervals).  These tests pin the two
-regression targets that failed Gate 2:
+closing price, T+1 observations, T return intervals).  These tests pin the
+production timeline and keep the two methodology targets distinct:
 
-* the boundary cohort 306 cell (0% equity / 3.25% / 30y) — oracle 79%, engine
-  must now also be 79% and the single cohort 306 itself must fail like the
-  oracle;
-* the nine formerly divergent cells (all 0% equity, every rate, 30y) — the
-  engine must now agree with the oracle cohort-by-cohort (exact per-cohort
-  Decimal equality) and at every cell percentage.
+* production follows the workbook: additive monthly fee, withdrawal before
+  growth, historical returns through June 2026 and workbook projection rates;
+* ``tools/ern/reference_oracle.py`` remains the published-ERN oracle:
+  multiplicative monthly fee, but also withdrawal before growth.
 
-The oracle per-cohort values are computed with the canonical implementation
-(``tools/ern/reference_oracle.py``) which is NOT modified by the remediation.
+The boundary cell 0% equity / 3.25% / 30y is 77% under workbook methodology and
+79% under the published-ERN oracle.  The production engine must match the
+workbook cell percentage and agree with the workbook calculation cohort by
+cohort.  The published-ERN oracle is retained as a separate comparison target.
 """
 
 from __future__ import annotations
@@ -29,18 +29,9 @@ from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from fbf.core.execution.pipeline.pipeline import SimulationPipeline
+from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
 from fbf.core.execution.pipeline.runner import SimulationRunner
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.pipeline.steps.allocation_decision_step import AllocationDecisionStep
-from fbf.core.execution.pipeline.steps.build_decision_context_step import BuildDecisionContextStep
-from fbf.core.execution.pipeline.steps.initialize_allocation_step import InitializeAllocationStep
-from fbf.core.execution.pipeline.steps.market_evolution_step import MarketEvolutionStep
-from fbf.core.execution.pipeline.steps.monthly_result_builder_step import MonthlyResultBuilderStep
-from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import PortfolioRebalanceStep
-from fbf.core.execution.pipeline.steps.simulation_state_update_step import SimulationStateUpdateStep
-from fbf.core.execution.pipeline.steps.withdrawal_decision_step import WithdrawalDecisionStep
-from fbf.core.execution.pipeline.steps.withdrawal_execution_step import WithdrawalExecutionStep
 from fbf.core.execution.strategies.fast_path import evaluate_closed_form
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
@@ -72,21 +63,8 @@ def _make_study_config(weight: float, rate: float, horizons: tuple[int, ...]) ->
     )
 
 
-def _reference_pipeline() -> SimulationRunner:
-    pipeline = SimulationPipeline(
-        [
-            InitializeAllocationStep(),
-            BuildDecisionContextStep(),
-            WithdrawalDecisionStep(),
-            WithdrawalExecutionStep(),
-            AllocationDecisionStep(),
-            PortfolioRebalanceStep(),
-            MarketEvolutionStep(),
-            MonthlyResultBuilderStep(),
-            SimulationStateUpdateStep(),
-        ]
-    )
-    return SimulationRunner(pipeline)
+def _production_pipeline() -> SimulationRunner:
+    return SimulationRunner(create_default_pipeline())
 
 
 @pytest.fixture(scope="module")
@@ -120,51 +98,12 @@ def _oracle_success(weight: float, rate: float, horizon_years: int) -> list[bool
     ]
 
 
-def _workbook_cell_pct(weight: float, rate: float, horizon_years: int) -> int:
-    """Workbook cell success percentage for a cell (using canonical dataset)."""
-    T = HORIZON_MONTHS[horizon_years] - 1
-    w_eq = Decimal(str(weight))
-    rate_dec = Decimal(str(rate))
-    fee_monthly = Decimal("0.0005") / Decimal("12")
-
-    dataset = load_canonical_dataset(DATA_DIR)
-    eq_class = AssetClass(id="equity", name="", description="")
-    bd_class = AssetClass(id="bond", name="", description="")
-
-    wb_success = 0
-    for start in range(1739):
-# Build fee-embedded returns from canonical dataset
-        wb_returns = []
-        for m in range(T):
-            eq_ret = (
-                dataset.snapshots[start + m + 1].index_levels[eq_class]
-                / dataset.snapshots[start + m].index_levels[eq_class]
-                - 1
-            )
-            bd_ret = (
-                dataset.snapshots[start + m + 1].index_levels[bd_class]
-                / dataset.snapshots[start + m].index_levels[bd_class]
-                - 1
-            )
-            r = w_eq * eq_ret + (Decimal("1") - w_eq) * bd_ret - fee_monthly
-            wb_returns.append(r)
-
-        # Compute SCR using workbook methodology
-        P_wb = [Decimal("1")]
-        for m in range(T):
-            P_wb.append(P_wb[-1] * (Decimal("1") + wb_returns[m]))
-        sum_inv = sum(Decimal("1") / P_wb[t] for t in range(T))
-        scr_wb = Decimal("1") / sum_inv * Decimal("12")
-        wb_ok = scr_wb >= rate_dec
-
-        if wb_ok:
-            wb_success += 1
-
-    return round(100 * wb_success / 1739)
-
-
 def _workbook_cell_ok(weight: float, rate: float, horizon_years: int) -> list[bool]:
-    """Per-cohort workbook success for a cell (using canonical dataset)."""
+    """Per-cohort workbook success for a cell using the canonical dataset.
+
+    The cohort windows are 0-based and match the production plan: window
+    ``start`` uses returns from snapshots ``start`` through ``start + T``.
+    """
     T = HORIZON_MONTHS[horizon_years] - 1
     w_eq = Decimal(str(weight))
     rate_dec = Decimal(str(rate))
@@ -174,9 +113,9 @@ def _workbook_cell_ok(weight: float, rate: float, horizon_years: int) -> list[bo
     eq_class = AssetClass(id="equity", name="", description="")
     bd_class = AssetClass(id="bond", name="", description="")
 
-    result = []
-    for start in range(1739):
-        wb_returns = []
+    result: list[bool] = []
+    for start in range(COHORTS_PER_CELL):
+        wb_returns: list[Decimal] = []
         for m in range(T):
             eq_ret = (
                 dataset.snapshots[start + m + 1].index_levels[eq_class]
@@ -188,18 +127,24 @@ def _workbook_cell_ok(weight: float, rate: float, horizon_years: int) -> list[bo
                 / dataset.snapshots[start + m].index_levels[bd_class]
                 - 1
             )
-            r = w_eq * eq_ret + (Decimal("1") - w_eq) * bd_ret - fee_monthly
-            wb_returns.append(r)
+            wb_returns.append(
+                w_eq * eq_ret + (Decimal("1") - w_eq) * bd_ret - fee_monthly
+            )
 
         P_wb = [Decimal("1")]
-        for m in range(T):
-            P_wb.append(P_wb[-1] * (Decimal("1") + wb_returns[m]))
+        for monthly_return in wb_returns:
+            P_wb.append(P_wb[-1] * (Decimal("1") + monthly_return))
         sum_inv = sum(Decimal("1") / P_wb[t] for t in range(T))
         scr_wb = Decimal("1") / sum_inv * Decimal("12")
-        wb_ok = scr_wb >= rate_dec
-        result.append(wb_ok)
+        result.append(scr_wb >= rate_dec)
 
     return result
+
+
+def _workbook_cell_pct(weight: float, rate: float, horizon_years: int) -> int:
+    """Workbook cell success percentage using the canonical dataset."""
+    ok = _workbook_cell_ok(weight, rate, horizon_years)
+    return round(100 * sum(ok) / COHORTS_PER_CELL)
 
 
 def _engine_contexts(
@@ -289,12 +234,17 @@ def test_plan_exposes_pre_retirement_snapshot(grid_plan: BuiltStudy) -> None:
     assert len(by_horizon[HORIZON_MONTHS[30]]) == COHORTS_PER_CELL
 
 
-def test_boundary_cohort_306_reference_pipeline_matches_oracle(grid_plan: BuiltStudy) -> None:
-    """Cohort 306 (0% / 3.25% / 30y) fails through the full reference engine.
+def test_boundary_cohort_306_pipeline_fails_on_canonical_data(
+    grid_plan: BuiltStudy,
+) -> None:
+    """Cohort 306 (0% / 3.25% / 30y) fails on the canonical CSV returns.
 
     The engine's cohort 306 retires in July-1896 (base snapshot 1896-07-01);
-    the oracle's cohort start 307 covers the same window.  Both must report a
-    failure — the old engine passed it by deferring the initial withdrawal.
+    the published-ERN oracle's cohort start 307 covers the same window and also
+    classifies it as a failure.  The Excel workbook's unrounded Q/R returns
+    classify this single cohort as a success; the canonical CSV returns differ
+    at sub-0.01pp precision, so the verdict is data-precision-sensitive.  Both
+    inputs produce a 77% cell success rate.
     """
     by_horizon = _units_by_horizon(grid_plan.plan)
     unit = by_horizon[HORIZON_MONTHS[30]][306]
@@ -304,134 +254,58 @@ def test_boundary_cohort_306_reference_pipeline_matches_oracle(grid_plan: BuiltS
     context = _engine_contexts(
         grid_plan.plan, by_horizon, 0.0, 0.0325, 30, {306}
     )[0]
-    result = _reference_pipeline().run(context)
+    result = _production_pipeline().run(context)
 
     assert oracle_ok is False
     assert result.statistics.success is False
     assert result.statistics.failure_month is not None
 
 
-def test_boundary_cell_306_engine_percentage_matches_workbook(grid_plan: BuiltStudy) -> None:
-    """The 0% / 3.25% / 30y cell is 80% for workbook methodology (oracle: 79%)."""
-    # Workbook methodology: fee embedded in returns, end-of-period
-    # Oracle methodology: multiplicative fee, begin-of-month
-    from decimal import Decimal
-    from pathlib import Path
+def test_boundary_cell_306_engine_percentage_matches_workbook(
+    grid_plan: BuiltStudy,
+) -> None:
+    """The 0% / 3.25% / 30y cell is 77% under workbook, 79% under published ERN.
 
-    from tools.ern.reference_oracle import (
-        build_extended,
-        cohort_annual_swr,
-        load_real_returns,
-        prefix_tables,
+    Production and the workbook oracle use the additive monthly fee.  The
+    published-ERN reference oracle uses a multiplicative fee.  Both withdraw
+    before growth; the fee convention is the methodological difference.
+    """
+    oracle_pct = round(
+        100 * sum(_oracle_success(0.0, 0.0325, 30)) / COHORTS_PER_CELL
     )
+    workbook_pct = _workbook_cell_pct(0.0, 0.0325, 30)
 
-    data_dir = Path('/mnt/datos/workspace/fbf/fbf-core/data/ern')
-    r_eq, r_bd = load_real_returns(data_dir)
-    eq, bd = build_extended(r_eq, r_bd)
-
-    fee_annual = Decimal('0.0005')
-    fee_monthly = fee_annual / Decimal('12')
-    T = 360
-    w_eq = Decimal('0.0')
-    rate = Decimal('0.0325')
-
-    oracle_success = 0
-    wb_success = 0
-
-    for start in range(1739):
-        # Oracle (reference methodology: multiplicative fee on CSV data)
-        P, pre = prefix_tables(eq, bd, w_eq)
-        scr_oracle = cohort_annual_swr(P, pre, start + 1, T)
-        oracle_ok = scr_oracle >= rate
-
-# Workbook (correct methodology: fee embedded in returns on canonical dataset)
-        dataset = load_canonical_dataset(DATA_DIR)
-        eq_class = AssetClass(id="equity", name="", description="")
-        bd_class = AssetClass(id="bond", name="", description="")
-        wb_returns = []
-        for m in range(T):
-            eq_ret = (
-                dataset.snapshots[start + m + 1].index_levels[eq_class]
-                / dataset.snapshots[start + m].index_levels[eq_class]
-                - 1
-            )
-            bd_ret = (
-                dataset.snapshots[start + m + 1].index_levels[bd_class]
-                / dataset.snapshots[start + m].index_levels[bd_class]
-                - 1
-            )
-            r = w_eq * eq_ret + (Decimal("1") - w_eq) * bd_ret - fee_monthly
-            wb_returns.append(r)
-
-        P_wb = [Decimal("1")]
-        for m in range(T):
-            P_wb.append(P_wb[-1] * (Decimal("1") + wb_returns[m]))
-        sum_inv = sum(Decimal("1") / P_wb[t] for t in range(T))
-        scr_wb = Decimal("1") / sum_inv * Decimal("12")
-        wb_ok = scr_wb >= rate
-
-        if oracle_ok:
-            oracle_success += 1
-        if wb_ok:
-            wb_success += 1
-
-    oracle_pct = round(100 * oracle_success / 1739)
-    wb_pct = round(100 * wb_success / 1739)
-
-    # Oracle methodology (multiplicative fee on CSV): 79%
-    # Workbook methodology (fee embedded in returns on canonical dataset): 76%
     assert oracle_pct == 79
-    assert wb_pct == 76
+    assert workbook_pct == 77
 
-    # Now verify the engine (which uses workbook methodology) matches workbook
     engine_ok = _engine_success(
         grid_plan.plan, _units_by_horizon(grid_plan.plan), 0.0, 0.0325, 30
     )
     engine_pct = round(100 * sum(engine_ok) / COHORTS_PER_CELL)
-    assert engine_pct == wb_pct
+    assert engine_pct == workbook_pct
 
 
-def test_formerly_divergent_cells_match_workbook_per_cohort(grid_plan: BuiltStudy) -> None:
-    """Nine cells checked against workbook methodology at cell level.
+def test_workbook_cells_match_per_cohort(grid_plan: BuiltStudy) -> None:
+    """Nine cells match the workbook calculation exactly cohort by cohort.
 
-    The engine's workbook methodology and the oracle's methodology use different
-    fee application timing (engine/workbook: fee embedded in returns, end-of-period;
-    oracle: multiplicative fee, begin-of-month), which causes a small number of
-    per-cohort verdict flips on borderline cohorts. Cell-level percentage agreement
-    with workbook methodology is the correctness target; per-cohort mismatches
-    are tracked and bounded.
+    Production and this workbook calculation use the same canonical dataset,
+    additive monthly fee, and beginning-of-month withdrawal semantics, so any
+    per-cohort difference is a regression rather than an acceptable envelope.
     """
     by_horizon = _units_by_horizon(grid_plan.plan)
-    total_mismatches = 0
-    cell_divergences: list[str] = []
     for weight, rate, horizon_years in DIVERGENT_CELLS:
         engine_ok = _engine_success(
             grid_plan.plan, by_horizon, weight, rate, horizon_years
         )
-        # Compare against workbook methodology, not oracle
-        wb_pct = _workbook_cell_pct(weight, rate, horizon_years)
-        engine_pct = round(100 * sum(engine_ok) / COHORTS_PER_CELL)
-        cell_mismatches = sum(
-            1
-            for e, o in zip(
-                engine_ok,
-                _workbook_cell_ok(weight, rate, horizon_years),
-                strict=True,
+        workbook_ok = _workbook_cell_ok(weight, rate, horizon_years)
+        mismatches = [
+            index
+            for index, (engine, workbook) in enumerate(
+                zip(engine_ok, workbook_ok, strict=True)
             )
-            if e != o
+            if engine != workbook
+        ]
+        assert not mismatches, (
+            f"{weight}/{rate}/{horizon_years}y: engine differs from workbook "
+            f"for cohort indices {mismatches[:10]}"
         )
-        total_mismatches += cell_mismatches
-        if engine_pct != wb_pct:
-            cell_divergences.append(
-                f"{weight}/{rate}/{horizon_years}y: engine {engine_pct}% "
-                f"({sum(engine_ok)}) workbook {wb_pct}%"
-            )
-    # Per-cohort mismatches from fee-timing difference are expected;
-    # verify they stay within a bounded envelope.
-    assert total_mismatches < 250, (
-        f"{total_mismatches} per-cohort mismatches exceed the expected envelope"
-    )
-    # Cell-level percentages must agree within 1pp (fee-timing envelope).
-    assert len(cell_divergences) <= 1, (
-        f"Unexpected cell-level divergences: {cell_divergences}"
-    )

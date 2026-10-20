@@ -531,7 +531,7 @@ def _evaluate_workbook_scr_path(
     scr = compute_workbook_scr(P, 0, wb_horizon, fee_annual)
     success = scr >= target_rate
 
-    # Compute trajectory for final wealth reporting (end-of-period, fee embedded in returns)
+    # Compute trajectory for final wealth at the end of the horizon (withdraw first, then grow)
     horizon = wb_horizon
     monthly_returns = _workbook_monthly_returns(context, horizon)
 
@@ -577,7 +577,7 @@ def evaluate_workbook_path(
     scr = compute_workbook_scr(P, 0, wb_horizon, fee_annual)
     _ = scr >= target_rate  # success (not used in path construction)
 
-    # Compute trajectory for final wealth reporting (end-of-period, fee embedded in returns)
+    # Compute trajectory for final wealth at the end of the horizon (withdraw first, then grow)
     horizon = wb_horizon
     monthly_returns = _workbook_monthly_returns(context, horizon)
 

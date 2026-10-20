@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import csv
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from pathlib import Path
 
 from fbf.core.domain.model.dataset import Dataset
@@ -39,13 +39,6 @@ _BOND_CSV = "bond_10y_tr_real.csv"
 _CPI_CSV = "cpi.csv"
 
 # ---------------------------------------------------------------------------
-# Base snapshot constants (index 0, 1871-01-31)
-# ---------------------------------------------------------------------------
-
-_EQUITY_BASE_SNAPSHOT = Decimal("101.169089694984")
-_BOND_BASE_SNAPSHOT = Decimal("100.747178470726")
-
-# ---------------------------------------------------------------------------
 # First data point constants (index 1, 1871-02-01)
 # ---------------------------------------------------------------------------
 
@@ -53,13 +46,30 @@ _EQUITY_BASE = Decimal("100")
 _BOND_BASE = Decimal("100")
 
 # ---------------------------------------------------------------------------
-# Forward projection constants (ERN canonical — Part 1 §4, Dec 7 2016)
+# Base snapshot constants (index 0, 1871-01-31)
+# ---------------------------------------------------------------------------
+# Raw d_{-1} levels implied by the February 1871 gross real returns:
+#     level = 100 / (1 + r_February)
+# The dataset is fee-free; expense ratios are applied by the execution layer.
+_EQUITY_FEBRUARY_1871_RETURN = Decimal("-0.0115000000")
+_BOND_FEBRUARY_1871_RETURN = Decimal("-0.0074000000")
+
+with localcontext() as _base_context:
+    _base_context.prec = 50
+    _EQUITY_BASE_SNAPSHOT = _EQUITY_BASE / (
+        Decimal("1") + _EQUITY_FEBRUARY_1871_RETURN
+    )
+    _BOND_BASE_SNAPSHOT = _BOND_BASE / (Decimal("1") + _BOND_FEBRUARY_1871_RETURN)
+
+# ---------------------------------------------------------------------------
+# Forward projection constants (SWR Toolbox v2.0 workbook, Parameters B787:B790)
 # ---------------------------------------------------------------------------
 
-_EQUITY_FORWARD_ANNUAL = Decimal("0.066")  # 6.6% real p.a.
-_BOND_FORWARD_ANNUAL = Decimal("0")  # 0% real p.a. for first 120 months
-_BOND_FORWARD_ANNUAL_AFTER = Decimal("0.026")  # 2.6% real p.a. after month 120
-_BOND_FORWARD_DELAY_MONTHS = 120  # 10 years = 120 months
+_EQUITY_FORWARD_ANNUAL = Decimal("0.04")  # 4.0% real p.a. for first 120 months
+_EQUITY_FORWARD_ANNUAL_AFTER = Decimal("0.055")  # 5.5% real p.a. after month 120
+_BOND_FORWARD_ANNUAL = Decimal("0.025")  # 2.5% real p.a. for first 120 months
+_BOND_FORWARD_ANNUAL_AFTER = Decimal("0.0225")  # 2.25% real p.a. after month 120
+_FORWARD_PHASE_MONTHS = 120  # 10 years = 120 months
 # Historical data boundary: actual observations through 2026-06 (per SWR Toolbox v2.0 workbook).
 # Projection begins at 2026-07.
 _HISTORICAL_END = datetime(2026, 7, 1)  # first forward month
@@ -189,16 +199,17 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
     # Initialize nominal ATH tracking (once, before the monthly loop)
     nominal_running_ath = Decimal("0")
 
-    # Historical period (1871-03 through 2026-06)
+    # Historical period (1871-03 through 2026-06).
+    # Each snapshot interval uses the return dated the same month as the
+    # workbook row (e.g. the 1871-03-01 snapshot uses the 1871-03-01 return).
     current_date = datetime(1871, 3, 1)
     while current_date < _HISTORICAL_END:
-        ret_month = current_date.month - 1 if current_date.month > 1 else 12
-        ret_year = (
-            current_date.year if current_date.month > 1 else current_date.year - 1
-        )
-        date_key = f"{ret_year:04d}-{ret_month:02d}-01"
-        r_eq = eq_return_map.get(date_key, Decimal("0"))
-        r_bond = bond_return_map.get(date_key, Decimal("0"))
+        date_key = current_date.strftime("%Y-%m-%d")
+        try:
+            r_eq = eq_return_map[date_key]
+            r_bond = bond_return_map[date_key]
+        except KeyError as exc:
+            raise ValueError(f"Missing ERN return for {date_key}") from exc
 
         eq_level *= (_ONE + r_eq)
         bond_level *= (_ONE + r_bond)
@@ -229,18 +240,30 @@ def load_ern_dataset(data_dir: Path) -> Dataset:
         else:
             current_date = current_date.replace(month=current_date.month + 1)
 
-    # Forward projection (2026-07 through 2075-11)
-    eq_monthly_forward = (_ONE + _EQUITY_FORWARD_ANNUAL) ** (Decimal("1") / Decimal("12")) - _ONE
-    bond_monthly_forward = Decimal("0")
-    _bd_fwd_exp = (_ONE + _BOND_FORWARD_ANNUAL_AFTER) ** (Decimal("1") / Decimal("12"))
-    bond_monthly_forward_after = _bd_fwd_exp - _ONE
+    # Forward projection (2026-07 through 2075-11).  Use the same extended
+    # precision as the workbook oracle so the two implementations agree.
+    with localcontext() as _projection_context:
+        _projection_context.prec = 50
+        eq_monthly_forward = (
+            (_ONE + _EQUITY_FORWARD_ANNUAL) ** (Decimal("1") / Decimal("12")) - _ONE
+        )
+        eq_monthly_forward_after = (
+            (_ONE + _EQUITY_FORWARD_ANNUAL_AFTER) ** (Decimal("1") / Decimal("12")) - _ONE
+        )
+        bond_monthly_forward = (
+            (_ONE + _BOND_FORWARD_ANNUAL) ** (Decimal("1") / Decimal("12")) - _ONE
+        )
+        bond_monthly_forward_after = (
+            (_ONE + _BOND_FORWARD_ANNUAL_AFTER) ** (Decimal("1") / Decimal("12")) - _ONE
+        )
 
     months_into_projection = 0
     while current_date <= _PROJECTION_END:
-        eq_level *= (_ONE + eq_monthly_forward)
-        if months_into_projection < _BOND_FORWARD_DELAY_MONTHS:
+        if months_into_projection < _FORWARD_PHASE_MONTHS:
+            eq_level *= (_ONE + eq_monthly_forward)
             bond_level *= (_ONE + bond_monthly_forward)
         else:
+            eq_level *= (_ONE + eq_monthly_forward_after)
             bond_level *= (_ONE + bond_monthly_forward_after)
 
         running_ath = max(running_ath, eq_level)

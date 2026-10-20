@@ -183,8 +183,8 @@ class TestCorrectedMethodology:
 
         # In projection, returns should be constant (or follow projection formula)
         # Just verify they're not wildly varying like actual returns
-        # The equity projection is 6.6% annual = ~0.53% monthly
-        # Bond projection is 0% for first 120 months
+        # The first-phase equity projection is 4.0% annual = ~0.33% monthly
+        # The first-phase bond projection is 2.5% annual = ~0.21% monthly
         assert abs(eq_rets[0] - eq_rets[1]) < 1e-6, (
             "Equity projection returns should be constant"
         )
@@ -192,10 +192,10 @@ class TestCorrectedMethodology:
             "Equity projection returns should be constant"
         )
         assert abs(bond_rets[0] - bond_rets[1]) < 1e-6, (
-            "Bond projection returns should be constant (0%)"
+            "Bond projection returns should be constant"
         )
         assert abs(bond_rets[1] - bond_rets[2]) < 1e-6, (
-            "Bond projection returns should be constant (0%)"
+            "Bond projection returns should be constant"
         )
 
     @pytest.mark.ern_e2e

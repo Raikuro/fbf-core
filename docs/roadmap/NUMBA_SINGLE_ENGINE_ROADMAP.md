@@ -73,11 +73,11 @@ not be conflated:
 `SWR_Toolbox_v2.0.xlsx` is the authoritative specification whenever it defines the relevant behavior.
 
 - Trace the actual workbook formulas and calculation order before implementing or changing financial calculations.
-- Preserve the validated workbook behavior, including the additive fee model (`weighted_return - fee/12`) and end-of-period withdrawal semantics (grow → withdraw) where applicable.
+- Preserve the validated workbook behavior, including the additive fee model (`weighted_return - fee/12`) and beginning-of-month withdrawal semantics (withdraw → grow) where applicable.
 - Do not assume that using the same fee convention automatically makes an unsupported workload workbook-equivalent.
 - Where the workbook does not define behavior (e.g., dynamic glidepaths, Part 52 timing leverage, buy-and-hold), explicitly specify and test the simulator extension. Do not silently invent financial semantics.
 - Keep `tools/ern/workbook_oracle.py` and `tools/ern/reference_oracle.py` independent of production Numba code. They are the validation oracles.
-- Do not regenerate, replace, or delete existing oracle data (`data/ern/p49_oracle_table.csv`) until its provenance, intended purpose, and relationship to published ERN results have been established. If the workbook and published ERN methodology differ (they do: workbook uses additive fee + end-of-period; reference oracle uses multiplicative fee + beginning-of-month), document the difference rather than silently overwriting one with the other.
+- Do not regenerate, replace, or delete existing oracle data (`data/ern/p49_oracle_table.csv`) until its provenance, intended purpose, and relationship to published ERN results have been established. If the workbook and published ERN methodology differ (they do: workbook uses additive fee; reference oracle uses multiplicative fee; both withdraw at the beginning of the month), document the difference rather than silently overwriting one with the other.
 
 ---
 
@@ -448,28 +448,34 @@ Phase D gate (Final Deletion Gate):
 
 ## 5. Correctness and Validation Contracts
 
-### 5.1 Canonical ERN correctness
+### 5.1 ERN correctness targets
+
+The published-ERN replication and workbook-conformant production are separate
+targets with different historical boundaries, forward assumptions, and fee
+conventions. They must not be compared to each other's oracle.
 
 ```
-ERN YAML
-  → StudyConfiguration.from_yaml()
-  → run_study()
-  → execute_study_plan()  → Numba execution
-  → comparison with data/ern/p49_oracle_table.csv
-       (independent generator: tools/ern/reference_oracle.py)
+Published ERN historical replication
+  → tools/ern/reference_oracle.py
+  → data/ern/p49_oracle_table.csv (pinned)
+
+Workbook-conformant production
+  → tools/ern/workbook_oracle.py
+  → workbook methodology on canonical CSV returns
 ```
 
-The contract is **reproduction of the Excel workbook methodology**, not
-bit-exact equality with the legacy engine. The workbook uses an **additive
-fee embedded in monthly returns** (`weighted_return - fee/12`) and **end-of-period
-withdrawals** (grow first, then withdraw). Validation is against the pinned
-oracle matrix within the explicitly justified tolerance (exact Decimal equality
-where required, or the documented percentage tolerance for success rates).
+The production contract is **reproduction of the Excel workbook methodology**,
+not bit-exact equality with the legacy engine or with published-ERN results.
+The workbook uses an **additive fee embedded in monthly returns**
+(`weighted_return - fee/12`) and **beginning-of-month withdrawals** (withdraw
+first, then grow). The published-ERN oracle uses a multiplicative fee but the
+same beginning-of-month withdrawal ordering.
 
-**Limitation**: The expected values for the acceptance case were read from the
-workbook's pre-calculated saved values. Fresh recalculation in Excel or
-LibreOffice was not completed (LibreOffice headless timed out). The validation
-is against the workbook's saved cached results, not a fresh recalculation.
+**Limitation (workbook target):** The expected values for the workbook
+acceptance case were read from the workbook's pre-calculated saved values.
+Fresh recalculation in Excel or LibreOffice was not completed (LibreOffice
+headless timed out). The validation is against the workbook's saved cached
+results, not a fresh recalculation.
 
 ### 5.2 Non-ERN workload correctness
 
@@ -486,14 +492,16 @@ Each specialized workload preserves its own semantics:
 Where no independent oracle exists (e.g. Part 52 without a pinned cell table,
 Part 49 debt), document the behavioral contract from the existing golden tests
 and pipeline-level tests **before** treating the Numba migration as verified.
-`tools/ern/reference_oracle.py` remains the only workbook oracle and must not
-be imported by production code.
+`tools/ern/reference_oracle.py` is the published-ERN oracle and
+`tools/ern/workbook_oracle.py` is the workbook-conformance oracle. Both are
+independent of production code and must not be imported by it.
 
 ### 5.3 Test classification
 
 | Class | Meaning | Action |
 |-------|---------|--------|
-| Canonical correctness | ERN grid vs `p49_oracle_table.csv` | Keep; primary acceptance |
+| Canonical correctness (published ERN) | ERN grid vs `p49_oracle_table.csv` | Keep; separate published-ERN acceptance target |
+| Workbook conformance (production) | Production grid vs `tools/ern/workbook_oracle.py` | Keep; production acceptance target |
 | Behavioral contract | Part 52/49 debt mechanics, glidepath, deterministic checkpoints | Keep; migrate to run on Numba |
 | Determinism | Repeated runs identical; parallel == sequential | Keep |
 | Routing | AUTO selects expected executor; backend × strategy matrix | Keep, but fix names once §1.3 is resolved |
@@ -891,7 +899,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 ### Known Limitations
 
 1. **Workbook recalculation not completed** — LibreOffice headless timed out; validation against pre-calculated saved values.
-2. **Reference oracle divergence** — `tools/ern/reference_oracle.py` uses multiplicative fee + beginning-of-month withdrawals (matches published Table 1); `workbook_oracle.py` uses additive fee + end-of-period (matches workbook formulas). Documented in §1.4.
+2. **Reference oracle divergence** — `tools/ern/reference_oracle.py` uses multiplicative fee + beginning-of-month withdrawals (matches published Table 1); `workbook_oracle.py` uses additive fee + beginning-of-month withdrawals (matches workbook formulas). Documented in §1.4.
 3. **Part 52 tests bypass Numba** — All existing Part 52 integration tests use `create_default_pipeline()` directly (A2).
 4. **CLI default path broken** — Missing `research_result` branch in `run_command.py` (A1).
 5. **B1 audit finding** — Original B1 commit (8dfbf24) had a critical bug: Part 52 executor did not pass `fee_annual` to growth factor computation and cache key excluded `expense_ratio`. Fixed in subsequent audit; tests updated to verify strict fee impact.
@@ -913,7 +921,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   (`research/part49_aggregation.py:126-129`,
   `optimization/part52_evaluator.py:192-194`).
 - The workbook uses a **hybrid fee convention** (`SCR = (AH + AJ - fee) / AI * 12`)
-  with **end-of-period withdrawals** (grow first, then withdraw) and **T terms**
+  with **beginning-of-month withdrawals** (withdraw first, then grow) and **T terms**
   (T withdrawals, T-1 growth periods).
 - `ern_grid.yaml` sets `expense_ratio: 0.0005`; workbook SCR path applies it via the
   hybrid fee formula in `compute_workbook_scr`.

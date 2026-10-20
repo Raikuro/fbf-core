@@ -1,42 +1,47 @@
 #!/usr/bin/env python3
-"""Independent ERN Workbook SCR Oracle.
+"""Standalone workbook-conformance SCR oracle.
 
-This tool implements the EXACT workbook SCR formulas from SWR_Toolbox_v2.0.xlsx
-for independent validation of the production workbook SCR implementation.
+This tool implements the SWR Toolbox v2.0 workbook methodology for an
+independent workbook-conformance oracle. It is intentionally distinct from
+``tools/ern/reference_oracle.py``, which preserves the frozen published-ERN
+replication methodology and is not re-baselined by this tool.
 
-It imports NO framework modules and is NEVER called by production code or tests.
-It is a pure data-processing utility for validation purposes only.
+It imports NO framework modules and is NEVER called by production code.
+Focused unit tests exercise it directly as a standalone data-processing utility.
 
 Workbook Methodology (SWR_Toolbox_v2.0.xlsx, "Asset Returns" and "SCR time series" sheets):
 
-1. Monthly portfolio returns WITH FEE EMBEDDED:
+1. Historical real returns through June 2026, then forward projection from
+   July 2026. Monthly forward rates use the workbook formula
+   ``(1 + annual_return) ** (1 / 12) - 1``:
+   - equity: 4.0% for projection months 1-120, then 5.5%
+   - bonds:  2.5% for projection months 1-120, then 2.25%
+
+2. Monthly portfolio returns with the additive expense ratio applied to the
+   weighted monthly return before cumulative growth:
    AF_t = w_eq * equity_real_t + w_bd * bond_real_t - fee_annual/12
 
-2. Forward cumulative growth factors (mathematically equivalent to workbook's
+3. Forward cumulative growth factors (mathematically equivalent to workbook's
    backward AG column):
    P[0] = 1
    P[t] = P[t-1] * (1 + AF_{t-1})  for t = 1..T
 
-3. SCR formula (from SCR time series E8):
+4. SCR formula (from SCR time series E8):
    SCR = (AH + AJ - FV) / AI * 12
    Where:
    - AH = growth_T = P[T] (workbook's AG7/AG607)
    - AI = Sum_{t=1..T} growth_t_T = growth_T * Sum_{t=0..T-1} 1/P[t]
    - AJ = Sum(CtPt) / growth_T = 0 for basic ERN
-- FV = Final Value Target = 0 for basic ERN
+   - FV = Final Value Target = 0 for basic ERN
 
-    For basic ERN (Ct=1, CtPt=0, FV=0):
-    SCR = AH / AI * 12 = 1 / (Sum_{t=0..T-1} 1/P[t]) * 12
+   For basic ERN (Ct=1, CtPt=0, FV=0):
+   SCR = AH / AI * 12 = 1 / (Sum_{t=0..T-1} 1/P[t]) * 12
 
-4. Final wealth trajectory (from SCR time series F8):
-    FV = growth_T - AI * (WR/12)
-    = growth_T * (1 - (WR/12) * Sum_{t=0..T-1} 1/P[t])
+5. Final wealth trajectory (from SCR time series F8):
+   FV = growth_T - AI * (WR/12)
+   = growth_T * (1 - (WR/12) * Sum_{t=0..T-1} 1/P[t])
 
-This matches month-by-month simulation with fee-inclusive returns.
-
-Key difference from legacy implementation:
-- Fee is EMBEDDED in monthly returns (compounds over time)
-- NOT subtracted in SCR formula
+This matches month-by-month simulation with additive-fee returns.
 """
 
 from __future__ import annotations
@@ -63,26 +68,40 @@ RATES = [
     Decimal("0.050"),
 ]
 
-# Forward projection constants (ERN Part 1 §4)
-# The workbook uses 2026-06 as historical cutoff with two-phase projection from 2026-07.
-# This oracle uses ERN Part 1 §4 constants for canonical replication.
-_R_EQ_FWD_ANNUAL = Decimal("1.066")
-_R_BD_FWD_ANNUAL = Decimal("1.026")
-_R_BD_FWD0 = Decimal("0")
-_HISTORICAL_END = "2016-10-01"
-MAX_INDEX = max(1739 + 720 - 1, 0)
-N = MAX_INDEX + 1
+# Workbook forward projection constants (Parameters & Main Results B787:B790)
+# Historical observations end June 2026; July 2026 is projection month 1.
+_HISTORICAL_END = "2026-07-01"
+_PROJECTION_END = "2075-11-01"
+_EXPECTED_SNAPSHOT_COUNT = 2459
+
+_EQUITY_FORWARD_ANNUAL = Decimal("0.04")
+_EQUITY_FORWARD_ANNUAL_AFTER = Decimal("0.055")
+_BOND_FORWARD_ANNUAL = Decimal("0.025")
+_BOND_FORWARD_ANNUAL_AFTER = Decimal("0.0225")
+_FORWARD_PHASE_MONTHS = 120
+
+# 1,739 workbook cohorts are indexed 0..1,738; the longest horizon needs 720
+# monthly returns. N is the return-series length (snapshot count minus one).
+N = (START_LAST - 1) + max(HORIZONS.values())
 
 _ONE = Decimal("1")
 _ZERO = Decimal("0")
 _TWELVE = Decimal("12")
 
 
+def _monthly_return(annual_return: Decimal) -> Decimal:
+    """Convert an annual rate to the workbook monthly rate."""
+    with localcontext() as ctx:
+        ctx.prec = 50
+        return (_ONE + annual_return) ** (_ONE / _TWELVE) - _ONE
+
+
 def load_real_returns(data_dir: Path) -> tuple[list[Decimal], list[Decimal]]:
     """Load historical real equity and bond returns from canonical CSVs.
 
-    Only rows with dates before the historical cutoff (Oct 2016) are loaded.
-    Forward projections are appended separately by :func:`build_extended`.
+    Only rows before July 2026 are loaded. The canonical CSVs also contain
+    pre-existing projected rows; those are intentionally ignored so the
+    workbook-conformance projection can be appended by :func:`build_extended`.
     """
 
     def _load_canonical(csv_path: Path) -> list[Decimal]:
@@ -102,18 +121,34 @@ def load_real_returns(data_dir: Path) -> tuple[list[Decimal], list[Decimal]]:
 def build_extended(
     r_eq: list[Decimal], r_bd: list[Decimal]
 ) -> tuple[list[Decimal], list[Decimal]]:
-    """Build extended return series with forward projections per ERN Part 1 §4."""
-    with localcontext() as ctx:
-        ctx.prec = 50
-        realized_n = len(r_eq)
-        r_eq_fwd = _R_EQ_FWD_ANNUAL ** (_ONE / _TWELVE) - _ONE
-        r_bd_fwd = _R_BD_FWD_ANNUAL ** (_ONE / _TWELVE) - _ONE
-    eq = r_eq + [r_eq_fwd] * (N - realized_n)
-    bd = r_bd + [
-        _R_BD_FWD0 if k < realized_n + 120 else r_bd_fwd
-        for k in range(realized_n, N)
+    """Append the workbook's two-phase forward projections to historical returns.
+
+    Projection month 1 is July 2026. Months 1-120 use 4.0% equity / 2.5%
+    bonds; month 121 onward uses 5.5% / 2.25%. Monthly rates are converted with
+    ``(1 + annual_return) ** (1 / 12) - 1``.
+    """
+    realized_n = len(r_eq)
+    projection_months = N - realized_n
+    if projection_months < 0:
+        raise ValueError(
+            f"Historical return series has {realized_n} observations, "
+            f"but the workbook oracle needs at most {N}"
+        )
+
+    eq_first = _monthly_return(_EQUITY_FORWARD_ANNUAL)
+    eq_after = _monthly_return(_EQUITY_FORWARD_ANNUAL_AFTER)
+    bd_first = _monthly_return(_BOND_FORWARD_ANNUAL)
+    bd_after = _monthly_return(_BOND_FORWARD_ANNUAL_AFTER)
+
+    eq_forward = [
+        eq_first if month < _FORWARD_PHASE_MONTHS else eq_after
+        for month in range(projection_months)
     ]
-    return eq, bd
+    bd_forward = [
+        bd_first if month < _FORWARD_PHASE_MONTHS else bd_after
+        for month in range(projection_months)
+    ]
+    return r_eq + eq_forward, r_bd + bd_forward
 
 
 def compute_workbook_scr(
@@ -129,14 +164,15 @@ def compute_workbook_scr(
     This implements the EXACT workbook formula:
     SCR = 1 / (Sum_{t=0..T-1} 1/P[t]) * 12
 
-    Where P[t] = cumulative growth factor with fee embedded:
+    Where P[t] = cumulative growth factor with the additive monthly fee applied
+    to the weighted monthly return before growth:
     P[0] = 1
     P[t] = P[t-1] * (1 + w_eq*eq_ret + w_bd*bd_ret - fee_annual/12)
     """
     w_bd = _ONE - w_eq
     fee_monthly = fee_annual / _TWELVE
 
-    # Build cumulative growth factors P with fee embedded
+    # Build cumulative growth factors P with the additive monthly fee
     P = [_ONE]  # P[0] = 1
     for m in range(T):
         r = w_eq * eq_returns[start + m] + w_bd * bd_returns[start + m] - fee_monthly
@@ -148,7 +184,7 @@ def compute_workbook_scr(
     return scr
 
 
-def simulate_end_of_period_trajectory(
+def simulate_workbook_trajectory(
     eq_returns: list[Decimal],
     bd_returns: list[Decimal],
     w_eq: Decimal,
@@ -166,7 +202,8 @@ def simulate_end_of_period_trajectory(
         P(t) = (P(t-1) - W(t)) * (1 + R(t))
 
     so the withdrawal is taken at the beginning of the period and the return is
-    compounded at the end, for all ``T`` periods including the final one.
+    compounded at the end, for all ``T`` periods including the final one. The
+    additive monthly fee is applied to the weighted monthly return before growth.
 
     Returns (success, final_wealth).
     """
@@ -193,7 +230,10 @@ def success_rate(
     x: Decimal,
     fee_annual: Decimal = FEE_ANNUAL,
 ) -> int:
-    """Compute success rate for given parameters across all 1739 cohorts."""
+    """Compute success rate across the workbook's 1,739 cohorts.
+
+    Cohort return-window starts are 0-based indices 0..1,738.
+    """
     ok = 0
     for s in range(START_FIRST - 1, START_LAST):  # 0-based
         scr = compute_workbook_scr(eq_returns, bd_returns, w_eq, s, T, fee_annual)
@@ -205,9 +245,10 @@ def success_rate(
 def build_workbook_oracle_table(
     csv_path: Path,
 ) -> list[list[object]]:
-    """Build oracle table using workbook SCR methodology.
+    """Build the workbook-conformance matrix using workbook SCR methodology.
 
-    This is the INDEPENDENT oracle using workbook formulas.
+    This is independent of the production loader and of the frozen published-ERN
+    replication oracle in ``tools/ern/reference_oracle.py``.
     """
     r_eq, r_bd = load_real_returns(csv_path)
     eq, bd = build_extended(r_eq, r_bd)
@@ -242,7 +283,7 @@ def validate_hand_cases() -> list[tuple[str, bool, str]]:
     # Portfolio return = 0.5*0.005 + 0.5*0.002 = 0.0035/mo = 4.2%/yr
     # P[0]=1, P[1]=1.0035, ..., P[12]=1.0035^12
     # SCR = 1 / Sum_{t=0..11} 1/P[t] * 12
-    success, fv = simulate_end_of_period_trajectory(
+    success, fv = simulate_workbook_trajectory(
         eq_flat, bd_flat, Decimal("0.5"), 0, 12,
         Decimal("1000000"), Decimal("0.04"), Decimal("0")
     )
@@ -251,7 +292,7 @@ def validate_hand_cases() -> list[tuple[str, bool, str]]:
     # Case 2: Depletion case - high withdrawal over long horizon
     eq_flat_long = [Decimal("0.005")] * 120
     bd_flat_long = [Decimal("0.002")] * 120
-    success, fv = simulate_end_of_period_trajectory(
+    success, fv = simulate_workbook_trajectory(
         eq_flat_long, bd_flat_long, Decimal("0.5"), 0, 120,
         Decimal("1000000"), Decimal("0.20"), Decimal("0")
     )
