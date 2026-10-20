@@ -10,13 +10,10 @@ Tests that protect:
 """
 
 import json
-import os
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar
-
-os.environ["RUN_ERN_E2E"] = "1"
 
 import pytest
 
@@ -201,6 +198,7 @@ class TestCorrectedMethodology:
             "Bond projection returns should be constant (0%)"
         )
 
+    @pytest.mark.ern_e2e
     def test_static_100_4pct_60y_corrected(self) -> None:
         """Test corrected static_100 @ 4% 60Y failure rate.
 
@@ -226,6 +224,7 @@ class TestCorrectedMethodology:
                 return
         pytest.fail("Cell not found")
 
+    @pytest.mark.ern_e2e
     def test_gp_030_070_4pct_60y_corrected(self) -> None:
         """Test corrected gp_030_070 @ 4% 60Y failure rate.
 
@@ -251,6 +250,7 @@ class TestCorrectedMethodology:
                 return
         pytest.fail("Cell not found")
 
+    @pytest.mark.ern_e2e
     def test_static_080_3p75_60y_corrected(self) -> None:
         """Test corrected static_080 @ 3.75% 60Y failure rate.
 
@@ -276,6 +276,7 @@ class TestCorrectedMethodology:
                 return
         pytest.fail("Cell not found")
 
+    @pytest.mark.ern_e2e
     def test_key_cohort_outcomes(self) -> None:
         """Test that the four key cohorts succeed with actual 2016-2026 returns.
 
@@ -386,6 +387,7 @@ class TestCorrectedMethodology:
                 f"should be substantial (>$100K)"
             )
 
+    @pytest.mark.ern_e2e
     def test_experiment_a_b_unaffected(self) -> None:
         """Verify Experiments A and B (30Y/60Y percentile) are largely unaffected.
 
