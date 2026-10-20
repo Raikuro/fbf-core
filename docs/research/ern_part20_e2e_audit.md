@@ -858,3 +858,36 @@ No controlled test has isolated this pipeline ordering difference. It remains a 
 | No implementation defect found | **Confirmed** — no defect relative to frozen design |
  
 **T2.6 Phase 5 Conclusion:** Experiment E deterministic execution is implemented and forensically validated. All eight published anchors remain `UNEXPLAINED DIFFERENCE`. No production code changes are required or justified. The implementation follows the frozen design exactly.
+
+---
+
+## 21. D3 Update — Workbook-Conformant Deterministic Execution
+
+The forensic tables in §20 describe the pre-D3 legacy-pipeline execution
+(including its stale-base expense correction). They remain valid as a record of
+the legacy path, but they are not the current deterministic execution values.
+
+D3 replaces the deterministic path with a dedicated two-asset unit-tracking
+Numba kernel using the workbook additive-fee recurrence:
+
+```text
+V_t = V_{t-1} * (1 + g_t) - V_{t-1} * fee/12 - W_t
+```
+
+with annual withdrawals and rebalances at `p0, p12, ..., p108`, and no
+rebalancing between boundaries. Actual weights therefore drift intra-year and
+are reported separately from target weights. The kernel is validated against an
+independent Decimal implementation.
+
+Corrected research-derived values:
+
+| Case | p23 | p119 |
+|---|---:|---:|
+| Bear→Bull static 80% | 705,826.662664 | 1,023,204.206346 |
+| Bear→Bull glidepath 70→90% | 745,100.308079 | 1,095,209.593145 |
+| Bull→Bear static 80% | 1,086,802.382015 | 1,143,815.160996 |
+| Bull→Bear glidepath 70→90% | 1,072,649.456103 | 1,073,960.748019 |
+
+These corrected values are **not** published anchors and do not resolve the
+published discrepancies. All eight published Experiment E anchors remain
+`UNEXPLAINED DIFFERENCE`; no anchor was reclassified or tuned.

@@ -9,12 +9,16 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.money import Currency
+from fbf.core.execution.pipeline.simulation import MonthlyResult
 from fbf.core.research.part20_experiment_e import (
     BEAR_BULL_ANNUAL_BONDS,
     BEAR_BULL_ANNUAL_EQUITY,
     ExperimentECase,
+    ExperimentEResult,
     build_ern_table01_return_sequence,
     build_experiment_e_trajectories,
     execute_experiment_e,
@@ -421,3 +425,117 @@ class TestWithdrawalSchedule:
             assert cp.withdrawal_decision is not None
             assert cp.withdrawal_decision.nominal_amount.amount == Decimal("0")
 
+
+def _portfolio_value(monthly_result: MonthlyResult) -> Decimal:
+    return sum(
+        (
+            holding.units
+            * monthly_result.market_snapshot.index_levels[holding.asset_class]
+            for holding in monthly_result.portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+
+
+@pytest.fixture(scope="module")
+def corrected_experiment_e_result() -> ExperimentEResult:
+    return execute_experiment_e()
+
+
+_CORRECTED_EXPERIMENT_E = (
+    (
+        ExperimentECase(sequence="bear_bull", strategy="static_080"),
+        Decimal("705826.662664"),
+        Decimal("1023204.206346"),
+        Decimal("0.784917"),
+        Decimal("0.810845"),
+    ),
+    (
+        ExperimentECase(sequence="bear_bull", strategy="glidepath_070_090"),
+        Decimal("745100.308079"),
+        Decimal("1095209.593145"),
+        Decimal("0.701137"),
+        Decimal("0.887119"),
+    ),
+    (
+        ExperimentECase(sequence="bull_bear", strategy="static_080"),
+        Decimal("1086802.382015"),
+        Decimal("1143815.160996"),
+        Decimal("0.810845"),
+        Decimal("0.728850"),
+    ),
+    (
+        ExperimentECase(sequence="bull_bear", strategy="glidepath_070_090"),
+        Decimal("1072649.456103"),
+        Decimal("1073960.748019"),
+        Decimal("0.733739"),
+        Decimal("0.831309"),
+    ),
+)
+
+
+class TestCorrectedWorkbookFeeExperimentE:
+    """Pins the independently reproduced workbook-fee Experiment E results.
+
+    These are research-derived outputs for the approved beginning-of-period,
+    additive-fee, annually rebalanced methodology.  They are distinct from the
+    published article anchors, which remain unresolved historical references.
+    """
+
+    @pytest.mark.parametrize(
+        (
+            "case",
+            "expected_p23",
+            "expected_p119",
+            "expected_weight_p23",
+            "expected_weight_p119",
+        ),
+        _CORRECTED_EXPERIMENT_E,
+    )
+    def test_values_and_actual_weights(
+        self,
+        corrected_experiment_e_result: ExperimentEResult,
+        case: ExperimentECase,
+        expected_p23: Decimal,
+        expected_p119: Decimal,
+        expected_weight_p23: Decimal,
+        expected_weight_p119: Decimal,
+    ) -> None:
+        result = corrected_experiment_e_result.get_result(case)
+        equity = AssetClass(id="equity", name="", description="")
+        checkpoint_23 = result.checkpoints[23]
+        checkpoint_119 = result.checkpoints[119]
+        assert checkpoint_23.allocation is not None
+        assert checkpoint_119.allocation is not None
+
+        assert abs(_portfolio_value(checkpoint_23) - expected_p23) <= Decimal(
+            "0.00001"
+        )
+        assert abs(_portfolio_value(checkpoint_119) - expected_p119) <= Decimal(
+            "0.00001"
+        )
+        assert (
+            abs(checkpoint_23.allocation.weights[equity] - expected_weight_p23)
+            <= Decimal("0.000001")
+        )
+        assert (
+            abs(checkpoint_119.allocation.weights[equity] - expected_weight_p119)
+            <= Decimal("0.000001")
+        )
+
+    def test_year_10_escalated_withdrawal(
+        self,
+        corrected_experiment_e_result: ExperimentEResult,
+    ) -> None:
+        case = ExperimentECase(sequence="bear_bull", strategy="static_080")
+        result = corrected_experiment_e_result.get_result(case)
+        checkpoint = result.checkpoints[108]
+        assert checkpoint.withdrawal_decision is not None
+        assert checkpoint.withdrawal_decision.nominal_amount.amount == (
+            Decimal("35000") * (Decimal("1.02") ** 9)
+        )
+        assert result.checkpoints[119].withdrawal_decision is not None
+        assert (
+            result.checkpoints[119].withdrawal_decision.nominal_amount.amount
+            == Decimal("0")
+        )

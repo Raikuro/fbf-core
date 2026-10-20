@@ -1,7 +1,7 @@
 # T2.6 Experiment E Implementation Design
 
-**Status:** APPROVED — READY TO CODE
-**Implementation Status:** NOT STARTED
+**Status:** APPROVED — IMPLEMENTED (D3)
+**Implementation Status:** Core two-asset deterministic kernel implemented and validated
 **Phase:** T2.6 of ERN E2E Implementation Roadmap
 **Authoritative Contract:** This document is the authoritative implementation contract for T2.6 Experiment E.
 
@@ -48,6 +48,46 @@ Experiment E is a **deterministic case study** requiring general-purpose core ca
 ### 2.2 Important Interpretation
 
 > The existing engine's actual period timeline establishes that the **first market return is applied during `period_index=0`**, and **annual boundaries occur at `period_index % 12 == 0`**.
+
+### 2.3 D3 Implementation Update (Workbook-Conformant Execution)
+
+The deterministic adapter now uses a dedicated two-asset unit-tracking Numba
+kernel (`execution/strategies/deterministic_kernel.py`). It implements the
+beginning-of-period workbook convention:
+
+```text
+optionally rebalance to target at t-1 (after withdrawal)
+g_t = (equity units * equity price_t + bond units * bond price_t) / V_{t-1} - 1
+fee_t = V_{t-1} * expense_ratio / 12
+V_t = V_{t-1} * (1 + g_t) - fee_t
+at annual boundary: withdraw W_t, then rebalance to the target for the coming year
+```
+
+Equity and bond units are tracked separately, so actual weights drift between
+annual boundaries; the reported actual weights are distinct from the target
+weights. There is no rebalancing between annual boundaries. Fees are charged on
+the beginning-of-period value and are not themselves grown.
+
+Corrected research-derived values (not published anchors):
+
+| Case | p23 | p119 |
+|---|---:|---:|
+| Bear→Bull static 80% | 705,826.662664 | 1,023,204.206346 |
+| Bear→Bull glidepath 70→90% | 745,100.308079 | 1,095,209.593145 |
+| Bull→Bear static 80% | 1,086,802.382015 | 1,143,815.160996 |
+| Bull→Bear glidepath 70→90% | 1,072,649.456103 | 1,073,960.748019 |
+
+These values are pinned by independent Decimal differential tests. The
+published Experiment E anchors remain `UNEXPLAINED DIFFERENCE` historical
+references. In particular, the published 85.5% Year-2 static allocation cannot
+be derived from the documented annual-rebalance mechanics, and no kernel
+mechanism was tuned to reproduce it. The article's nominal/real labeling is a
+separate anchor-reconciliation question.
+
+Unsupported two-asset configurations with `expense_ratio == 0` fall back to the
+legacy decimal pipeline. Unsupported configurations with a non-zero fee raise
+`UnsupportedConfigurationError`; they never silently use the legacy stale-base
+expense correction.
 
 ---
 

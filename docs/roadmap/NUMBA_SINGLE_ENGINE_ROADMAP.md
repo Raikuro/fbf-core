@@ -214,12 +214,12 @@ Classification key:
 | 12 | Horizon derivation | `reference.py:330`, `fast_path.py:783`, `numba_executor.py:278`, `part52_numba_executor.py:228` | 1 | Present in all executors | None | Remove the legacy-only copy once `ReferenceSimulationExecutor` is deleted | `test_fast_path.py::test_executor_shares_longest_path` | None | Derivation report matches direct evaluation |
 | 13 | FV target deduplication | `reference.py:206`, `fast_path.py:470`, `numba_executor.py:708` | 1 | Present in all executors | None | None | `test_trajectory_deduplication.py` | None | Per-target classification preserved |
 | 14 | Cohort + slice execution | `execution/slicing.py` `iter_cohort_slices`; `execution/__init__.py` `iter_execute_study_plan`; `reference.py:428` `_slice_plan_units` | 2 | Lazy cohort-aligned slices for the unified Numba path; whole-plan `execute_study_plan` guarded; SQLite streaming writer consumes slices | Legacy `execute_reference` slice dispatch remains separate; CLI still persists whole plans | Wire the streaming writer into the CLI; retire legacy slice dispatch | `test_plan_slicing.py`, `test_streaming_execution.py`, `test_memory_bounded_execution.py`, `test_streaming_persistence.py` | Slice target is not a hard bound; consumers must release slices | Slice == whole-plan equality across backends; per-slice failure metadata |
-| 15 | Deterministic execution | `execution/deterministic.py` `execute_deterministic_trajectory` | 4 | None; uses pipeline directly | Requires monthly checkpoints | Decide: reimplement on Numba with trajectory output, or keep as a specialized feature | `tests/unit/execution/test_deterministic.py` | Depends on #16 | Deterministic result contract preserved |
+| 15 | Deterministic execution | `execution/deterministic.py` `execute_deterministic_trajectory`; `execution/strategies/deterministic_kernel.py` | 4 | Dedicated two-asset unit-tracking Numba kernel (D3): annual/monthly rebalance, intra-year drift, additive fee, annual/monthly withdrawals, failure signalling; unsupported fee-free configurations fall back to the legacy pipeline and fee > 0 raises | None for supported two-asset policies | None | `tests/unit/execution/test_deterministic.py`, `test_deterministic_kernel.py`, `tests/unit/research/test_part20_experiment_e.py` | Multi-asset, Part 49/52, and buy-and-hold are unsupported by the deterministic kernel; fee > 0 raises rather than using the legacy stale-base fee | Deterministic result contract preserved; independent Decimal differential; corrected Experiment E values pinned |
 | 16 | Full monthly trajectory | `monthly_result_builder_step.py` `MonthlyResultBuilderStep`; `execution/strategies/trajectory.py` | 3 | Numba executors emit optional `SimulationTimeline` (D1, 46687ce) | Reference/pipeline paths remain separate; materialization at grid scale needs D2 streaming | Keep materialization opt-in; consume through streaming slices | `test_timeline_materialization.py` | Memory/IPC cost; per-month portfolio reconstruction | Trajectory equals legacy month-by-month on a representative case |
 | 17 | Result persistence | `persistence/studies/sqlite/codecs.py`; `sqlite_repository.py`; `run_command.py` | 3 | Schema v4 incremental writer: per-slice transactions, attempt tokens, explicit status, completion verification; completed-result readers filter incomplete executions | CLI still executes whole plans and does not call the writer; no automatic age-based recovery | Integrate the writer into CLI persistence; document operational recovery | `test_streaming_persistence.py`, `test_sqlite_persistence.py`, `test_schema_migration.py` | #16, #18 | Save/load round-trip preserves statistics and timelines; interrupted runs are invisible until explicitly completed |
 | 18 | Memory-bounded large grids | `execution/slicing.py`, `execution/__init__.py`; legacy `reference.py:_MAX_UNITS_PER_WORKER`, `_DEFAULT_SLICE_COHORTS` | 2 | Streaming API bounds residency by slice target; streaming persistence measured at ~284–289 MiB for 200–400 materialized units | Full 313k-unit grid benchmark not yet validated; CLI persistence remains whole-plan | Validate full grid and wire CLI persistence | `tests/benchmarks/test_memory_bounded_execution.py` | #14, #16 | Peak RSS within documented host budget on 313k units |
 | 19 | Buy-and-hold allocation | `concrete.py:49` `BuyAndHoldAllocationPolicy`; `_simulate_trajectory_buy_and_hold` (`numba_kernel.py:417`); `_is_buy_and_hold_eligible` (`numba_executor.py:252`) | 1 | Numba unit-tracking kernel (B4); weights drift endogenously | Non-zero fee, multi-asset, and Part 49 leverage fall back (see #6 and C4) | None for fee = 0, two assets | `tests/unit/strategies/test_numba_buy_and_hold.py`, `test_part49_buy_and_hold.py` | Non-zero-fee legacy `ExpenseDeductionStep` stale base (`TODO.md`) | Two-asset, fee = 0 differential vs legacy pipeline passes |
-| 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` (`numba_executor.py`) for `ConstantAllocationPolicy`; AUTO routes all-escalating workloads to Numba | Glidepath + escalating not yet eligible; `execute_deterministic_trajectory` (Experiment E) still uses the legacy pipeline | Extend eligibility to `GlidepathAllocationPolicy`; reimplement the deterministic path (D3) | `tests/unit/strategies/test_numba_escalating.py` | Glidepath cadence and the deterministic-trajectory contract are separate migration items | Constant-allocation escalating matches the legacy pipeline (fee = 0) and an independent Decimal recurrence; hand-calculated flat-market values exact |
+| 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` (`numba_executor.py`) for `ConstantAllocationPolicy`; deterministic adapter supports constant allocation and annual glidepath through D3 | Glidepath + escalating is not yet eligible in the general Numba executor; the deterministic adapter supports it | Extend general eligibility to `GlidepathAllocationPolicy` | `tests/unit/strategies/test_numba_escalating.py`, `tests/unit/execution/test_deterministic_kernel.py` | General glidepath cadence and the deterministic-trajectory contract are separate migration items | Constant-allocation escalating matches the legacy pipeline (fee = 0) and an independent Decimal recurrence; deterministic annual glidepath + escalating matches the Decimal reference |
 | 21 | Supplemental cash flow | `supplemental_cash_flow_step.py` | 3 | None (inactive by default) | Additional external cash flow | Add once a real consumer activates it | None active today | No active consumer | Only migrate if a consumer exists |
 | 22 | CAPE-regime aggregation | `research/part20_*`, `cape_aggregation.py`, `cape_regime.py` | 4 | None | Regime classification layer | Keep as a post-processing layer over Numba results | Part 20 (`part20_pipeline.py`) | Aggregation, not simulation | Part 20 E2E pass |
 | 23 | `ReferenceSimulationExecutor` wrapper | `reference.py:312` | 5 | Redundant (derivation already in `FastPathSimulationExecutor`) | — | Delete after migrations | `test_reference.py`, `test_determinism.py` | Public export `execute_reference` | No production consumer |
@@ -295,7 +295,8 @@ Work items (each independently testable):
 3. **B3 — Escalating withdrawal.** ✅ Implemented for
    `ConstantAllocationPolicy`: value-independent annual schedule
    `v0 * withdrawal_rate * (1 + escalation_rate) ** (m // 12)`. Glidepath +
-   escalating and the deterministic path remain future work (D3).
+   escalating remains future work in the general Numba executor; the
+   deterministic adapter supports it through D3.
 
 4. **B4 — Buy-and-hold.** ✅ Implemented: a non-rebalancing unit-tracking
    recurrence with explicit specification (a simulator extension — the workbook
@@ -391,9 +392,33 @@ Work items:
    executions are invisible to completed-result readers. Remaining: wire the
    writer into CLI persistence and validate the full 313k-unit grid.
 
-3. **D3 — Deterministic trajectory on Numba.**
-   Rewrite `execute_deterministic_trajectory` to use Numba kernel with
-   trajectory output and checkpoint extraction.
+3. **D3 — Deterministic trajectory on Numba.** ✅ Implemented.
+   `execute_deterministic_trajectory` now routes
+   supported two-asset constant-allocation and glidepath trajectories through a
+   dedicated unit-tracking kernel with trajectory output and checkpoint
+   extraction.
+
+   The kernel uses the workbook additive fee recurrence
+   `V_t = V_{t-1} * (1 + g_t) - V_{t-1} * fee/12 - W_t`, with withdrawals and
+   rebalances at the beginning of a period and no rebalancing between annual
+   boundaries. Equity and bond units are tracked separately, so actual weights
+   drift intra-year and are reported alongside the target weights.
+
+   Corrected Experiment E values under this method (Year 2 / Year 10):
+
+   | Case | p23 | p119 |
+   |---|---:|---:|
+   | Bear→Bull static 80% | 705,826.662664 | 1,023,204.206346 |
+   | Bear→Bull glidepath 70→90% | 745,100.308079 | 1,095,209.593145 |
+   | Bull→Bear static 80% | 1,086,802.382015 | 1,143,815.160996 |
+   | Bull→Bear glidepath 70→90% | 1,072,649.456103 | 1,073,960.748019 |
+
+   These are research-derived workbook-conformant outputs, not published ERN
+   anchors. The published Experiment E values and allocations remain
+   `UNEXPLAINED DIFFERENCE` historical references; no anchor was tuned or
+   reclassified by this migration. Unsupported fee-free configurations fall
+   back to the legacy Decimal pipeline; unsupported configurations with a
+   non-zero fee raise `UnsupportedConfigurationError`.
 
 4. **D4 — Legacy pipeline removal.**
    Delete `_create_default_simulation_executor()`, `create_default_pipeline()`,
@@ -653,7 +678,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | 00b5770 | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
 | Numba cache/dataset identity fix | ✅ Complete | `test_numba_executor_differential.py`, `test_part52_numba_executor.py` | 99aa5a4 | Dataset-identity tokens + identity-prefix clustering in both Numba executors |
 | B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | a00c0ec | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
-| B3: Escalating withdrawal | ✅ Complete (ConstantAllocation) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py` | 65f1f67 | Value-independent annual schedule; Glidepath + deterministic Experiment E path deferred (D3) |
+| B3: Escalating withdrawal | ✅ Complete (ConstantAllocation) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py` | 65f1f67 | Value-independent annual schedule; deterministic annual glidepath + escalating is implemented under D3; general Numba glidepath + escalating remains deferred |
 | Buy-and-hold initial allocation | ✅ Complete (correction) | `default_pipeline.py`, `allocation_decision_step.py`, `portfolio_rebalance_step.py`, `test_part49_buy_and_hold.py` | 3f2f788 | Buy-and-hold applied the 50/50 default; allocation now applied once in period 0 |
 | B4: Buy-and-hold | ✅ Complete (non-debt, fee=0) | `numba_kernel.py`, `numba_executor.py`, `execution/__init__.py`, `test_numba_buy_and_hold.py` | 5179a3b | Unit-tracking kernel; Part 49 leverage → C4, multi-asset → B5, fee>0 deferred |
 | B5: Multi-asset | ✅ Complete | `concrete.py`, `fast_path.py`, `numba_executor.py`, `test_multi_asset_allocation.py` | 85d72582f047279d5d9c42ca3f3cb0e3d9099c7b | Explicit N-asset `allocations`; single `resolve_target_weights`; nominal/escalating/Part 52 gate to the legacy form and fall back for explicit allocations |
@@ -664,7 +689,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | C5: LTV terminal state | ⬜ Not Started | — | — | `margin_call_terminal` |
 | D1: Trajectory materialization | ✅ Complete | `execution/strategies/*`, `execution/strategies/trajectory.py`, `test_timeline_materialization.py` | 46687ce | Optional flag; use D2 streaming at grid scale |
 | D2: Cohort-slice for memory | 🔄 In Progress | `execution/slicing.py`, `execution/__init__.py`, `part52_evaluator.py`, `part49_aggregation.py`, `persistence/studies/sqlite/sqlite_repository.py` | — | Streaming API + guard + consumer migration + incremental persistence complete; CLI persistence wiring and full-grid validation pending |
-| D3: Deterministic trajectory | ⬜ Not Started | — | — | Checkpoint extraction |
+| D3: Deterministic trajectory | 🔄 In Progress (implementation validated; phase commit pending) | `execution/deterministic.py`, `execution/strategies/deterministic_kernel.py`, `test_deterministic_kernel.py`, `test_part20_experiment_e.py` | — | Dedicated unit-tracking kernel; additive fee; annual/monthly rebalance; corrected Experiment E values pinned; published anchors remain unresolved |
 | D4: Legacy removal | ⬜ Not Started | — | — | Final deletion gate |
 | D5: Public API resolution | ⬜ Not Started | — | — | Breaking change decision |
 
@@ -794,10 +819,10 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   `final_value_target` application, ineligible-allocations fall-through, and AUTO
   routing.
 - **Scope note:** escalating withdrawal is migrated for `ConstantAllocationPolicy`
-  only. Glidepath allocation + escalating, and the deterministic Experiment E
-  path (`execute_deterministic_trajectory`, which uses the legacy pipeline
-  directly and honours an annual rebalance cadence), remain future work
-  (capability #4 / #15, D3).
+  in the general Numba executor. Glidepath allocation + escalating in that
+  executor remains future work. The deterministic Experiment E path is now
+  implemented separately on the dedicated D3 kernel (capability #15), which
+  supports annual glidepath + escalating with the workbook additive fee.
 - All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
   contract).
 
