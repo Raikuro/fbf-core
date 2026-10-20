@@ -1,6 +1,6 @@
 # Roadmap: Migration to a Single Numba Execution Engine
 
-**Status:** Phase C **IN PROGRESS** 🔄 (C1–C2 complete; C3–C4 implementations present, canonical validation pending; C5 complete); D1 and D3 complete; D2 in progress
+**Status:** Phase C **IN PROGRESS** 🔄 (C1, C2, and C5 complete; C3 implementation complete, formal closure pending the 10,434-unit Numba-path E2E; C4 complete for the approved supported scope via Option B); D1 and D3 complete; D2 implementation complete, full-grid streaming validation pending; D4 and D5 not started
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
 **Objective:** Make Numba the sole simulation engine, progressively shrink and
 eventually delete the legacy Reference execution stack, and preserve
@@ -168,7 +168,9 @@ Every Numba/Decimal executor constructs its fallback with
   the fast path cannot supply persisted timelines. The CLI executes persisted
   runs through the streaming API and the incremental writer, appending each
   cohort-aligned slice as it completes; the full 313k-unit grid benchmark is a
-  remaining D2 validation task.
+  remaining D2 validation task. The existing 313,020-unit REFERENCE-backend
+  test is whole-plan canonical ERN correctness evidence, not D2 streaming
+  evidence.
 
 ### 2.5 Eligibility predicates (source of truth)
 
@@ -329,13 +331,13 @@ Goal: migrate Part 49, Part 52, and other debt-aware workloads to Numba.
 
 Work items:
 
-1. **C1 — Part 52 Numba-only execution.**
+1. **C1 — Part 52 Numba-only execution.** ✅ Complete.
    Remove fallback from `Part52NumbaExecutor` for eligible configurations.
    Ineligible configurations (e.g. no interest-rate source — non-zero expense
    ratios are eligible under B1) fail with explicit `UnsupportedConfigurationError`.
    Do not silently fall back.
 
-2. **C2 — Part 52 fee behavior (workbook additive).** ✅ Implemented (B1):
+2. **C2 — Part 52 fee behavior (workbook additive).** ✅ Complete (B1):
    the additive fee is embedded in the Part 52 kernel growth factors as
    `g_m = Σ_j w_j · P_{j,m}/P_{j,m-1} − fee/12`, matching the workbook's
    `1 + r − f/12`. Validated by independent numerical checks
@@ -343,24 +345,86 @@ Work items:
    Glidepath fee alignment is tracked under capability #4.
 
 3. **C3 — Part 49 debt (`loan_draw_rate`) migration.**
+   ✅ Implementation complete; formal closure pending validation.
    Part 49 and Part 52 have different debt semantics (fixed draw rate vs
-   drawdown-triggered, no ATH repayment). Implement separate kernel or mode
-   flag only if shared implementation is demonstrably clearer, safer, and
-   easier to validate than separate kernels. Do not merge merely for code reuse.
+   drawdown-triggered, no ATH repayment). The dedicated Numba executor and
+   kernel are implemented, including real-rate propagation, LTV terminal state,
+   and differential tests against the Decimal/legacy path.
+
+   **C3 closure gate:** run the 10,434-unit Part 49 full-path workload with
+   explicit proof that `Part49NumbaExecutor` was selected (for example by
+   using the FAST backend or asserting the selected executor). The run must
+   also verify non-leverage cells against `p49_oracle_table.csv` and
+   leverage-directionality checks. The existing AUTO-mode test does not, by
+   itself, prove that the Numba executor was selected.
 
 4. **C4 — Part 49 buy-and-hold migration.**
-   Migrate `create_buy_and_hold_pipeline()` workloads to Numba buy-and-hold
-   kernel (B4).
+   ✅ Complete for the approved supported scope: Part 49 buy-and-hold,
+   `BuyAndHoldAllocationPolicy`, two assets, and zero expense ratio. Acceptance
+   uses approved Option B: independently verified production-path synthetic
+   differential evidence against independent Decimal and legacy references,
+   plus dispatch, eligibility, LTV terminal-state, and real-rate propagation
+   tests. Non-zero fees, multi-asset portfolios, and unsupported configurations
+   remain explicit fallback cases.
 
-5. **C5 — LTV enforcement terminal state.**
+   **C4 closure is independent of C3.** The 10,434-unit constant-allocation
+   Part 49 test does not exercise buy-and-hold and is unrelated to C4 closure.
+   This C4 closure does not establish real-data canonical-scale buy-and-hold
+   equivalence, 1,739-cohort coverage, or a canonical ERN buy-and-hold oracle.
+   The decision and its limitations are recorded in the C4 acceptance decision
+   below.
+
+5. **C5 — LTV enforcement terminal state.** ✅ Complete.
    Add `failure_state="margin_call_terminal"` to Part 52/49 Numba kernels to
    match legacy `LTVEvaluationStep` behavior.
 
 Phase C gate:
-- Part 52 eligible configurations execute on Numba with no fallback.
-- Part 49 debt workloads execute on Numba.
-- LTV enforcement produces `margin_call_terminal` failure state.
-- All Part 52/49 integration tests pass on Numba executors.
+- Part 52 eligible configurations execute on Numba with no fallback. ✅
+- Part 49 debt workloads execute on Numba. ✅ Implementation; formal C3 gate
+  below remains open.
+- LTV enforcement produces `margin_call_terminal` failure state. ✅
+- All Part 52/49 integration tests pass on Numba executors. ✅
+- **C3 gate:** 10,434-unit Part 49 full-path validation with proof that
+  `Part49NumbaExecutor` was selected, plus non-leverage oracle checks and
+  leverage-directionality checks.
+- **C4 gate:** approved Option B for the supported scope, independent of the
+  C3 debt E2E. ✅
+- C3 remains open until its 10,434-unit Numba-path gate passes. C4 is closed
+  only for the approved supported scope; this does not imply real-data
+  canonical-scale equivalence, 1,739-cohort coverage, or a canonical ERN
+  buy-and-hold oracle. Passing the existing 10,434-unit constant-allocation
+  test closes neither C3 nor C4 by itself.
+
+#### C4 acceptance decision (approved: Option B)
+
+The existing C4 evidence consists of production-path dispatch tests,
+independent Decimal-reference differentials, legacy-pipeline differentials,
+eligibility tests, LTV terminal-state tests, and real-rate propagation tests
+using synthetic datasets. There is no canonical ERN buy-and-hold oracle.
+Buy-and-hold is a simulator extension, not a workbook-defined calculation.
+
+| Option | Criterion | Consequences |
+|--------|-----------|--------------|
+| A | Require a real-data Part 49 buy-and-hold E2E or differential test at canonical scale. | Strongest integration and scale evidence: exercises the real dataset, configuration path, and 1,739-cohort regime. Adds a new test and a heavyweight authorized run. Because no canonical buy-and-hold oracle exists, this would validate production-path consistency and scale, not published-ERN numerical replication. It may duplicate mechanics already covered by synthetic differentials. |
+| B | Accept the existing production-path synthetic differential evidence for the supported C4 scope, after independent verification, and record the limitation explicitly. **Approved.** | Reuses the dispatch, independent Decimal-reference, legacy-differential, LTV, and real-rate evidence. Faster and avoids a heavyweight run. Limitation: synthetic data rather than canonical history, not full 1,739-cohort scale, and no real-data buy-and-hold E2E. C4 closure is therefore scoped to the supported configuration and does not claim canonical-scale data coverage. |
+
+**Decision: Option B approved on 2026-10-20.** Independent verification was
+completed against the existing targeted C4 Numba-executor and production
+debt-flow evidence. C4 is closed for the supported scope only.
+
+**Explicit limitations.** This closure does not establish real-data canonical-
+scale buy-and-hold equivalence, does not establish 1,739-cohort coverage, and
+does not establish a canonical ERN buy-and-hold oracle. The evidence is
+synthetic-data differential testing against independent Decimal and legacy
+references, plus production-path dispatch, eligibility, LTV terminal-state,
+and real-rate propagation tests. It covers only Part 49 buy-and-hold with two
+assets and zero expense ratio. Non-zero fees, multi-asset portfolios, and
+unsupported configurations remain fallback cases outside this closure.
+
+**Rationale.** Buy-and-hold has no canonical ERN oracle, so a real-data E2E
+would add integration and scale confidence but not canonical numerical
+correctness. Option A remains available if real-data canonical-scale coverage
+is required later; it is not part of this closure.
 
 ### Phase D — Trajectories, Memory, and Legacy Removal
 
@@ -383,6 +447,8 @@ Work items:
    grid scale (see ordering above).
 
 2. **D2 — Cohort-slice dispatch for bounded memory.**
+   ✅ Implementation complete; formal closure pending full-grid streaming
+   validation.
    Implemented `iter_cohort_slices` + `iter_execute_study_plan` with
    cohort-aligned, lazy slices and a 1,000-unit materialization guard on the
    whole-plan API. Default targets: 500 materialized, 20,000 summary.
@@ -391,7 +457,14 @@ Work items:
    `append_execution_slice`, `complete_execution`, `fail_execution`,
    `abandon_execution`) with attempt tokens and explicit status; interrupted
    executions are invisible to completed-result readers. The CLI streams
-   persisted runs through the writer. Remaining: validate the full 313k-unit grid.
+   persisted runs through the writer.
+
+   **D2 closure gate:** execute the full 313,020-unit grid through
+   `iter_execute_study_plan` with summary-only result handling, measure peak
+   RSS against the documented host budget, and verify the streaming aggregate.
+   The existing 313,020-unit test that uses `ExecutionBackend.REFERENCE` and
+   whole-plan `run_study` is canonical ERN correctness evidence, not evidence
+   that D2 streaming has passed.
 
 3. **D3 — Deterministic trajectory on Numba.** ✅ Implemented.
    `execute_deterministic_trajectory` now routes
@@ -441,6 +514,12 @@ Phase D gate (Final Deletion Gate):
 - `ExecutionBackend.REFERENCE` renamed/removed; Core minor version bumped.
 - CLI routes through unified engine.
 - Canonical ERN grids match oracle; all E2E tests pass.
+- Phase C closure gates satisfied: C3 10,434-unit Numba-path validation with
+  executor-selection proof; C4 approved Option B supported-scope closure.
+- D2 full-grid streaming gate satisfied: 313,020 units through
+  `iter_execute_study_plan`, summary-only handling, measured peak RSS, and
+  streaming aggregate verification. The existing REFERENCE-backend full-grid
+  test does not satisfy this gate.
 - Large-grid execution within memory budget.
 - Quality gates pass: `ruff check .`, `mypy --strict .`, full test suite.
 - `tools/ern/reference_oracle.py` unchanged and independently regenerates oracle.
@@ -693,14 +772,14 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | B5: Multi-asset | ✅ Complete | `concrete.py`, `fast_path.py`, `numba_executor.py`, `test_multi_asset_allocation.py` | 85d72582f047279d5d9c42ca3f3cb0e3d9099c7b | Explicit N-asset `allocations`; single `resolve_target_weights`; nominal/escalating/Part 52 gate to the legacy form and fall back for explicit allocations |
 | C1: Part 52 Numba-only | ✅ Complete | `part52_numba_executor.py`, `execution/__init__.py`, `test_part52_dispatch_contract.py` | 2343c225278d1e02722a9567ab911e835215b6ff | Eligible Part 52 runs on Numba; explicit FAST on an ineligible Part 52 workload raises `UnsupportedConfigurationError` (no silent fallback) |
 | C2: Part 52 fee behavior | ✅ Complete (B1) | `_compute_growth_factors_numpy` (`numba_kernel.py`) fee passed by `part52_numba_executor.py`; `TestPart52ExpenseRatioSupport`, `TestPart52ExpenseRatioIndependentValidation` | 8dfbf24 (audited) | Additive fee `g_m = Σ_j w_j·P_{j,m}/P_{j,m-1} − fee/12` embedded in kernel growth factors |
-| C3: Part 49 debt migration | 🔄 In Progress | `part49_numba_executor.py`, `test_part49_numba_executor.py`; production flag propagation corrected and covered in `test_research_layer_debt_flow.py` | 5d5a569 | Numba implementation present and production `debt_interest_rate_is_real` propagation verified; canonical/full-path validation remains pending |
-| C4: Part 49 buy-and-hold | 🔄 In Progress | `part49_buy_and_hold_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`; production flag propagation corrected and covered in `test_research_layer_debt_flow.py` | 6abda00 | Numba implementation present and production `debt_interest_rate_is_real` propagation verified; canonical/full-path validation remains pending |
-| C5: LTV terminal state | ✅ Complete | `numba_kernel.py`, `part49_numba_executor.py`, `part49_buy_and_hold_numba_executor.py`, `part52_numba_executor.py`; `test_part49_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`, `test_part52_numba_executor.py` | b5ad4a2, 5d5a569, 6abda00 | Part 49 debt, Part 49 buy-and-hold, and Part 52 Numba kernels emit `margin_call_terminal` and match Decimal/legacy references. Targeted Numba executor and debt flag propagation tests pass. Limitation: C3/C4 remain In Progress until the 10,434-unit canonical E2E is run. |
+| C3: Part 49 debt migration | 🔄 In Progress — implementation complete; validation pending | `part49_numba_executor.py`, `test_part49_numba_executor.py`; production flag propagation covered in `test_research_layer_debt_flow.py` | 5d5a569 | Numba executor and kernel are implemented; `debt_interest_rate_is_real` propagation, LTV terminal state, and Decimal/legacy differentials pass. Closure requires the 10,434-unit Part 49 full-path E2E with proof that `Part49NumbaExecutor` was selected, non-leverage oracle checks, and leverage-directionality checks. |
+| C4: Part 49 buy-and-hold | ✅ Complete (supported scope, Option B) | `part49_buy_and_hold_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`; production flag propagation covered in `test_research_layer_debt_flow.py` | 6abda00 | Supported scope: Part 49 buy-and-hold, two assets, zero fee. Option B approved after independent verification of synthetic production-path dispatch, independent Decimal differential, legacy differential, LTV, and real-rate tests. The C4 gate is independent of C3; the 10,434-unit constant-allocation test is unrelated. This closure does not establish real-data canonical-scale equivalence, 1,739-cohort coverage, or a canonical ERN buy-and-hold oracle. |
+| C5: LTV terminal state | ✅ Complete | `numba_kernel.py`, `part49_numba_executor.py`, `part49_buy_and_hold_numba_executor.py`, `part52_numba_executor.py`; `test_part49_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`, `test_part52_numba_executor.py` | b5ad4a2, 5d5a569, 6abda00 | Part 49 debt, Part 49 buy-and-hold, and Part 52 Numba kernels emit `margin_call_terminal` and match Decimal/legacy references. Targeted Numba executor and debt flag propagation tests pass. C3 and C4 closure are governed by their separate gates. |
 | D1: Trajectory materialization | ✅ Complete | `execution/strategies/*`, `execution/strategies/trajectory.py`, `test_timeline_materialization.py` | 46687ce | Optional flag; use D2 streaming at grid scale |
-| D2: Cohort-slice for memory | 🔄 In Progress | `execution/slicing.py`, `execution/__init__.py`, `part52_evaluator.py`, `part49_aggregation.py`, `persistence/studies/sqlite/sqlite_repository.py` | — | Streaming API + guard + consumer migration + incremental persistence + CLI persistence wiring complete; full-grid validation pending |
+| D2: Cohort-slice for memory | 🔄 In Progress — implementation complete; validation pending | `execution/slicing.py`, `execution/__init__.py`, `part52_evaluator.py`, `part49_aggregation.py`, `persistence/studies/sqlite/sqlite_repository.py` | a46ab2c | Streaming API + guard + consumer migration + incremental persistence + CLI persistence wiring complete. Closure requires full 313,020-unit execution through `iter_execute_study_plan` (summary-only, measured peak RSS, streaming aggregate verification). The existing REFERENCE-backend whole-plan full-grid test is not D2 evidence. |
 | D3: Deterministic trajectory | ✅ Complete | `execution/deterministic.py`, `execution/strategies/deterministic_kernel.py`, `test_deterministic_kernel.py`, `test_part20_experiment_e.py` | ccedb79 | Dedicated unit-tracking kernel; additive fee; annual/monthly rebalance; corrected Experiment E values pinned; published anchors remain unresolved |
-| D4: Legacy removal | ⬜ Not Started | — | — | Final deletion gate |
-| D5: Public API resolution | ⬜ Not Started | — | — | Breaking change decision |
+| D4: Legacy removal | ⬜ Not Started | — | — | Blocked by Phase C closure, D2 full-grid streaming validation, capability-parity decisions, and the final deletion gate. |
+| D5: Public API resolution | ⬜ Not Started | — | — | Breaking API decision; depends on D4 and a complete consumer inventory for `ExecutionBackend.REFERENCE` and legacy exports. |
 
 **Legend:** ✅ Complete | 🔄 In Progress | ⬜ Not Started | ❌ Blocked
 
