@@ -331,6 +331,7 @@ def _extract_simulation_contexts(
                 ltv_limit=unit.ltv_limit,
                 ltv_enforcement=unit.ltv_enforcement,
                 expense_ratio=unit.expense_ratio,
+                debt_interest_rate_is_real=unit.debt_interest_rate_is_real,
             )
             contexts.append(ctx)
         return tuple(contexts)

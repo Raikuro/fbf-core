@@ -25,7 +25,7 @@ from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.study.builder import StudyConfiguration
+from fbf.core.study.builder import BuiltStudy, StudyConfiguration
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
@@ -82,6 +82,87 @@ def _make_portfolio() -> Portfolio:
 
 def _make_cohort(dataset: Dataset) -> CohortSpecification:
     return CohortSpecification(start_date=dataset[0].date)
+
+
+def _make_inflation_dataset(
+    n_months: int = 3,
+    monthly_inflation: Decimal = Decimal("0.01"),
+) -> Dataset:
+    """Create a flat-price dataset with compounding CPI."""
+    snapshots = []
+    equity_price = Decimal("100")
+    bond_price = Decimal("50")
+    cpi = Decimal("1")
+    current = date(2020, 1, 1)
+    for _ in range(n_months + 1):
+        snapshots.append(
+            MarketSnapshot(
+                date=current,
+                index_levels={EQUITY: equity_price, BOND: bond_price},
+                inflation=monthly_inflation,
+                inflation_cumulative=cpi,
+                is_ath=True,
+                is_underwater=False,
+                running_ath=equity_price,
+            )
+        )
+        cpi *= Decimal("1") + monthly_inflation
+        current = date(
+            current.year + (current.month // 12),
+            current.month % 12 + 1,
+            1,
+        )
+    return Dataset(snapshots=snapshots, frequency="monthly")
+
+
+def _make_debt_study(*, debt_interest_rate_is_real: bool) -> BuiltStudy:
+    """Build a three-month Part 49 study with a known CPI path.
+
+    The flat market isolates the loan-balance recurrence from portfolio growth.
+    A 1% monthly CPI and a 12% annual nominal rate make the CPI-adjusted rate
+    zero after the first month, while the real-rate convention applies 1% every
+    month (on the prior balance).
+    """
+    dataset = _make_inflation_dataset()
+    cohorts = (_make_cohort(dataset),)
+    param_configs = (ParameterConfiguration({"withdrawal_rate": 0.0}),)
+    exp_def = ExperimentDefinition(
+        name="test-part49-real-rate",
+        description="Part 49 real/nominal debt rate propagation",
+        dataset=dataset,
+        horizon_months=3,
+        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+        cohorts=cohorts,
+        allocation_policies=(
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.75")),
+        ),
+        withdrawal_policies=(
+            Part49WithdrawalPolicy(withdrawal_rate=Decimal("0")),
+        ),
+    )
+    plan = materialize_research_plan(
+        experiment_def=exp_def,
+        canonical_trajectory=dataset,
+        cohorts=cohorts,
+        param_configs=param_configs,
+        initial_portfolio=_make_portfolio(),
+        horizon_resolver=lambda pc: 3,
+        policy_resolver=lambda pc: (
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.75")),
+            Part49WithdrawalPolicy(withdrawal_rate=Decimal("0")),
+        ),
+        interest_rate=Decimal("0.12"),
+        ltv_limit=Decimal("0.75"),
+        ltv_enforcement=False,
+        loan_draw_rate=Decimal("0.12"),
+        debt_interest_rate_is_real=debt_interest_rate_is_real,
+    )
+    return BuiltStudy(
+        plan=plan,
+        experiment_definition=exp_def,
+        cohorts=cohorts,
+        param_configs=param_configs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +492,90 @@ class TestResearchExecutorContextTranslation:
         assert ctx.interest_rate is None
         assert ctx.ltv_limit is None
         assert ctx.loan_draw_rate is None
+
+
+class TestDebtInterestRateRealProductionPropagation:
+    """The real/nominal debt-rate flag must survive plan-to-context translation."""
+
+    @pytest.mark.parametrize("is_real", [True, False])
+    def test_research_executor_context_preserves_flag(self, is_real: bool) -> None:
+        from fbf.core.execution.executor import ResearchExecutor
+        from fbf.core.execution.pipeline.default_pipeline import (
+            create_default_pipeline,
+        )
+        from fbf.core.execution.pipeline.executor import SimulationExecutor
+        from fbf.core.execution.pipeline.runner import SimulationRunner
+
+        built = _make_debt_study(debt_interest_rate_is_real=is_real)
+        executor = ResearchExecutor(
+            simulation_executor=SimulationExecutor(
+                simulation_runner=SimulationRunner(
+                    pipeline=create_default_pipeline()
+                )
+            )
+        )
+
+        ctx = executor._create_context_for_unit(
+            built.experiment_definition, built.plan.units[0]
+        )
+
+        assert ctx.debt_interest_rate_is_real is is_real
+        assert ctx.interest_rate == Decimal("0.12")
+        assert ctx.loan_draw_rate == Decimal("0.12")
+        assert ctx.ltv_limit == Decimal("0.75")
+        assert ctx.ltv_enforcement is False
+
+    @pytest.mark.parametrize("is_real", [True, False])
+    def test_dispatch_context_extraction_preserves_flag(self, is_real: bool) -> None:
+        from fbf.core.execution import _extract_simulation_contexts
+
+        built = _make_debt_study(debt_interest_rate_is_real=is_real)
+
+        contexts = _extract_simulation_contexts(built.plan)
+
+        assert len(contexts) == 1
+        ctx = contexts[0]
+        assert ctx.debt_interest_rate_is_real is is_real
+        assert ctx.interest_rate == Decimal("0.12")
+        assert ctx.loan_draw_rate == Decimal("0.12")
+        assert ctx.ltv_limit == Decimal("0.75")
+        assert ctx.ltv_enforcement is False
+
+    @pytest.mark.parametrize(
+        ("is_real", "expected_terminal_loan"),
+        [
+            # Real-rate convention: 1% per month on the prior loan balance;
+            # monthly draw is 1_000_000 * 0.12 / 12 = 10_000.
+            (True, Decimal("30301.00")),
+            # Nominal path: 1% CPI makes the CPI-adjusted monthly rate zero
+            # after month zero, so the loan grows by exactly three draws.
+            (False, Decimal("30000.00")),
+        ],
+    )
+    def test_real_rate_flag_reaches_execution_path(
+        self, is_real: bool, expected_terminal_loan: Decimal
+    ) -> None:
+        from fbf.core.execution import (
+            ExecutionBackend,
+            ExecutionOptions,
+            execute_study_plan,
+        )
+
+        built = _make_debt_study(debt_interest_rate_is_real=is_real)
+
+        result = execute_study_plan(
+            built,
+            ExecutionOptions(
+                backend=ExecutionBackend.FAST,
+                materialize_timeline=True,
+            ),
+        )
+
+        sim_result = result.experiment_result.simulation_results[0]
+        assert sim_result.statistics.success is True
+        debt = sim_result.timeline.monthly_results[-1].debt_snapshot
+        assert debt is not None
+        assert abs(debt.loan_balance - expected_terminal_loan) <= Decimal("0.01")
 
 
 # ---------------------------------------------------------------------------
