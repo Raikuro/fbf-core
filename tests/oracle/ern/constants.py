@@ -6,7 +6,8 @@ docs/continuity/P4_9_E2E_REPLICATION_INVESTIGATION.md):
 
 - ``published_2016/spx_tr_real.csv``      frozen S&P 500 real returns through 2016-09.
 - ``published_2016/bond_10y_tr_real.csv`` frozen 10Y bond real returns through 2016-09.
-- ``p49_oracle_table.csv``                pinned published-ERN oracle matrix.
+- ``p49_oracle_table.csv``                pinned historical published-ERN oracle matrix.
+- ``workbook_oracle_table.csv``           pinned workbook-conformance oracle matrix.
 - ``ern_swr_h720.json``                   legacy published 60-year snapshot dataset.
 
 Production data is workbook-derived and is not a published-ERN fixture.
@@ -21,6 +22,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = _REPO_ROOT / "data" / "ern"
 ORACLE_CSV = DATA_DIR / "p49_oracle_table.csv"
+WORKBOOK_ORACLE_CSV = DATA_DIR / "workbook_oracle_table.csv"
 RETURNS_DIR = DATA_DIR / "published_2016"
 
 # ---------------------------------------------------------------------------

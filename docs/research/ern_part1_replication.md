@@ -307,9 +307,10 @@ The existing E2E infrastructure can execute the Part 1 experiment:
 |-----------|------------------|--------|
 | Grid configuration | `examples/studies/ern_grid.yaml` | 5 weights × 9 rates × 4 horizons = 180 cells |
 | Dataset | Production loader (`src/fbf/core/datasets/ern.py`) | 2,459 monthly snapshots, 1871-01 through 2075-11; June 2026 cutoff. Not the published-ERN 2016-09 cutoff. |
-| Oracle table | `data/ern/p49_oracle_table.csv` | 180 cells with exact expected success rates for the published-ERN target |
-| E2E test | `tests/oracle/ern/test_full_swr_grid.py::test_full_grid_matches_oracle` | 313,020 units, pinned published-ERN target; gated by `RUN_ERN_E2E=1`. The published-ERN E2E requires a 2016-09 cutoff fixture and is not aligned with the production workbook loader. |
-| Smoke test | `tests/oracle/ern/test_full_swr_grid.py::test_smoke_cell_matches_oracle` | 1-cell diagnostic, runs in normal suite; same published-ERN cutoff caveat. |
+| Production oracle table | `data/ern/workbook_oracle_table.csv` | 180-cell workbook-conformance matrix (T cohort terms, additive fee) |
+| Published-ERN oracle table | `data/ern/p49_oracle_table.csv` | 180-cell historical published-ERN matrix (T+1 terms, multiplicative fee); not a production expected-value source |
+| Production E2E | `tests/oracle/ern/test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | 313,020 units on the production dataset, exact equality to the workbook-derived oracle; gated by `RUN_ERN_E2E=1` |
+| Smoke test | `tests/oracle/ern/test_full_swr_grid.py::test_smoke_cell_matches_workbook_oracle` | 1-cell production diagnostic against the workbook-derived oracle; gated by `RUN_ERN_E2E=1` |
 
 ### 4.2 YAML Configuration Gap
 
@@ -351,9 +352,9 @@ The current YAML cannot express:
 
 ### 4.5 Proposed Additional E2Es
 
-**Finding: No additional Part 1 E2E is required to check implementation/oracle consistency for the currently designated FBF Part 1 reproduction subset.**
+**Finding: No additional Part 1 E2E is required for the currently designated FBF production reproduction subset.**
 
-The existing canonical E2E is designed to check FBF output against the pinned published-ERN oracle for the designated FBF reproduction subset of Table 1: 5 equity allocations × 9 withdrawal rates × 4 horizons × 1,739 cohorts, including exact comparison against the pinned oracle. This covers the published anchor cells the E2E is intended to check (50/50 at 4%/30y = 95%, 50/50 at 4%/60y = 65%, 75/25 at 3.5%/60y = 97%). The canonical E2E is gated by `RUN_ERN_E2E=1` and is not part of routine validation. It must not be run against the production workbook loader without a separate 2016-09 cutoff fixture; production workbook conformance is checked by `tools/ern/workbook_oracle.py` and the workbook-alignment tests.
+The production E2E checks the production engine against the workbook-derived oracle (`data/ern/workbook_oracle_table.csv`) on the production dataset for 5 equity allocations × 9 withdrawal rates × 4 horizons × 1,739 cohorts. The historical published-ERN oracle (`data/ern/p49_oracle_table.csv`) is validated separately by `test_oracle_matrix.py` and is not a production expected-value source. The production E2E is gated by `RUN_ERN_E2E=1` and is not part of routine validation.
 
 **This does not constitute validation of the article's complete research grid.** The article's broader research grid contains 21 equity allocations (0% to 100% in 5% steps) and 5 terminal-value targets; the existing FBF E2E covers only the designated 5-weight, FV=0 reproduction subset. The intermediate weights (5%, 10%, 15%, 20%, 30%, 35%, 40%, 45%, 55%, 60%, 65%, 70%, 80%, 85%, 90%, 95%) and the non-zero final-value targets (25%, 50%, 75%, 100%) are not covered by the existing E2E.
 
@@ -371,7 +372,7 @@ Charts 1 and 2 are not independently reproducible as E2Es because:
 
 ### 4.6 E2E Coverage Summary
 
-No additional Part 1 E2E is required to check implementation/oracle consistency for the currently designated FBF reproduction subset because the existing canonical E2E is designed to check FBF output against the pinned oracle for the exact FBF experiment designated as the Part 1 reproduction subset. The ERN E2E Replication Plan (`ERN_E2E_REPLICATION_PLAN.md`) classifies Part 1 as "CANONICAL: YES" and notes it is "Redundant with Part 2" (which adds terminal value targets). The existing `ern_grid.yaml` covers the Part 1 depletion case (FV=0.0). The canonical E2E is gated by `RUN_ERN_E2E=1` and is not part of routine validation.
+No additional Part 1 E2E is required for the currently designated FBF production reproduction subset because the production E2E checks the production engine against the workbook-derived oracle for the exact FBF experiment designated as the Part 1 reproduction subset. The historical published-ERN oracle remains a separate target validated by `test_oracle_matrix.py`. The ERN E2E Replication Plan (`ERN_E2E_REPLICATION_PLAN.md`) classifies Part 1 as "CANONICAL: YES" and notes it is "Redundant with Part 2" (which adds terminal value targets). The existing `ern_grid.yaml` covers the Part 1 depletion case (FV=0.0). The production E2E is gated by `RUN_ERN_E2E=1` and is not part of routine validation.
 
 **Scope limitation:** The existing E2E covers the designated FBF reproduction subset (5 equity allocations, FV=0%). It does not cover the article's broader research grid (21 equity allocations, 5 terminal-value targets).
 
@@ -539,17 +540,17 @@ This mapping describes the published-ERN historical replication target. Current 
 
 The article specifies 21 equity weights (0%, 5%, 10%, ..., 100%). The existing `ern_grid.yaml` uses 5 representative weights: [0%, 25%, 50%, 75%, 100%]. This is a deliberate subset selected for FBF's canonical reproduction.
 
-**Impact on E2E:** The 5-weight grid includes all the specific cells cited in the article's conclusions (50/50 at 4%/30y = 95%, 50/50 at 4%/60y = 65%, 75/25 at 3.5%/60y = 97%). The intermediate weights (5%, 10%, 15%, etc.) are not included in the FBF reproduction subset. The existing E2E checks the five-weight subset currently selected for FBF's canonical reproduction, including the published anchor cells it is intended to check.
+**Impact on E2E:** The 5-weight grid includes all the specific cells cited in the article's conclusions (50/50 at 4%/30y = 95%, 50/50 at 4%/60y = 65%, 75/25 at 3.5%/60y = 97%). The intermediate weights (5%, 10%, 15%, etc.) are not included in the FBF reproduction subset. The production E2E checks the five-weight production subset against the workbook-derived oracle. The published anchors remain historical comparison values in `test_oracle_matrix.py`; the workbook production values are 95, 66, and 98 for those three cells, so the 65 and 97 cells are part of the documented 13-cell T vs T+1 divergence.
 
 ### 6.3 Article Claims vs. E2E Verifiability
 
 | Article Claim | Claim Type | Evidence Category |
 |--------------|------------|-------------------|
-| Table 1 success rates for 5W × 9R × 4H grid | Exact published values | **FBF/ORACLE-CONSISTENT ONLY** — E2E checks FBF output against pinned oracle; not independently validated against ERN source |
-| 4% SWR / 50/50 / 30y = 95% success | Exact published anchor | **FBF/ORACLE-CONSISTENT ONLY** — hard-fail anchor in E2E against pinned oracle |
-| 4% SWR / 50/50 / 60y = 65% success | Exact published anchor | **FBF/ORACLE-CONSISTENT ONLY** — hard-fail anchor in E2E against pinned oracle |
-| 75–100% equity at 3.5% or below has very high success | Qualitative observation | **FBF/ORACLE-CONSISTENT ONLY** — verifiable from oracle table (which itself is FBF-generated) |
-| 5% SWR has unacceptably low success | Qualitative observation | **FBF/ORACLE-CONSISTENT ONLY** — verifiable from oracle table (which itself is FBF-generated) |
+| Table 1 success rates for 5W × 9R × 4H grid | Exact published values | **PRODUCTION WORKBOOK CONFORMANCE** — production E2E checks FBF output against the workbook-derived oracle; historical published oracle is separate |
+| 4% SWR / 50/50 / 30y = 95% success | Exact published anchor | **MATCHES BOTH** — production E2E exact match; historical anchor in `test_oracle_matrix.py` |
+| 4% SWR / 50/50 / 60y = 65% success | Exact published anchor | **HISTORICAL ONLY** — published anchor; workbook production value is 66 (documented T vs T+1 divergence) |
+| 75–100% equity at 3.5% or below has very high success | Qualitative observation | **WORKBOOK-CONSISTENT** — verifiable from the production workbook oracle table |
+| 5% SWR has unacceptably low success | Qualitative observation | **WORKBOOK-CONSISTENT** — verifiable from the production workbook oracle table |
 | 60-year SWRs are generally >1pp below 30-year | Qualitative (chart) | **UNRESOLVED** — qualitative; exact per-cohort values not published |
 | Low-SWR region gap is ~0.5pp | Qualitative (chart) | **UNRESOLVED** — approximate; exact values not published |
 | Forward equity ~6.6%, bonds 0% for 120mo then ~2.6% | Parameter assumption | **ERN SOURCE-ESTABLISHED**; published reference oracle uses these values. Current production uses workbook 4.0%/2.5% then 5.5%/2.25% |
@@ -615,15 +616,23 @@ The published-ERN oracle table (`p49_oracle_table.csv`) was generated from this 
 
 ### 8.2 E2E Validation
 
-The E2E checks FBF output against the pinned published-ERN oracle table with:
+The production E2E checks FBF output against the workbook-derived oracle table
+(`workbook_oracle_table.csv`) with **exact Decimal equality** for all 180 cells.
+The oracle uses the workbook's T cohort terms and additive fee.
 
-- **Exact Decimal equality** for all 180 cells.
-- **Three hard-fail anchors:**
-  - 50% equity / 30-year / 4% SWR → 95% success
-  - 50% equity / 60-year / 4% SWR → 65% success
-  - 75% equity / 60-year / 3.5% SWR → 97% success
+The historical published-ERN target is validated separately by
+`test_oracle_matrix.py`: the pinned `p49_oracle_table.csv` regenerates exactly
+from `reference_oracle.py`, and the published anchors hold there:
 
-**Classification:** This is **implementation/oracle consistency** — FBF produces results consistent with the pinned oracle. It is not independent proof that the implementation matches ERN's published methodology. The oracle itself was generated by the reference oracle (`tools/ern/reference_oracle.py`), which does implement the article's published forward-projection values.
+- 50% equity / 30-year / 4% SWR → 95% success
+- 50% equity / 60-year / 4% SWR → 65% success
+- 75% equity / 60-year / 3.5% SWR → 97% success
+
+**Classification:** The production E2E is implementation/oracle consistency
+against the workbook-derived production oracle. The published-ERN comparison is
+historical replication evidence, not production conformance. The 13 cells where
+the published oracle differs from the production workbook result are the
+documented T vs T+1 divergence, not production failures.
 
 ### 8.3 Expected Result Classifications
 
@@ -645,11 +654,11 @@ The E2E checks FBF output against the pinned published-ERN oracle table with:
 The Part 1 reproduction is already executable:
 
 ```bash
-# Full grid (canonical E2E, requires RUN_ERN_E2E=1):
-RUN_ERN_E2E=1 pytest tests/oracle/ern/test_full_swr_grid.py::test_full_grid_matches_oracle -v
+# Full production grid (requires RUN_ERN_E2E=1):
+RUN_ERN_E2E=1 pytest tests/oracle/ern/test_full_swr_grid.py::test_full_grid_matches_workbook_oracle -v
 
-# Smoke test (runs in normal suite):
-pytest tests/oracle/ern/test_full_swr_grid.py::test_smoke_cell_matches_oracle -v
+# Production smoke test (requires RUN_ERN_E2E=1):
+RUN_ERN_E2E=1 pytest tests/oracle/ern/test_full_swr_grid.py::test_smoke_cell_matches_workbook_oracle -v
 
 # Via CLI directly:
 sim-retire --data-dir data/ern run examples/studies/ern_grid.yaml \
@@ -760,7 +769,7 @@ This is a subset of the article's full research grid (6,573,420 combinations). T
 
 ### 10.8 Whether the "0 New E2Es" Conclusion Still Holds
 
-**No additional E2E is required to check implementation/oracle consistency for the currently designated published-ERN Part 1 reproduction subset.** The existing canonical E2E is designed to check FBF output against the pinned published-ERN oracle for the exact FBF experiment designated as the Part 1 reproduction subset: 5 equity allocations × 9 withdrawal rates × 4 horizons × 1,739 cohorts, including exact comparison. This covers the published anchor cells the E2E is intended to check. The canonical E2E remains gated by `RUN_ERN_E2E=1` and is not part of routine validation.
+**No additional E2E is required for the currently designated FBF production reproduction subset.** The production E2E checks the production engine against the workbook-derived oracle for the exact FBF experiment designated as the Part 1 reproduction subset: 5 equity allocations × 9 withdrawal rates × 4 horizons × 1,739 cohorts, with exact equality. The historical published-ERN oracle remains a separate target validated by `test_oracle_matrix.py`; it does not determine production expected values. The production E2E remains gated by `RUN_ERN_E2E=1` and is not part of routine validation.
 
 **This does not constitute validation of the article's broader research grid (21 allocations × 5 terminal-value targets, 6,573,420 combinations).** The FBF canonical reproduction is a subset.
 
@@ -769,9 +778,9 @@ This is a subset of the article's full research grid (6,573,420 combinations). T
 The conclusion is based on:
 1. The implementation produces 1,739 cohorts (count consistent with the article)
 2. The parameter grid is the designated FBF reproduction subset (5 weights, 9 rates, 4 horizons, FV=0)
-3. The pinned published-ERN oracle table contains the expected values for this subset
-4. The canonical E2E checks all 180 cells with exact Decimal equality (implementation/oracle consistency)
-5. The published reference oracle uses the article's published forward assumptions (6.6%, 2.6%, 120 months)
+3. The workbook-derived oracle table contains the production expected values for this subset
+4. The production E2E checks all 180 cells with exact Decimal equality
+5. The published reference oracle uses the article's published forward assumptions (6.6%, 2.6%, 120 months) for the separate historical target
 
 ### 10.9 Remaining Configuration and Validation Gaps
 

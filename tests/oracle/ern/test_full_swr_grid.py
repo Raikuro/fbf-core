@@ -1,6 +1,7 @@
-"""Canonical ERN Full SWR Grid E2E replication.
+"""Full ERN SWR Grid production-conformance E2E.
 
-Executes the full ERN SWR grid (Table 1) through the public application boundary:
+Executes the full ERN SWR grid through the public application boundary using
+the production dataset and the workbook-derived oracle:
 
     5 equity weights × 9 withdrawal rates × 4 horizons × 1,739 cohorts = 313,020 units
 
@@ -12,20 +13,22 @@ Validates at three levels:
 2. **Computational execution** — the 313,020 units are executed through
    the real simulation path and produce real outcomes.
 
-3. **Canonical replication** — every cell matches the pinned ERN oracle table
-   (``data/ern/p49_oracle_table.csv``) with exact Decimal equality.
-   The three published anchors (95 / 65 / 97) are hard-fail checks.
+3. **Production conformance** — every cell matches the workbook-derived
+   oracle table (``data/ern/workbook_oracle_table.csv``) with exact Decimal
+   equality.  The oracle uses the workbook's T cohort terms and additive fee.
+
+The published-ERN historical target is separate: ``p49_oracle_table.csv`` and
+``tools/ern/reference_oracle.py`` use T+1 terms and a multiplicative fee.  They
+must not determine production expected values.
 
 The grid runs in summary-only mode: no SQLite study database is created and
 per-month timelines are never materialized.
 
 Test execution model:
-- ``test_full_grid_matches_oracle``: canonical Research E2E (gated by ``RUN_ERN_E2E=1``).
+- ``test_full_grid_matches_workbook_oracle``: production E2E (gated by ``RUN_ERN_E2E=1``).
 
 Canonical E2E tests are gated behind ``RUN_ERN_E2E=1`` via the centralized
 skip hook in ``tests/conftest.py``.  They are NOT part of the normal ``pytest`` invocation.
-
-This test uses the REFERENCE backend to match the canonical oracle derivation path.
 """
 
 from __future__ import annotations
@@ -39,13 +42,16 @@ import pytest
 import yaml
 
 from fbf.core.application import run_study
-from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionBackend, ExecutionOptions
 from fbf.core.study import StudyConfiguration
 
-from .constants import COHORTS_PER_CELL, OracleTable, load_oracle_table
-from .published_dataset import load_published_ern_dataset
+from .constants import (
+    COHORTS_PER_CELL,
+    WORKBOOK_ORACLE_CSV,
+    OracleTable,
+    load_oracle_table,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -72,13 +78,6 @@ FV_TARGETS = (Decimal("0.0"),)
 
 FULL_GRID_CELLS = len(WEIGHTS) * len(RATES) * len(HORIZONS) * len(FV_TARGETS)  # 180
 FULL_GRID_UNITS = FULL_GRID_CELLS * COHORTS_PER_CELL  # 313,020
-
-# Hard-fail acceptance anchors from the ERN paper Table 1 (Section 5.2).
-ANCHOR_CELLS: tuple[tuple[float, int, float, int], ...] = (
-    (0.5, 30, 0.04, 95),
-    (0.5, 60, 0.04, 65),
-    (0.75, 60, 0.035, 97),
-)
 
 _ROUNDING = ROUND_HALF_EVEN
 
@@ -114,23 +113,13 @@ def data_dir() -> Path:
 
 
 @pytest.fixture(scope="session")
-def oracle() -> OracleTable:
-    return load_oracle_table()
+def workbook_oracle() -> OracleTable:
+    return load_oracle_table(WORKBOOK_ORACLE_CSV)
 
 
 @pytest.fixture(scope="session")
-def published_dataset() -> Dataset:
-    """Frozen published-ERN dataset (September 2016 cutoff)."""
-    return load_published_ern_dataset()
-
-
-@pytest.fixture(scope="session")
-def canonical_execution(data_dir: Path, published_dataset: Dataset) -> GridResult:
-    """Execute the full canonical SWR grid through the public application boundary.
-
-    Uses the REFERENCE backend to match the canonical oracle derivation path
-    (standalone reference_oracle.py).
-    """
+def canonical_execution(data_dir: Path) -> GridResult:
+    """Execute the full production SWR grid through the public application boundary."""
     t_exec_start = time.perf_counter()
     result = run_study(
         config=StudyConfiguration.from_yaml(
@@ -139,11 +128,10 @@ def canonical_execution(data_dir: Path, published_dataset: Dataset) -> GridResul
         data_dir=str(data_dir),
         initial_wealth=INITIAL_WEALTH,
         options=ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.FAST,
             summary_only=True,
             workers=None,  # Auto-detect
         ),
-        dataset=published_dataset,
     )
     t_exec_end = time.perf_counter()
     exec_time = t_exec_end - t_exec_start
@@ -182,16 +170,16 @@ def canonical_execution(data_dir: Path, published_dataset: Dataset) -> GridResul
 
 
 @pytest.mark.ern_e2e
-def test_full_grid_matches_oracle(canonical_execution: GridResult, oracle: OracleTable) -> None:
-    """Full Table 1 grid (5 weights × 9 rates × 4 horizons = 180 cells).
+def test_full_grid_matches_workbook_oracle(
+    canonical_execution: GridResult, workbook_oracle: OracleTable
+) -> None:
+    """Full production grid (5 weights × 9 rates × 4 horizons = 180 cells).
 
-    The whole grid is executed as ONE study through the public application boundary
-    using the REFERENCE backend (matching the canonical oracle derivation path).
-    Validates:
+    The whole grid is executed as ONE study through the public application
+    boundary using the production dataset and FAST backend. Validates:
     - 313,020 total units executed
     - 180 cells covering the exact parameter space
-    - Every cell matches the oracle with exact Decimal equality (0 pp tolerance)
-    - Three hard-fail anchors match published values
+    - Every cell matches the workbook-derived oracle with exact Decimal equality
     """
     # --- Structural invariants ---
     assert canonical_execution["actual_units"] == FULL_GRID_UNITS, (
@@ -231,11 +219,10 @@ def test_full_grid_matches_oracle(canonical_execution: GridResult, oracle: Oracl
     # --- Oracle comparison: exact Decimal equality (0 pp tolerance) ---
     deviations: list[Decimal] = []
     outside: list[tuple[float, int, float, Decimal, int]] = []
-    anchor_results: dict[str, tuple[int, int]] = {}
 
     for key, success_rate in sorted(canonical_execution["cell_success_rates"].items()):
         weight, rate, horizon, _fv = key
-        expected_pct = oracle[(weight, horizon)][rate]
+        expected_pct = workbook_oracle[(weight, horizon)][rate]
         actual_pct = (
             Decimal(str(success_rate)) * Decimal("100")
         ).quantize(Decimal("1"), rounding=_ROUNDING)
@@ -246,31 +233,12 @@ def test_full_grid_matches_oracle(canonical_execution: GridResult, oracle: Oracl
         if dev != 0:
             outside.append((weight, horizon, rate, actual_pct, expected_pct))
 
-        # Track anchor cells
-        for aw, ah, ar, aexp in ANCHOR_CELLS:
-            if (weight, rate, horizon) == (aw, ar, ah):
-                anchor_results[f"{int(aw * 100)}/{horizon}y/{ar * 100:.2f}%"] = (
-                    int(actual_pct),
-                    aexp,
-                )
-
-    # Hard-fail anchors
-    for weight, horizon, rate, expected in ANCHOR_CELLS:
-        key = (weight, rate, horizon, 0.0)
-        actual_pct = (
-            Decimal(str(canonical_execution["cell_success_rates"][key])) * Decimal("100")
-        ).quantize(Decimal("1"), rounding=_ROUNDING)
-        assert actual_pct == Decimal(expected), (
-            f"anchor {int(weight * 100)}/{horizon}y/{rate * 100:.2f}%: "
-            f"engine {actual_pct}% vs oracle {expected}%"
-        )
-
     worst_diff = max(deviations)
     min_diff = min(deviations)
 
     # Acceptance report
     print("\n" + "=" * 62)
-    print("ERN FULL SWR GRID CANONICAL E2E ACCEPTANCE REPORT")
+    print("ERN FULL SWR GRID PRODUCTION E2E ACCEPTANCE REPORT")
     print("=" * 62)
     print(f"Cells reported:     {canonical_execution['actual_cells']}/{FULL_GRID_CELLS}")
     print(f"Wall time:          {canonical_execution['exec_time_s']:.0f}s "
@@ -278,9 +246,6 @@ def test_full_grid_matches_oracle(canonical_execution: GridResult, oracle: Oracl
     print(f"Total units:        {canonical_execution['actual_units']:,}")
     print(f"Abs deviation min:  {min_diff} pp")
     print(f"Abs deviation max:  {worst_diff} pp")
-    print("Anchors (hard-fail):")
-    for name, (got, exp) in anchor_results.items():
-        print(f"  {name}: engine={got}% oracle={exp}% ({'PASS' if got == exp else 'FAIL'})")
     if outside:
         print(f"Cells outside exact Decimal equality: {len(outside)}")
         for cell in outside:
@@ -289,22 +254,21 @@ def test_full_grid_matches_oracle(canonical_execution: GridResult, oracle: Oracl
         print("Cells outside exact Decimal equality: 0")
     print("=" * 62)
 
-    # All cells must match oracle exactly
+    # All cells must match the workbook-derived oracle exactly
     assert len(canonical_execution["cell_keys"]) == FULL_GRID_CELLS
     assert worst_diff == 0, f"mismatched cells: {sorted(outside, reverse=True)}"
 
 
 @pytest.mark.ern_e2e
-def test_smoke_cell_matches_oracle(
+def test_smoke_cell_matches_workbook_oracle(
     data_dir: Path,
-    oracle: OracleTable,
-    published_dataset: Dataset,
+    workbook_oracle: OracleTable,
 ) -> None:
-    """Minimal ERN smoke cell reproduces the oracle anchor (95%).
+    """Minimal production smoke cell reproduces the workbook oracle (95%).
 
     Single cell: weight=0.5, rate=4%, horizon=30y, FV=0.0
-    Uses REFERENCE backend with 60-year cohort universe (1739 cohorts).
-    Compares success rate against oracle (rate-based, not count-based).
+    Uses FAST backend with the 60-year production cohort universe (1739 cohorts).
+    Compares success rate against the workbook-derived oracle.
     """
     smoke_yaml = """
 metadata:
@@ -328,20 +292,19 @@ expense_ratio: 0.0005
         data_dir=str(data_dir),
         initial_wealth=INITIAL_WEALTH,
         options=ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.FAST,
             summary_only=True,
             workers=None,
         ),
-        dataset=published_dataset,
     )
 
     # Single cell validation - 1739 cohorts (60-year cohort universe)
     assert len(result.experiment_result.simulation_results) == COHORTS_PER_CELL
     assert len(result.plan.units) == COHORTS_PER_CELL
 
-    # Oracle anchor: weight=0.5, horizon=30, rate=0.04 -> 95%
+    # Workbook oracle: weight=0.5, horizon=30, rate=0.04 -> 95%
     # Compare success rate (rate-based, not count-based)
-    oracle_pct = oracle[(0.5, 30)][0.04]
+    oracle_pct = workbook_oracle[(0.5, 30)][0.04]
     success_rate = sum(
         1 for r in result.experiment_result.simulation_results if r.statistics.success
     ) / COHORTS_PER_CELL

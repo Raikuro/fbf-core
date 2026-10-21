@@ -1,8 +1,12 @@
-"""Fast tests for the independent ERN oracle matrix (runs by default).
+"""Fast tests for the historical published-ERN oracle matrix.
 
-These verify the pinned oracle table at ``data/ern/p49_oracle_table.csv`` is
-regenerated identically by the standalone reference tool and that the published
-paper anchors hold.  They do not run any simulation.
+These verify the pinned published-ERN table at ``data/ern/p49_oracle_table.csv``
+is regenerated identically by the standalone reference tool and that the
+published paper anchors hold.  They do not run any simulation.
+
+This is the historical replication target (T+1 terms, multiplicative fee), not
+production conformance.  Production uses the workbook-derived oracle at
+``data/ern/workbook_oracle_table.csv`` (T terms, additive fee).
 """
 
 from __future__ import annotations

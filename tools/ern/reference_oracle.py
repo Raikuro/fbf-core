@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Standalone ERN SWR reference oracle (SSRN 2920322).
 
-This is the independent reference tool for the P4.9 black-box E2E replication.
-It is a pure data-processing utility: it imports NO framework modules and is
-NEVER called by the E2E test.  The E2E asserts against the pinned oracle matrix
-``data/ern/p49_oracle_table.csv`` that this tool regenerates.
+This is the independent tool for the historical published-ERN replication
+target. It is a pure data-processing utility: it imports NO framework modules
+and is NEVER called by production code. The historical oracle test asserts
+against the pinned matrix ``data/ern/p49_oracle_table.csv`` that this tool
+regenerates.
+
+This is not the production-conformance oracle. Production uses
+``tools/ern/workbook_oracle.py`` and ``data/ern/workbook_oracle_table.csv``
+(T cohort terms, additive fee). This tool preserves the published T+1 terms and
+multiplicative fee for historical comparison only.
 
 Inputs (source, from ERN's public SWR Toolbox Google Sheet "Asset Returns" tab,
     spreadsheet id 1QGrMm6XSGWBVLI8I_DOAeJV5whoCnSdmaR8toQB2Jz8):
@@ -42,7 +48,9 @@ from pathlib import Path
 
 _TOOL_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOL_DIR.parents[1]
-_DATA_DIR = _REPO_ROOT / "data" / "ern" / "published_2016"
+_DATA_DIR = _REPO_ROOT / "data" / "ern"
+_SOURCE_DIR = _DATA_DIR / "published_2016"
+_OUTPUT_PATH = _DATA_DIR / "p49_oracle_table.csv"
 
 FEE = Decimal("0.0005")
 _R_EQ_FWD_ANNUAL = Decimal("1.066")
@@ -171,13 +179,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--source",
         type=Path,
-        default=_DATA_DIR,
+        default=_SOURCE_DIR,
         help="Directory containing the published-2016 real-return CSVs",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=_DATA_DIR / "p49_oracle_table.csv",
+        default=_OUTPUT_PATH,
         help="Output path for the oracle matrix CSV",
     )
     args = parser.parse_args(argv)

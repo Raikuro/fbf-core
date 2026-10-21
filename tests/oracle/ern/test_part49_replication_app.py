@@ -212,11 +212,14 @@ def test_part49_canonical_replication(canonical_execution: CanonicalResult) -> N
     - Success rates vary across cells
     - Not trivially all-pass or all-fail
 
-    **Level 3 — Canonical replication:**
-    - Non-leverage cells (interest_rate=0) compared against pinned
-      ERN oracle table
+    **Level 3 — Historical published-ERN comparison:**
+    - Non-leverage cells (interest_rate=0) compared against the pinned
+      historical published-ERN oracle table
     - Leverage cells validated with directional assertions
       (higher interest = lower success)
+
+    Production conformance is validated separately against the workbook-derived
+    oracle; this test retains the published-ERN historical comparison.
     """
     # === Level 1: Structural coverage ===
     assert canonical_execution["actual_cells"] == CANONICAL_CELLS, (
@@ -261,7 +264,7 @@ def test_part49_canonical_replication(canonical_execution: CanonicalResult) -> N
 
     # === Level 3: Canonical replication ===
 
-    # 3a: Non-leverage cells compared against pinned oracle table
+    # 3a: Non-leverage cells compared against the historical published oracle
     oracle = load_oracle_table()
     for eq in CANONICAL_EQUITY:
         eq_f = float(eq)

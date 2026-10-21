@@ -70,8 +70,8 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 1.1 | Foundational 180-cell SWR oracle grid | 5W × 9R × 4H × 1,739 cohorts = 313,020 units | RESEARCH REPLICATION | `IMPLEMENTED` | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | None | Retain (redundant with Part 2 only AFTER Part 2 is implemented) |
-| 1.2 | Smoke validation | 1 cell × 2,099 cohorts | SMOKE | `IMPLEMENTED` | `test_ern_swr_replication.py::test_smoke_grid_matches_oracle` | None | Retain (diagnostic, not replication) |
+| 1.1 | Foundational 180-cell SWR production grid | 5W × 9R × 4H × 1,739 cohorts = 313,020 units | PRODUCTION CONFORMANCE | `IMPLEMENTED` | `tests/oracle/ern/test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | None | Retain (redundant with Part 2 only AFTER Part 2 is implemented) |
+| 1.2 | Smoke validation | 1 cell × 1,739 cohorts | SMOKE | `IMPLEMENTED` | `tests/oracle/ern/test_full_swr_grid.py::test_smoke_cell_matches_workbook_oracle` | None | Retain (diagnostic, not replication) |
 
 ### Part 2 — Capital Preservation vs. Capital Depletion
 
@@ -149,8 +149,8 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 | Test / function / class | Article | Simulation count | Executor / backend | Canonical? | What it actually proves | Retained? | Reason for retention |
 |------------------------|---------|-----------------|-------------------|------------|------------------------|-----------|---------------------|
-| `test_ern_swr_replication.py::test_full_grid_matches_oracle` | Parts 1+2 | 313,020 | CLI reference | Yes | SWR success rates against pinned oracle (FV=0 only) | Yes | Only implemented validation of foundational SWR grid |
-| `test_ern_swr_replication.py::test_smoke_grid_matches_oracle` | Part 1 | 2,099 | CLI reference | Yes | Single-cell oracle anchor | Yes | Diagnostic smoke, different responsibility |
+| `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | Parts 1+2 | 313,020 | FAST production engine | Production | SWR success rates against the workbook-derived oracle (FV=0 only) | Yes | Production conformance for the foundational SWR grid |
+| `test_full_swr_grid.py::test_smoke_cell_matches_workbook_oracle` | Part 1 | 1,739 | FAST production engine | Production | Single-cell workbook-oracle anchor | Yes | Diagnostic smoke, different responsibility |
 | `test_part20_replication.py::test_part20_full_grid_replication` | Part 20 | 556,480 | CLI reference | Regression only | Grid structure, computational execution, traceable anchors — NOT replication | Yes | Regression coverage, NOT replication evidence |
 | `test_part49_replication.py::test_part49_canonical_replication` | Part 49 | 10,434 | Python API (`ResearchExecutor`) | Non-canonical | Leverage mechanics with deviations (LTV OFF, no buy-and-hold) | Yes | Validates leverage mechanics, NOT canonical replication |
 | `test_part42_replication.py::test_part42_canonical_replication` | Part 42 | 93,915 | Python API (`FastPathSimulationExecutor`) | Structural only | Grid structure, directional invariants — NOT ERN anchor validation | Yes | Structural validation, NOT published-table replication |
@@ -483,7 +483,7 @@ All Part 49 canonical experiments (B–F) are implemented and validated with buy
     - D: $20k/$20k — LTV at month 201 ≈ 71.60% / 84.45% / 93.11% — Chart 04 ✅
     - E: $30k/$10k — Max LTV 70.25%@348 (3%), 57.68%@201 (1.5%) — Charts 05/06 ✅
     - F: Historical 4% — 4752 units (792 cohorts × 6 cells), 0 failures — "never failed" ✅
-  - Non-leverage oracle: Matches independent `p49_oracle_table.csv` ✅
+  - Non-leverage historical comparison: Matches pinned `p49_oracle_table.csv` ✅
   - Prerequisite: T6.1 (complete)
   - Dependencies: T6.1
 
