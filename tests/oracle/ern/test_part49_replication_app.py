@@ -4,7 +4,8 @@ import time
 from collections import defaultdict
 from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -12,7 +13,10 @@ import yaml
 from fbf.core.application import run_study
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionOptions
+from fbf.core.execution import ExecutionBackend, ExecutionOptions
+from fbf.core.execution.strategies.part49_numba_executor import (
+    Part49NumbaExecutor,
+)
 from fbf.core.study import StudyConfiguration
 
 from .constants import OracleTable, load_oracle_table
@@ -26,6 +30,7 @@ class CanonicalResult(TypedDict):
     cell_keys: set[tuple[float, float]]
     exec_time_s: float
     peak_rss_mb: float
+    numba_executor_calls: int
     result_count: int
     successes: int
     failures: int
@@ -94,20 +99,31 @@ def canonical_execution(
         yaml.safe_load(PART49_YAML.read_text(encoding="utf-8"))
     )
 
-    # Execute through public application boundary
+    numba_executor_calls = 0
+    original_execute = Part49NumbaExecutor.execute
+
+    def tracked_execute(
+        executor: Part49NumbaExecutor, definition: Any
+    ) -> Any:
+        nonlocal numba_executor_calls
+        numba_executor_calls += 1
+        return original_execute(executor, definition)
+
     t_exec_start = time.perf_counter()
-    result = run_study(
-        config=StudyConfiguration.from_yaml(
-            yaml.safe_load(PART49_YAML.read_text(encoding="utf-8"))
-        ),
-        data_dir=str(data_dir),
-        initial_wealth=INITIAL_WEALTH,
-        options=ExecutionOptions(
-            summary_only=True,
-            workers=None,  # Auto-detect
-        ),
-        dataset=published_dataset,
-    )
+    with patch.object(Part49NumbaExecutor, "execute", tracked_execute):
+        result = run_study(
+            config=StudyConfiguration.from_yaml(
+                yaml.safe_load(PART49_YAML.read_text(encoding="utf-8"))
+            ),
+            data_dir=str(data_dir),
+            initial_wealth=INITIAL_WEALTH,
+            options=ExecutionOptions(
+                backend=ExecutionBackend.FAST,
+                summary_only=True,
+                workers=None,  # Auto-detect
+            ),
+            dataset=published_dataset,
+        )
     t_exec_end = time.perf_counter()
     exec_time = t_exec_end - t_exec_start
 
@@ -165,6 +181,7 @@ def canonical_execution(
         cell_keys=cell_keys,
         exec_time_s=exec_time,
         peak_rss_mb=0.0,  # Not measured in-process
+        numba_executor_calls=numba_executor_calls,
         result_count=actual_units,
         successes=successes,
         failures=failures,
@@ -210,6 +227,11 @@ def test_part49_canonical_replication(canonical_execution: CanonicalResult) -> N
     )
     assert canonical_execution["result_count"] == EXPECTED_TOTAL_UNITS, (
         f"expected {EXPECTED_TOTAL_UNITS} results, got {canonical_execution['result_count']}"
+    )
+    assert canonical_execution["numba_executor_calls"] == 1, (
+        "expected the full plan to be executed exactly once by "
+        "Part49NumbaExecutor, got "
+        f"{canonical_execution['numba_executor_calls']} call(s)"
     )
 
     cell_keys = canonical_execution["cell_keys"]

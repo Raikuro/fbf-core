@@ -1,6 +1,6 @@
 # Roadmap: Migration to a Single Numba Execution Engine
 
-**Status:** Phase C **IN PROGRESS** 🔄 (C1, C2, and C5 complete; C3 implementation complete, formal closure pending the 10,434-unit Numba-path E2E; C4 complete for the approved supported scope via Option B); D1 and D3 complete; D2 implementation complete, full-grid streaming validation pending; D4 and D5 not started
+**Status:** Phase C **IN PROGRESS** 🔄 (C1, C2, C3, and C5 complete; C4 complete for the approved supported scope via Option B); D1 and D3 complete; D2 implementation complete, full-grid streaming validation pending; D4 and D5 not started
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
 **Objective:** Make Numba the sole simulation engine, progressively shrink and
 eventually delete the legacy Reference execution stack, and preserve
@@ -345,18 +345,19 @@ Work items:
    Glidepath fee alignment is tracked under capability #4.
 
 3. **C3 — Part 49 debt (`loan_draw_rate`) migration.**
-   ✅ Implementation complete; formal closure pending validation.
+   ✅ Complete.
    Part 49 and Part 52 have different debt semantics (fixed draw rate vs
    drawdown-triggered, no ATH repayment). The dedicated Numba executor and
    kernel are implemented, including real-rate propagation, LTV terminal state,
    and differential tests against the Decimal/legacy path.
 
-   **C3 closure gate:** run the 10,434-unit Part 49 full-path workload with
-   explicit proof that `Part49NumbaExecutor` was selected (for example by
-   using the FAST backend or asserting the selected executor). The run must
-   also verify non-leverage cells against `p49_oracle_table.csv` and
-   leverage-directionality checks. The existing AUTO-mode test does not, by
-   itself, prove that the Numba executor was selected.
+   **C3 closure evidence:** the 10,434-unit Part 49 full-path workload ran with
+   `ExecutionBackend.FAST` and a patched `Part49NumbaExecutor.execute` call
+   counter, proving the whole plan was handled by the Numba executor rather
+   than the REFERENCE fallback. The non-leverage comparison against
+   `p49_oracle_table.csv` passes (100% vs the pinned 100%), and
+   leverage-directionality checks pass; the run recorded 10,431 successes
+   and 3 failures out of 10,434 units.
 
 4. **C4 — Part 49 buy-and-hold migration.**
    ✅ Complete for the approved supported scope: Part 49 buy-and-hold,
@@ -380,20 +381,20 @@ Work items:
 
 Phase C gate:
 - Part 52 eligible configurations execute on Numba with no fallback. ✅
-- Part 49 debt workloads execute on Numba. ✅ Implementation; formal C3 gate
-  below remains open.
+- Part 49 debt workloads execute on Numba. ✅ Complete; formal C3 gate
+  satisfied below.
 - LTV enforcement produces `margin_call_terminal` failure state. ✅
 - All Part 52/49 integration tests pass on Numba executors. ✅
 - **C3 gate:** 10,434-unit Part 49 full-path validation with proof that
   `Part49NumbaExecutor` was selected, plus non-leverage oracle checks and
-  leverage-directionality checks.
+  leverage-directionality checks. ✅
 - **C4 gate:** approved Option B for the supported scope, independent of the
   C3 debt E2E. ✅
-- C3 remains open until its 10,434-unit Numba-path gate passes. C4 is closed
-  only for the approved supported scope; this does not imply real-data
-  canonical-scale equivalence, 1,739-cohort coverage, or a canonical ERN
-  buy-and-hold oracle. Passing the existing 10,434-unit constant-allocation
-  test closes neither C3 nor C4 by itself.
+- C3 is closed by its 10,434-unit Numba-path gate. C4 is closed only for the
+  approved supported scope; this does not imply real-data canonical-scale
+  equivalence, 1,739-cohort coverage, or a canonical ERN buy-and-hold oracle.
+  The existing 10,434-unit constant-allocation test is the C3 evidence; it does
+  not close C4.
 
 #### C4 acceptance decision (approved: Option B)
 
@@ -772,7 +773,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | B5: Multi-asset | ✅ Complete | `concrete.py`, `fast_path.py`, `numba_executor.py`, `test_multi_asset_allocation.py` | 85d72582f047279d5d9c42ca3f3cb0e3d9099c7b | Explicit N-asset `allocations`; single `resolve_target_weights`; nominal/escalating/Part 52 gate to the legacy form and fall back for explicit allocations |
 | C1: Part 52 Numba-only | ✅ Complete | `part52_numba_executor.py`, `execution/__init__.py`, `test_part52_dispatch_contract.py` | 2343c225278d1e02722a9567ab911e835215b6ff | Eligible Part 52 runs on Numba; explicit FAST on an ineligible Part 52 workload raises `UnsupportedConfigurationError` (no silent fallback) |
 | C2: Part 52 fee behavior | ✅ Complete (B1) | `_compute_growth_factors_numpy` (`numba_kernel.py`) fee passed by `part52_numba_executor.py`; `TestPart52ExpenseRatioSupport`, `TestPart52ExpenseRatioIndependentValidation` | 8dfbf24 (audited) | Additive fee `g_m = Σ_j w_j·P_{j,m}/P_{j,m-1} − fee/12` embedded in kernel growth factors |
-| C3: Part 49 debt migration | 🔄 In Progress — implementation complete; validation pending | `part49_numba_executor.py`, `test_part49_numba_executor.py`; production flag propagation covered in `test_research_layer_debt_flow.py` | 5d5a569 | Numba executor and kernel are implemented; `debt_interest_rate_is_real` propagation, LTV terminal state, and Decimal/legacy differentials pass. Closure requires the 10,434-unit Part 49 full-path E2E with proof that `Part49NumbaExecutor` was selected, non-leverage oracle checks, and leverage-directionality checks. |
+| C3: Part 49 debt migration | ✅ Complete | `part49_numba_executor.py`, `test_part49_numba_executor.py`; production flag propagation covered in `test_research_layer_debt_flow.py` | 5d5a569 | 10,434-unit Part 49 full-path E2E passed with `ExecutionBackend.FAST` and a concrete `Part49NumbaExecutor.execute` call-count assertion. All 6 cells × 1,739 cohorts executed; non-leverage checks pass against the pinned oracle, and leverage directionality holds. |
 | C4: Part 49 buy-and-hold | ✅ Complete (supported scope, Option B) | `part49_buy_and_hold_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`; production flag propagation covered in `test_research_layer_debt_flow.py` | 6abda00 | Supported scope: Part 49 buy-and-hold, two assets, zero fee. Option B approved after independent verification of synthetic production-path dispatch, independent Decimal differential, legacy differential, LTV, and real-rate tests. The C4 gate is independent of C3; the 10,434-unit constant-allocation test is unrelated. This closure does not establish real-data canonical-scale equivalence, 1,739-cohort coverage, or a canonical ERN buy-and-hold oracle. |
 | C5: LTV terminal state | ✅ Complete | `numba_kernel.py`, `part49_numba_executor.py`, `part49_buy_and_hold_numba_executor.py`, `part52_numba_executor.py`; `test_part49_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`, `test_part52_numba_executor.py` | b5ad4a2, 5d5a569, 6abda00 | Part 49 debt, Part 49 buy-and-hold, and Part 52 Numba kernels emit `margin_call_terminal` and match Decimal/legacy references. Targeted Numba executor and debt flag propagation tests pass. C3 and C4 closure are governed by their separate gates. |
 | D1: Trajectory materialization | ✅ Complete | `execution/strategies/*`, `execution/strategies/trajectory.py`, `test_timeline_materialization.py` | 46687ce | Optional flag; use D2 streaming at grid scale |
