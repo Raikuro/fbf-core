@@ -32,9 +32,12 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies.concrete import ConstantAllocationPolicy
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.simulation import SimulationState
+from fbf.core.execution.pipeline.simulation import (
+    ExperimentDefinition as EngineExperimentDefinition,
+    MonthlyResult,
+)
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.strategies.part52_numba_executor import Part52NumbaExecutor
 
 # Test parameters
 INITIAL_WEALTH = Decimal("1000000")
@@ -50,6 +53,22 @@ BUDGET = INITIAL_WEALTH * WITHDRAWAL_RATE / Decimal("12")
 # Asset classes (shared across all snapshots) - matching codebase convention
 EQUITY_ASSET = AssetClass(id="equity", name="", description="")
 BOND_ASSET = AssetClass(id="bond", name="", description="")
+
+
+def _execute(sim_context: SimulationContext) -> tuple[MonthlyResult, ...]:
+    definition = EngineExperimentDefinition(
+        name="part52-numerical-trace",
+        description="Part 52 numerical trace test",
+        simulation_contexts=(sim_context,),
+    )
+    executor = Part52NumbaExecutor(materialize_timeline=True)
+    result = executor.execute(definition).simulation_results[0]
+    return tuple(result.timeline.monthly_results)
+
+
+def _assert_decimal_close(actual: Decimal, expected: Decimal) -> None:
+    tolerance = max(abs(expected) * Decimal("1e-12"), Decimal("1e-12"))
+    assert abs(actual - expected) <= tolerance, f"{actual} != {expected}"
 
 
 def test_complete_numerical_trace() -> None:
@@ -141,7 +160,7 @@ def test_complete_numerical_trace() -> None:
         experiment_name="test",
         cohort="1965-11",
         start_date=date(1965, 11, 1),
-        horizon_months=60,
+        horizon_months=5,
         initial_wealth=Money(INITIAL_WEALTH, Currency.EUR),
         initial_portfolio=initial_portfolio,
         dataset=dataset,
@@ -152,39 +171,21 @@ def test_complete_numerical_trace() -> None:
         ltv_enforcement=False,  # Part 49 behavior: observe only
     )
 
-    # Create pipeline and initial state (matching runner initialization)
-    pipeline = create_default_pipeline()
-    state = SimulationState(
-        context=sim_context,
-        current_date=date(1965, 11, 1),
-        period_index=0,
-        portfolio=initial_portfolio,
-        loan_balance=Decimal("0"),
-        cash_balance=Decimal("0"),
-        interest_rate=INTEREST_RATE,
-        ltv_limit=LTV_LIMIT,
-        ltv_enforcement=False,
-    )
-
-    # Execute Month 0: NORMAL (ATH, no debt)
-    state.market_snapshot = snapshots[0]
-    state = pipeline.execute(state)
-    result_month0 = state.monthly_results[-1]
+    # Execute months 0..4 through the Part 52 Numba executor
+    months = _execute(sim_context)
+    result_month0 = months[0]
 
     # Verify Month 0
     assert result_month0.withdrawal_decision is not None
-    assert result_month0.withdrawal_decision.nominal_amount.amount == BUDGET
+    _assert_decimal_close(result_month0.withdrawal_decision.nominal_amount.amount, BUDGET)
     assert result_month0.withdrawal_decision.loan_draw_amount == Decimal("0")
     assert result_month0.withdrawal_decision.is_repayment is False
-    assert state.loan_balance == Decimal("0")
-    assert state.cash_balance == Decimal("0")
+    assert result_month0.debt_snapshot is not None
+    assert result_month0.debt_snapshot.loan_balance == Decimal("0")
+    assert result_month0.debt_snapshot.cash_balance == Decimal("0")
 
     # Execute Month 1: BORROW (drawdown = 25% >= 20%, loan_balance = 0)
-    state.market_snapshot = snapshots[1]
-    state.period_index = 1
-    state.current_date = date(1965, 12, 1)
-    state = pipeline.execute(state)
-    result_month1 = state.monthly_results[-1]
+    result_month1 = months[1]
 
     # Verify Month 1
     # BORROW: nominal = C (full budget; WithdrawalExecution consumes loan_draw
@@ -192,33 +193,37 @@ def test_complete_numerical_trace() -> None:
     assert result_month1.withdrawal_decision is not None
     expected_loan_draw = BUDGET * BORROW_PCT
     expected_nominal_m1 = BUDGET
-    assert result_month1.withdrawal_decision.loan_draw_amount == expected_loan_draw
-    assert result_month1.withdrawal_decision.nominal_amount.amount == expected_nominal_m1
+    _assert_decimal_close(
+        result_month1.withdrawal_decision.loan_draw_amount, expected_loan_draw
+    )
+    _assert_decimal_close(
+        result_month1.withdrawal_decision.nominal_amount.amount, expected_nominal_m1
+    )
     assert result_month1.withdrawal_decision.is_repayment is False
     # ERN ordering: interest accrues on PRIOR balance (0), then draw is added.
     # T(N) = Y(N-1) * (1+M), Y(N) = X(N) + T(N)
     expected_loan_balance_m1 = expected_loan_draw  # draw added after interest
-    assert state.loan_balance == expected_loan_balance_m1
-    assert state.cash_balance == Decimal("0")  # Cash consumed
+    assert result_month1.debt_snapshot is not None
+    _assert_decimal_close(
+        result_month1.debt_snapshot.loan_balance, expected_loan_balance_m1
+    )
+    assert result_month1.debt_snapshot.cash_balance == Decimal("0")  # Cash consumed
 
     # Execute Month 2: BORROW (drawdown=30% >= threshold, loan_balance > 0)
     # Monthly-draw: a new draw occurs every eligible month regardless of
     # existing loan balance.
-    state.market_snapshot = snapshots[2]
-    state.period_index = 2
-    state.current_date = date(1966, 1, 1)
-    state = pipeline.execute(state)
-    result_month2 = state.monthly_results[-1]
+    result_month2 = months[2]
 
     # Verify Month 2 — new draw on top of existing loan
     # BORROW: nominal = C (full budget; WithdrawalExecution handles loan_draw)
     assert result_month2.withdrawal_decision is not None
     expected_loan_draw_m2 = BUDGET * BORROW_PCT
     expected_nominal_m2 = BUDGET
-    assert result_month2.withdrawal_decision.loan_draw_amount == expected_loan_draw_m2
-    assert (
-        result_month2.withdrawal_decision.nominal_amount.amount
-        == expected_nominal_m2
+    _assert_decimal_close(
+        result_month2.withdrawal_decision.loan_draw_amount, expected_loan_draw_m2
+    )
+    _assert_decimal_close(
+        result_month2.withdrawal_decision.nominal_amount.amount, expected_nominal_m2
     )
     assert result_month2.withdrawal_decision.is_repayment is False
     # ERN ordering: interest accrues on PRIOR balance, then draw is added.
@@ -229,19 +234,18 @@ def test_complete_numerical_trace() -> None:
     expected_loan_balance_m2 = (
         expected_loan_balance_m1 + expected_interest_m2 + expected_loan_draw_m2
     )
-    assert state.loan_balance == expected_loan_balance_m2
+    assert result_month2.debt_snapshot is not None
+    _assert_decimal_close(
+        result_month2.debt_snapshot.loan_balance, expected_loan_balance_m2
+    )
 
     # Execute Month 3: REPAY (compound_drawdown == 0, loan_balance > 0)
-    state.market_snapshot = snapshots[3]
-    state.period_index = 3
-    state.current_date = date(1966, 2, 1)
-    state = pipeline.execute(state)
-    result_month3 = state.monthly_results[-1]
+    result_month3 = months[3]
 
     # Verify Month 3
     # REPAY: nominal_amount = C (not C - D_{t-1})
     assert result_month3.withdrawal_decision is not None
-    assert result_month3.withdrawal_decision.nominal_amount.amount == BUDGET
+    _assert_decimal_close(result_month3.withdrawal_decision.nominal_amount.amount, BUDGET)
     assert result_month3.withdrawal_decision.loan_draw_amount == Decimal("0")
     assert result_month3.withdrawal_decision.is_repayment is True
     # Interest accrues BEFORE repayment (seq 26 < seq 32)
@@ -254,26 +258,30 @@ def test_complete_numerical_trace() -> None:
     excess_m3 = BUDGET - spending_budget_m3  # = d_prev_m3
     repayment_m3 = min(excess_m3, loan_balance_after_interest_m3)
     expected_loan_balance_after_repayment = loan_balance_after_interest_m3 - repayment_m3
-    assert state.loan_balance == expected_loan_balance_after_repayment
+    assert result_month3.debt_snapshot is not None
+    _assert_decimal_close(
+        result_month3.debt_snapshot.loan_balance,
+        expected_loan_balance_after_repayment,
+    )
 
     # Execute Month 4: NORMAL (compound_drawdown == 0, loan_balance = 0 or > 0)
-    state.market_snapshot = snapshots[4]
-    state.period_index = 4
-    state.current_date = date(1966, 3, 1)
-    state = pipeline.execute(state)
-    result_month4 = state.monthly_results[-1]
+    result_month4 = months[4]
 
     # Verify Month 4
     assert result_month4.withdrawal_decision is not None
     if expected_loan_balance_after_repayment <= 0:
         # Debt cleared, back to NORMAL
-        assert result_month4.withdrawal_decision.nominal_amount.amount == BUDGET
+        _assert_decimal_close(
+            result_month4.withdrawal_decision.nominal_amount.amount, BUDGET
+        )
         assert result_month4.withdrawal_decision.loan_draw_amount == Decimal("0")
         assert result_month4.withdrawal_decision.is_repayment is False
     else:
         # Still has debt, REPAY again
         # REPAY: nominal_amount = C
-        assert result_month4.withdrawal_decision.nominal_amount.amount == BUDGET
+        _assert_decimal_close(
+            result_month4.withdrawal_decision.nominal_amount.amount, BUDGET
+        )
         assert result_month4.withdrawal_decision.is_repayment is True
 
 
@@ -316,7 +324,7 @@ def test_fixed_rate_compatibility() -> None:
         experiment_name="test",
         cohort="1965-11",
         start_date=date(1965, 11, 1),
-        horizon_months=12,
+        horizon_months=1,
         initial_wealth=Money(INITIAL_WEALTH, Currency.EUR),
         initial_portfolio=initial_portfolio,
         dataset=dataset,
@@ -328,22 +336,10 @@ def test_fixed_rate_compatibility() -> None:
         ltv_enforcement=False,
     )
 
-    pipeline = create_default_pipeline()
-    state_fixed = SimulationState(
-        context=sim_context_fixed,
-        current_date=date(1965, 11, 1),
-        period_index=0,
-        portfolio=initial_portfolio,
-        loan_balance=Decimal("0"),
-        cash_balance=Decimal("0"),
-        interest_rate=INTEREST_RATE,
-        ltv_limit=LTV_LIMIT,
-        ltv_enforcement=False,
-    )
-    state_fixed.market_snapshot = snapshots[0]
-    state_fixed = pipeline.execute(state_fixed)
+    month0 = _execute(sim_context_fixed)[0]
 
     # Verify that interest_rate_schedule=None works correctly
-    assert state_fixed.loan_balance == Decimal("0")  # No debt in normal mode
-    assert state_fixed.monthly_results[-1].withdrawal_decision is not None
-    assert state_fixed.monthly_results[-1].withdrawal_decision.nominal_amount.amount == BUDGET
+    assert month0.debt_snapshot is not None
+    assert month0.debt_snapshot.loan_balance == Decimal("0")  # No debt in normal mode
+    assert month0.withdrawal_decision is not None
+    _assert_decimal_close(month0.withdrawal_decision.nominal_amount.amount, BUDGET)

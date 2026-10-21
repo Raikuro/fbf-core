@@ -4,7 +4,7 @@ Verifies end-to-end execution across multiple rolling cohorts:
 - Domain materialization (Dataset.slice & materialize_research_plan)
 - Per-cohort dataset alignment (unit.dataset[0].date <= unit.cohort.start_date)
 - Caching identity (unit_a.dataset is unit_b.dataset for same cohort)
-- Stateless ResearchExecutor -> SimulationExecutor -> SimulationRunner pipeline
+- Stateless ResearchExecutor -> NumbaSimulationExecutor execution
 - Sequential execution & parallel ProcessPoolExecutor execution
 """
 
@@ -13,18 +13,15 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
-from fbf.core.domain.policies.allocation_policy import AllocationPolicy
-from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
-from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
+from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from fbf.core.execution.executor import ResearchExecutor
+from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.execution.strategies.parallel_executor import (
-    _create_default_simulation_executor,
     parallel_execute,
     sequential_execute,
 )
@@ -33,24 +30,17 @@ from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
 from fbf.core.study.plan import ResearchPlan, materialize_research_plan
 
-_ASSET = AssetClass(id="acwi", name="ACWI", description="Global equities")
+_EQUITY = AssetClass(id="equity", name="", description="")
+_BOND = AssetClass(id="bond", name="", description="")
 
 
-class IntegrationAllocationPolicy(AllocationPolicy):
-    def decide(self, context: object) -> AllocationDecision:
-        return AllocationDecision(
-            reason="integration",
-            allocation_target=AllocationTarget(weights={_ASSET: Decimal("1.0")}),
+def _make_portfolio() -> Portfolio:
+    return Portfolio(
+        holdings=(
+            AssetHolding(asset_class=_EQUITY, units=Decimal("750")),
+            AssetHolding(asset_class=_BOND, units=Decimal("250")),
         )
-
-
-class IntegrationWithdrawalPolicy(WithdrawalPolicy):
-    def decide(self, context: object) -> WithdrawalDecision:
-        return WithdrawalDecision(
-            reason="integration",
-            nominal_amount=Money(Decimal("100"), Currency.EUR),
-            real_amount=Money(Decimal("100"), Currency.EUR),
-        )
+    )
 
 
 def make_large_dataset(num_months: int = 120, start_year: int = 2000) -> Dataset:
@@ -62,9 +52,9 @@ def make_large_dataset(num_months: int = 120, start_year: int = 2000) -> Dataset
         snapshots.append(
             MarketSnapshot(
                 date=date(year, month, 1),
-                index_levels={_ASSET: Decimal(100 + i)},
+                index_levels={_EQUITY: Decimal(100 + i), _BOND: Decimal("100")},
                 inflation=Decimal("0.00"),
-                inflation_cumulative=Decimal("0.00"),
+                inflation_cumulative=Decimal("1.00"),
                 is_ath=True,
                 is_underwater=False,
                 running_ath=Decimal(100 + i),
@@ -86,8 +76,12 @@ def make_multi_cohort_experiment(horizon_months: int = 12) -> ExperimentDefiniti
             CohortSpecification(start_date=date(2000, 6, 1), id="c2"),
             CohortSpecification(start_date=date(2001, 1, 1), id="c3"),
         ),
-        allocation_policies=(IntegrationAllocationPolicy(),),
-        withdrawal_policies=(IntegrationWithdrawalPolicy(),),
+        allocation_policies=(
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.75")),
+        ),
+        withdrawal_policies=(
+            FixedRealWithdrawalPolicy(withdrawal_rate=Decimal("0.04")),
+        ),
     )
 
 
@@ -117,7 +111,7 @@ class TestMultiCohortExecution:
             ParameterConfiguration(values={"rate": 0.03}),
             ParameterConfiguration(values={"rate": 0.04}),
         )
-        portfolio = Portfolio(holdings=(AssetHolding(asset_class=_ASSET, units=Decimal("1000")),))
+        portfolio = _make_portfolio()
 
         plan = self._make_plan(exp, param_configs, portfolio)
 
@@ -146,7 +140,7 @@ class TestMultiCohortExecution:
 
     def test_sequential_multi_cohort_real_engine_execution(self) -> None:
         exp = make_multi_cohort_experiment(horizon_months=12)
-        portfolio = Portfolio(holdings=(AssetHolding(asset_class=_ASSET, units=Decimal("1000")),))
+        portfolio = _make_portfolio()
 
         plan = self._make_plan(
             exp,
@@ -154,7 +148,7 @@ class TestMultiCohortExecution:
             portfolio,
         )
 
-        sim_executor = _create_default_simulation_executor()
+        sim_executor = NumbaSimulationExecutor()
         research_executor = ResearchExecutor(simulation_executor=sim_executor)
 
         result = research_executor.execute(plan)
@@ -166,7 +160,7 @@ class TestMultiCohortExecution:
 
     def test_parallel_process_pool_multi_cohort_execution(self) -> None:
         exp = make_multi_cohort_experiment(horizon_months=12)
-        portfolio = Portfolio(holdings=(AssetHolding(asset_class=_ASSET, units=Decimal("1000")),))
+        portfolio = _make_portfolio()
 
         plan = self._make_plan(
             exp,
@@ -177,7 +171,7 @@ class TestMultiCohortExecution:
             portfolio,
         )
 
-        sim_executor = _create_default_simulation_executor()
+        sim_executor = NumbaSimulationExecutor()
 
         # Exercise ProcessPoolExecutor parallel execution
         parallel_res = parallel_execute(plan, simulation_executor=sim_executor, max_workers=2)

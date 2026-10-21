@@ -7,7 +7,7 @@ accidental sharing of cohort-specific portfolio state.
 This test exercises the ACTUAL production research-layer path:
     StudyConfiguration -> build_study_plan -> materialize_research_plan
     -> PlannedSimulationUnit -> ResearchExecutor -> SimulationContext
-    -> SimulationRunner -> debt-aware production pipeline
+    -> Part49NumbaExecutor (materialized timeline)
 
 It does NOT manually construct SimulationContext, SimulationState, or Portfolio.
 """
@@ -26,14 +26,12 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
 from fbf.core.execution.executor import ResearchExecutor
-from fbf.core.execution.pipeline.schedule import ExecutionSchedule
 from fbf.core.execution.pipeline.simulation import SimulationResult
-from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.parallel_executor import (
-    _create_default_simulation_executor,
     parallel_execute,
     sequential_execute,
 )
+from fbf.core.execution.strategies.part49_numba_executor import Part49NumbaExecutor
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
@@ -183,7 +181,7 @@ def _build_plan(
 def _execute_plan(plan: ResearchPlan) -> list[tuple[PlannedSimulationUnit, SimulationResult]]:
     """Execute a plan through the real production pipeline and return results."""
     executor = ResearchExecutor(
-        simulation_executor=_create_default_simulation_executor()
+        simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
     )
     result = executor.execute(plan)
     return list(zip(plan.units, result.results, strict=True))
@@ -463,40 +461,24 @@ class TestStateIsolation:
                         f"Datasets for cohorts {i} and {j} are the same object"
                     )
 
-    def test_simulation_states_are_distinct_during_execution(self) -> None:
-        """Verify that execution creates independent SimulationState per cohort."""
+    def test_results_are_distinct_during_execution(self) -> None:
+        """Verify that execution creates independent results per cohort."""
         dataset = _make_dataset()
         exp_def, cohorts = _build_experiment(dataset, n_cohorts=4)
 
         plan = _build_plan(dataset, cohorts, exp_def)
+        pairs = _execute_plan(plan)
 
-        # Track SimulationState ids through execution
-        state_ids: list[int] = []
-
-        from fbf.core.execution.pipeline.runner import SimulationRunner
-
-        original_run = SimulationRunner.run
-
-        def tracking_run(
-            self: SimulationRunner,
-            context: SimulationContext,
-            schedule: ExecutionSchedule | None = None,
-        ) -> SimulationResult:
-            result = original_run(self, context, schedule)
-            state_ids.append(id(result))
-            return result
-
-        SimulationRunner.run = tracking_run  # type: ignore[method-assign]
-        try:
-            _execute_plan(plan)
-        finally:
-            SimulationRunner.run = original_run  # type: ignore[method-assign]
-
-        # All result states must be distinct objects
-        assert len(state_ids) == len(plan.units)
-        assert len(set(state_ids)) == len(state_ids), (
-            "Multiple cohorts produced the same SimulationState object"
+        result_ids = [id(result) for _, result in pairs]
+        timeline_ids = [id(result.timeline) for _, result in pairs]
+        assert len(set(result_ids)) == len(result_ids), (
+            "Multiple cohorts produced the same SimulationResult object"
         )
+        assert len(set(timeline_ids)) == len(timeline_ids), (
+            "Multiple cohorts produced the same SimulationTimeline object"
+        )
+        final_wealths = {result.statistics.final_wealth for _, result in pairs}
+        assert len(final_wealths) > 1, "Cohorts did not produce independent paths"
 
 
 # ---------------------------------------------------------------------------
@@ -613,8 +595,12 @@ class TestSequentialVsParallelEquivalence:
 
         plan = _build_plan(dataset, cohorts, exp_def)
 
-        seq_result = sequential_execute(plan)
-        par_result = parallel_execute(plan, max_workers=2)
+        seq_executor = Part49NumbaExecutor(materialize_timeline=True)
+        par_executor = Part49NumbaExecutor(materialize_timeline=True)
+        seq_result = sequential_execute(plan, simulation_executor=seq_executor)
+        par_result = parallel_execute(
+            plan, simulation_executor=par_executor, max_workers=2
+        )
 
         assert len(seq_result.results) == len(par_result.results)
         for i, (seq, par) in enumerate(zip(seq_result.results, par_result.results, strict=True)):

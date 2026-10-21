@@ -1,7 +1,7 @@
 """Floating-rate validation tests for S6.2 FFR integration.
 
 Verifies that the FFR-based interest rate schedule is correctly used in the
-Part 52 pipeline execution, with interest accrual using per-period rates.
+Part 52 Numba execution, with interest accrual using per-period rates.
 """
 from __future__ import annotations
 
@@ -15,9 +15,12 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies.concrete import ConstantAllocationPolicy
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.simulation import SimulationState
+from fbf.core.execution.pipeline.simulation import (
+    ExperimentDefinition as EngineExperimentDefinition,
+    SimulationResult,
+)
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.strategies.part52_numba_executor import Part52NumbaExecutor
 
 EQUITY_ASSET = AssetClass(id="equity", name="", description="")
 BOND_ASSET = AssetClass(id="bond", name="", description="")
@@ -28,6 +31,21 @@ WITHDRAWAL_RATE = Decimal("0.0391")
 BORROW_PCT = Decimal("0.4108")
 DRAWDOWN_THRESHOLD = Decimal("0.20")
 LTV_LIMIT = Decimal("0.50")
+
+
+def _execute(sim_context: SimulationContext) -> SimulationResult:
+    definition = EngineExperimentDefinition(
+        name="part52-ffr",
+        description="FFR integration test",
+        simulation_contexts=(sim_context,),
+    )
+    executor = Part52NumbaExecutor(materialize_timeline=True)
+    return executor.execute(definition).simulation_results[0]
+
+
+def _assert_decimal_close(actual: Decimal, expected: Decimal) -> None:
+    tolerance = max(abs(expected) * Decimal("1e-12"), Decimal("1e-12"))
+    assert abs(actual - expected) <= tolerance, f"{actual} != {expected}"
 
 
 def _create_dataset() -> Dataset:
@@ -134,45 +152,25 @@ def test_ffr_schedule_used_in_interest_accrual() -> None:
         ltv_enforcement=False,
     )
 
-    pipeline = create_default_pipeline()
-    state = SimulationState(
-        context=sim_context,
-        current_date=date(1965, 11, 1),
-        period_index=0,
-        portfolio=initial_portfolio,
-        loan_balance=Decimal("0"),
-        cash_balance=Decimal("0"),
-        interest_rate=Decimal("0"),
-        ltv_limit=LTV_LIMIT,
-        ltv_enforcement=False,
-    )
+    months = _execute(sim_context).timeline.monthly_results
 
     # Execute Month 0: Normal (ATH) — no borrowing
-    state.market_snapshot = dataset.snapshots[0]
-    state = pipeline.execute(state)
-    assert state.loan_balance == Decimal("0")
+    assert months[0].debt_snapshot is None
 
     # Execute Month 1: Drawdown below threshold — borrowing
-    state.market_snapshot = dataset.snapshots[1]
-    state.period_index = 1
-    state.current_date = date(1965, 12, 1)
-    state = pipeline.execute(state)
-    loan_after_m1 = state.loan_balance
+    assert months[1].debt_snapshot is not None
+    loan_after_m1 = months[1].debt_snapshot.loan_balance
     assert loan_after_m1 > Decimal("0"), "Should have borrowed in Month 1"
 
     # Execute Month 2: Drawdown still >= threshold → new draw + interest at FFR[2]
-    state.market_snapshot = dataset.snapshots[2]
-    state.period_index = 2
-    state.current_date = date(1966, 1, 1)
-    state = pipeline.execute(state)
-
     # Monthly-draw: interest on PRIOR balance, then draw is added (ERN order)
+    assert months[2].debt_snapshot is not None
     new_draw_m2 = BUDGET * BORROW_PCT
     expected_interest_m2 = loan_after_m1 * ffr_schedule[2] / Decimal("12")
     expected_loan_m2 = loan_after_m1 + expected_interest_m2 + new_draw_m2
-    assert state.loan_balance == expected_loan_m2, (
-        f"Month 2: expected {expected_loan_m2}, got {state.loan_balance}"
-    )
+    _assert_decimal_close(months[2].debt_snapshot.loan_balance, expected_loan_m2)
+    assert months[2].withdrawal_decision is not None
+    assert months[2].withdrawal_decision.loan_draw_amount > Decimal("0")
 
 
 def test_ffr_schedule_zero_spread_matches_fixed_rate() -> None:
@@ -190,7 +188,7 @@ def test_ffr_schedule_zero_spread_matches_fixed_rate() -> None:
     # Create two contexts: one with fixed rate, one with FFR schedule
     def _run_simulation(
         interest_rate: Decimal | None, schedule: tuple[Decimal, ...] | None
-    ) -> SimulationState:
+    ) -> Decimal:
         sim_context = SimulationContext(
             experiment_name="test",
             cohort="1965-11",
@@ -210,44 +208,21 @@ def test_ffr_schedule_zero_spread_matches_fixed_rate() -> None:
             ltv_limit=LTV_LIMIT,
             ltv_enforcement=False,
         )
-        pipeline = create_default_pipeline()
-        state = SimulationState(
-            context=sim_context,
-            current_date=date(1965, 11, 1),
-            period_index=0,
-            portfolio=initial_portfolio,
-            loan_balance=Decimal("0"),
-            cash_balance=Decimal("0"),
-            interest_rate=interest_rate or Decimal("0"),
-            ltv_limit=LTV_LIMIT,
-            ltv_enforcement=False,
-        )
-        # Execute Month 0: Normal
-        state.market_snapshot = dataset.snapshots[0]
-        state = pipeline.execute(state)
-        # Execute Month 1: Borrow
-        state.market_snapshot = dataset.snapshots[1]
-        state.period_index = 1
-        state.current_date = date(1965, 12, 1)
-        state = pipeline.execute(state)
-        # Execute Month 2: Interest accrues
-        state.market_snapshot = dataset.snapshots[2]
-        state.period_index = 2
-        state.current_date = date(1966, 1, 1)
-        state = pipeline.execute(state)
-        return state
+        final_month = _execute(sim_context).timeline.monthly_results[-1]
+        assert final_month.debt_snapshot is not None
+        return final_month.debt_snapshot.loan_balance
 
     # Fixed rate simulation
-    state_fixed = _run_simulation(interest_rate=fixed_rate, schedule=None)
+    loan_fixed = _run_simulation(interest_rate=fixed_rate, schedule=None)
 
     # FFR schedule with same rate in every month
     ffr_schedule = (fixed_rate, fixed_rate, fixed_rate)
-    state_ffr = _run_simulation(interest_rate=None, schedule=ffr_schedule)
+    loan_ffr = _run_simulation(interest_rate=None, schedule=ffr_schedule)
 
     # Loan balances should be identical
-    assert state_fixed.loan_balance == state_ffr.loan_balance, (
+    assert loan_fixed == loan_ffr, (
         f"FFR schedule with constant rate should match fixed rate: "
-        f"fixed={state_fixed.loan_balance}, ffr={state_ffr.loan_balance}"
+        f"fixed={loan_fixed}, ffr={loan_ffr}"
     )
 
 
@@ -283,38 +258,21 @@ def test_no_schedule_falls_back_to_fixed_rate() -> None:
         ltv_enforcement=False,
     )
 
-    pipeline = create_default_pipeline()
-    state = SimulationState(
-        context=sim_context,
-        current_date=date(1965, 11, 1),
-        period_index=0,
-        portfolio=initial_portfolio,
-        loan_balance=Decimal("0"),
-        cash_balance=Decimal("0"),
-        interest_rate=fixed_rate,
-        ltv_limit=LTV_LIMIT,
-        ltv_enforcement=False,
-    )
+    months = _execute(sim_context).timeline.monthly_results
 
     # Execute Month 0: Normal
-    state.market_snapshot = dataset.snapshots[0]
-    state = pipeline.execute(state)
+    assert months[0].debt_snapshot is not None
+    assert months[0].debt_snapshot.loan_balance == Decimal("0")
+
     # Execute Month 1: Borrow
-    state.market_snapshot = dataset.snapshots[1]
-    state.period_index = 1
-    state.current_date = date(1965, 12, 1)
-    state = pipeline.execute(state)
-    loan_after_m1 = state.loan_balance
+    assert months[1].debt_snapshot is not None
+    loan_after_m1 = months[1].debt_snapshot.loan_balance
     assert loan_after_m1 > Decimal("0")
 
     # Execute Month 2: Drawdown still >= threshold → new draw + interest at fixed rate
-    state.market_snapshot = dataset.snapshots[2]
-    state.period_index = 2
-    state.current_date = date(1966, 1, 1)
-    state = pipeline.execute(state)
-
     # ERN ordering: interest on PRIOR balance, then draw is added
+    assert months[2].debt_snapshot is not None
     new_draw_m2 = BUDGET * BORROW_PCT
     expected_interest = loan_after_m1 * fixed_rate / Decimal("12")
     expected_loan = loan_after_m1 + expected_interest + new_draw_m2
-    assert state.loan_balance == expected_loan
+    _assert_decimal_close(months[2].debt_snapshot.loan_balance, expected_loan)

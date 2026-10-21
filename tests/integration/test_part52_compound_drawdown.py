@@ -22,9 +22,12 @@ from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.simulation import SimulationState
+from fbf.core.execution.pipeline.simulation import (
+    ExperimentDefinition as EngineExperimentDefinition,
+    MonthlyResult,
+)
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.strategies.part52_numba_executor import Part52NumbaExecutor
 
 # ---------------------------------------------------------------------------
 # Test parameters (matching A3 config)
@@ -132,7 +135,7 @@ class TestCompoundDrawdownComputation:
 
 
 class TestCompoundDrawdownPipeline:
-    """Verify compound DD flows correctly through the simulation pipeline."""
+    """Verify compound DD flows correctly through the Part 52 Numba executor."""
 
     @pytest.fixture
     def dataset(self) -> Dataset:
@@ -206,8 +209,8 @@ class TestCompoundDrawdownPipeline:
 
     def _run_simulation(
         self, dataset: Dataset, initial_portfolio: Portfolio, horizon: int
-    ) -> SimulationState:
-        """Run a simulation and return the final state."""
+    ) -> MonthlyResult:
+        """Run a simulation and return the final monthly result."""
         from fbf.core.domain.policies.concrete import ConstantAllocationPolicy
 
         policy = ConstantAllocationPolicy(equity_allocation=Decimal("0.75"))
@@ -232,35 +235,20 @@ class TestCompoundDrawdownPipeline:
             ltv_enforcement=False,
         )
 
-        pipeline = create_default_pipeline()
-        state = SimulationState(
-            context=sim_context,
-            current_date=date(1965, 11, 1),
-            period_index=0,
-            portfolio=initial_portfolio,
-            loan_balance=Decimal("0"),
-            cash_balance=Decimal("0"),
-            interest_rate=INTEREST_RATE,
-            ltv_limit=LTV_LIMIT,
-            ltv_enforcement=False,
+        definition = EngineExperimentDefinition(
+            name="part52-compound-dd",
+            description="Compound drawdown integration test",
+            simulation_contexts=(sim_context,),
         )
-
-        # Execute periods 0..horizon-1
-        for i in range(horizon):
-            state.market_snapshot = dataset[i]
-            state.period_index = i
-            if i > 0:
-                state.current_date = date(1965 + (11 + i - 1) // 12, ((11 + i - 1) % 12) + 1, 1)
-            state = pipeline.execute(state)
-
-        return state
+        executor = Part52NumbaExecutor(materialize_timeline=True)
+        result = executor.execute(definition).simulation_results[0]
+        return result.timeline.monthly_results[-1]
 
     def test_compound_dd_at_month1_triggers_borrow(
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 1: equity 75, prev 100 → cDD = -0.25 → BORROW."""
-        state = self._run_simulation(dataset, initial_portfolio, horizon=2)
-        result = state.monthly_results[-1]
+        result = self._run_simulation(dataset, initial_portfolio, horizon=2)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.loan_draw_amount > Decimal("0")
         assert result.withdrawal_decision.is_repayment is False
@@ -269,8 +257,7 @@ class TestCompoundDrawdownPipeline:
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 2: equity 75, prev 75 → cDD = min(0, 0.75*1.0 - 1) = -0.25 → BORROW."""
-        state = self._run_simulation(dataset, initial_portfolio, horizon=3)
-        result = state.monthly_results[-1]
+        result = self._run_simulation(dataset, initial_portfolio, horizon=3)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.loan_draw_amount > Decimal("0")
         assert result.withdrawal_decision.is_repayment is False
@@ -279,8 +266,7 @@ class TestCompoundDrawdownPipeline:
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 3: equity 95, prev 75 → cDD = min(0, 0.75*(95/75) - 1) = -0.0625 → NORMAL."""
-        state = self._run_simulation(dataset, initial_portfolio, horizon=4)
-        result = state.monthly_results[-1]
+        result = self._run_simulation(dataset, initial_portfolio, horizon=4)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.loan_draw_amount == Decimal("0")
         assert result.withdrawal_decision.is_repayment is False
@@ -289,8 +275,7 @@ class TestCompoundDrawdownPipeline:
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 4: compound_drawdown=0, loan>0 → REPAY."""
-        state = self._run_simulation(dataset, initial_portfolio, horizon=5)
-        result = state.monthly_results[-1]
+        result = self._run_simulation(dataset, initial_portfolio, horizon=5)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.is_repayment is True
         assert result.withdrawal_decision.loan_draw_amount == Decimal("0")
@@ -299,8 +284,7 @@ class TestCompoundDrawdownPipeline:
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 5: equity 80, prev 110 → cDD = min(0, 1.0*(80/110) - 1) = -0.2727 → BORROW."""
-        state = self._run_simulation(dataset, initial_portfolio, horizon=6)
-        result = state.monthly_results[-1]
+        result = self._run_simulation(dataset, initial_portfolio, horizon=6)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.loan_draw_amount > Decimal("0")
         assert result.withdrawal_decision.is_repayment is False

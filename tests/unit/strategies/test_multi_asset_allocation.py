@@ -37,7 +37,6 @@ from fbf.core.execution.strategies.numba_executor import (
     _is_constant_nominal_eligible,
 )
 from fbf.core.execution.strategies.part52_numba_executor import is_part52_eligible
-from fbf.core.execution.strategies.reference import ReferenceSimulationExecutor
 from fbf.core.study.builder import build_initial_portfolio
 
 _EQ = AssetClass(id="equity", name="", description="")
@@ -50,7 +49,6 @@ _INITIAL_WEALTH = Decimal("1000000")
 _RATE = Decimal("0.04")
 
 _NUMBA = NumbaSimulationExecutor()
-_REFERENCE = ReferenceSimulationExecutor()
 
 
 def _make_dataset(n_months: int) -> Dataset:
@@ -151,6 +149,44 @@ def _oracle(
             break
         value = (value - withdrawal) * (Decimal("1") + monthly)
     return scr, scr >= rate, value
+
+
+def _constant_nominal_recurrence(
+    dataset: Dataset,
+    horizon: int,
+    weights: dict[AssetClass, Decimal],
+    rate: Decimal,
+    initial_value: Decimal,
+) -> tuple[Decimal, bool, int | None]:
+    """Independent N-asset constant-nominal recurrence.
+
+    Each month withdraws ``value * rate / 12`` at the current snapshot, then
+    grows the remainder by the weighted asset return to the next snapshot. The
+    final month has no next snapshot. Failure is reported at the month in which
+    the portfolio cannot fund the withdrawal or is depleted.
+    """
+    snapshots = dataset.snapshots
+    value = initial_value
+    for month in range(horizon):
+        withdrawal = value * rate / Decimal("12")
+        if withdrawal > value:
+            return Decimal("0"), False, month + 1
+        value -= withdrawal
+        if value <= 0:
+            return Decimal("0"), False, month + 1
+        if month == horizon - 1:
+            break
+        monthly_return = Decimal("0")
+        for asset_class, weight in weights.items():
+            monthly_return += weight * (
+                snapshots[month + 1].index_levels[asset_class]
+                / snapshots[month].index_levels[asset_class]
+                - Decimal("1")
+            )
+        value *= Decimal("1") + monthly_return
+        if value <= 0:
+            return Decimal("0"), False, month + 1
+    return value, True, None
 
 
 def _run(executor: SimulationExecutor, context: SimulationContext) -> SimulationResult:
@@ -268,7 +304,7 @@ class TestDeferredFallback:
         )
         assert not _is_constant_nominal_eligible(context)
 
-    def test_nominal_explicit_matches_reference(self) -> None:
+    def test_nominal_explicit_matches_independent_recurrence(self) -> None:
         dataset = _make_dataset(241)
         context = _make_context(
             dataset,
@@ -276,13 +312,20 @@ class TestDeferredFallback:
             _WEIGHTS,
             withdrawal_policy=ConstantWithdrawalPolicy(_RATE),
         )
-        numba = _run(_NUMBA, context)
-        reference = _run(_REFERENCE, context)
-        assert numba.statistics.success == reference.statistics.success
-        assert (
-            numba.statistics.final_wealth.amount
-            == reference.statistics.final_wealth.amount
+        expected_value, expected_success, expected_failure_month = (
+            _constant_nominal_recurrence(
+                context.dataset,
+                context.horizon_months,
+                _weights_ordered(),
+                _RATE,
+                context.initial_wealth.amount,
+            )
         )
+        numba = _run(_NUMBA, context)
+        assert numba.statistics.success is expected_success
+        assert numba.statistics.failure_month == expected_failure_month
+        assert numba.statistics.months_simulated == context.horizon_months
+        assert numba.statistics.final_wealth.amount == expected_value
 
     def test_part52_gate_rejects_explicit(self) -> None:
         dataset = _make_dataset(121)

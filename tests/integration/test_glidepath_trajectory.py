@@ -1,7 +1,7 @@
 """Controlled-trajectory integration test for GlidepathAllocationPolicy.
 
 Builds a synthetic dataset with a deliberately controlled underwater pattern,
-runs it through the full simulation pipeline, and verifies that the allocation
+runs it through the Part 52 Numba glidepath executor, and verifies that the allocation
 path matches the independently computed expected path.
 
 This validates:
@@ -21,9 +21,9 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
-from fbf.core.domain.policies.decisions import WithdrawalDecision
+from fbf.core.domain.policies import FixedRealWithdrawalPolicy
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
-from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
+from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.execution.strategies.parallel_executor import sequential_execute
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
@@ -52,17 +52,6 @@ def _snap(equity_price: str, is_underwater: bool, d: date) -> MarketSnapshot:
     )
 
 
-class _ZeroWithdrawalPolicy(WithdrawalPolicy):
-    """Zero withdrawal for testing glidepath in isolation."""
-
-    def decide(self, context: object) -> WithdrawalDecision:
-        return WithdrawalDecision(
-            reason="zero_withdrawal",
-            nominal_amount=Money(Decimal("0"), Currency.EUR),
-            real_amount=Money(Decimal("0"), Currency.EUR),
-        )
-
-
 def _build_plan(mode: str, underwater_flags: list[bool]) -> tuple[Dataset, ResearchPlan]:
     """Build a single-cohort plan with the given underwater pattern."""
     base = date(2000, 1, 1)
@@ -79,7 +68,7 @@ def _build_plan(mode: str, underwater_flags: list[bool]) -> tuple[Dataset, Resea
         slope=_SLOPE,
         mode=mode,
     )
-    withdrawal = _ZeroWithdrawalPolicy()
+    withdrawal = FixedRealWithdrawalPolicy(withdrawal_rate=Decimal("0"))
 
     horizon_months = len(underwater_flags)
     experiment = ExperimentDefinition(
@@ -133,7 +122,11 @@ def test_active_glidepath_controlled_trajectory() -> None:
     uw = [True, False, False, True, False, False, True, False, False, True, False, False]
     _dataset, plan = _build_plan("active", uw)
 
-    result = sequential_execute(plan, summary_only=False)
+    result = sequential_execute(
+        plan,
+        summary_only=False,
+        simulation_executor=NumbaSimulationExecutor(materialize_timeline=True),
+    )
 
     assert len(result.results) == 1
     timeline = result.results[0].timeline
@@ -156,7 +149,11 @@ def test_passive_glidepath_controlled_trajectory() -> None:
     uw = [True, False, False, True, False, False, True, False, False, True, False, False]
     _dataset, plan = _build_plan("passive", uw)
 
-    result = sequential_execute(plan, summary_only=False)
+    result = sequential_execute(
+        plan,
+        summary_only=False,
+        simulation_executor=NumbaSimulationExecutor(materialize_timeline=True),
+    )
 
     assert len(result.results) == 1
     timeline = result.results[0].timeline

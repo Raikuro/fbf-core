@@ -1,61 +1,26 @@
-"""Differential tests: Decimal reference engine vs Numba scalar kernel.
+"""Differential tests: independent Decimal recurrence vs Numba scalar kernel.
 
-These tests verify that the Numba kernel reproduces the canonical Decimal
-reference engine's results, NOT merely the existing float fast path.
+These tests verify that the Numba kernel reproduces an independent Decimal
+recurrence over the same prices, target weights, and withdrawal rate.
 
 Every test case runs both:
-  1. The full Decimal reference pipeline (SimulationRunner)
+  1. An independent beginning-of-period Decimal recurrence
   2. The Numba scalar kernel (simulate_single)
 
 and compares: success, failure_month, months_simulated, final_wealth.
-
-The growth factors are computed from the same prices and target weights
-used by the reference engine.  The monthly withdrawal is computed from
-the same initial_wealth and withdrawal_rate used by the reference engine.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 
-import numpy as np
 import pytest
-from numpy.typing import NDArray
 
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from fbf.core.execution.pipeline.pipeline import SimulationPipeline
-from fbf.core.execution.pipeline.runner import SimulationRunner
-from fbf.core.execution.pipeline.simulation import SimulationResult
-from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.pipeline.steps.allocation_decision_step import (
-    AllocationDecisionStep,
-)
-from fbf.core.execution.pipeline.steps.build_decision_context_step import (
-    BuildDecisionContextStep,
-)
-from fbf.core.execution.pipeline.steps.initialize_allocation_step import (
-    InitializeAllocationStep,
-)
-from fbf.core.execution.pipeline.steps.market_evolution_step import MarketEvolutionStep
-from fbf.core.execution.pipeline.steps.monthly_result_builder_step import (
-    MonthlyResultBuilderStep,
-)
-from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
-    PortfolioRebalanceStep,
-)
-from fbf.core.execution.pipeline.steps.simulation_state_update_step import (
-    SimulationStateUpdateStep,
-)
-from fbf.core.execution.pipeline.steps.withdrawal_decision_step import (
-    WithdrawalDecisionStep,
-)
-from fbf.core.execution.pipeline.steps.withdrawal_execution_step import (
-    WithdrawalExecutionStep,
-)
 from fbf.core.execution.strategies.numba_kernel import (
     compute_growth_factors,
     simulate_single,
@@ -64,21 +29,6 @@ from fbf.core.study.builder import build_initial_portfolio
 
 EQ = AssetClass(id="equity", name="", description="")
 BD = AssetClass(id="bond", name="", description="")
-
-_REFERENCE_PIPELINE = SimulationPipeline(
-    steps=[
-        InitializeAllocationStep(),
-        BuildDecisionContextStep(),
-        WithdrawalDecisionStep(),
-        WithdrawalExecutionStep(),
-        AllocationDecisionStep(),
-        PortfolioRebalanceStep(),
-        MarketEvolutionStep(),
-        MonthlyResultBuilderStep(),
-        SimulationStateUpdateStep(),
-    ]
-)
-_REFERENCE_RUNNER = SimulationRunner(_REFERENCE_PIPELINE)
 
 WEALTH_TOLERANCE = Decimal("0.01")
 
@@ -162,31 +112,63 @@ def _make_random_dataset(
     return Dataset(snapshots=snapshots, frequency="monthly")
 
 
+@dataclass(frozen=True)
+class _IndependentResult:
+    success: bool
+    failure_month: int | None
+    final_wealth: Decimal
+
+
+def _independent_recurrence(
+    equity_weight: Decimal,
+    withdrawal_rate: Decimal,
+    initial_wealth: Money,
+    dataset: Dataset,
+    horizon: int,
+) -> _IndependentResult:
+    """Independent beginning-of-period Decimal recurrence."""
+    portfolio = build_initial_portfolio(initial_wealth, dataset)
+    value = sum(
+        (
+            h.units * dataset[0].index_levels[h.asset_class]
+            for h in portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+    withdrawal = value * withdrawal_rate / Decimal("12")
+
+    for m in range(horizon):
+        if value < withdrawal:
+            return _IndependentResult(False, m, Decimal("0"))
+        value -= withdrawal
+        if m < horizon - 1:
+            equity_growth = (
+                dataset[m + 1].index_levels[EQ] / dataset[m].index_levels[EQ]
+            )
+            bond_growth = (
+                dataset[m + 1].index_levels[BD] / dataset[m].index_levels[BD]
+            )
+            value *= (
+                equity_weight * equity_growth
+                + (Decimal("1") - equity_weight) * bond_growth
+            )
+
+    return _IndependentResult(True, None, value)
+
+
 def _run_differential(
     equity_weight: Decimal,
     withdrawal_rate: Decimal,
     initial_wealth: Money,
     dataset: Dataset,
     horizon: int,
-) -> tuple[SimulationResult, bool, int | None, float]:
-    """Run both reference and Numba, return comparable results."""
-    portfolio = build_initial_portfolio(initial_wealth, dataset)
-    context = SimulationContext(
-        experiment_name="diff_test",
-        cohort="test",
-        start_date=dataset[0].date,
-        horizon_months=horizon,
-        initial_wealth=initial_wealth,
-        initial_portfolio=portfolio,
-        dataset=dataset.slice(dataset[0].date, horizon),
-        allocation_policy=ConstantAllocationPolicy(equity_weight),
-        withdrawal_policy=FixedRealWithdrawalPolicy(withdrawal_rate),
+) -> tuple[_IndependentResult, bool, int | None, float]:
+    """Run both the independent recurrence and Numba, return comparable results."""
+    ref = _independent_recurrence(
+        equity_weight, withdrawal_rate, initial_wealth, dataset, horizon
     )
 
-    # Reference engine
-    ref = _REFERENCE_RUNNER.run(context)
-
-    # Compute portfolio value at snapshot[0]
+    portfolio = build_initial_portfolio(initial_wealth, dataset)
     portfolio_value = Money(
         sum(
             (h.units * dataset[0].index_levels[h.asset_class] for h in portfolio.holdings),
@@ -195,15 +177,16 @@ def _run_differential(
         Currency.EUR,
     )
 
-    # Growth factors from target weights and price series
-    target_weights: dict[object, Decimal] = {EQ: equity_weight, BD: Decimal("1") - equity_weight}
+    target_weights: dict[object, Decimal] = {
+        EQ: equity_weight,
+        BD: Decimal("1") - equity_weight,
+    }
     price_series: dict[object, tuple[Decimal, ...]] = {
         EQ: tuple(dataset[i].index_levels[EQ] for i in range(horizon + 1)),
         BD: tuple(dataset[i].index_levels[BD] for i in range(horizon + 1)),
     }
     gf = compute_growth_factors((EQ, BD), target_weights, price_series, horizon)
 
-    # Numba kernel
     numba_ok, numba_fm, numba_fv, _ = simulate_single(
         gf, portfolio_value, withdrawal_rate, horizon
     )
@@ -212,25 +195,16 @@ def _run_differential(
     return ref, numba_ok, numba_fm, numba_value
 
 
-def _numba_single(
-    gf: NDArray[np.float64], portfolio_value: Money, withdrawal_rate: Decimal, horizon: int
-) -> tuple[float, bool, int | None]:
-    from fbf.core.execution.strategies.numba_kernel import simulate_single
-
-    ok, fm, fv, _months = simulate_single(gf, portfolio_value, withdrawal_rate, horizon)
-    return float(fv.amount), ok, fm
-
-
 def _assert_matches(
-    ref_result: SimulationResult,
+    ref_result: _IndependentResult,
     numba_ok: bool,
     numba_fm: int | None,
     numba_fv: float,
     case_name: str,
 ) -> None:
-    ref_ok = ref_result.statistics.success
-    ref_fm = ref_result.statistics.failure_month
-    ref_fv = float(ref_result.statistics.final_wealth.amount)
+    ref_ok = ref_result.success
+    ref_fm = ref_result.failure_month
+    ref_fv = float(ref_result.final_wealth)
 
     assert numba_ok == ref_ok, (
         f"[{case_name}] success mismatch: reference={ref_ok}, numba={numba_ok}"

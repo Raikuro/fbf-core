@@ -19,9 +19,7 @@ import pytest
 
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution.executor import ResearchExecutor
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.executor import SimulationExecutor
-from fbf.core.execution.pipeline.runner import SimulationRunner
+from fbf.core.execution.strategies.part49_numba_executor import Part49NumbaExecutor
 from fbf.core.research.part49_aggregation import (
     CellAggregation,
     FailureRecord,
@@ -97,11 +95,9 @@ def canonical_execution() -> tuple[tuple[Any, ...], tuple[Any, ...]]:
         units=limited_units,
     )
 
-    # Execute through production path
+    # Execute through the Part 49 Numba production path
     executor = ResearchExecutor(
-        simulation_executor=SimulationExecutor(
-            simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-        )
+        simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
     )
     result = executor.execute(limited_plan)
     return limited_plan.units, result.results
@@ -331,9 +327,7 @@ if __name__ == "__main__":
     print("Executing through production path...")
 
     executor = ResearchExecutor(
-        simulation_executor=SimulationExecutor(
-            simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-        )
+        simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
     )
     result = executor.execute(built.plan)
 
@@ -436,7 +430,7 @@ if __name__ == "__main__":
     print("=" * 70)
 
 
-def test_incremental_aggregation_matches_legacy_wrapper(
+def test_incremental_aggregation_matches_batch_aggregation(
     canonical_execution: tuple[tuple[Any, ...], tuple[Any, ...]],
 ) -> None:
     units, results = canonical_execution

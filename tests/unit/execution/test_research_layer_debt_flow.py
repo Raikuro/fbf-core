@@ -25,6 +25,7 @@ from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.strategies.part49_numba_executor import Part49NumbaExecutor
 from fbf.core.study.builder import BuiltStudy, StudyConfiguration
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
@@ -416,9 +417,6 @@ class TestResearchExecutorContextTranslation:
 
     def test_debt_params_in_context(self) -> None:
         from fbf.core.execution.executor import ResearchExecutor
-        from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-        from fbf.core.execution.pipeline.executor import SimulationExecutor
-        from fbf.core.execution.pipeline.runner import SimulationRunner
 
         dataset = _make_dataset()
         exp_def = _make_experiment_def()
@@ -444,9 +442,7 @@ class TestResearchExecutorContextTranslation:
         )
 
         executor = ResearchExecutor(
-            simulation_executor=SimulationExecutor(
-                simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-            )
+            simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
         )
         unit = plan.units[0]
         ctx = executor._create_context_for_unit(plan.experiment_definition, unit)
@@ -457,9 +453,6 @@ class TestResearchExecutorContextTranslation:
 
     def test_debt_params_none_when_omitted(self) -> None:
         from fbf.core.execution.executor import ResearchExecutor
-        from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-        from fbf.core.execution.pipeline.executor import SimulationExecutor
-        from fbf.core.execution.pipeline.runner import SimulationRunner
 
         dataset = _make_dataset()
         exp_def = _make_experiment_def()
@@ -482,9 +475,7 @@ class TestResearchExecutorContextTranslation:
         )
 
         executor = ResearchExecutor(
-            simulation_executor=SimulationExecutor(
-                simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-            )
+            simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
         )
         unit = plan.units[0]
         ctx = executor._create_context_for_unit(plan.experiment_definition, unit)
@@ -500,19 +491,10 @@ class TestDebtInterestRateRealProductionPropagation:
     @pytest.mark.parametrize("is_real", [True, False])
     def test_research_executor_context_preserves_flag(self, is_real: bool) -> None:
         from fbf.core.execution.executor import ResearchExecutor
-        from fbf.core.execution.pipeline.default_pipeline import (
-            create_default_pipeline,
-        )
-        from fbf.core.execution.pipeline.executor import SimulationExecutor
-        from fbf.core.execution.pipeline.runner import SimulationRunner
 
         built = _make_debt_study(debt_interest_rate_is_real=is_real)
         executor = ResearchExecutor(
-            simulation_executor=SimulationExecutor(
-                simulation_runner=SimulationRunner(
-                    pipeline=create_default_pipeline()
-                )
-            )
+            simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
         )
 
         ctx = executor._create_context_for_unit(
@@ -662,18 +644,15 @@ class TestPart49WithdrawalPolicy:
 
 
 # ---------------------------------------------------------------------------
-# Full pipeline integration (research-layer end-to-end)
+# Full Numba execution (research-layer end-to-end)
 # ---------------------------------------------------------------------------
 
 
 class TestPart49ResearchLayerEndToEnd:
-    """End-to-end: StudyConfiguration -> plan -> context -> pipeline execution."""
+    """End-to-end: StudyConfiguration -> plan -> context -> Numba execution."""
 
-    def test_pipeline_executes_with_debt(self) -> None:
+    def test_executes_with_debt(self) -> None:
         from fbf.core.execution.executor import ResearchExecutor
-        from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-        from fbf.core.execution.pipeline.executor import SimulationExecutor
-        from fbf.core.execution.pipeline.runner import SimulationRunner
 
         dataset = _make_dataset()
         exp_def = _make_experiment_def()
@@ -699,9 +678,7 @@ class TestPart49ResearchLayerEndToEnd:
         )
 
         executor = ResearchExecutor(
-            simulation_executor=SimulationExecutor(
-                simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-            )
+            simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
         )
         result = executor.execute(plan)
         assert len(result.experiment_result.simulation_results) == 1
@@ -715,11 +692,8 @@ class TestPart49ResearchLayerEndToEnd:
         assert len(debt_snapshots) > 0
         assert debt_snapshots[-1].loan_balance > debt_snapshots[0].loan_balance
 
-    def test_pipeline_no_debt_when_params_none(self) -> None:
+    def test_no_debt_when_loan_draw_omitted(self) -> None:
         from fbf.core.execution.executor import ResearchExecutor
-        from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-        from fbf.core.execution.pipeline.executor import SimulationExecutor
-        from fbf.core.execution.pipeline.runner import SimulationRunner
 
         dataset = _make_dataset()
         exp_def = _make_experiment_def()
@@ -739,12 +713,11 @@ class TestPart49ResearchLayerEndToEnd:
                 ConstantAllocationPolicy(equity_allocation=Decimal("0.75")),
                 Part49WithdrawalPolicy(withdrawal_rate=Decimal("0.04")),
             ),
+            interest_rate=Decimal("0"),
         )
 
         executor = ResearchExecutor(
-            simulation_executor=SimulationExecutor(
-                simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-            )
+            simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
         )
         result = executor.execute(plan)
         sim_result = result.experiment_result.simulation_results[0]

@@ -1,8 +1,8 @@
-"""K.6 Integration test: end-to-end Part 49 debt pipeline.
+"""K.6 Integration test: end-to-end Part 49 debt execution.
 
-Runs a small grid (1 cohort × 2 interest rates) through the full production
-pipeline with debt enabled, verifying:
-- Pipeline completes without error
+Runs a small grid (1 cohort × 2 interest rates) through the Part 49 Numba
+executor with materialized timelines, verifying:
+- Execution completes without error
 - Debt snapshots are present in monthly results
 - Loan balance grows with interest
 - Cash lifecycle operates correctly (cash consumed before portfolio sale)
@@ -20,15 +20,13 @@ from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies import ConstantAllocationPolicy
-from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.executor import SimulationExecutor
-from fbf.core.execution.pipeline.runner import SimulationRunner
+from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     MonthlyResult,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.strategies.part49_numba_executor import Part49NumbaExecutor
 
 EQUITY = AssetClass(id="equity", name="", description="")
 BOND = AssetClass(id="bond", name="", description="")
@@ -55,47 +53,6 @@ def _make_dataset(n_months: int = 12) -> Dataset:
     return Dataset(snapshots=snapshots, frequency="monthly")
 
 
-class _Part49WithdrawalPolicy(WithdrawalPolicy):
-    """Withdrawal policy that sets both portfolio withdrawal and loan draw.
-
-    Per Part 49: total_spending = portfolio_withdrawal + loan_draw.
-    Both are fixed fractions of initial_wealth, computed once at start.
-    """
-
-    def __init__(
-        self,
-        withdrawal_rate: Decimal,
-        loan_draw_rate: Decimal,
-    ) -> None:
-        self.withdrawal_rate = withdrawal_rate
-        self.loan_draw_rate = loan_draw_rate
-
-    def decide(self, context: object) -> object:  # type: ignore[override]
-        from fbf.core.domain.model.decision_context import DecisionContext
-        from fbf.core.domain.policies.decisions import WithdrawalDecision
-
-        ctx = context
-        assert isinstance(ctx, DecisionContext)
-        sim = ctx.simulation_context
-        assert isinstance(sim, SimulationContext)
-
-        initial_snapshot = sim.dataset[0]
-        total = Money.ZERO
-        for h in sim.initial_portfolio.holdings:
-            price = initial_snapshot.index_levels[h.asset_class]
-            total += Money(h.units * price, Currency.EUR)
-
-        monthly_withdrawal = total.amount * self.withdrawal_rate / Decimal("12")
-        monthly_loan = total.amount * self.loan_draw_rate / Decimal("12")
-
-        return WithdrawalDecision(
-            reason="Part49Test",
-            nominal_amount=Money(monthly_withdrawal, Currency.EUR),
-            real_amount=Money(monthly_withdrawal, Currency.EUR),
-            loan_draw_amount=monthly_loan,
-        )
-
-
 def _run_debt_simulation(
     interest_rate: Decimal,
     ltv_limit: Decimal = Decimal("0.75"),
@@ -117,17 +74,13 @@ def _run_debt_simulation(
         )),
         dataset=dataset,
         allocation_policy=ConstantAllocationPolicy(equity_allocation=Decimal("0.75")),
-        withdrawal_policy=_Part49WithdrawalPolicy(
-            withdrawal_rate=Decimal("0.03"),
-            loan_draw_rate=Decimal("0.01"),
-        ),
+        withdrawal_policy=Part49WithdrawalPolicy(Decimal("0.03")),
+        loan_draw_rate=Decimal("0.01"),
         interest_rate=interest_rate,
         ltv_limit=ltv_limit,
     )
 
-    pipeline = create_default_pipeline()
-    runner = SimulationRunner(pipeline=pipeline)
-    executor = SimulationExecutor(runner)
+    executor = Part49NumbaExecutor(materialize_timeline=True)
 
     engine_def = EngineExperimentDefinition(
         name="part49-test",
@@ -138,6 +91,12 @@ def _run_debt_simulation(
     sim_result = experiment_run.simulation_results[0]
 
     return list(sim_result.timeline.monthly_results)
+
+
+def _assert_decimal_close(actual: Decimal, expected: Decimal) -> None:
+    """Compare Decimal values reconstructed from the Numba float trajectory."""
+    tolerance = max(abs(expected) * Decimal("1e-12"), Decimal("1e-12"))
+    assert abs(actual - expected) <= tolerance, f"{actual} != {expected}"
 
 
 class TestPart49SmallGrid:
@@ -216,10 +175,7 @@ class TestPart49SmallGrid:
                 if price is not None:
                     portfolio_value += h.units * price
             expected_nw = portfolio_value + ds.cash_balance - ds.loan_balance
-            assert ds.net_worth == expected_nw, (
-                f"net_worth identity violated: {ds.net_worth} != "
-                f"{portfolio_value} + {ds.cash_balance} - {ds.loan_balance}"
-            )
+            _assert_decimal_close(ds.net_worth, expected_nw)
 
     def test_cash_lifecycle(self) -> None:
         """Cash from loan draw is consumed by withdrawal (cash_balance=0 at record time)."""
@@ -229,8 +185,8 @@ class TestPart49SmallGrid:
             assert ds is not None
             # After LoanDraw (adds cash) and WithdrawalExecution (consumes cash),
             # cash should be consumed by spending (or zero if no spending).
-            # At MonthlyResultBuilder (step 70), cash_balance should be 0
-            # because the withdrawal consumed the cash.
+            # Materialized timelines carry no residual cash: the withdrawal
+            # consumes the loan draw before selling portfolio assets.
             assert ds.cash_balance >= 0, f"cash_balance negative: {ds.cash_balance}"
 
     def test_ltv_ratio_computed(self) -> None:
@@ -247,6 +203,4 @@ class TestPart49SmallGrid:
                         portfolio_value += h.units * price
                 if portfolio_value > 0:
                     expected_ltv = ds.loan_balance / portfolio_value
-                    assert ds.ltv == expected_ltv, (
-                        f"LTV mismatch: {ds.ltv} != {expected_ltv}"
-                    )
+                    _assert_decimal_close(ds.ltv, expected_ltv)

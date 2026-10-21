@@ -37,9 +37,10 @@ import pytest
 
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution.executor import ResearchExecutor
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.executor import SimulationExecutor
-from fbf.core.execution.pipeline.runner import SimulationRunner
+from fbf.core.execution.pipeline.simulation import (
+    ExperimentDefinition as EngineExperimentDefinition,
+)
+from fbf.core.execution.strategies.part49_numba_executor import Part49NumbaExecutor
 from fbf.core.study import StudyConfiguration, build_study_plan
 
 # ---------------------------------------------------------------------------
@@ -127,11 +128,8 @@ def _measure_execution() -> dict[str, Any]:
         cell_keys.add((eq, ir))
 
     # Phase 2: Execution
-    executor = ResearchExecutor(
-        simulation_executor=SimulationExecutor(
-            simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-        )
-    )
+    simulation_executor = Part49NumbaExecutor(materialize_timeline=True)
+    executor = ResearchExecutor(simulation_executor=simulation_executor)
 
     rss_before = _get_peak_rss_mb()
     t_exec_start = time.perf_counter()
@@ -211,9 +209,19 @@ def _measure_execution() -> dict[str, Any]:
         ctx1 = executor._create_context_for_unit(built.experiment_definition, test_unit)
         ctx2 = executor._create_context_for_unit(built.experiment_definition, test_unit)
 
-        runner = SimulationRunner(pipeline=create_default_pipeline())
-        r1 = runner.run(ctx1)
-        r2 = runner.run(ctx2)
+        single_definition = EngineExperimentDefinition(
+            name="part49-determinism",
+            description="Part 49 determinism check",
+            simulation_contexts=(ctx1,),
+        )
+        r1 = simulation_executor.execute(single_definition).simulation_results[0]
+
+        single_definition = EngineExperimentDefinition(
+            name="part49-determinism",
+            description="Part 49 determinism check",
+            simulation_contexts=(ctx2,),
+        )
+        r2 = simulation_executor.execute(single_definition).simulation_results[0]
 
         if r1.statistics.success != r2.statistics.success:
             nondeterministic = True

@@ -22,6 +22,7 @@ from fbf.core.execution.strategies.fast_path import (
     FastPathSimulationExecutor,
     evaluate_closed_form,
 )
+from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.execution.strategies.parallel_executor import (
     ExecutionConfig,
     _create_default_simulation_executor,
@@ -81,6 +82,48 @@ def _assert_decimal_fast_path_exact(
         f"{msg}: final_wealth differs (Decimal should be bit-exact)"
     )
 
+
+
+# ---------------------------------------------------------------------------
+# Numba Repeatability
+# ---------------------------------------------------------------------------
+
+
+class TestNumbaRepeatability:
+    """Plan-level Numba execution is deterministic and parallel-safe."""
+
+    def test_sequential_execute_repeated(self) -> None:
+        """Two sequential Numba runs produce identical results."""
+        plan = make_plan(cohorts=2, horizons=[361, 720])
+        executor = NumbaSimulationExecutor()
+
+        result_a = sequential_execute(plan, simulation_executor=executor)
+        result_b = sequential_execute(plan, simulation_executor=executor)
+
+        assert len(result_a.results) == len(result_b.results)
+        for i, (a, b) in enumerate(
+            zip(result_a.results, result_b.results, strict=True)
+        ):
+            _assert_reference_result_identical(a, b, f"numba sequential run {i}")
+
+    def test_parallel_matches_sequential(self) -> None:
+        """Parallel Numba execution is identical to sequential execution."""
+        plan = make_plan(cohorts=2, horizons=[361, 720])
+        seq_result = sequential_execute(
+            plan, simulation_executor=NumbaSimulationExecutor()
+        )
+        cfg = ExecutionConfig(use_processes=True, max_workers=2)
+        par_result = parallel_execute(
+            plan,
+            config=cfg,
+            simulation_executor=NumbaSimulationExecutor(),
+        )
+
+        assert len(seq_result.results) == len(par_result.results)
+        for i, (s, p) in enumerate(
+            zip(seq_result.results, par_result.results, strict=True)
+        ):
+            _assert_reference_result_identical(s, p, f"numba parallel unit {i}")
 
 
 # ---------------------------------------------------------------------------

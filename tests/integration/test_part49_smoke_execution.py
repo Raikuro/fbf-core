@@ -8,8 +8,7 @@ Part 49 grid executes successfully through the real production path:
         -> ResearchPlan / PlannedSimulationUnit
         -> ResearchExecutor
         -> SimulationContext
-        -> SimulationRunner
-        -> Decimal canonical pipeline
+        -> Part49NumbaExecutor (materialized timeline)
         -> MonthlyResult / DebtSnapshot
 
 This is an execution-path validation, not the full research run.
@@ -36,10 +35,9 @@ import pytest
 
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution.executor import ResearchExecutor
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.executor import SimulationExecutor
-from fbf.core.execution.pipeline.runner import SimulationRunner
 from fbf.core.execution.result import ResearchExecutionResult
+from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
+from fbf.core.execution.strategies.part49_numba_executor import Part49NumbaExecutor
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 
 # ---------------------------------------------------------------------------
@@ -107,11 +105,9 @@ def smoke_built_study() -> BuiltStudy:
 def smoke_execution_result(
     smoke_built_study: BuiltStudy,
 ) -> Iterator[tuple[BuiltStudy, ResearchExecutionResult]]:
-    """Execute the smoke study through the full production pipeline."""
+    """Execute the smoke study through the Part 49 Numba executor."""
     executor = ResearchExecutor(
-        simulation_executor=SimulationExecutor(
-            simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-        )
+        simulation_executor=Part49NumbaExecutor(materialize_timeline=True)
     )
     result = executor.execute(smoke_built_study.plan)
     yield smoke_built_study, result
@@ -458,9 +454,7 @@ class TestSmokeNonDebtRegression:
             units=built.plan.units[:1],
         )
         executor = ResearchExecutor(
-            simulation_executor=SimulationExecutor(
-                simulation_runner=SimulationRunner(pipeline=create_default_pipeline())
-            )
+            simulation_executor=NumbaSimulationExecutor(materialize_timeline=True)
         )
         result = executor.execute(limited_plan)
         assert len(result.experiment_result.simulation_results) == 1

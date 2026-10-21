@@ -1,15 +1,14 @@
 """P4-CX – Real engine execution through a CLI-constructed plan (regression).
 
-These tests exercise the ACTUAL simulation engine (not a mock) using a plan
-built by the shared CLI builders with the intended ``equity``/``bond`` asset
-model. They lock in two corrective fixes:
+These tests exercise the ACTUAL Numba simulation engine (not a mock) using a
+plan built by the shared CLI builders with the intended ``equity``/``bond``
+asset model. They lock in:
 
 1. The initial portfolio must use ``equity``/``bond`` assets aligned with the
    dataset loader (the previous synthetic ``id="initial"`` asset was unpriced by
    the market universe and crashed real runs with "Missing market price").
-2. ``SimulationState.allocation`` / ``allocation_target`` must be materialised
-   by the order-0 ``InitializeAllocationStep`` before ``BuildDecisionContextStep``
-   (the previous pipeline crashed with "SimulationState.allocation is required").
+2. Sequential and process-parallel execution must preserve the plan's asset
+   model and produce identical results.
 
 The ``sequential`` case is the regression guard; the ``parallel`` case also
 exercises process-boundary serialization (mapping proxy pickling) of the plan.
@@ -27,6 +26,7 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, ConstantWithdrawalPolicy
+from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.execution.strategies.parallel_executor import parallel_execute, sequential_execute
 from fbf.core.study.builder import build_initial_portfolio
 from fbf.core.study.internal.cohort.specification import CohortSpecification
@@ -105,7 +105,9 @@ class TestRealEngineSequential:
 
     def test_sequential_execute_runs_to_success(self) -> None:
         _, plan = _build_plan()
-        result = sequential_execute(plan)
+        result = sequential_execute(
+            plan, simulation_executor=NumbaSimulationExecutor()
+        )
         assert len(result.results) == 1
         assert result.results[0].statistics.success is True
 
@@ -126,7 +128,9 @@ class TestRealEngineParallel:
     def test_parallel_execution_serializes_and_runs(self, param_sweep: int) -> None:
         _, plan = _build_plan(param_sweep=param_sweep)
         expected = len(plan.units)
-        result = parallel_execute(plan, max_workers=2)
+        result = parallel_execute(
+            plan, simulation_executor=NumbaSimulationExecutor(), max_workers=2
+        )
         assert len(result.results) == expected
         assert all(r.statistics.success for r in result.results)
 
@@ -134,8 +138,12 @@ class TestRealEngineParallel:
     def test_parallel_matches_sequential(self, param_sweep: int) -> None:
         """parallel_execute matches sequential_execute results exactly."""
         _, plan = _build_plan(param_sweep=param_sweep)
-        sequential = sequential_execute(plan)
-        parallel = parallel_execute(plan, max_workers=2)
+        sequential = sequential_execute(
+            plan, simulation_executor=NumbaSimulationExecutor()
+        )
+        parallel = parallel_execute(
+            plan, simulation_executor=NumbaSimulationExecutor(), max_workers=2
+        )
 
         assert len(sequential.results) == len(parallel.results)
         for i, (seq, par) in enumerate(zip(sequential.results, parallel.results, strict=True)):
