@@ -10,6 +10,7 @@ is never silently simulated by the periodically rebalancing default pipeline.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -65,6 +66,7 @@ from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
+from tests.unit.execution.debt_recurrence_reference import compute_monthly_rates
 
 EQUITY_ASSET = AssetClass(id="equity", name="", description="")
 BOND_ASSET = AssetClass(id="bond", name="", description="")
@@ -239,7 +241,7 @@ def _part49_buy_and_hold_reference(
     equity_weight: Decimal,
     withdrawal_rate: Decimal,
     loan_draw_rate: Decimal,
-    monthly_rate: Decimal,
+    monthly_rates: Sequence[Decimal],
     ltv_limit: Decimal,
     ltv_enforcement: bool,
 ) -> tuple[Decimal, bool, int | None, str | None, Decimal]:
@@ -273,7 +275,7 @@ def _part49_buy_and_hold_reference(
         )
 
         if loan > 0:
-            loan += loan * monthly_rate
+            loan += loan * monthly_rates[m]
         loan += loan_draw
 
         if portfolio_withdrawal >= value:
@@ -320,8 +322,7 @@ def _reference_from_context(
     withdrawal = ctx.withdrawal_policy
     assert isinstance(withdrawal, Part49WithdrawalPolicy)
     assert isinstance(ctx.allocation_policy, BuyAndHoldAllocationPolicy)
-    assert ctx.interest_rate is not None
-    assert ctx.debt_interest_rate_is_real, "reference assumes the real-rate convention"
+    assert ctx.interest_rate is not None or ctx.interest_rate_schedule is not None
     snapshot0 = ctx.dataset[0]
     initial_value = sum(
         (
@@ -330,17 +331,32 @@ def _reference_from_context(
         ),
         Decimal("0"),
     )
-    return _part49_buy_and_hold_reference(
-        ctx.dataset,
+    monthly_rates = compute_monthly_rates(
+        tuple(snapshot.inflation_cumulative for snapshot in ctx.dataset.snapshots),
         ctx.horizon_months,
-        initial_value,
-        ctx.allocation_policy.equity_allocation,
-        withdrawal.withdrawal_rate,
-        ctx.loan_draw_rate or Decimal("0"),
-        ctx.interest_rate / Decimal("12"),
-        ctx.ltv_limit or Decimal("0.5"),
-        ctx.ltv_enforcement,
+        annual_rate_schedule=ctx.interest_rate_schedule,
+        fixed_annual_rate=ctx.interest_rate,
+        real_rate=ctx.debt_interest_rate_is_real,
     )
+    final_value, success, failure_month, failure_state, final_loan = (
+        _part49_buy_and_hold_reference(
+            ctx.dataset,
+            ctx.horizon_months,
+            initial_value,
+            ctx.allocation_policy.equity_allocation,
+            withdrawal.withdrawal_rate,
+            ctx.loan_draw_rate or Decimal("0"),
+            monthly_rates,
+            ctx.ltv_limit or Decimal("0.5"),
+            ctx.ltv_enforcement,
+        )
+    )
+    if success and ctx.final_value_target is not None:
+        success = (
+            final_value
+            >= ctx.final_value_target * ctx.initial_wealth.amount
+        )
+    return final_value, success, failure_month, failure_state, final_loan
 
 
 class TestPart49BuyAndHoldKernelHandCalculated:
@@ -419,7 +435,8 @@ class TestPart49BuyAndHoldIndependentReference:
         assert stats.success is exp_ok
         assert stats.failure_state == exp_state
         assert stats.failure_month == exp_fm
-        assert stats.months_simulated == (ctx.horizon_months if exp_ok else exp_fm)
+        expected_months = exp_fm if exp_fm is not None else ctx.horizon_months
+        assert stats.months_simulated == expected_months
         diff = abs(stats.final_wealth.amount - exp_value)
         assert diff < _WEALTH_TOLERANCE, (
             f"final wealth diff {diff} exceeds tolerance {_WEALTH_TOLERANCE}: "
@@ -449,9 +466,33 @@ class TestPart49BuyAndHoldIndependentReference:
         )
         self._assert_matches(ctx, _numba_result(ctx))
 
+    def test_constant_growth_legacy_returns_match_reference(self) -> None:
+        horizon = 120
+        ctx = _make_context(
+            _create_growth_dataset(horizon, Decimal("0.006"), Decimal("0.002")),
+            horizon,
+            equity_weight=Decimal("0.5"),
+        )
+        self._assert_matches(ctx, _numba_result(ctx))
+
     def test_varying_returns_match_reference(self) -> None:
         horizon = 96
         ctx = _make_context(_create_varying_dataset(horizon), horizon)
+        self._assert_matches(ctx, _numba_result(ctx))
+
+    def test_cpi_adjusted_rate_matches_reference(self) -> None:
+        horizon = 60
+        ctx = _make_context(
+            _create_growth_dataset(
+                horizon,
+                Decimal("-0.01"),
+                Decimal("0"),
+                monthly_inflation=Decimal("0.003"),
+            ),
+            horizon,
+            debt_interest_rate_is_real=False,
+            interest_rate=Decimal("0.02"),
+        )
         self._assert_matches(ctx, _numba_result(ctx))
 
     def test_zero_loan_draw_matches_reference(self) -> None:
@@ -462,6 +503,20 @@ class TestPart49BuyAndHoldIndependentReference:
             loan_draw_rate=Decimal("0"),
         )
         self._assert_matches(ctx, _numba_result(ctx))
+
+    def test_flat_market_no_leverage_matches_hand_calculation(self) -> None:
+        horizon = 60
+        ctx = _make_context(
+            _create_flat_dataset(horizon),
+            horizon,
+            loan_draw_rate=Decimal("0"),
+        )
+        result = _numba_result(ctx)
+        self._assert_matches(ctx, result)
+
+        withdrawal = INITIAL_WEALTH.amount * WITHDRAWAL_RATE / Decimal("12")
+        expected = INITIAL_WEALTH.amount - horizon * withdrawal
+        assert abs(result.statistics.final_wealth.amount - expected) < _WEALTH_TOLERANCE
 
     def test_depletion_matches_reference(self) -> None:
         horizon = 120
@@ -483,6 +538,29 @@ class TestPart49BuyAndHoldIndependentReference:
         self._assert_matches(ctx, result)
         assert result.statistics.success is False
         assert result.statistics.failure_state == "margin_call_terminal"
+
+    def test_enforcement_off_matches_reference(self) -> None:
+        horizon = 120
+        ctx = _make_context(
+            _create_decline_dataset(horizon), horizon, ltv_enforcement=False
+        )
+        self._assert_matches(ctx, _numba_result(ctx))
+
+    def test_final_value_target_pass_and_fail_match_reference(self) -> None:
+        horizon = 60
+        dataset = _create_growth_dataset(horizon, Decimal("0.004"), Decimal("0.001"))
+
+        passing = _make_context(dataset, horizon, final_value_target=Decimal("0.5"))
+        passing_result = _numba_result(passing)
+        self._assert_matches(passing, passing_result)
+        assert passing_result.statistics.success is True
+
+        failing = _make_context(dataset, horizon, final_value_target=Decimal("10"))
+        failing_result = _numba_result(failing)
+        self._assert_matches(failing, failing_result)
+        assert failing_result.statistics.success is False
+        assert failing_result.statistics.failure_month is None
+        assert failing_result.statistics.failure_state is None
 
     def test_terminal_loan_matches_reference_on_survivor(self) -> None:
         horizon = 60

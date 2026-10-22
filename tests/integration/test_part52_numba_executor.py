@@ -2,7 +2,8 @@
 
 These tests exercise Part52NumbaExecutor directly to verify that eligible
 configurations execute on the Numba kernel WITHOUT invoking the legacy
-fallback pipeline.
+fallback pipeline, and compare the debt path against an independent Decimal
+recurrence.
 """
 
 from __future__ import annotations
@@ -31,6 +32,11 @@ from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.part52_numba_executor import (
     Part52NumbaExecutor,
     is_part52_eligible,
+)
+from tests.unit.execution.debt_recurrence_reference import (
+    DebtReferenceResult,
+    compute_monthly_rates,
+    simulate_part52_reference,
 )
 
 _InterestRateSchedule = tuple[Decimal, ...] | None | EllipsisType
@@ -1040,19 +1046,6 @@ class TestPart52ExpenseRatioIndependentValidation:
 _WEALTH_TOLERANCE = Decimal("0.01")
 
 
-def _reference_result(ctx: SimulationContext) -> SimulationResult:
-    """Execute *ctx* on the legacy Decimal reference pipeline."""
-    from fbf.core.execution.strategies.parallel_executor import (
-        _create_default_simulation_executor,
-    )
-
-    reference = _create_default_simulation_executor()
-    run = reference.execute(
-        EngineExperimentDefinition(name="ref", description="ref", simulation_contexts=(ctx,))
-    )
-    return run.simulation_results[0]
-
-
 def _numba_result(ctx: SimulationContext) -> SimulationResult:
     """Execute *ctx* on the Part 52 Numba executor."""
     run = Part52NumbaExecutor().execute(
@@ -1061,10 +1054,48 @@ def _numba_result(ctx: SimulationContext) -> SimulationResult:
     return run.simulation_results[0]
 
 
-def _legacy_terminal_loan(result: SimulationResult) -> Decimal:
-    """Terminal loan balance recorded by the Decimal reference timeline."""
-    debt = result.timeline.monthly_results[-1].debt_snapshot
-    return debt.loan_balance if debt is not None else Decimal("0")
+def _independent_result(ctx: SimulationContext) -> DebtReferenceResult:
+    """Run the independent Decimal Part 52 debt recurrence for *ctx*."""
+    allocation = ctx.allocation_policy
+    assert isinstance(allocation, ConstantAllocationPolicy)
+    assert allocation.equity_allocation is not None
+    withdrawal = ctx.withdrawal_policy
+    assert isinstance(withdrawal, Part52WithdrawalPolicy)
+
+    snapshot0 = ctx.dataset[0]
+    initial_value = sum(
+        (
+            holding.units * snapshot0.index_levels[holding.asset_class]
+            for holding in ctx.initial_portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+    equity_prices = tuple(
+        snapshot.index_levels[EQUITY_ASSET] for snapshot in ctx.dataset
+    )
+    bond_prices = tuple(snapshot.index_levels[BOND_ASSET] for snapshot in ctx.dataset)
+    monthly_rates = compute_monthly_rates(
+        tuple(snapshot.inflation_cumulative for snapshot in ctx.dataset),
+        ctx.horizon_months,
+        annual_rate_schedule=ctx.interest_rate_schedule,
+        fixed_annual_rate=ctx.interest_rate,
+        real_rate=False,
+    )
+    return simulate_part52_reference(
+        equity_prices,
+        bond_prices,
+        initial_value=initial_value,
+        equity_weight=allocation.equity_allocation,
+        withdrawal_rate=withdrawal.withdrawal_rate,
+        borrow_pct=withdrawal.borrow_pct,
+        drawdown_threshold=withdrawal.drawdown_threshold,
+        monthly_rates=monthly_rates,
+        ltv_limit=ctx.ltv_limit or Decimal("0.5"),
+        ltv_enforcement=ctx.ltv_enforcement,
+        horizon=ctx.horizon_months,
+        final_value_target=ctx.final_value_target,
+        initial_wealth=ctx.initial_wealth.amount,
+    )
 
 
 def _kernel_terminal_loan(ctx: SimulationContext, horizon: int) -> Decimal:
@@ -1110,132 +1141,130 @@ def _kernel_terminal_loan(ctx: SimulationContext, horizon: int) -> Decimal:
     return Decimal(str(final_loan))
 
 
-class TestPart52DecimalDifferential:
-    """Differential: Part52 Numba executor vs the legacy Decimal reference.
+class TestPart52IndependentDebtReference:
+    """Differential against the independent Decimal Part 52 debt recurrence.
 
-    Fees are zero in these scenarios so the only cross-engine difference under
-    test is the interest-accrual / debt mechanics (the Part 52 fee convention
-    is a separate, pre-existing divergence).
+    Coverage matrix (retired legacy differential case -> independent case):
+
+    - schedule-backed borrowing -> ``test_schedule_backed_matches_independent_reference``
+    - fixed-rate borrowing -> ``test_schedule_less_fixed_rate_matches_independent_reference``
+    - terminal loan -> ``test_terminal_loan_matches_independent_reference``
+    - CPI-adjusted rate, full schedule ->
+      ``test_schedule_backed_nonzero_inflation_matches_independent_reference``
+    - CPI-adjusted rate, partial schedule ->
+      ``test_partial_schedule_nonzero_inflation_matches_independent_reference``
+    - terminal margin call ->
+      ``test_margin_call_terminal_matches_independent_reference``
+    - depletion -> ``test_depleted_matches_independent_reference``
     """
 
     @staticmethod
-    def _assert_matches(numba: SimulationResult, legacy: SimulationResult) -> None:
-        ns, ls = numba.statistics, legacy.statistics
-        assert ns.success == ls.success
-        assert ns.failure_state == ls.failure_state
-        assert ns.failure_month == ls.failure_month
-        assert ns.months_simulated == ls.months_simulated
-        diff = abs(ns.final_wealth.amount - ls.final_wealth.amount)
+    def _assert_matches(
+        ctx: SimulationContext, numba: SimulationResult
+    ) -> DebtReferenceResult:
+        reference = _independent_result(ctx)
+        ns = numba.statistics
+        assert ns.success is reference.success
+        assert ns.failure_state == reference.failure_state
+        assert ns.failure_month == reference.failure_month
+        assert ns.months_simulated == reference.months_simulated
+        diff = abs(ns.final_wealth.amount - reference.final_value)
         assert diff < _WEALTH_TOLERANCE, (
             f"final_wealth diff {diff} exceeds tolerance {_WEALTH_TOLERANCE}: "
-            f"numba={ns.final_wealth.amount}, legacy={ls.final_wealth.amount}"
+            f"numba={ns.final_wealth.amount}, reference={reference.final_value}"
         )
+        return reference
 
     @staticmethod
     def _assert_terminal_loan_matches(
-        ctx: SimulationContext, horizon: int, legacy: SimulationResult
+        ctx: SimulationContext, reference: DebtReferenceResult
     ) -> None:
-        numba_loan = _kernel_terminal_loan(ctx, horizon)
-        legacy_loan = _legacy_terminal_loan(legacy)
-        diff = abs(numba_loan - legacy_loan)
+        kernel_loan = _kernel_terminal_loan(ctx, ctx.horizon_months)
+        diff = abs(kernel_loan - reference.final_loan)
         assert diff < _WEALTH_TOLERANCE, (
             f"terminal loan diff {diff} exceeds tolerance {_WEALTH_TOLERANCE}: "
-            f"numba={numba_loan}, legacy={legacy_loan}"
+            f"numba={kernel_loan}, reference={reference.final_loan}"
         )
 
-    def test_schedule_backed_matches_decimal_reference(self) -> None:
+    def test_flat_market_without_borrowing_is_hand_calculated(self) -> None:
+        horizon = 24
+        ctx = _make_context(_create_dataset(horizon), horizon)
+        reference = _independent_result(ctx)
+        expected = INITIAL_WEALTH.amount - horizon * (
+            INITIAL_WEALTH.amount * WITHDRAWAL_RATE / Decimal("12")
+        )
+        assert abs(reference.final_value - expected) < Decimal("0.000001")
+        assert reference.final_loan == Decimal("0")
+        self._assert_matches(ctx, _numba_result(ctx))
+
+    def test_schedule_backed_matches_independent_reference(self) -> None:
         dataset = _create_decline_dataset(24)
         ctx = _make_context(
             dataset, 24, interest_rate_schedule=tuple(Decimal("0.04") for _ in range(24))
         )
-        self._assert_matches(_numba_result(ctx), _reference_result(ctx))
+        self._assert_matches(ctx, _numba_result(ctx))
 
-    def test_schedule_less_fixed_rate_matches_decimal_reference(self) -> None:
+    def test_schedule_less_fixed_rate_matches_independent_reference(self) -> None:
         dataset = _create_decline_dataset(24)
         ctx = _make_context(dataset, 24, interest_rate_schedule=None)
-        self._assert_matches(_numba_result(ctx), _reference_result(ctx))
+        self._assert_matches(ctx, _numba_result(ctx))
 
-    def test_terminal_loan_matches_decimal_reference(self) -> None:
-        """The kernel's terminal loan balance matches the legacy reference."""
+    def test_terminal_loan_matches_independent_reference(self) -> None:
         horizon = 24
         ctx = _make_context(
             _create_decline_dataset(horizon), horizon, interest_rate_schedule=None
         )
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
-        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+        reference = self._assert_matches(ctx, _numba_result(ctx))
+        self._assert_terminal_loan_matches(ctx, reference)
 
-    def test_schedule_backed_nonzero_inflation_matches_decimal_reference(self) -> None:
-        """CPI-adjusted interest end to end: full schedule, non-zero inflation."""
+    def test_schedule_backed_nonzero_inflation_matches_independent_reference(
+        self,
+    ) -> None:
         horizon = 24
         schedule = tuple(Decimal("0.04") for _ in range(horizon))
         dataset = _create_decline_inflation_dataset(horizon)
         ctx = _make_context(dataset, horizon, interest_rate_schedule=schedule)
 
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
-        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+        reference = self._assert_matches(ctx, _numba_result(ctx))
+        self._assert_terminal_loan_matches(ctx, reference)
 
-        # The CPI adjustment is genuinely exercised: on an otherwise identical
-        # trajectory with flat CPI, the legacy loan differs materially.
         flat_cpi_ctx = _make_context(
             _create_growth_dataset(horizon, Decimal("-0.04"), Decimal("0")),
             horizon,
             interest_rate_schedule=schedule,
         )
-        assert _legacy_terminal_loan(legacy) != _legacy_terminal_loan(
-            _reference_result(flat_cpi_ctx)
-        )
+        flat_cpi_reference = _independent_result(flat_cpi_ctx)
+        assert reference.final_loan != flat_cpi_reference.final_loan
 
-    def test_partial_schedule_nonzero_inflation_matches_decimal_reference(self) -> None:
-        """CPI-adjusted interest end to end: schedule ends before the horizon."""
+    def test_partial_schedule_nonzero_inflation_matches_independent_reference(
+        self,
+    ) -> None:
         horizon = 24
         schedule = tuple(Decimal("0.04") for _ in range(12))
         dataset = _create_decline_inflation_dataset(horizon)
         ctx = _make_context(dataset, horizon, interest_rate_schedule=schedule)
 
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
-        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+        reference = self._assert_matches(ctx, _numba_result(ctx))
+        self._assert_terminal_loan_matches(ctx, reference)
 
-        # Borrowing starts inside the 12-month schedule window, so both the
-        # scheduled prefix and the fixed-rate tail shape the loan: the hybrid
-        # schedule must differ from an all-fixed-rate run on the same data.
         all_scalar_ctx = _make_context(dataset, horizon, interest_rate_schedule=None)
-        assert _legacy_terminal_loan(legacy) != _legacy_terminal_loan(
-            _reference_result(all_scalar_ctx)
-        )
+        all_scalar_reference = _independent_result(all_scalar_ctx)
+        assert reference.final_loan != all_scalar_reference.final_loan
 
-    def test_margin_call_terminal_matches_decimal_reference(self) -> None:
-        """A satisfiable liquidation is terminal and matches the reference.
-
-        With LTV enforcement on, a sustained decline drives the loan past the
-        LTV limit while remaining satisfiable; the kernel must mark
-        ``margin_call_terminal`` at the liquidation month and carry the
-        post-liquidation portfolio value, exactly as the Decimal reference does.
-        """
+    def test_margin_call_terminal_matches_independent_reference(self) -> None:
         horizon = 60
         ctx = _make_context(
             _create_decline_dataset(horizon), horizon, ltv_enforcement=True
         )
+        reference = self._assert_matches(ctx, _numba_result(ctx))
 
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
+        assert reference.success is False
+        assert reference.failure_state == "margin_call_terminal"
+        assert reference.failure_month == 40
+        assert reference.months_simulated == 40
+        assert reference.final_value > Decimal("0")
 
-        ns = numba.statistics
-        assert ns.failure_state == "margin_call_terminal"
-        assert ns.failure_month == 40
-        assert ns.months_simulated == 40
-        # Post-liquidation wealth is positive: distinct from depletion.
-        assert ns.final_wealth.amount > Decimal("0")
-
-    def test_depleted_matches_decimal_reference(self) -> None:
-        """Depletion stays terminal with zero wealth and matches the reference.
-
-        A withdrawal rate high enough to exhaust the portfolio before the
-        horizon must keep the ``depleted`` failure state (never misreported as
-        an LTV margin call) and report zero final wealth.
-        """
+    def test_depleted_matches_independent_reference(self) -> None:
         horizon = 24
         ctx = _make_context(_create_decline_dataset(horizon), horizon)
         ctx = replace(
@@ -1247,14 +1276,15 @@ class TestPart52DecimalDifferential:
             ),
         )
 
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
+        numba = _numba_result(ctx)
+        reference = self._assert_matches(ctx, numba)
 
-        ns = numba.statistics
-        assert ns.failure_state == "depleted"
-        assert ns.failure_month == 18
-        assert ns.months_simulated == 18
-        assert ns.final_wealth.amount == Decimal("0")
+        assert reference.success is False
+        assert reference.failure_state == "depleted"
+        assert reference.failure_month == 18
+        assert reference.months_simulated == 18
+        assert reference.final_value == Decimal("0")
+        assert numba.statistics.final_wealth.amount == Decimal("0")
 
 
 if __name__ == "__main__":

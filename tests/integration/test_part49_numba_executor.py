@@ -1,7 +1,7 @@
 """Part 49 Numba executor tests.
 
 Covers eligibility, direct Numba execution (no silent fallback), differential
-agreement with the legacy Decimal reference pipeline, the
+agreement with an independent Decimal debt recurrence, the
 ``debt_interest_rate_is_real`` CPI bypass, failure states, and the AUTO/FAST
 dispatch contract.
 """
@@ -50,6 +50,11 @@ from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
+from tests.unit.execution.debt_recurrence_reference import (
+    DebtReferenceResult,
+    compute_monthly_rates,
+    simulate_part49_reference,
+)
 
 EQUITY_ASSET = AssetClass(id="equity", name="", description="")
 BOND_ASSET = AssetClass(id="bond", name="", description="")
@@ -189,18 +194,6 @@ def _alone_statistics(ctx: SimulationContext) -> SimulationStatistics:
     return run.simulation_results[0].statistics
 
 
-def _reference_result(ctx: SimulationContext) -> SimulationResult:
-    from fbf.core.execution.strategies.parallel_executor import (
-        _create_default_simulation_executor,
-    )
-
-    reference = _create_default_simulation_executor()
-    run = reference.execute(
-        EngineExperimentDefinition(name="ref", description="ref", simulation_contexts=(ctx,))
-    )
-    return run.simulation_results[0]
-
-
 def _numba_result(ctx: SimulationContext) -> SimulationResult:
     run = Part49NumbaExecutor().execute(
         EngineExperimentDefinition(name="numba", description="numba", simulation_contexts=(ctx,))
@@ -208,9 +201,47 @@ def _numba_result(ctx: SimulationContext) -> SimulationResult:
     return run.simulation_results[0]
 
 
-def _legacy_terminal_loan(result: SimulationResult) -> Decimal:
-    debt = result.timeline.monthly_results[-1].debt_snapshot
-    return debt.loan_balance if debt is not None else Decimal("0")
+def _independent_result(ctx: SimulationContext) -> DebtReferenceResult:
+    """Run the independent Decimal Part 49 debt recurrence for *ctx*."""
+    allocation = ctx.allocation_policy
+    assert isinstance(allocation, ConstantAllocationPolicy)
+    assert allocation.equity_allocation is not None
+    withdrawal = ctx.withdrawal_policy
+    assert isinstance(withdrawal, Part49WithdrawalPolicy)
+
+    snapshot0 = ctx.dataset[0]
+    initial_value = sum(
+        (
+            holding.units * snapshot0.index_levels[holding.asset_class]
+            for holding in ctx.initial_portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+    equity_prices = tuple(
+        snapshot.index_levels[EQUITY_ASSET] for snapshot in ctx.dataset
+    )
+    bond_prices = tuple(snapshot.index_levels[BOND_ASSET] for snapshot in ctx.dataset)
+    monthly_rates = compute_monthly_rates(
+        tuple(snapshot.inflation_cumulative for snapshot in ctx.dataset),
+        ctx.horizon_months,
+        annual_rate_schedule=ctx.interest_rate_schedule,
+        fixed_annual_rate=ctx.interest_rate,
+        real_rate=ctx.debt_interest_rate_is_real,
+    )
+    return simulate_part49_reference(
+        equity_prices,
+        bond_prices,
+        initial_value=initial_value,
+        equity_weight=allocation.equity_allocation,
+        withdrawal_rate=withdrawal.withdrawal_rate,
+        loan_draw_rate=ctx.loan_draw_rate or Decimal("0"),
+        monthly_rates=monthly_rates,
+        ltv_limit=ctx.ltv_limit or Decimal("0.5"),
+        ltv_enforcement=ctx.ltv_enforcement,
+        horizon=ctx.horizon_months,
+        final_value_target=ctx.final_value_target,
+        initial_wealth=ctx.initial_wealth.amount,
+    )
 
 
 def _kernel_terminal_loan(ctx: SimulationContext, horizon: int) -> Decimal:
@@ -378,57 +409,85 @@ class TestPart49NumbaExecutorDirect:
             )
 
 
-class TestPart49DecimalDifferential:
-    """Differential: Part 49 Numba executor vs the legacy Decimal reference."""
+class TestPart49IndependentDebtReference:
+    """Differential against the independent Decimal Part 49 debt recurrence.
+
+    Coverage matrix (retired legacy differential case -> independent case):
+
+    - flat growth -> ``test_flat_growth_matches_independent_reference``
+    - constant growth, zero draw -> ``test_constant_growth_zero_loan_draw_matches``
+    - constant growth, positive draw -> ``test_constant_growth_positive_loan_draw_matches``
+    - varying returns -> ``test_varying_returns_match_independent_reference``
+    - real-rate CPI bypass -> ``test_real_rate_bypasses_cpi_and_matches``
+    - CPI-adjusted rate -> ``test_cpi_adjusted_rate_matches_independent_reference``
+    - depletion -> ``test_depleted_matches_independent_reference``
+    - terminal margin call -> ``test_margin_call_terminal_matches_independent_reference``
+    - final-value target -> ``test_final_value_target_pass_and_fail``
+    - enforcement off -> ``test_enforcement_off_matches_independent_reference``
+    """
 
     @staticmethod
-    def _assert_matches(numba: SimulationResult, legacy: SimulationResult) -> None:
-        ns, ls = numba.statistics, legacy.statistics
-        assert ns.success == ls.success
-        assert ns.failure_state == ls.failure_state
-        assert ns.failure_month == ls.failure_month
-        assert ns.months_simulated == ls.months_simulated
-        diff = abs(ns.final_wealth.amount - ls.final_wealth.amount)
+    def _assert_matches(
+        ctx: SimulationContext, numba: SimulationResult
+    ) -> DebtReferenceResult:
+        reference = _independent_result(ctx)
+        ns = numba.statistics
+        assert ns.success is reference.success
+        assert ns.failure_state == reference.failure_state
+        assert ns.failure_month == reference.failure_month
+        assert ns.months_simulated == reference.months_simulated
+        diff = abs(ns.final_wealth.amount - reference.final_value)
         assert diff < _WEALTH_TOLERANCE, (
             f"final_wealth diff {diff} exceeds tolerance {_WEALTH_TOLERANCE}: "
-            f"numba={ns.final_wealth.amount}, legacy={ls.final_wealth.amount}"
+            f"numba={ns.final_wealth.amount}, reference={reference.final_value}"
         )
+        return reference
 
     @staticmethod
     def _assert_terminal_loan_matches(
-        ctx: SimulationContext, horizon: int, legacy: SimulationResult
+        ctx: SimulationContext, reference: DebtReferenceResult
     ) -> None:
-        numba_loan = _kernel_terminal_loan(ctx, horizon)
-        legacy_loan = _legacy_terminal_loan(legacy)
-        diff = abs(numba_loan - legacy_loan)
+        kernel_loan = _kernel_terminal_loan(ctx, ctx.horizon_months)
+        diff = abs(kernel_loan - reference.final_loan)
         assert diff < _WEALTH_TOLERANCE, (
             f"terminal loan diff {diff} exceeds tolerance {_WEALTH_TOLERANCE}: "
-            f"numba={numba_loan}, legacy={legacy_loan}"
+            f"numba={kernel_loan}, reference={reference.final_loan}"
         )
 
-    def test_flat_growth_matches_decimal_reference(self) -> None:
+    def test_flat_market_without_leverage_is_hand_calculated(self) -> None:
+        horizon = 24
+        ctx = _make_context(
+            _create_flat_dataset(horizon), horizon, loan_draw_rate=Decimal("0")
+        )
+        reference = _independent_result(ctx)
+        expected = INITIAL_WEALTH.amount - horizon * (
+            INITIAL_WEALTH.amount * WITHDRAWAL_RATE / Decimal("12")
+        )
+        assert reference.final_value == expected
+        assert reference.final_loan == Decimal("0")
+        self._assert_matches(ctx, _numba_result(ctx))
+
+    def test_flat_growth_matches_independent_reference(self) -> None:
         ctx = _make_context(_create_flat_dataset(24), 24)
-        self._assert_matches(_numba_result(ctx), _reference_result(ctx))
+        self._assert_matches(ctx, _numba_result(ctx))
 
     def test_constant_growth_zero_loan_draw_matches(self) -> None:
         ctx = _make_context(
             _create_growth_positive_dataset(24), 24, loan_draw_rate=Decimal("0")
         )
-        self._assert_matches(_numba_result(ctx), _reference_result(ctx))
+        self._assert_matches(ctx, _numba_result(ctx))
 
     def test_constant_growth_positive_loan_draw_matches(self) -> None:
         horizon = 24
         ctx = _make_context(_create_growth_positive_dataset(horizon), horizon)
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
-        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+        reference = self._assert_matches(ctx, _numba_result(ctx))
+        self._assert_terminal_loan_matches(ctx, reference)
 
-    def test_varying_returns_match_decimal_reference(self) -> None:
+    def test_varying_returns_match_independent_reference(self) -> None:
         horizon = 36
         ctx = _make_context(_create_varying_dataset(horizon), horizon)
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
-        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+        reference = self._assert_matches(ctx, _numba_result(ctx))
+        self._assert_terminal_loan_matches(ctx, reference)
 
     def test_real_rate_bypasses_cpi_and_matches(self) -> None:
         horizon = 24
@@ -436,74 +495,63 @@ class TestPart49DecimalDifferential:
             horizon, Decimal("-0.04"), Decimal("0"), monthly_inflation=Decimal("0.005")
         )
         ctx = _make_context(dataset, horizon, debt_interest_rate_is_real=True)
+        reference = self._assert_matches(ctx, _numba_result(ctx))
+        self._assert_terminal_loan_matches(ctx, reference)
 
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
-        self._assert_terminal_loan_matches(ctx, horizon, legacy)
-
-        # The flag is material: on the same CPI path, a CPI-adjusted rate
-        # produces a different loan than the real-rate bypass.
-        cpi_ctx = replace(ctx, debt_interest_rate_is_real=False)
-        assert _legacy_terminal_loan(legacy) != _legacy_terminal_loan(
-            _reference_result(cpi_ctx)
+        cpi_reference = _independent_result(
+            replace(ctx, debt_interest_rate_is_real=False)
         )
+        assert reference.final_loan != cpi_reference.final_loan
 
-    def test_cpi_adjusted_rate_matches_decimal_reference(self) -> None:
+    def test_cpi_adjusted_rate_matches_independent_reference(self) -> None:
         horizon = 24
         dataset = _create_growth_dataset(
             horizon, Decimal("-0.04"), Decimal("0"), monthly_inflation=Decimal("0.005")
         )
         ctx = _make_context(dataset, horizon, debt_interest_rate_is_real=False)
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
-        self._assert_terminal_loan_matches(ctx, horizon, legacy)
+        reference = self._assert_matches(ctx, _numba_result(ctx))
+        self._assert_terminal_loan_matches(ctx, reference)
 
-    def test_depleted_matches_decimal_reference(self) -> None:
+    def test_depleted_matches_independent_reference(self) -> None:
         horizon = 24
         ctx = _make_context(
             _create_decline_dataset(horizon), horizon, withdrawal_rate=Decimal("0.6")
         )
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
+        numba = _numba_result(ctx)
+        reference = self._assert_matches(ctx, numba)
+        assert reference.success is False
+        assert reference.failure_state == "depleted"
+        assert reference.failure_month is not None
+        assert reference.final_value == Decimal("0")
+        assert numba.statistics.final_wealth.amount == Decimal("0")
 
-        ns = numba.statistics
-        assert ns.success is False
-        assert ns.failure_state == "depleted"
-        assert ns.failure_month is not None
-        assert ns.final_wealth.amount == Decimal("0")
-
-    def test_margin_call_terminal_matches_decimal_reference(self) -> None:
+    def test_margin_call_terminal_matches_independent_reference(self) -> None:
         horizon = 60
         ctx = _make_context(_create_decline_dataset(horizon), horizon, ltv_enforcement=True)
-        numba, legacy = _numba_result(ctx), _reference_result(ctx)
-        self._assert_matches(numba, legacy)
-
-        ns = numba.statistics
-        assert ns.failure_state == "margin_call_terminal"
-        assert ns.failure_month is not None
-        assert ns.final_wealth.amount > Decimal("0")
+        reference = self._assert_matches(ctx, _numba_result(ctx))
+        assert reference.success is False
+        assert reference.failure_state == "margin_call_terminal"
+        assert reference.failure_month is not None
+        assert reference.final_value > Decimal("0")
 
     def test_final_value_target_pass_and_fail(self) -> None:
         horizon = 24
         dataset = _create_growth_positive_dataset(horizon)
 
         passing = _make_context(dataset, horizon, final_value_target=Decimal("0.5"))
-        numba_pass, legacy_pass = _numba_result(passing), _reference_result(passing)
-        self._assert_matches(numba_pass, legacy_pass)
-        assert numba_pass.statistics.success is True
+        passing_reference = self._assert_matches(passing, _numba_result(passing))
+        assert passing_reference.success is True
 
         failing = _make_context(dataset, horizon, final_value_target=Decimal("10"))
-        numba_fail, legacy_fail = _numba_result(failing), _reference_result(failing)
-        self._assert_matches(numba_fail, legacy_fail)
-        assert numba_fail.statistics.success is False
-        for stats in (numba_fail.statistics, legacy_fail.statistics):
-            assert stats.failure_month is None
-            assert stats.failure_state is None
+        failing_reference = self._assert_matches(failing, _numba_result(failing))
+        assert failing_reference.success is False
+        assert failing_reference.failure_month is None
+        assert failing_reference.failure_state is None
 
-    def test_enforcement_off_matches(self) -> None:
+    def test_enforcement_off_matches_independent_reference(self) -> None:
         horizon = 60
         ctx = _make_context(_create_decline_dataset(horizon), horizon, ltv_enforcement=False)
-        self._assert_matches(_numba_result(ctx), _reference_result(ctx))
+        self._assert_matches(ctx, _numba_result(ctx))
 
 
 def _make_dataset(months: int) -> Dataset:
