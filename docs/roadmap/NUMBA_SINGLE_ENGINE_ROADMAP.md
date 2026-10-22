@@ -58,7 +58,7 @@ not be conflated:
 - `ExecutionBackend.REFERENCE`: Used in `execution/__init__.py` backend dispatch; `fbf-cli/src/fbf/cli/commands/run_command.py` CLI flag `--reference`; `tests/unit/execution/test_backend_strategy_matrix.py` routing tests; `tests/unit/execution/test_determinism.py` (one test).
 - `ReferenceSimulationExecutor`: Exported from `strategies/__init__.py`; used in `tests/unit/execution/test_reference.py`, `tests/unit/execution/test_backend_strategy_matrix.py` (as `_make_reference_executor`), `tools/ern/mem_probe_*.py` (memory profiling, test-only).
 - `execute_reference()`: Exported from `execution/__init__.py`; used in `tests/unit/execution/test_reference.py`, `tests/integration/test_part42_e2e_audit.py` (monkey-patched), `tools/ern/mem_probe_*.py`.
-- `expected_reference_report`, `reference_month_work`: Exported from `execution/__init__.py`; used in CLI completion summary (`run_command.py:530-564, 640-678`).
+- `expected_reference_report`, `reference_month_work`: Exported from `execution/__init__.py`; implemented in `execution/reporting.py`; used in CLI completion summary (`run_command.py:530-564, 640-678`).
 
 **Migration approach (per review):**
 - D4.1 (committed in `01e4aeb`) removed the redundant `_reference` hooks from the dedicated Part 49, Part 52, and Part 49 buy-and-hold Numba executors. Those executors now reject ineligible configurations with `UnsupportedConfigurationError`; they no longer delegate to the legacy engine. The consumers below still require the legacy stack.
@@ -842,9 +842,10 @@ independent of production code and must not be imported by it.
 
 | File | Symbols | Phase | Action |
 |------|---------|:-----:|--------|
-| `src/fbf/core/execution/strategies/reference.py` | `ReferenceSimulationExecutor`, `execute_reference`, `_slice_plan_units`, `expected_reference_report`, `_build_derived_result` | D | Delete after slice dispatch ported (D2) and report duties migrated |
+| `src/fbf/core/execution/strategies/reference.py` | `ReferenceSimulationExecutor`, `execute_reference`, `_slice_plan_units`, `_build_derived_result`, `expected_reference_report` compatibility re-export | D | Delete after slice dispatch ported (D2); report implementation lives in `execution/reporting.py` |
+| `src/fbf/core/execution/reporting.py` | `ReferenceReport`, `expected_reference_report`, `reference_month_work` | — | Retain as the pure plan-reporting module; no executor imports |
 | `src/fbf/core/execution/strategies/workbook_scr.py` | `compute_workbook_growth_factors`, `compute_workbook_scr`, `workbook_scr_success` | B | **COMPLETE** — workbook SCR core implementation |
-| `src/fbf/core/execution/__init__.py` | `execute_reference`, `expected_reference_report`, `reference_month_work` exports (`:53`,`:62`,`:70`); REFERENCE branch (`:458`) | D | Remove after Phase C; rename `ExecutionBackend.REFERENCE` in Phase C |
+| `src/fbf/core/execution/__init__.py` | `execute_reference`, `expected_reference_report`, `reference_month_work` exports (`:53`,`:62`,`:70`); REFERENCE branch (`:458`) | D | Remove `execute_reference` after Phase C; report exports use `execution/reporting.py`; rename `ExecutionBackend.REFERENCE` in Phase C |
 | `src/fbf/core/execution/strategies/parallel_executor.py` | `_create_default_simulation_executor` (`:43`) | D | Delete after all fallbacks removed (Phase D4) |
 | `src/fbf/core/execution/pipeline/default_pipeline.py` | `create_default_pipeline`, `create_buy_and_hold_pipeline` | D | Delete after all pipeline consumers migrated (Phase D4) |
 | `src/fbf/core/execution/pipeline/steps/expense_deduction_step.py` | `ExpenseDeductionStep` | C/D | Migrate fee to Numba (B1); delete in Phase D4 |
@@ -880,9 +881,8 @@ independent of production code and must not be imported by it.
 
 **3. Production consumers of the legacy pipeline:**
 
-- `src/fbf/core/execution/__init__.py` — REFERENCE backend dispatch,
-  `execute_reference`, `expected_reference_report`, and
-  `reference_month_work` exports.
+- `src/fbf/core/execution/__init__.py` — REFERENCE backend dispatch and
+  `execute_reference` export.
 - `src/fbf/core/execution/strategies/parallel_executor.py` —
   `_create_default_simulation_executor`, `_AllocationRoutedSimulationExecutor`,
   and default worker/executor construction.

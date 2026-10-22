@@ -54,6 +54,7 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
+from fbf.core.execution.reporting import reference_month_work as reference_month_work
 from fbf.core.execution.strategies.parallel_executor import (
     _create_default_simulation_executor,
 )
@@ -803,20 +804,6 @@ def fast_path_unit_counts(plan: ResearchPlan) -> tuple[int, int]:
         1 for unit in plan.units if is_fast_path_eligible(_unit_simulation_context(plan, unit))
     )
     return fast_units, len(plan.units) - fast_units
-
-
-def reference_month_work(plan: ResearchPlan) -> int:
-    """Return the reference-path month-work for *plan*.
-
-    The reference engine simulates every unit for its full horizon, so the total
-    month-work is the sum of all per-unit horizons.
-    """
-    return sum(
-        unit.horizon_months
-        if unit.horizon_months is not None
-        else plan.experiment_definition.horizon_months
-        for unit in plan.units
-    )
 
 
 def expected_report(plan: ResearchPlan) -> DerivationReport:

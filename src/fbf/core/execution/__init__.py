@@ -64,7 +64,7 @@ def execute_reference(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
 
 
 def expected_reference_report(*args: Any, **kwargs: Any) -> Any:
-    from fbf.core.execution.strategies.reference import (
+    from fbf.core.execution.reporting import (
         expected_reference_report as implementation,
     )
 
@@ -72,7 +72,7 @@ def expected_reference_report(*args: Any, **kwargs: Any) -> Any:
 
 
 def reference_month_work(*args: Any, **kwargs: Any) -> int:
-    from fbf.core.execution.strategies.fast_path import reference_month_work as implementation
+    from fbf.core.execution.reporting import reference_month_work as implementation
 
     return implementation(*args, **kwargs)
 
