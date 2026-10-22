@@ -108,13 +108,20 @@ This section reflects the repository as inspected, not prior audit summaries.
   - `backend is None` → `_auto_select_backend()` (`:292`):
     1. Numba unavailable → `FastPathSimulationExecutor` (Decimal closed form).
     2. All units Part52-eligible → `Part52NumbaExecutor`.
-    3. All units FixedReal-eligible → `NumbaSimulationExecutor`.
-    4. All units escalating-eligible → `NumbaSimulationExecutor`.
-    5. All units buy-and-hold-eligible → `NumbaSimulationExecutor`.
-    6. All units glidepath-eligible → `NumbaSimulationExecutor`.
-    7. Otherwise → `FastPathSimulationExecutor` (Decimal closed form).
-  - `backend == FAST` → requires Numba; selects `Part52NumbaExecutor` if all
-    Part52, else `NumbaSimulationExecutor` (`:424-457`).
+    3. All units Part49-eligible → `Part49NumbaExecutor`.
+    4. All units Part49 buy-and-hold-eligible → `Part49BuyAndHoldNumbaExecutor`.
+    5. All units FixedReal-eligible → `NumbaSimulationExecutor`.
+    6. All units escalating-eligible → `NumbaSimulationExecutor`.
+    7. All units buy-and-hold-eligible → `NumbaSimulationExecutor`.
+    8. All units glidepath-eligible → `NumbaSimulationExecutor`.
+    9. Otherwise → `FastPathSimulationExecutor` (Decimal closed form).
+  - `backend == FAST` → requires Numba; selects the dedicated Part 52, Part 49,
+    or Part 49 buy-and-hold executor when applicable. Generic workloads are
+    admitted only when every context passes
+    `is_numba_context_eligible`; otherwise FAST raises
+    `UnsupportedConfigurationError`. `NumbaSimulationExecutor` is constructed
+    with `require_all_eligible=True`, so explicit FAST never creates or calls
+    the legacy reference executor.
   - `backend == REFERENCE` → `FastPathSimulationExecutor` (`:458-461`).
 - Strategy: `REFERENCE`-routed work may use `parallel_execute` when more than
   one worker is available (`:505-511`); Numba-routed work is always sequential
@@ -125,7 +132,7 @@ This section reflects the repository as inspected, not prior audit summaries.
 | Executor | File | Eligible workloads | Ineligible handling |
 |----------|------|--------------------|---------------------|
 | `FastPathSimulationExecutor` | `strategies/fast_path.py` | Constant allocation + FixedReal, 2 assets, dataset covers horizon | Batches ineligible contexts to `self._reference` (`:1181`) |
-| `NumbaSimulationExecutor` | `strategies/numba_executor.py` | (a) Constant allocation + FixedReal; (b) Constant allocation + ConstantWithdrawal (B2); (c) Constant allocation + Escalating (B3); (d) Buy-and-hold + FixedReal, fee = 0 (B4); (e) Glidepath + FixedReal; all 2 assets | Per-context `self._reference` (`:785`) |
+| `NumbaSimulationExecutor` | `strategies/numba_executor.py` | (a) Constant allocation + FixedReal; (b) Constant allocation + ConstantWithdrawal (B2); (c) Constant allocation + Escalating (B3); (d) Buy-and-hold + FixedReal, fee = 0 (B4); (e) Glidepath + FixedReal; all 2 assets | Default executor: per-context `self._reference` fallback. Explicit FAST: `require_all_eligible=True` rejects with `UnsupportedConfigurationError` and has no reference executor |
 | `Part49NumbaExecutor` | `strategies/part49_numba_executor.py` | Constant allocation + `Part49WithdrawalPolicy`, 2 assets, debt/LTV supported (C3/C5) | No `_reference` hook (D4.1); ineligible configurations raise `UnsupportedConfigurationError` |
 | `Part52NumbaExecutor` | `strategies/part52_numba_executor.py` | Constant allocation + `Part52WithdrawalPolicy`, 2 assets, `interest_rate_schedule` set, `expense_ratio` supported (additive fee, B1) | No `_reference` hook (D4.1); ineligible configurations raise `UnsupportedConfigurationError` |
 | `Part49BuyAndHoldNumbaExecutor` | `strategies/part49_buy_and_hold_numba_executor.py` | Buy-and-hold + `Part49WithdrawalPolicy`, 2 assets, zero fee (C4) | No `_reference` hook (D4.1); ineligible configurations raise `UnsupportedConfigurationError` |
@@ -137,7 +144,7 @@ legacy-engine fallback:
 
 | Owner | Hook | Remaining behavior |
 |-------|------|--------------------|
-| `NumbaSimulationExecutor` | `self._reference` (`numba_executor.py:492`) | Per-context fallback for ineligible contexts (`:785`) |
+| `NumbaSimulationExecutor` (default mode) | `self._reference` | Per-context fallback for ineligible contexts; explicit FAST uses `require_all_eligible=True` and therefore has no reference executor |
 | `FastPathSimulationExecutor` | `self._reference` (`fast_path.py:1100`) | Batches ineligible contexts to the legacy engine (`:1181`) |
 | `ReferenceSimulationExecutor` | `self._reference` (`reference.py:334`) | Wraps the legacy engine and calls it per context (`:425`) |
 | `execution/deterministic.py` | Direct `create_default_pipeline()` (`:529`) | Fee-free unsupported deterministic configurations use `_execute_legacy_deterministic()` (`:520`); non-zero fee raises `UnsupportedConfigurationError` |
@@ -850,7 +857,7 @@ independent of production code and must not be imported by it.
 | `src/fbf/core/execution/pipeline/default_pipeline.py` | `create_default_pipeline`, `create_buy_and_hold_pipeline` | D | Delete after all pipeline consumers migrated (Phase D4) |
 | `src/fbf/core/execution/pipeline/steps/expense_deduction_step.py` | `ExpenseDeductionStep` | C/D | Migrate fee to Numba (B1); delete in Phase D4 |
 | `src/fbf/core/execution/strategies/fast_path.py` | `FastPathSimulationExecutor`, `self._reference` (`:1100`), `_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form` | C/D | **Workbook SCR COMPLETE**; retain as Decimal fast path if Numba optional; else delete in D4 |
-| `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `self._reference` (`:492`), `_use_workbook_scr`, `_process_static_group` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); multi-asset (B5); fallback remains for ineligible contexts |
+| `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `is_numba_context_eligible`, `self._reference`, `_use_workbook_scr`, `_process_static_group` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); multi-asset (B5); default fallback remains for AUTO, while explicit FAST rejects unsupported contexts |
 | `src/fbf/core/execution/strategies/part49_numba_executor.py` | `Part49NumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError` |
 | `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError`; expense ratio supported (B1/C2) |
 | `src/fbf/core/execution/strategies/part49_buy_and_hold_numba_executor.py` | `Part49BuyAndHoldNumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError` |
@@ -874,7 +881,7 @@ independent of production code and must not be imported by it.
 
 | Owner | Mechanism | Current behavior |
 |-------|-----------|------------------|
-| `NumbaSimulationExecutor` | `self._reference` (`numba_executor.py:492`) | Per-context legacy execution for ineligible contexts (`:785`) |
+| `NumbaSimulationExecutor` (default mode) | `self._reference` | Per-context legacy execution for ineligible contexts; explicit FAST disables this fallback and rejects the plan |
 | `FastPathSimulationExecutor` | `self._reference` (`fast_path.py:1100`) | Batches ineligible contexts to the legacy engine (`:1181`) |
 | `ReferenceSimulationExecutor` | `self._reference` (`reference.py:334`) | Wraps the legacy engine and calls it per context (`:425`) |
 | `execution/deterministic.py` | Direct `create_default_pipeline()` (`:529`) | Fee-free unsupported configurations use `_execute_legacy_deterministic()` (`:520`); non-zero fee raises `UnsupportedConfigurationError` |

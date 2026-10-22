@@ -128,6 +128,7 @@ def make_plan(
                         parameter_config=param_config,
                         allocation_policy=ConstantAllocationPolicy(Decimal(str(w))),
                         withdrawal_policy=FixedRealWithdrawalPolicy(Decimal(str(r))),
+                        horizon_months=h,
                         initial_portfolio=build_initial_portfolio(
                             Money(Decimal("1000000"), Currency.EUR), dataset
                         ),

@@ -73,6 +73,7 @@ from fbf.core.domain.policies import (
 )
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
+from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
@@ -159,8 +160,8 @@ def _initial_value_equals_wealth(context: SimulationContext) -> bool:
     evaluated path, and omitting ``initial_wealth`` from the trajectory key,
     therefore requires the two to agree.  The equality is exact for the
     supported two-asset portfolios; for larger portfolios the underlying
-    Decimal divisions may round, so a mismatch is detected here and the context
-    falls back to the legacy engine rather than being simulated incorrectly.
+    Decimal divisions may round, so a mismatch is detected here.  AUTO then
+    falls back to the legacy engine, while explicit FAST rejects the context.
     """
     snapshot = context.dataset[0]
     value = Decimal("0")
@@ -300,6 +301,59 @@ def _is_buy_and_hold_eligible(context: SimulationContext) -> bool:
     if any(h.asset_class not in context.dataset[0].index_levels for h in holdings):
         return False
     return _initial_value_equals_wealth(context)
+
+
+def is_numba_context_eligible(context: SimulationContext) -> bool:
+    """Return True when the generic Numba executor can run *context* itself.
+
+    This is the admission predicate for an explicit ``FAST`` request.  It
+    requires one of the generic Numba policy families and rejects context
+    features that the generic kernels do not model.  In particular, debt and
+    LTV fields belong to the dedicated Part 49/52 executors; the generic
+    kernels would otherwise ignore them.
+
+    Fixed-real contexts that use the legacy (non-workbook) recurrence derive
+    their withdrawal from ``v0`` while the reference policy derives it from
+    ``initial_wealth``.  Such contexts are admitted only when the two values
+    are exactly equal.  Workbook SCR contexts use ``v0`` as their explicit
+    starting value and do not require that equality.
+    """
+    if context.loan_draw_rate is not None or context.ltv_limit is not None:
+        return False
+    if _is_numba_eligible(context):
+        if context.final_value_target not in (None, Decimal("0")):
+            return _initial_value_equals_wealth(context)
+        return True
+    if _is_constant_nominal_eligible(context):
+        return True
+    if _is_escalating_eligible(context):
+        return True
+    if _is_buy_and_hold_eligible(context):
+        return True
+    if _is_glidepath_eligible(context):
+        return _initial_value_equals_wealth(context)
+    return False
+
+
+def _numba_group_key(context: SimulationContext) -> tuple[object, ...] | None:
+    """Return the generic Numba grouping key, or ``None`` when ineligible.
+
+    Kept beside :func:`is_numba_context_eligible` so grouping and admission
+    use the same policy-family precedence.  This function describes the
+    executor's internal routing; ``FAST`` admission additionally applies the
+    strict checks in :func:`is_numba_context_eligible`.
+    """
+    if _is_numba_eligible(context):
+        return _group_key(context)
+    if _is_constant_nominal_eligible(context):
+        return _constant_nominal_group_key(context)
+    if _is_escalating_eligible(context):
+        return _escalating_group_key(context)
+    if _is_buy_and_hold_eligible(context):
+        return _buy_and_hold_group_key(context)
+    if _is_glidepath_eligible(context):
+        return _glidepath_group_key(context)
+    return None
 
 
 def _buy_and_hold_group_key(context: SimulationContext) -> tuple[object, ...]:
@@ -471,7 +525,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
     persist growth factors across multiple executor invocations (e.g., across
     bisection steps).
 
-    Non-eligible contexts are delegated to the reference Decimal executor.
+    Non-eligible contexts are delegated to the reference Decimal executor by
+    default.  With ``require_all_eligible=True`` (used by explicit ``FAST``),
+    an ineligible context raises ``UnsupportedConfigurationError`` instead and
+    no reference executor is constructed.
 
     Advertises ``processes_whole_definition = True`` so progress wrappers
     pass the full definition through unchanged (preserving group-level
@@ -488,8 +545,16 @@ class NumbaSimulationExecutor(SimulationExecutor):
             dict[GlidepathGFKey, NDArray[np.float64]] | None
         ) = None,
         materialize_timeline: bool = False,
+        *,
+        require_all_eligible: bool = False,
     ) -> None:
-        self._reference = reference_executor or _create_default_simulation_executor()
+        self._require_all_eligible = require_all_eligible
+        if reference_executor is not None:
+            self._reference: SimulationExecutor | None = reference_executor
+        elif require_all_eligible:
+            self._reference = None
+        else:
+            self._reference = _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
         self._materialize_timeline = materialize_timeline
         self._last_report: NumbaReport | None = None
@@ -540,17 +605,26 @@ class NumbaSimulationExecutor(SimulationExecutor):
         key_to_contexts: dict[tuple[object, ...], list[SimulationContext]] = {}
         is_eligible: list[bool] = []
         for context in definition.simulation_contexts:
-            if _is_numba_eligible(context):
-                key = _group_key(context)
-            elif _is_constant_nominal_eligible(context):
-                key = _constant_nominal_group_key(context)
-            elif _is_escalating_eligible(context):
-                key = _escalating_group_key(context)
-            elif _is_buy_and_hold_eligible(context):
-                key = _buy_and_hold_group_key(context)
-            elif _is_glidepath_eligible(context):
-                key = _glidepath_group_key(context)
-            else:
+            if self._require_all_eligible and not is_numba_context_eligible(context):
+                raise UnsupportedConfigurationError(
+                    "FAST backend cannot execute this plan on Numba: a context "
+                    "is not supported by the generic Numba kernels "
+                    f"(cohort={context.cohort!r}, "
+                    f"start_date={context.start_date.isoformat()!r}). "
+                    "Use backend=AUTO to route unsupported workloads through "
+                    "the reference engine."
+                )
+            key = _numba_group_key(context)
+            if key is None:
+                if self._require_all_eligible:
+                    raise UnsupportedConfigurationError(
+                        "FAST backend cannot execute this plan on Numba: a "
+                        "context is not supported by the generic Numba kernels "
+                        f"(cohort={context.cohort!r}, "
+                        f"start_date={context.start_date.isoformat()!r}). "
+                        "Use backend=AUTO to route unsupported workloads "
+                        "through the reference engine."
+                    )
                 is_eligible.append(False)
                 continue
             is_eligible.append(True)
@@ -777,6 +851,12 @@ class NumbaSimulationExecutor(SimulationExecutor):
         ordered_results: list[SimulationResult] = []
         for index, context in enumerate(definition.simulation_contexts):
             if not is_eligible[index]:
+                if self._reference is None:
+                    raise UnsupportedConfigurationError(
+                        "FAST backend cannot execute this plan on Numba: an "
+                        "ineligible context reached assembly without a "
+                        "reference fallback."
+                    )
                 single = EngineExperimentDefinition(
                     name=definition.name,
                     description=definition.description,

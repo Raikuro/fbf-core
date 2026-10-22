@@ -573,16 +573,36 @@ def _select_simulation_executor(
         else:
             from fbf.core.execution.strategies.numba_executor import (
                 NumbaSimulationExecutor,
-            )
-            from fbf.core.execution.strategies.parallel_executor import (
-                _create_reference_simulation_executor,
+                is_numba_context_eligible,
             )
 
+            unsupported = next(
+                (
+                    ctx
+                    for ctx in fast_contexts
+                    if not is_numba_context_eligible(ctx)
+                ),
+                None,
+            )
+            if unsupported is not None:
+                raise UnsupportedConfigurationError(
+                    "FAST backend cannot execute this plan on Numba: a context "
+                    "is not supported by the generic Numba kernels "
+                    f"(cohort={unsupported.cohort!r}, "
+                    f"start_date={unsupported.start_date.isoformat()!r}). "
+                    "The FAST backend supports fixed-real, constant-nominal, "
+                    "escalating, zero-fee buy-and-hold, and glidepath policies "
+                    "when the generic kernels' dataset, portfolio, and value "
+                    "invariants hold; debt and LTV configurations belong to the "
+                    "dedicated Part 49/52 executors. Use backend=AUTO to route "
+                    "unsupported workloads through the reference engine."
+                )
+
             sim_executor = NumbaSimulationExecutor(
-                reference_executor=_create_reference_simulation_executor(),
                 profiler=profiler,
                 glidepath_gf_cache=opt.glidepath_gf_cache,
                 materialize_timeline=opt.materialize_timeline,
+                require_all_eligible=True,
             )
     elif backend == ExecutionBackend.REFERENCE:
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor

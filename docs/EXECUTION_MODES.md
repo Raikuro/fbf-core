@@ -11,7 +11,7 @@ This document describes the public execution model, internal implementation mapp
 | Value | Contract |
 |-------|----------|
 | `REFERENCE` | Authoritative Decimal reference implementation. Exact semantics; used for validation, debugging, oracle comparisons, and regression testing. |
-| `FAST` | Optimized float64 backend. Requires the optional Numba dependency (`pip install fbf-core[numba]`). Automatically selects the best validated kernel (Part52 or FixedReal) based on workload. A workload it cannot execute on Numba raises `UnsupportedConfigurationError` rather than silently falling back to REFERENCE; use `None` (AUTO) for graceful routing. |
+| `FAST` | Optimized float64 backend. Requires the optional Numba dependency (`pip install fbf-core[numba]`). Automatically selects the best validated kernel (Part52, Part49, Part49 buy-and-hold, or the generic Numba executor) based on workload. A workload it cannot execute on Numba raises `UnsupportedConfigurationError` rather than silently falling back to REFERENCE; use `None` (AUTO) for graceful routing. |
 | `None` (default) | AUTO dispatch. Capability-driven routing: selects FAST when all units are eligible, REFERENCE otherwise. This is the recommended production path. |
 
 ### ExecutionStrategy
@@ -35,8 +35,10 @@ execute_study_plan(built)  # backend=None, strategy=AUTO
 AUTO dispatch selects the best validated backend:
 
 1. If numba is available and all units are Part52-eligible → `Part52NumbaExecutor`
-2. If numba is available and all units are FixedReal-eligible → `NumbaSimulationExecutor`
-3. Otherwise → `FastPathSimulationExecutor` (REFERENCE)
+2. If numba is available and all units are Part49-eligible → `Part49NumbaExecutor`
+3. If numba is available and all units are Part49 buy-and-hold-eligible → `Part49BuyAndHoldNumbaExecutor`
+4. If numba is available and all units are eligible for one generic Numba family → `NumbaSimulationExecutor`
+5. Otherwise → `FastPathSimulationExecutor` (REFERENCE)
 
 ### Explicit backend selection
 
@@ -109,9 +111,11 @@ The public `REFERENCE`/`FAST` names describe the user-facing contract. The curre
 
 ```
 AUTO dispatch (backend=None)
-  → Part52NumbaExecutor      (when all units are Part52-eligible)
-  → NumbaSimulationExecutor   (when all units are FixedReal-eligible)
-  → FastPathSimulationExecutor (otherwise, same as REFERENCE)
+  → Part52NumbaExecutor               (when all units are Part52-eligible)
+  → Part49NumbaExecutor               (when all units are Part49-eligible)
+  → Part49BuyAndHoldNumbaExecutor     (when all units are Part49 buy-and-hold-eligible)
+  → NumbaSimulationExecutor           (when all units share one generic Numba family)
+  → FastPathSimulationExecutor        (otherwise, same as REFERENCE)
 
 REFERENCE
   → FastPathSimulationExecutor
@@ -124,9 +128,14 @@ FAST
        → any ineligible context: raise UnsupportedConfigurationError
          (no silent fallback; the Part52 kernel and the Decimal pipeline
           have different fee/ordering conventions)
-  → NumbaSimulationExecutor (otherwise)
+  → Part49NumbaExecutor / Part49BuyAndHoldNumbaExecutor
+       → dedicated scalar kernels, float64 arithmetic
+       → any ineligible context: raise UnsupportedConfigurationError
+  → NumbaSimulationExecutor (generic families)
        → Numba JIT scalar kernel, float64 arithmetic
-       → ineligible contexts: Legacy Reference Decimal (automatic internal fallback)
+       → any ineligible context: raise UnsupportedConfigurationError
+         (explicit FAST passes require_all_eligible=True and constructs no
+          reference executor)
        → sequential execution only
 ```
 
@@ -135,8 +144,16 @@ FAST
 | Workload | Eligibility | Executor |
 |----------|-------------|----------|
 | Part52: `ConstantAllocationPolicy` + `Part52WithdrawalPolicy` + 2 assets + dataset coverage + an interest-rate source covering the horizon (FFR schedule of at least `horizon_months` entries, or a fixed scalar `interest_rate`) | All units eligible | `Part52NumbaExecutor` |
-| FixedReal: `ConstantAllocationPolicy` + `FixedRealWithdrawalPolicy` + 2 assets + dataset coverage | All units eligible | `NumbaSimulationExecutor` |
-| Mixed/unsupported Part52 | Not eligible | AUTO → REFERENCE; explicit FAST → `UnsupportedConfigurationError` |
+| Part49: dedicated eligibility predicate (2 assets, monthly frequency, zero fee where required, debt/LTV supported) | All units eligible | `Part49NumbaExecutor` |
+| Part49 buy-and-hold: dedicated eligibility predicate (2 assets, zero fee, debt/LTV supported) | All units eligible | `Part49BuyAndHoldNumbaExecutor` |
+| Generic fixed-real: `ConstantAllocationPolicy` + `FixedRealWithdrawalPolicy` + supported portfolio/dataset; non-workbook contexts additionally require `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
+| Generic constant-nominal: `ConstantAllocationPolicy` + `ConstantWithdrawalPolicy` + supported 2-asset portfolio/dataset | All units eligible | `NumbaSimulationExecutor` |
+| Generic escalating: `ConstantAllocationPolicy` + `EscalatingWithdrawalPolicy` + supported 2-asset portfolio/dataset + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
+| Generic buy-and-hold: `BuyAndHoldAllocationPolicy` + `FixedRealWithdrawalPolicy` + 2 assets + zero fee + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
+| Generic glidepath: `GlidepathAllocationPolicy` + `FixedRealWithdrawalPolicy` + supported 2-asset portfolio/dataset + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
+| Mixed/unsupported workload | Not eligible | AUTO → REFERENCE; explicit FAST → `UnsupportedConfigurationError` |
+
+The generic Numba families do not model debt/LTV fields; those configurations belong to the dedicated Part 49/52 executors. Explicit FAST never constructs or calls the legacy reference executor.
 
 ### Dependency Model
 
@@ -162,7 +179,7 @@ The legacy Reference engine (full 9-step Decimal pipeline) is:
 
 - **Mathematically unchanged**: the canonical oracle for correctness
 - **Unavailable as a public backend**: not an `ExecutionBackend` value
-- **Internally reachable**: as automatic fallback for AUTO dispatch, REFERENCE, and the FixedReal FAST kernel when contexts are ineligible. The Part52 FAST path is the exception: an ineligible Part52 workload raises `UnsupportedConfigurationError` instead of falling back.
+- **Internally reachable**: as automatic fallback for AUTO dispatch and REFERENCE. Explicit FAST never falls back: an ineligible context raises `UnsupportedConfigurationError`.
 - **Available for testing**: differential and regression tests verify equivalence
 
 It should not be selected automatically as an independent execution mode.
