@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
@@ -77,9 +77,15 @@ class DeterministicTrajectory:
     expense_ratio:
         Annual expense ratio as a Decimal fraction (e.g., 0.0005 for 0.05%).
         Defaults to 0 (no expenses).
+    rebalance_cadence:
+        Optional rebalance cadence for deterministic execution. When set, it
+        takes precedence over the rebalance entry in ``schedule``. Defaults to
+        None, which preserves the schedule's rebalance cadence or EVERY_PERIOD.
     schedule:
-        Optional ExecutionSchedule to control step cadence (e.g., annual rebalance).
-        Defaults to None (all steps execute every period).
+        Optional ExecutionSchedule to control step cadence (e.g., annual
+        rebalance). Retained for Tier 1 compatibility; new callers should use
+        ``rebalance_cadence``. Defaults to None (all steps execute every
+        period).
     """
 
     name: str
@@ -91,6 +97,7 @@ class DeterministicTrajectory:
     horizon_months: int
     expense_ratio: Decimal = Decimal("0")
     schedule: ExecutionSchedule | None = None
+    rebalance_cadence: StepCadence | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -99,6 +106,13 @@ class DeterministicTrajectory:
             raise ValueError("DeterministicTrajectory.horizon_months must be positive")
         if self.expense_ratio < 0:
             raise ValueError("DeterministicTrajectory.expense_ratio must be non-negative")
+        if self.rebalance_cadence is not None and self.schedule is not None:
+            scheduled = self.schedule.explicit_rebalance_cadence()
+            if scheduled is not None and scheduled is not self.rebalance_cadence:
+                raise ValueError(
+                    "rebalance_cadence conflicts with the schedule's explicit "
+                    "rebalance cadence"
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,21 +189,12 @@ def _unsupported_schedule_reason(schedule: ExecutionSchedule | None) -> str | No
     if schedule is None:
         return None
 
-    from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
-        PortfolioRebalanceStep,
-    )
+    custom = schedule.custom_non_rebalance_cadences()
+    if not custom:
+        return None
 
-    cadences = cast(
-        dict[type[object], StepCadence],
-        getattr(schedule, "_step_cadences", {}),
-    )
-    for step_type, cadence in cadences.items():
-        if step_type is not PortfolioRebalanceStep and cadence is not StepCadence.EVERY_PERIOD:
-            return (
-                f"non-rebalance step {step_type.__name__} uses "
-                f"{cadence.value} cadence"
-            )
-    return None
+    step_name, cadence = custom[0]
+    return f"non-rebalance step {step_name} uses {cadence.value} cadence"
 
 
 def _unsupported_kernel_reason(trajectory: DeterministicTrajectory) -> str | None:
@@ -302,17 +307,18 @@ def _target_equity_weights(
     )
 
 
+def _effective_rebalance_cadence(trajectory: DeterministicTrajectory) -> StepCadence:
+    """Resolve the rebalance cadence without importing a pipeline step class."""
+    if trajectory.rebalance_cadence is not None:
+        return trajectory.rebalance_cadence
+    if trajectory.schedule is None:
+        return StepCadence.EVERY_PERIOD
+    return trajectory.schedule.rebalance_cadence()
+
+
 def _rebalance_flags(trajectory: DeterministicTrajectory) -> NDArray[np.bool_]:
     horizon = trajectory.horizon_months
-    if trajectory.schedule is None:
-        return np.ones(horizon, dtype=np.bool_)
-
-    from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
-        PortfolioRebalanceStep,
-    )
-
-    cadence = trajectory.schedule.get_cadence(PortfolioRebalanceStep)
-    if cadence is StepCadence.ANNUAL:
+    if _effective_rebalance_cadence(trajectory) is StepCadence.ANNUAL:
         return np.array(
             [month % 12 == 0 for month in range(horizon)], dtype=np.bool_
         )
@@ -528,7 +534,12 @@ def _execute_legacy_deterministic(
     context = _build_context(trajectory)
     pipeline = create_default_pipeline()
     runner = SimulationRunner(pipeline=pipeline)
-    result: SimulationResult = runner.run(context, schedule=trajectory.schedule)
+    schedule = trajectory.schedule
+    if trajectory.rebalance_cadence is not None:
+        schedule = (schedule or ExecutionSchedule()).with_rebalance_cadence(
+            trajectory.rebalance_cadence
+        )
+    result: SimulationResult = runner.run(context, schedule=schedule)
 
     monthly_results = tuple(result.timeline.monthly_results)
     checkpoints = {mr.period_index: mr for mr in monthly_results}

@@ -38,8 +38,7 @@ from fbf.core.execution import (
     DeterministicTrajectory,
     execute_deterministic_trajectory,
 )
-from fbf.core.execution.pipeline.schedule import ExecutionSchedule, StepCadence
-from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import PortfolioRebalanceStep
+from fbf.core.execution.pipeline.schedule import StepCadence
 
 __all__ = [
     "ExperimentECase",
@@ -137,10 +136,8 @@ _EXPERIMENT_E_WITHDRAWAL = EscalatingWithdrawalPolicy(
     frequency=WithdrawalFrequency.ANNUAL,
 )
 
-# Annual rebalance schedule
-_EXPERIMENT_E_SCHEDULE = ExecutionSchedule(
-    {PortfolioRebalanceStep: StepCadence.ANNUAL}
-)
+# Annual rebalance cadence
+_EXPERIMENT_E_REBALANCE_CADENCE = StepCadence.ANNUAL
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +198,7 @@ def build_experiment_e_trajectories() -> list[DeterministicTrajectory]:
             withdrawal_policy=_EXPERIMENT_E_WITHDRAWAL,
             horizon_months=_EXPERIMENT_E_HORIZON_MONTHS,
             expense_ratio=_EXPERIMENT_E_EXPENSE_RATIO,
-            schedule=_EXPERIMENT_E_SCHEDULE,
+            rebalance_cadence=_EXPERIMENT_E_REBALANCE_CADENCE,
         ),
         # 2. Bear→Bull, 70→90% annual glidepath
         DeterministicTrajectory(
@@ -213,7 +210,7 @@ def build_experiment_e_trajectories() -> list[DeterministicTrajectory]:
             withdrawal_policy=_EXPERIMENT_E_WITHDRAWAL,
             horizon_months=_EXPERIMENT_E_HORIZON_MONTHS,
             expense_ratio=_EXPERIMENT_E_EXPENSE_RATIO,
-            schedule=_EXPERIMENT_E_SCHEDULE,
+            rebalance_cadence=_EXPERIMENT_E_REBALANCE_CADENCE,
         ),
         # 3. Bull→Bear, Static 80%
         DeterministicTrajectory(
@@ -225,7 +222,7 @@ def build_experiment_e_trajectories() -> list[DeterministicTrajectory]:
             withdrawal_policy=_EXPERIMENT_E_WITHDRAWAL,
             horizon_months=_EXPERIMENT_E_HORIZON_MONTHS,
             expense_ratio=_EXPERIMENT_E_EXPENSE_RATIO,
-            schedule=_EXPERIMENT_E_SCHEDULE,
+            rebalance_cadence=_EXPERIMENT_E_REBALANCE_CADENCE,
         ),
         # 4. Bull→Bear, 70→90% annual glidepath
         DeterministicTrajectory(
@@ -237,7 +234,7 @@ def build_experiment_e_trajectories() -> list[DeterministicTrajectory]:
             withdrawal_policy=_EXPERIMENT_E_WITHDRAWAL,
             horizon_months=_EXPERIMENT_E_HORIZON_MONTHS,
             expense_ratio=_EXPERIMENT_E_EXPENSE_RATIO,
-            schedule=_EXPERIMENT_E_SCHEDULE,
+            rebalance_cadence=_EXPERIMENT_E_REBALANCE_CADENCE,
         ),
     ]
 

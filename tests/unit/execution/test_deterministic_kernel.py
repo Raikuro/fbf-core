@@ -104,6 +104,7 @@ def _trajectory(
     horizon: int | None = None,
     fee: Decimal = _FEE,
     schedule: ExecutionSchedule | None = None,
+    rebalance_cadence: StepCadence | None = None,
 ) -> DeterministicTrajectory:
     return DeterministicTrajectory(
         name="test",
@@ -117,6 +118,7 @@ def _trajectory(
         horizon_months=horizon if horizon is not None else len(dataset),
         expense_ratio=fee,
         schedule=schedule,
+        rebalance_cadence=rebalance_cadence,
     )
 
 
@@ -198,14 +200,16 @@ def _reference_for(trajectory: DeterministicTrajectory) -> ReferenceResult:
     targets = _target_weights(trajectory)
     fixed, rate, annual = _withdrawal_inputs(trajectory)
 
-    if trajectory.schedule is None:
-        rebalance_flags = tuple(True for _ in range(trajectory.horizon_months))
+    if trajectory.rebalance_cadence is not None:
+        cadence = trajectory.rebalance_cadence
+    elif trajectory.schedule is not None:
+        cadence = trajectory.schedule.rebalance_cadence()
     else:
-        cadence = trajectory.schedule.get_cadence(PortfolioRebalanceStep)
-        rebalance_flags = tuple(
-            month % 12 == 0 if cadence is StepCadence.ANNUAL else True
-            for month in range(trajectory.horizon_months)
-        )
+        cadence = StepCadence.EVERY_PERIOD
+    rebalance_flags = tuple(
+        month % 12 == 0 if cadence is StepCadence.ANNUAL else True
+        for month in range(trajectory.horizon_months)
+    )
 
     return simulate_reference(
         equity_prices,
@@ -294,6 +298,25 @@ class TestKernelReferenceEquivalence:
             ),
             initial_equity=Decimal("0.80"),
             schedule=_annual_schedule(),
+        )
+
+        _assert_matches_reference(
+            execute_deterministic_trajectory(trajectory),
+            _reference_for(trajectory),
+        )
+
+    def test_static_annual_rebalance_uses_explicit_cadence(self) -> None:
+        dataset = _make_dataset(36)
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.80")),
+            EscalatingWithdrawalPolicy(
+                withdrawal_rate=Decimal("0.035"),
+                escalation_rate=Decimal("0.02"),
+                frequency=WithdrawalFrequency.ANNUAL,
+            ),
+            initial_equity=Decimal("0.80"),
+            rebalance_cadence=StepCadence.ANNUAL,
         )
 
         _assert_matches_reference(

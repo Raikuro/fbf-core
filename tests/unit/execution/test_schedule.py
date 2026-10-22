@@ -199,6 +199,52 @@ class TestDefaultPipelineBackwardCompatibility:
         assert orders == sorted(orders)
 
 
+class TestRebalanceCadenceHelpers:
+    """Tests for the neutral rebalance-cadence compatibility helpers."""
+
+    def test_rebalance_cadence_defaults_to_every_period(self) -> None:
+        schedule = ExecutionSchedule()
+        assert schedule.rebalance_cadence() == StepCadence.EVERY_PERIOD
+        assert schedule.explicit_rebalance_cadence() is None
+
+    def test_rebalance_cadence_returns_explicit_annual(self) -> None:
+        schedule = ExecutionSchedule({PortfolioRebalanceStep: StepCadence.ANNUAL})
+        assert schedule.rebalance_cadence() == StepCadence.ANNUAL
+        assert schedule.explicit_rebalance_cadence() == StepCadence.ANNUAL
+
+    def test_with_rebalance_cadence_preserves_other_entries(self) -> None:
+        from fbf.core.execution.pipeline.steps.allocation_decision_step import (
+            AllocationDecisionStep,
+        )
+
+        schedule = ExecutionSchedule({AllocationDecisionStep: StepCadence.ANNUAL})
+        updated = schedule.with_rebalance_cadence(StepCadence.ANNUAL)
+
+        assert schedule.explicit_rebalance_cadence() is None
+        assert updated.explicit_rebalance_cadence() == StepCadence.ANNUAL
+        assert updated.get_cadence(AllocationDecisionStep) == StepCadence.ANNUAL
+
+    def test_custom_non_rebalance_cadences_reports_only_non_default(self) -> None:
+        from fbf.core.execution.pipeline.steps.allocation_decision_step import (
+            AllocationDecisionStep,
+        )
+
+        schedule = ExecutionSchedule(
+            {
+                PortfolioRebalanceStep: StepCadence.ANNUAL,
+                AllocationDecisionStep: StepCadence.EVERY_PERIOD,
+            }
+        )
+        assert schedule.custom_non_rebalance_cadences() == ()
+
+        annual_allocation = ExecutionSchedule(
+            {AllocationDecisionStep: StepCadence.ANNUAL}
+        )
+        assert annual_allocation.custom_non_rebalance_cadences() == (
+            ("AllocationDecisionStep", StepCadence.ANNUAL),
+        )
+
+
 class TestAnnualRebalanceIntegration:
     """Tests for annual rebalance cadence via ExecutionSchedule."""
 

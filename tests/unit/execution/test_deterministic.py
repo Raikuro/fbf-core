@@ -156,6 +156,53 @@ class TestDeterministicTrajectory:
         )
         assert trajectory.schedule is schedule
 
+    def test_with_rebalance_cadence(self) -> None:
+        dataset = _make_flat_dataset(12)
+        trajectory = DeterministicTrajectory(
+            name="Test",
+            initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+            initial_allocation=AllocationTarget(
+                weights={_EQUITY: Decimal("0.6"), _BOND: Decimal("0.4")}
+            ),
+            dataset=dataset,
+            allocation_policy=ConstantAllocationPolicy(equity_allocation=Decimal("0.6")),
+            withdrawal_policy=EscalatingWithdrawalPolicy(
+                withdrawal_rate=Decimal("0.04"),
+                frequency=WithdrawalFrequency.ANNUAL,
+            ),
+            horizon_months=12,
+            rebalance_cadence=StepCadence.ANNUAL,
+        )
+        assert trajectory.rebalance_cadence is StepCadence.ANNUAL
+        assert trajectory.schedule is None
+
+    def test_conflicting_rebalance_cadence_raises(self) -> None:
+        from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
+            PortfolioRebalanceStep,
+        )
+
+        dataset = _make_flat_dataset(12)
+        schedule = ExecutionSchedule({PortfolioRebalanceStep: StepCadence.EVERY_PERIOD})
+        with pytest.raises(ValueError, match="conflicts"):
+            DeterministicTrajectory(
+                name="Test",
+                initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+                initial_allocation=AllocationTarget(
+                    weights={_EQUITY: Decimal("0.6"), _BOND: Decimal("0.4")}
+                ),
+                dataset=dataset,
+                allocation_policy=ConstantAllocationPolicy(
+                    equity_allocation=Decimal("0.6")
+                ),
+                withdrawal_policy=EscalatingWithdrawalPolicy(
+                    withdrawal_rate=Decimal("0.04"),
+                    frequency=WithdrawalFrequency.ANNUAL,
+                ),
+                horizon_months=12,
+                schedule=schedule,
+                rebalance_cadence=StepCadence.ANNUAL,
+            )
+
     def test_empty_name_raises(self) -> None:
         dataset = _make_flat_dataset(12)
         with pytest.raises(ValueError, match="name must be non-empty"):
@@ -369,32 +416,50 @@ class TestExecuteDeterministicTrajectory:
         assert len(result.timeline) == 24
         assert result.success is True
 
-    def test_annual_rebalance_schedule(self) -> None:
-        """Annual rebalance should execute only at period 0, 12, 24, etc."""
-        dataset = _make_rising_dataset(36)
-        # Test that we can create a schedule with annual rebalance
-        # The actual step execution is tested in Phase 2 tests
-        schedule = ExecutionSchedule()
-        trajectory = DeterministicTrajectory(
-            name="AnnualRebalance",
-            initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-            initial_allocation=AllocationTarget(
-                weights={_EQUITY: Decimal("0.6"), _BOND: Decimal("0.4")}
-            ),
-            dataset=dataset,
-            allocation_policy=ConstantAllocationPolicy(equity_allocation=Decimal("0.6")),
-            withdrawal_policy=EscalatingWithdrawalPolicy(
-                withdrawal_rate=Decimal("0.04"),
-                frequency=WithdrawalFrequency.ANNUAL,
-            ),
-            horizon_months=36,
-            schedule=schedule,
+    def test_annual_rebalance_cadence_matches_legacy_schedule(self) -> None:
+        """The explicit cadence is equivalent to the legacy schedule key."""
+        from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
+            PortfolioRebalanceStep,
         )
 
-        result = execute_deterministic_trajectory(trajectory)
+        dataset = _make_rising_dataset(36)
 
-        assert len(result.timeline) == 36
-        assert result.success is True
+        def build(
+            schedule: ExecutionSchedule | None = None,
+            rebalance_cadence: StepCadence | None = None,
+        ) -> DeterministicTrajectory:
+            return DeterministicTrajectory(
+                name="AnnualRebalance",
+                initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+                initial_allocation=AllocationTarget(
+                    weights={_EQUITY: Decimal("0.6"), _BOND: Decimal("0.4")}
+                ),
+                dataset=dataset,
+                allocation_policy=ConstantAllocationPolicy(
+                    equity_allocation=Decimal("0.6")
+                ),
+                withdrawal_policy=EscalatingWithdrawalPolicy(
+                    withdrawal_rate=Decimal("0.04"),
+                    frequency=WithdrawalFrequency.ANNUAL,
+                ),
+                horizon_months=36,
+                schedule=schedule,
+                rebalance_cadence=rebalance_cadence,
+            )
+
+        legacy_result = execute_deterministic_trajectory(
+            build(
+                schedule=ExecutionSchedule(
+                    {PortfolioRebalanceStep: StepCadence.ANNUAL}
+                )
+            )
+        )
+        migrated_result = execute_deterministic_trajectory(
+            build(rebalance_cadence=StepCadence.ANNUAL)
+        )
+
+        assert migrated_result.final_wealth == legacy_result.final_wealth
+        assert migrated_result.timeline == legacy_result.timeline
 
     def test_annual_glidepath_integration(self) -> None:
         """Deterministic adapter should work with annual glidepath cadence."""

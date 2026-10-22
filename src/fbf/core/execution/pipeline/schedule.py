@@ -35,6 +35,12 @@ class ExecutionSchedule:
 
     The schedule is consulted by SimulationRunner.run() before executing
     each step. It does not change the pipeline order or step semantics.
+
+    The rebalance helpers (:meth:`explicit_rebalance_cadence`,
+    :meth:`rebalance_cadence`, and :meth:`with_rebalance_cadence`) let
+    deterministic callers configure rebalance cadence without importing the
+    concrete ``PortfolioRebalanceStep`` class. The step-type mapping remains
+    the compatibility representation for existing schedule callers.
     """
 
     def __init__(
@@ -51,6 +57,48 @@ class ExecutionSchedule:
         Returns EVERY_PERIOD if no explicit cadence is configured.
         """
         return self._step_cadences.get(step_type, StepCadence.EVERY_PERIOD)
+
+    def explicit_rebalance_cadence(self) -> StepCadence | None:
+        """Return the explicitly configured rebalance cadence, if any."""
+        from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
+            PortfolioRebalanceStep,
+        )
+
+        return self._step_cadences.get(PortfolioRebalanceStep)
+
+    def rebalance_cadence(self) -> StepCadence:
+        """Return the effective rebalance cadence.
+
+        Returns EVERY_PERIOD when the rebalance step has no explicit entry.
+        """
+        return self.explicit_rebalance_cadence() or StepCadence.EVERY_PERIOD
+
+    def with_rebalance_cadence(self, cadence: StepCadence) -> ExecutionSchedule:
+        """Return a copy with the rebalance step configured to *cadence*."""
+        from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
+            PortfolioRebalanceStep,
+        )
+
+        updated = dict(self._step_cadences)
+        updated[PortfolioRebalanceStep] = cadence
+        return ExecutionSchedule(updated)
+
+    def custom_non_rebalance_cadences(self) -> tuple[tuple[str, StepCadence], ...]:
+        """Return non-default cadences configured for non-rebalance steps.
+
+        Deterministic execution only supports rebalance cadence. These entries
+        are reported so unsupported configurations are rejected explicitly.
+        """
+        from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
+            PortfolioRebalanceStep,
+        )
+
+        return tuple(
+            (step_type.__name__, cadence)
+            for step_type, cadence in self._step_cadences.items()
+            if step_type is not PortfolioRebalanceStep
+            and cadence is not StepCadence.EVERY_PERIOD
+        )
 
     def should_execute(
         self, step_type: type[PipelineStep], period_index: int

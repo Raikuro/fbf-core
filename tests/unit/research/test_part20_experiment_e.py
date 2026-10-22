@@ -163,16 +163,14 @@ class TestExperimentETrajectories:
         for t in trajectories:
             assert t.expense_ratio == Decimal("0.0005")
 
-    def test_all_trajectories_have_annual_rebalance_schedule(self) -> None:
-        """All trajectories use annual rebalance schedule."""
+    def test_all_trajectories_have_annual_rebalance_cadence(self) -> None:
+        """All trajectories use annual rebalance cadence."""
         trajectories = build_experiment_e_trajectories()
         for t in trajectories:
-            assert t.schedule is not None
             from fbf.core.execution.pipeline.schedule import StepCadence
-            from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
-                PortfolioRebalanceStep,
-            )
-            assert t.schedule.get_cadence(PortfolioRebalanceStep) == StepCadence.ANNUAL
+
+            assert t.rebalance_cadence == StepCadence.ANNUAL
+            assert t.schedule is None
 
     def test_static_trajectories_use_constant_allocation(self) -> None:
         """Static trajectories use ConstantAllocationPolicy at 80%."""
