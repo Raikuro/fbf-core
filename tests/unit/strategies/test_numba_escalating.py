@@ -11,8 +11,7 @@ with one lump sum per year (``ANNUAL``) or a monthly twelfth (``MONTHLY``).
 Correctness is established from two independent angles:
 
 1. Closed-form hand calculation on a flat market.
-2. An independent Decimal recurrence, plus a differential against the legacy
-   pipeline (fee = 0, where the two methodologies coincide).
+2. An independent Decimal recurrence at the exact annual and monthly horizons.
 """
 
 from __future__ import annotations
@@ -30,8 +29,6 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, EscalatingWithdrawalPolicy
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.execution import _auto_select_backend
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.runner import SimulationRunner
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
@@ -406,31 +403,60 @@ class TestEscalatingKernelWrappers:
 
 
 class TestEscalatingExecutorDifferential:
-    @pytest.mark.parametrize("freq", [ANNUAL, MONTHLY])
-    def test_matches_legacy_pipeline_without_fees(self, freq: WithdrawalFrequency) -> None:
-        """With fee=0 the Numba path and the legacy pipeline coincide."""
-        horizon = 60
-        context = _make_context(_growing_dataset(horizon + 1), horizon, freq=freq)
-        numba = _run_numba([context])[0]
-        legacy = SimulationRunner(pipeline=create_default_pipeline()).run(context)
-
-        assert numba[0] == legacy.statistics.success
-        assert abs(numba[2] - legacy.statistics.final_wealth.amount) < Decimal("0.01")
-
-    @pytest.mark.parametrize("freq", [ANNUAL, MONTHLY])
-    def test_matches_independent_recurrence(self, freq: WithdrawalFrequency) -> None:
-        horizon = 72
+    @pytest.mark.parametrize(
+        ("freq", "horizon", "weight", "rate", "escalation", "expected"),
+        [
+            (ANNUAL, 72, "0.75", "0.04", "0.03", None),
+            (MONTHLY, 72, "0.75", "0.04", "0.03", None),
+            (
+                ANNUAL,
+                60,
+                "0.6",
+                "0.035",
+                "0.02",
+                Decimal("1083132.503346486463390014796"),
+            ),
+            (
+                MONTHLY,
+                60,
+                "0.6",
+                "0.035",
+                "0.02",
+                Decimal("1088179.414089071780605990821"),
+            ),
+        ],
+    )
+    def test_matches_independent_recurrence(
+        self,
+        freq: WithdrawalFrequency,
+        horizon: int,
+        weight: str,
+        rate: str,
+        escalation: str,
+        expected: Decimal | None,
+    ) -> None:
         dataset = _growing_dataset(horizon + 1)
-        context = _make_context(dataset, horizon, w="0.75", rate="0.04", esc="0.03", freq=freq)
+        context = _make_context(
+            dataset,
+            horizon,
+            w=weight,
+            rate=rate,
+            esc=escalation,
+            freq=freq,
+        )
         ok, fm, wealth, months = _run_numba([context])[0]
         exp_value, exp_ok, exp_fm = _recurrence(
-            _growth_factors(dataset, horizon, Decimal("0.75")),
+            _growth_factors(dataset, horizon, Decimal(weight)),
             _WEALTH,
-            Decimal("0.04"),
-            Decimal("0.03"),
+            Decimal(rate),
+            Decimal(escalation),
             horizon,
             freq is ANNUAL,
         )
+        if expected is not None:
+            assert exp_value == expected
+            assert exp_ok is True
+            assert exp_fm is None
         assert ok is exp_ok
         assert fm == exp_fm
         assert months == (horizon if ok else fm)

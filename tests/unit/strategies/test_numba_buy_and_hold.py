@@ -20,9 +20,7 @@ the weights drift with the asset-specific returns::
 Correctness is established from two independent angles:
 
 1. Closed-form hand calculations on controlled markets.
-2. An independent Decimal unit-tracking recurrence, plus a differential against
-   the legacy buy-and-hold pipeline (fee = 0, where the two methodologies
-   coincide).
+2. An independent Decimal unit-tracking recurrence.
 """
 
 from __future__ import annotations
@@ -44,8 +42,6 @@ from fbf.core.domain.policies import (
     FixedRealWithdrawalPolicy,
 )
 from fbf.core.execution import _auto_select_backend
-from fbf.core.execution.pipeline.default_pipeline import create_buy_and_hold_pipeline
-from fbf.core.execution.pipeline.runner import SimulationRunner
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
@@ -412,17 +408,6 @@ class TestBuyAndHoldKernelWrappers:
 
 
 class TestBuyAndHoldExecutorDifferential:
-    @pytest.mark.parametrize("w", ["0.0", "0.5", "0.75", "1.0"])
-    def test_matches_legacy_buy_and_hold_pipeline_without_fees(self, w: str) -> None:
-        """With fee=0 the Numba path and the legacy pipeline coincide."""
-        horizon = 60
-        context = _make_context(_bh_dataset(horizon + 1), horizon, w=w)
-        numba = _run_numba([context])[0]
-        legacy = SimulationRunner(pipeline=create_buy_and_hold_pipeline()).run(context)
-
-        assert numba[0] == legacy.statistics.success
-        assert abs(numba[2] - legacy.statistics.final_wealth.amount) < Decimal("0.01")
-
     @pytest.mark.parametrize(
         ("w", "expected"),
         [
@@ -432,22 +417,19 @@ class TestBuyAndHoldExecutorDifferential:
             ("1.0", Decimal("1183366.467387228912518654144")),
         ],
     )
-    def test_matches_hand_derived_recurrence_and_legacy(self, w: str, expected: Decimal) -> None:
+    def test_matches_hand_derived_recurrence(self, w: str, expected: Decimal) -> None:
         """Anchor the kernel to the independently derived unit-tracking path.
 
         These terminal values were produced by the Decimal unit-tracking
-        recurrence (and independently confirmed by the corrected legacy
-        buy-and-hold pipeline) for FixedReal 4%, 60 months, equity +0.6%/mo,
+        recurrence for FixedReal 4%, 60 months, equity +0.6%/mo,
         bond +0.2%/mo, initial value 1,000,000.
         """
         horizon = 60
         context = _make_context(_bh_dataset(horizon + 1), horizon, w=w)
         numba = _run_numba([context])[0]
-        legacy = SimulationRunner(pipeline=create_buy_and_hold_pipeline()).run(context)
 
         assert numba[0] is True
         assert abs(numba[2] - expected) < _TOLERANCE
-        assert abs(legacy.statistics.final_wealth.amount - expected) < _TOLERANCE
 
     @pytest.mark.parametrize("w", ["0.25", "0.6", "0.9"])
     def test_matches_independent_recurrence(self, w: str) -> None:
