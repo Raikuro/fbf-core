@@ -48,7 +48,7 @@ It contains the simulation engine, research library, and ERN oracle.
 | Tier | Modules | Who may import |
 |------|---------|----------------|
 | Tier 1 | `fbf.core` (root `__init__`) | All consumers |
-| Tier 2 | `fbf.core.domain`, `fbf.core.domain.model`, `fbf.core.domain.policies`, `fbf.core.study`, `fbf.core.execution`, `fbf.core.optimization`, `fbf.core.persistence` | CLI and Core |
+| Tier 2 | `fbf.core.domain`, `fbf.core.domain.model`, `fbf.core.domain.policies`, `fbf.core.study`, `fbf.core.execution`, `fbf.core.optimization`, `fbf.core.persistence`, `fbf.core.research` | CLI and Core |
 | Tier 3 | All other submodules | Core tests only — never consumer production code. Consumer **tests** may use a small, explicitly documented allow-list (see each consumer's `tests/contract/` directory). |
 
 ---

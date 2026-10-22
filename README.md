@@ -91,6 +91,7 @@ fbf-core/
 │           ├── execution/           # pipeline, strategies, executor
 │           ├── optimization/        # SWR solver, strategy comparator
 │           ├── persistence/         # SQLite repository
+│           ├── research/            # public research facade and pipelines
 │           └── study/               # study planning, cohort generation
 ├── tests/
 │   ├── unit/                        # fast, isolated unit tests

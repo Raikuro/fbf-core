@@ -121,7 +121,7 @@ The Core API is organised in three access tiers:
 | Tier | Modules | Access |
 |------|---------|--------|
 | **Tier 1** | `fbf.core` (root facade) | All consumers |
-| **Tier 2** | `fbf.core.domain`, `fbf.core.domain.model`, `fbf.core.domain.policies`, `fbf.core.study`, `fbf.core.execution`, `fbf.core.optimization`, `fbf.core.persistence` | Consumers with explicit need |
+| **Tier 2** | `fbf.core.domain`, `fbf.core.domain.model`, `fbf.core.domain.policies`, `fbf.core.study`, `fbf.core.execution`, `fbf.core.optimization`, `fbf.core.persistence`, `fbf.core.research` | Consumers with explicit need |
 | **Tier 3** | `fbf.core.study.internal`, `fbf.core.execution.pipeline.steps`, and all other non-facade submodules | Core tests only |
 
 External consumers are **forbidden** from importing Tier 3 modules. Core
@@ -138,6 +138,14 @@ The exact exported symbol set is authoritative in the package (`fbf.core.__all__
 and guarded by the `test_public_facade_symbols` contract test. This document
 describes the boundary and purpose; the package remains authoritative for the
 complete symbol list.
+
+### 5.2 Tier 2 Research Facade
+
+`fbf.core.research` is the public entry point for supported research
+workflows. Consumers import named operations and result types from this
+package rather than from its implementation submodules. The symbols exported
+by `fbf.core.research.__all__` are stable Tier 2 API; every submodule below it
+(for example `fbf.core.research.part3_pipeline`) remains Tier 3.
 
 ---
 
