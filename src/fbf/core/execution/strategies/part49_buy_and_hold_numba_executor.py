@@ -13,10 +13,9 @@ Before this executor existed, a buy-and-hold study combined with a
 ``Part49WithdrawalPolicy`` matched no Numba-eligible class and was routed to the
 Decimal fast path, whose ineligible-context fallback is the *periodically
 rebalancing* default pipeline.  That silently changed the allocation semantics.
-The executor here is selected by :func:`is_part49_buy_and_hold_eligible`, and
-the routing fix in :mod:`fbf.core.execution` additionally guarantees that any
-buy-and-hold configuration that is *not* eligible is delegated to the
-buy-and-hold reference pipeline rather than to a rebalancing one.
+The executor here is selected by :func:`is_part49_buy_and_hold_eligible`;
+buy-and-hold configurations that are *not* eligible are rejected rather than
+simulated by a rebalancing or legacy reference pipeline.
 
 Interest accrual honours ``SimulationContext.debt_interest_rate_is_real`` so the
 Numba path matches the legacy ``InterestAccrualStep`` exactly: when the flag is
@@ -62,9 +61,6 @@ from fbf.core.execution.strategies.fast_path import (
     _dataset_token,
     _index_series,
     _trajectory_clusters,
-)
-from fbf.core.execution.strategies.parallel_executor import (
-    _create_reference_simulation_executor,
 )
 from fbf.core.execution.strategies.part49_numba_executor import (
     _apply_part49_fv_check,
@@ -182,11 +178,9 @@ class Part49BuyAndHoldNumbaExecutor(SimulationExecutor):
 
     def __init__(
         self,
-        reference_executor: SimulationExecutor | None = None,
         profiler: Profiler | None = None,
         materialize_timeline: bool = False,
     ) -> None:
-        self._reference = reference_executor or _create_reference_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
         self._materialize_timeline = materialize_timeline
         self._last_report: Part49BuyAndHoldNumbaReport | None = None

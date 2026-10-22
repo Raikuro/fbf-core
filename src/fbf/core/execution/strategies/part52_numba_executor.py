@@ -47,9 +47,6 @@ from fbf.core.execution.strategies.fast_path import (
     _trajectory_clusters,
     _weights_by_class,
 )
-from fbf.core.execution.strategies.parallel_executor import (
-    _create_default_simulation_executor,
-)
 
 # Growth-factor cache key: (start_date, equity_allocation, expense_ratio,
 # dataset_token).  The dataset token disambiguates contexts that share a start
@@ -306,7 +303,7 @@ class Part52NumbaExecutor(SimulationExecutor):
 
     Groups eligible Part52 contexts by trajectory key, precomputes growth
     factors and per-cohort monthly rates, and runs the Part52 scalar kernel.
-    Delegates ineligible contexts to the reference Decimal engine.
+    Ineligible configurations raise ``UnsupportedConfigurationError``.
 
     Advertises ``processes_whole_definition = True`` so progress wrappers
     pass the full definition through unchanged.
@@ -316,11 +313,9 @@ class Part52NumbaExecutor(SimulationExecutor):
 
     def __init__(
         self,
-        reference_executor: SimulationExecutor | None = None,
         profiler: Profiler | None = None,
         materialize_timeline: bool = False,
     ) -> None:
-        self._reference = reference_executor or _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
         self._materialize_timeline = materialize_timeline
         self._last_report: Part52NumbaReport | None = None

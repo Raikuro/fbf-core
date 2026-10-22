@@ -24,7 +24,6 @@ from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
 from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
-    ExperimentRun,
     SimulationResult,
     SimulationStatistics,
 )
@@ -352,22 +351,9 @@ class TestPart52NumbaExecutorDirect:
             simulation_contexts=(ctx,),
         )
 
-        # Track if fallback was invoked
-        fallback_invoked: list[bool] = []
-
-        original_execute = executor._reference.execute
-
-        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
-            fallback_invoked.append(True)
-            return original_execute(defn)
-
-        # Use setattr to avoid mypy method-assign error
-        object.__setattr__(executor._reference, "execute", tracking_execute)
+        assert not hasattr(executor, "_reference")
 
         result = executor.execute(definition)
-
-        # Fallback should NOT have been invoked for eligible context
-        assert len(fallback_invoked) == 0, "Legacy fallback was invoked for eligible context!"
 
         # Verify result structure
         assert len(result.simulation_results) == 1
@@ -412,19 +398,10 @@ class TestPart52NumbaExecutorDirect:
             simulation_contexts=(ctx,),
         )
 
-        fallback_invoked: list[bool] = []
-        original_execute = executor._reference.execute
-
-        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
-            fallback_invoked.append(True)
-            return original_execute(defn)
-
-        object.__setattr__(executor._reference, "execute", tracking_execute)
+        assert not hasattr(executor, "_reference")
 
         with pytest.raises(UnsupportedConfigurationError):
             executor.execute(definition)
-
-        assert fallback_invoked == [], "Legacy fallback must never be invoked."
 
     def test_multiple_eligible_contexts_all_on_numba(self) -> None:
         """Multiple eligible contexts in one definition should all execute on Numba."""
@@ -439,20 +416,10 @@ class TestPart52NumbaExecutorDirect:
             simulation_contexts=(ctx1, ctx2),
         )
 
-        fallback_invoked: list[bool] = []
-
-        original_execute = executor._reference.execute
-
-        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
-            fallback_invoked.append(True)
-            return original_execute(defn)
-
-        object.__setattr__(executor._reference, "execute", tracking_execute)
+        assert not hasattr(executor, "_reference")
 
         result = executor.execute(definition)
 
-        # Fallback should NOT have been invoked for eligible contexts
-        assert len(fallback_invoked) == 0, "Legacy fallback invoked for eligible contexts!"
         assert len(result.simulation_results) == 2
 
 
@@ -911,18 +878,10 @@ class TestPart52ExpenseRatioSupport:
             simulation_contexts=(ctx,),
         )
 
-        fallback_invoked: list[bool] = []
-        original_execute = executor._reference.execute
-
-        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
-            fallback_invoked.append(True)
-            return original_execute(defn)
-
-        object.__setattr__(executor._reference, "execute", tracking_execute)
+        assert not hasattr(executor, "_reference")
 
         result = executor.execute(definition)
 
-        assert len(fallback_invoked) == 0, "Legacy fallback invoked for zero fee!"
         assert len(result.simulation_results) == 1
         sim_result = result.simulation_results[0]
         assert sim_result.statistics is not None
@@ -939,18 +898,10 @@ class TestPart52ExpenseRatioSupport:
             simulation_contexts=(ctx,),
         )
 
-        fallback_invoked: list[bool] = []
-        original_execute = executor._reference.execute
-
-        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
-            fallback_invoked.append(True)
-            return original_execute(defn)
-
-        object.__setattr__(executor._reference, "execute", tracking_execute)
+        assert not hasattr(executor, "_reference")
 
         result = executor.execute(definition)
 
-        assert len(fallback_invoked) == 0, "Legacy fallback invoked for positive fee!"
         assert len(result.simulation_results) == 1
         sim_result = result.simulation_results[0]
         assert sim_result.statistics is not None
@@ -1003,19 +954,10 @@ class TestPart52ExpenseRatioSupport:
             simulation_contexts=(ctx,),
         )
 
-        fallback_invoked: list[bool] = []
-
-        original_execute = executor._reference.execute
-
-        def tracking_execute(defn: EngineExperimentDefinition) -> ExperimentRun:
-            fallback_invoked.append(True)
-            return original_execute(defn)
-
-        object.__setattr__(executor._reference, "execute", tracking_execute)
+        assert not hasattr(executor, "_reference")
 
         result = executor.execute(definition)
 
-        assert len(fallback_invoked) == 0, "Legacy fallback invoked for tiny fee!"
         assert len(result.simulation_results) == 1
 
 

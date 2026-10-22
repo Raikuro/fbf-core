@@ -344,10 +344,7 @@ class TestPart49NumbaExecutorDirect:
         ctx = _make_context(dataset, 24)
         executor = Part49NumbaExecutor()
 
-        def _fail(*args: object, **kwargs: object) -> None:
-            raise AssertionError("reference executor must not be invoked")
-
-        object.__setattr__(executor._reference, "execute", _fail)
+        assert not hasattr(executor, "_reference")
         run = executor.execute(
             EngineExperimentDefinition(name="t", description="t", simulation_contexts=(ctx,))
         )

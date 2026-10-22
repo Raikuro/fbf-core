@@ -50,9 +50,6 @@ from fbf.core.execution.strategies.fast_path import (
     _trajectory_clusters,
     _weights_by_class,
 )
-from fbf.core.execution.strategies.parallel_executor import (
-    _create_default_simulation_executor,
-)
 from fbf.core.execution.strategies.part52_numba_executor import _compute_monthly_rates
 
 # Growth-factor cache key: (start_date, equity_allocation, expense_ratio,
@@ -222,11 +219,9 @@ class Part49NumbaExecutor(SimulationExecutor):
 
     def __init__(
         self,
-        reference_executor: SimulationExecutor | None = None,
         profiler: Profiler | None = None,
         materialize_timeline: bool = False,
     ) -> None:
-        self._reference = reference_executor or _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
         self._materialize_timeline = materialize_timeline
         self._last_report: Part49NumbaReport | None = None
