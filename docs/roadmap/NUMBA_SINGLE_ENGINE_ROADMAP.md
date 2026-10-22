@@ -1,6 +1,6 @@
 # Roadmap: Migration to a Single Numba Execution Engine
 
-**Status:** Phase C **IN PROGRESS** 🔄 (C1, C2, C3, and C5 complete; C4 complete for the approved supported scope via Option B); D1, D2, and D3 complete; D4 and D5 not started
+**Status:** Phase C **IN PROGRESS** 🔄 (C1, C2, C3, and C5 complete; C4 complete for the approved supported scope via Option B); D1, D2, and D3 complete; D4 in progress (D4.2 complete: P2/P3 committed in `35976b6`, P4 committed in `c04c058`, D4.1 committed in `01e4aeb`, D4.2a–c committed in `ce2ec97`, P1 committed in `1882d22`, and documentation reconciled in Step E; P5/D4.3 deferred); D5 not started
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
 **Objective:** Make Numba the sole simulation engine, progressively shrink and
 eventually delete the legacy Reference execution stack, and preserve
@@ -51,16 +51,17 @@ not be conflated:
 | Term | File / symbol | What it actually is today |
 |------|---------------|---------------------------|
 | `ExecutionBackend.REFERENCE` | `execution/__init__.py:140`, routed at `:458` | **Decimal closed-form fast path** (`FastPathSimulationExecutor`). It is *not* the legacy engine. |
-| `ReferenceSimulationExecutor` / `execute_reference()` | `execution/strategies/reference.py:312`, `:455` | The legacy 9-step Decimal pipeline wrapped with horizon derivation and memory-bounded slice dispatch. |
-| "the reference engine" (prose) | `_create_default_simulation_executor()` | The actual legacy Decimal engine: the 9/15-step pipeline built in `parallel_executor.py:42` and `default_pipeline.py:53`. |
+| `ReferenceSimulationExecutor` / `execute_reference()` | `execution/strategies/reference.py:324`, `:467` | The legacy 9-step Decimal pipeline wrapped with horizon derivation and memory-bounded slice dispatch. |
+| "the reference engine" (prose) | `_create_default_simulation_executor()` | The actual legacy Decimal engine: the 9/15-step pipeline built in `parallel_executor.py:43` and `default_pipeline.py:53`. |
 
 **Verified consumers (repository-wide search, 2026-10-15):**
 - `ExecutionBackend.REFERENCE`: Used in `execution/__init__.py` backend dispatch; `fbf-cli/src/fbf/cli/commands/run_command.py` CLI flag `--reference`; `tests/unit/execution/test_backend_strategy_matrix.py` routing tests; `tests/unit/execution/test_determinism.py` (one test).
-- `ReferenceSimulationExecutor`: Exported from `strategies/__init__.py`; used in `tests/unit/execution/test_reference.py`, `tests/unit/execution/test_trajectory_deduplication.py`, `tests/unit/execution/test_backend_strategy_matrix.py` (as `_make_reference_executor`), `tools/ern/mem_probe_*.py` (memory profiling, test-only).
+- `ReferenceSimulationExecutor`: Exported from `strategies/__init__.py`; used in `tests/unit/execution/test_reference.py`, `tests/unit/execution/test_backend_strategy_matrix.py` (as `_make_reference_executor`), `tools/ern/mem_probe_*.py` (memory profiling, test-only).
 - `execute_reference()`: Exported from `execution/__init__.py`; used in `tests/unit/execution/test_reference.py`, `tests/integration/test_part42_e2e_audit.py` (monkey-patched), `tools/ern/mem_probe_*.py`.
 - `expected_reference_report`, `reference_month_work`: Exported from `execution/__init__.py`; used in CLI completion summary (`run_command.py:530-564, 640-678`).
 
 **Migration approach (per review):**
+- D4.1 (committed in `01e4aeb`) removed the redundant `_reference` hooks from the dedicated Part 49, Part 52, and Part 49 buy-and-hold Numba executors. Those executors now reject ineligible configurations with `UnsupportedConfigurationError`; they no longer delegate to the legacy engine. The consumers below still require the legacy stack.
 - Do **not** delete `ReferenceSimulationExecutor` or `execute_reference()` in Phase A. Their unique responsibilities (cohort-slice dispatch for memory safety, report construction) must be migrated first.
 - Fix the CLI default-routing bug (`run_command.py` missing `research_result` branch for non-Part3, non-flagged execution) as a separate, explicitly tested change.
 - `ExecutionBackend.REFERENCE` rename to `DECIMAL_FAST_PATH` is a breaking public-API change. Trace all consumers first; a deprecation alias may be preferable to immediate removal. This is deferred until Phase C.
@@ -123,20 +124,30 @@ This section reflects the repository as inspected, not prior audit summaries.
 
 | Executor | File | Eligible workloads | Ineligible handling |
 |----------|------|--------------------|---------------------|
-| `FastPathSimulationExecutor` | `strategies/fast_path.py` | Constant allocation + FixedReal, 2 assets, dataset covers horizon | Batches ineligible contexts to `self._reference` (`:1180`) |
-| `NumbaSimulationExecutor` | `strategies/numba_executor.py` | (a) Constant allocation + FixedReal; (b) Constant allocation + ConstantWithdrawal (B2); (c) Constant allocation + Escalating (B3); (d) Buy-and-hold + FixedReal, fee = 0 (B4); (e) Glidepath + FixedReal; all 2 assets | Per-context `self._reference` (`:768`) |
-| `Part52NumbaExecutor` | `strategies/part52_numba_executor.py` | Constant allocation + `Part52WithdrawalPolicy`, 2 assets, `interest_rate_schedule` set, `expense_ratio` supported (additive fee, B1) | Per-context `self._reference` (`:487`) |
-| `ReferenceSimulationExecutor` | `strategies/reference.py:312` | Any context (wraps legacy engine) | Delegates non-prefix to legacy engine per context (`:413`) |
-| `_create_default_simulation_executor()` | `strategies/parallel_executor.py:42` | Any context (legacy engine factory) | — |
+| `FastPathSimulationExecutor` | `strategies/fast_path.py` | Constant allocation + FixedReal, 2 assets, dataset covers horizon | Batches ineligible contexts to `self._reference` (`:1181`) |
+| `NumbaSimulationExecutor` | `strategies/numba_executor.py` | (a) Constant allocation + FixedReal; (b) Constant allocation + ConstantWithdrawal (B2); (c) Constant allocation + Escalating (B3); (d) Buy-and-hold + FixedReal, fee = 0 (B4); (e) Glidepath + FixedReal; all 2 assets | Per-context `self._reference` (`:785`) |
+| `Part49NumbaExecutor` | `strategies/part49_numba_executor.py` | Constant allocation + `Part49WithdrawalPolicy`, 2 assets, debt/LTV supported (C3/C5) | No `_reference` hook (D4.1); ineligible configurations raise `UnsupportedConfigurationError` |
+| `Part52NumbaExecutor` | `strategies/part52_numba_executor.py` | Constant allocation + `Part52WithdrawalPolicy`, 2 assets, `interest_rate_schedule` set, `expense_ratio` supported (additive fee, B1) | No `_reference` hook (D4.1); ineligible configurations raise `UnsupportedConfigurationError` |
+| `Part49BuyAndHoldNumbaExecutor` | `strategies/part49_buy_and_hold_numba_executor.py` | Buy-and-hold + `Part49WithdrawalPolicy`, 2 assets, zero fee (C4) | No `_reference` hook (D4.1); ineligible configurations raise `UnsupportedConfigurationError` |
+| `ReferenceSimulationExecutor` | `strategies/reference.py:324` | Any context (wraps legacy engine) | Delegates non-prefix to legacy engine per context (`:425`) |
+| `_create_default_simulation_executor()` | `strategies/parallel_executor.py:43` | Any context (legacy engine factory) | — |
 
-Every Numba/Decimal executor constructs its fallback with
-`self._reference = reference_executor or _create_default_simulation_executor()`
-(`fast_path.py:1099`, `numba_executor.py:476`,
-`part52_numba_executor.py:287`, `reference.py:322`).
+**Reference hooks after D4.1.** Only the following owners still use a
+legacy-engine fallback:
+
+| Owner | Hook | Remaining behavior |
+|-------|------|--------------------|
+| `NumbaSimulationExecutor` | `self._reference` (`numba_executor.py:492`) | Per-context fallback for ineligible contexts (`:785`) |
+| `FastPathSimulationExecutor` | `self._reference` (`fast_path.py:1100`) | Batches ineligible contexts to the legacy engine (`:1181`) |
+| `ReferenceSimulationExecutor` | `self._reference` (`reference.py:334`) | Wraps the legacy engine and calls it per context (`:425`) |
+| `execution/deterministic.py` | Direct `create_default_pipeline()` (`:529`) | Fee-free unsupported deterministic configurations use `_execute_legacy_deterministic()` (`:520`); non-zero fee raises `UnsupportedConfigurationError` |
+
+The dedicated Part 49, Part 52, and Part 49 buy-and-hold executors no longer
+construct `self._reference` or accept `reference_executor`.
 
 ### 2.3 Legacy engine composition
 
-- `_create_default_simulation_executor()` (`parallel_executor.py:42`) builds a
+- `_create_default_simulation_executor()` (`parallel_executor.py:43`) builds a
   `SimulationPipeline` with these steps: `InitializeAllocationStep`,
   `ExpenseDeductionStep`, `BuildDecisionContextStep`, `WithdrawalDecisionStep`,
   `InterestAccrualStep`, `LoanDrawStep`, `SupplementalCashFlowStep`,
@@ -224,8 +235,8 @@ Classification key:
 | 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` (`numba_executor.py`) for `ConstantAllocationPolicy`; deterministic adapter supports constant allocation and annual glidepath through D3 | Glidepath + escalating is not yet eligible in the general Numba executor; the deterministic adapter supports it | Extend general eligibility to `GlidepathAllocationPolicy` | `tests/unit/strategies/test_numba_escalating.py`, `tests/unit/execution/test_deterministic_kernel.py` | General glidepath cadence and the deterministic-trajectory contract are separate migration items | Constant-allocation escalating matches the legacy pipeline (fee = 0) and an independent Decimal recurrence; deterministic annual glidepath + escalating matches the Decimal reference |
 | 21 | Supplemental cash flow | `supplemental_cash_flow_step.py` | 3 | None (inactive by default) | Additional external cash flow | Add once a real consumer activates it | None active today | No active consumer | Only migrate if a consumer exists |
 | 22 | CAPE-regime aggregation | `research/part20_*`, `cape_aggregation.py`, `cape_regime.py` | 4 | None | Regime classification layer | Keep as a post-processing layer over Numba results | Part 20 (`part20_pipeline.py`) | Aggregation, not simulation | Part 20 E2E pass |
-| 23 | `ReferenceSimulationExecutor` wrapper | `reference.py:312` | 5 | Redundant (derivation already in `FastPathSimulationExecutor`) | — | Delete after migrations | `test_reference.py`, `test_determinism.py` | Public export `execute_reference` | No production consumer |
-| 24 | `execute_reference()` public API | `reference.py:455` | 5 | Redundant | — | Redirect/delete | `test_reference.py::TestSliceDispatchMemorySafety` | Public export | No production consumer |
+| 23 | `ReferenceSimulationExecutor` wrapper | `reference.py:324` | 5 | Redundant (derivation already in `FastPathSimulationExecutor`) | — | Delete after migrations | `test_reference.py`, `test_determinism.py` | Public export `execute_reference` | No production consumer |
+| 24 | `execute_reference()` public API | `reference.py:467` | 5 | Redundant | — | Redirect/delete | `test_reference.py::TestSliceDispatchMemorySafety` | Public export | No production consumer |
 | 25 | `ExpenseDeductionStep` | `expense_deduction_step.py` | 4 | Not used by Numba; Part 52 Numba path uses the additive workbook fee (B1/C2); Part 49 still uses the legacy fee convention | Different fee model from canonical workbook | Preserve until every legacy-pipeline consumer is migrated | `test_part49_buy_and_hold.py:108` | Part 49 fee semantics | Only delete when no pipeline consumer remains |
 
 ---
@@ -265,7 +276,10 @@ Work items:
 4. **A4 — Keep obsolete equivalence tests deleted** (already done).
 
 5. **A5 — Keep `parallel_executor._create_default_simulation_executor()`**
-   until Phase D; it is the fallback used by every executor.
+   until Phase D; it remains the fallback for `NumbaSimulationExecutor`,
+   `FastPathSimulationExecutor`, `ReferenceSimulationExecutor`, and the
+   deterministic legacy path. The dedicated Part 49/52 executors no longer use
+   it after D4.1.
 
 Phase A gate:
 - CLI default path, `--fast-path`, and `--reference` all work and are tested.
@@ -448,7 +462,8 @@ Work items:
    grid scale (see ordering above).
 
 2. **D2 — Cohort-slice dispatch for bounded memory.**
-   ✅ Complete; all full-grid streaming gates passed.
+   ✅ Complete; bounded-memory mechanics and the production
+   aggregate-correctness regression are in place.
    Implemented `iter_cohort_slices` + `iter_execute_study_plan` with
    cohort-aligned, lazy slices and a 1,000-unit materialization guard on the
    whole-plan API. Default targets: 500 materialized, 20,000 summary.
@@ -463,7 +478,9 @@ Work items:
    `iter_execute_study_plan` with summary-only result handling, measure peak
    RSS against the documented host budget, and verify the streaming aggregate.
    The existing 313,020-unit whole-plan test is production-conformance
-   evidence, not evidence that D2 streaming has passed.
+   evidence, not evidence that D2 streaming has passed. A routine
+   production-subset regression must also compare streaming, whole-plan, and
+   persisted/reloaded per-cell aggregates against the workbook oracle.
 
    **D2 validation evidence:** the 313,020-unit grid executed through
    `iter_execute_study_plan` in 16 summary-only slices (20,160-unit maximum),
@@ -484,6 +501,17 @@ Work items:
    grid matches `workbook_oracle_table.csv` on all 180 cells with exact
    Decimal equality (FAST, 17s). The published-oracle 13-cell divergence is
    retained as a documented historical comparison, not a production failure.
+
+   **D2 aggregate regression (committed in `9f00a89`):**
+   `tests/oracle/ern/test_streaming_aggregate.py` streams a four-cell
+   production subset across all 1,739 cohorts, persists and reloads it, and
+   compares streaming, whole-plan, and persisted per-cell aggregates to
+   `workbook_oracle_table.csv` with exact Decimal equality. It also verifies
+   that incomplete attempts remain invisible and completed executions become
+   visible. Before commit, the regression was validated against the current
+   workspace and against an isolated worktree containing only `HEAD` plus this
+   test; the focused test, Ruff, and strict mypy passed in both contexts. It is
+   committed in `9f00a89`.
 
 3. **D3 — Deterministic trajectory on Numba.** ✅ Implemented.
    `execute_deterministic_trajectory` now routes
@@ -514,11 +542,153 @@ Work items:
    non-zero fee raise `UnsupportedConfigurationError`.
 
 4. **D4 — Legacy pipeline removal.**
-   Delete `_create_default_simulation_executor()`, `create_default_pipeline()`,
-   `create_buy_and_hold_pipeline()`, `ExpenseDeductionStep`, all pipeline
-   steps, `ReferenceSimulationExecutor`, `execute_reference()`,
-   `expected_reference_report`, `reference_month_work`, `FastPathSimulationExecutor`
-   (if Numba is mandatory), and all fallback references.
+   **D4.1 — Remove redundant reference hooks from dedicated Part 49/52
+   executors. ✅ Committed in `01e4aeb` (Step B).**
+   Removed the `_reference` field, `reference_executor` constructor parameter,
+   and factory imports from `Part49NumbaExecutor`, `Part52NumbaExecutor`, and
+   `Part49BuyAndHoldNumbaExecutor`. Ineligible configurations continue to raise
+   `UnsupportedConfigurationError`; no legacy pipeline code was deleted.
+   Focused tests assert the hooks are absent while retaining supported-execution
+   and rejection coverage. Before commit, the exact D4.1-only patch was applied
+   to an isolated `HEAD` worktree; the three focused integration suites, Ruff,
+   and strict mypy passed, and no D4.2 or P1 changes were included.
+
+   **D4.2a — Independent Part 49/52 debt-recurrence coverage. ✅ Committed in
+   `ce2ec97` (Step C).** Added test-only Decimal
+   recurrences in
+   `tests/unit/execution/debt_recurrence_reference.py` and parallel differential
+   tests for every Part 49 and Part 52 legacy debt scenario. The independent
+   tests do not import the legacy pipeline, the production executors, or the
+   Numba kernel. The legacy parity tests were retained during D4.2a as
+   temporary secondary checks.
+
+   **D4.2b — Remove redundant legacy debt differentials. ✅ Committed in
+   `ce2ec97` (Step C).** Mapped every case in
+   `TestPart49DecimalDifferential` and `TestPart52DecimalDifferential` to an
+   independent replacement, preserved the unique assertions and hand-calculated
+   anchors, then removed the 17 redundant tests and their two local legacy
+   helpers. No production code, legacy executor, pipeline, factory, export, or
+   oracle data was changed.
+
+   **D4.2c — Part 49 buy-and-hold independent coverage. ✅ Committed in
+   `ce2ec97` (Step C).** Mapped every case in
+   `TestPart49BuyAndHoldLegacyDifferential` to independent Decimal coverage,
+   then extended the independent recurrence to honour CPI-adjusted monthly
+   rates, final-value targets, and enforcement-off scenarios. Added independent
+   cases for the exact legacy constant-growth return pair at 50% equity,
+   CPI-adjusted interest, enforcement off, and final-value-target pass/fail,
+   plus a hand-calculated flat-market anchor. The
+   legacy differential class remained in place at the end of D4.2c; no D4.2c
+   deletion was performed or authorized. Separately inventoried the generic
+   buy-and-hold and escalating legacy differentials without modifying them; see
+   §7.1.3. Before commit, Steps B and C were validated as exact patches on
+   isolated worktrees based on `HEAD` and `HEAD + Step A + Step B`,
+   respectively; the affected Part 49/52 suites, Ruff, and strict mypy passed.
+   They are committed in `01e4aeb` and `ce2ec97`, respectively.
+
+   **D4.2d — Remaining legacy-dependency matrix. ✅ Complete; documentation
+   record committed with this reconciliation.** Classified every remaining
+   test-level legacy dependency into three groups: independent coverage exists,
+   independent coverage is
+   incomplete, or legacy-specific behavior. Produced a prioritized migration
+   proposal covering the generic buy-and-hold/escalating differentials, internal
+   reference/derived-horizon tests, pipeline parity, FV deduplication,
+   determinism, backend-strategy summary-only coverage, multi-asset fallback,
+   production-path Part 49/52 integration suites, debt-pipeline structure,
+   oracle/benchmark/tool consumers, and Part 42. No test, production file,
+   oracle, or expected value was changed. See §7.1.4.
+
+   **D4.2e — Exact P1 deletion proposal. ✅ Complete; documentation record
+   committed with this reconciliation.** Reviewed the mapped Part 49
+   buy-and-hold, generic
+   buy-and-hold, and escalating differentials and proposed exact deletion
+   scopes. No file was changed in D4.2e.
+
+   **D4.2f — P1 differential cleanup. ✅ Committed in `1882d22` (Step D).**
+   Removed the 10-case Part 49 buy-and-hold
+   legacy differential and the four generic buy-and-hold legacy-only cases. Split the mixed generic
+   buy-and-hold tests so the independent hand-derived anchors remained, renamed
+   the remaining independent case, and removed the now-unused legacy
+   setup/comparison code and imports. The generic buy-and-hold file no longer
+   imports the legacy pipeline. Focused tests, the routine suite, contract
+   tests, Ruff, and strict mypy passed. Before commit, the Step D cleanup patch
+   was validated on the `HEAD + A + B + C` base; the affected integration/unit
+   suites, Ruff, and strict mypy passed.
+
+   **D4.2g — Escalating independent anchors. ✅ Committed in `1882d22`
+   (Step D).** Added annual and monthly escalating recurrence
+   cases using the exact legacy horizon and parameters, with independently
+   calculated
+   final-wealth anchors. Verified success, failure month, and final wealth
+   against the test-only recurrence before using the anchors. Focused tests
+   passed.
+
+   **D4.2h — Escalating differential removal. ✅ Committed in `1882d22`
+   (Step D).** Removed the two-case escalating legacy
+   differential and the now-unused legacy pipeline/runner imports. The
+   escalating test file is free of legacy-pipeline dependencies. Focused tests,
+   the routine suite, contract tests, Ruff, and strict mypy passed. P1
+   implementation is closed; the cleanup is committed in `1882d22`.
+
+   **D4.2i — Remaining-work audit. ✅ Complete (read-only; documentation
+   committed with this reconciliation).**
+   Audited the working tree against the D4.2d matrix and §7.3. Verdict at audit
+   time: P1 closed; P2–P4 still open, with P3.1–P3.5 subsequently closed during
+   D4.2j; P5 deferred to the final deletion gate/D4.3.
+   No file was changed. The audit also identified stale roadmap status,
+   matrix/inventory rows, and escalating module/test docstrings.
+
+   **D4.2j — Remaining D4.2 migration. ✅ P2/P3 committed in `35976b6`; P4
+   committed in `c04c058`; D4.1/D4.2a–c/P1 committed in `01e4aeb`, `ce2ec97`,
+   and `1882d22`; documentation reconciled in Step E.**
+   Reconciled the roadmap
+   with D4.2e–i and closed P2: replaced the multi-asset reference comparison
+   with an independent constant-nominal recurrence and added plan-level Numba
+   sequential-repeatability and process-parallel/sequential equivalence. P3.1
+   retargeted the four Part 49 production-path suites to
+   `Part49NumbaExecutor(materialize_timeline=True)`, replacing the custom test
+   withdrawal policy with the production Part 49 policy and preserving debt
+   timeline, aggregation, LTV, zero-interest, and terminal-state coverage.
+   P3.2 retargeted the Part 52 compound-drawdown, FFR-schedule, and numerical
+   trace suites to `Part52NumbaExecutor(materialize_timeline=True)`, preserving
+   borrow/repay, per-month interest, fixed-rate fallback, and exact trace
+   assertions with float-materialization tolerances. P3.3 retargeted the
+   multi-cohort, Part 49 multi-cohort, CLI-plan, and glidepath suites to the
+   Numba executors, preserving cohort isolation, process-boundary
+   serialization, parallel/sequential equivalence, and glidepath target
+   trajectories. P3.4 retargeted the research-layer debt flow tests to
+   `Part49NumbaExecutor(materialize_timeline=True)`, preserving debt-parameter
+   translation, real/nominal rate propagation, and end-to-end debt timelines.
+   P3.5 replaced the broad legacy differential with an independent Decimal
+   beginning-of-period recurrence while retaining the edge-case and randomized
+   matrix. P4.1 retargeted the FV-target deduplication suite to
+   `NumbaSimulationExecutor`, asserting one trajectory group for distinct FV
+   targets, one shared final wealth, and per-target success classification.
+   P4.2 removed the legacy pipeline-parity suite: its structural step-order
+   assertions describe legacy internals with no supported-engine analogue, and
+   its behavioral parity contract is already covered by P2.2 and P3.3. P2–P4
+   are closed at implementation level. The P2/P3, P4, D4.1, D4.2a–c, and P1
+   changes have dedicated commits. With this documentation reconciliation,
+   D4.2 is complete.
+   The final read-only exit audit found no remaining D4.2-level legacy
+   dependency in the migrated suites. Remaining legacy consumers are confined
+   to the P5-deferred groups: reference/derived-horizon internals, legacy
+   pipeline unit suites, structural debt/schedule tests, summary-only
+   equivalence, oracle/benchmark/tool consumers, Part 42, and the active
+   production fallbacks. Fast-path-specific suites remain a D5/D4.3 decision,
+   not a D4.2 dependency. P5 and D4.3 legacy-engine deletion are out of scope.
+   See §7.1.5 for exit criteria and the D4.2/D4.3 boundary.
+
+   **D4.3 — Legacy-engine deletion. ⬜ Not started / deferred.** Delete the
+   legacy execution stack once the D4.2 exit criteria and the final deletion
+   gate in §8 are satisfied: `_create_default_simulation_executor()`,
+   `create_default_pipeline()`, `create_buy_and_hold_pipeline()`,
+   `ExpenseDeductionStep`, all pipeline steps, `ReferenceSimulationExecutor`,
+   `execute_reference()`, `expected_reference_report`,
+   `reference_month_work`, `FastPathSimulationExecutor` (if Numba is
+   mandatory), the remaining fallback hooks in `NumbaSimulationExecutor` and
+   `FastPathSimulationExecutor`, and the deterministic legacy path. This work
+   is not authorized by D4.2j. See §7.1.1 for the current inventory.
 
 5. **D5 — Public API resolution.**
    Decide on `ExecutionBackend.REFERENCE` rename/removal (breaking change).
@@ -675,14 +845,279 @@ independent of production code and must not be imported by it.
 | `src/fbf/core/execution/strategies/reference.py` | `ReferenceSimulationExecutor`, `execute_reference`, `_slice_plan_units`, `expected_reference_report`, `_build_derived_result` | D | Delete after slice dispatch ported (D2) and report duties migrated |
 | `src/fbf/core/execution/strategies/workbook_scr.py` | `compute_workbook_growth_factors`, `compute_workbook_scr`, `workbook_scr_success` | B | **COMPLETE** — workbook SCR core implementation |
 | `src/fbf/core/execution/__init__.py` | `execute_reference`, `expected_reference_report`, `reference_month_work` exports (`:53`,`:62`,`:70`); REFERENCE branch (`:458`) | D | Remove after Phase C; rename `ExecutionBackend.REFERENCE` in Phase C |
-| `src/fbf/core/execution/strategies/parallel_executor.py` | `_create_default_simulation_executor` (`:42`) | D | Delete after all fallbacks removed (Phase D4) |
+| `src/fbf/core/execution/strategies/parallel_executor.py` | `_create_default_simulation_executor` (`:43`) | D | Delete after all fallbacks removed (Phase D4) |
 | `src/fbf/core/execution/pipeline/default_pipeline.py` | `create_default_pipeline`, `create_buy_and_hold_pipeline` | D | Delete after all pipeline consumers migrated (Phase D4) |
 | `src/fbf/core/execution/pipeline/steps/expense_deduction_step.py` | `ExpenseDeductionStep` | C/D | Migrate fee to Numba (B1); delete in Phase D4 |
-| `src/fbf/core/execution/strategies/fast_path.py` | `FastPathSimulationExecutor`, `self._reference` (`:1099`), `_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form` | C/D | **Workbook SCR COMPLETE**; retain as Decimal fast path if Numba optional; else delete in D4 |
-| `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `self._reference` (`:476`), `_use_workbook_scr`, `_process_static_group` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); multi-asset (B5); remove fallback in C1/D4 |
-| `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor`, `self._reference` (`:287`) | C | Generalize; fallback removed in C1 (complete); expense ratio supported (B1/C2) |
+| `src/fbf/core/execution/strategies/fast_path.py` | `FastPathSimulationExecutor`, `self._reference` (`:1100`), `_use_workbook_scr`, `_evaluate_workbook_scr_path`, `evaluate_closed_form` | C/D | **Workbook SCR COMPLETE**; retain as Decimal fast path if Numba optional; else delete in D4 |
+| `src/fbf/core/execution/strategies/numba_executor.py` | `NumbaSimulationExecutor`, `self._reference` (`:492`), `_use_workbook_scr`, `_process_static_group` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); multi-asset (B5); fallback remains for ineligible contexts |
+| `src/fbf/core/execution/strategies/part49_numba_executor.py` | `Part49NumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError` |
+| `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError`; expense ratio supported (B1/C2) |
+| `src/fbf/core/execution/strategies/part49_buy_and_hold_numba_executor.py` | `Part49BuyAndHoldNumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError` |
 | `src/fbf/core/execution/strategies/numba_kernel.py` | `_simulate_trajectory`, `_simulate_trajectory_end_of_period`, `_simulate_trajectory_varying`, `_compute_workbook_scr`, `_simulate_part52` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); trajectories (D1); debt snapshots |
-| `src/fbf/core/execution/deterministic.py` | `execute_deterministic_trajectory` | D | Reimplement on Numba (D3) |
+| `src/fbf/core/execution/deterministic.py` | `execute_deterministic_trajectory`, `_execute_legacy_deterministic` | D | Numba kernel implemented (D3); legacy fee-free fallback remains |
+
+### 7.1.1 Reference-hook and legacy-consumer inventory after D4.1
+
+**1. Reference hooks removed in D4.1 (committed in `01e4aeb`; validated on an isolated `HEAD` base before commit):**
+
+- `Part49NumbaExecutor` — `_reference`, `reference_executor`, and
+  `_create_default_simulation_executor` import removed.
+- `Part52NumbaExecutor` — `_reference`, `reference_executor`, and
+  `_create_default_simulation_executor` import removed.
+- `Part49BuyAndHoldNumbaExecutor` — `_reference`, `reference_executor`, and
+  `_create_reference_simulation_executor` import removed.
+- Ineligible configurations in all three raise
+  `UnsupportedConfigurationError`. Focused tests assert `_reference` is absent.
+
+**2. Fallbacks still active outside D4.1:**
+
+| Owner | Mechanism | Current behavior |
+|-------|-----------|------------------|
+| `NumbaSimulationExecutor` | `self._reference` (`numba_executor.py:492`) | Per-context legacy execution for ineligible contexts (`:785`) |
+| `FastPathSimulationExecutor` | `self._reference` (`fast_path.py:1100`) | Batches ineligible contexts to the legacy engine (`:1181`) |
+| `ReferenceSimulationExecutor` | `self._reference` (`reference.py:334`) | Wraps the legacy engine and calls it per context (`:425`) |
+| `execution/deterministic.py` | Direct `create_default_pipeline()` (`:529`) | Fee-free unsupported configurations use `_execute_legacy_deterministic()` (`:520`); non-zero fee raises `UnsupportedConfigurationError` |
+
+**3. Production consumers of the legacy pipeline:**
+
+- `src/fbf/core/execution/__init__.py` — REFERENCE backend dispatch,
+  `execute_reference`, `expected_reference_report`, and
+  `reference_month_work` exports.
+- `src/fbf/core/execution/strategies/parallel_executor.py` —
+  `_create_default_simulation_executor`, `_AllocationRoutedSimulationExecutor`,
+  and default worker/executor construction.
+- `src/fbf/core/execution/strategies/reference.py` — legacy executor wrapper,
+  slice dispatch, and report construction.
+- `src/fbf/core/execution/strategies/fast_path.py` — ineligible-context
+  fallback.
+- `src/fbf/core/execution/strategies/numba_executor.py` — ineligible-context
+  fallback.
+- `src/fbf/core/execution/deterministic.py` — fee-free deterministic fallback.
+- `src/fbf/core/research/part42_plan.py:180` — imports and calls
+  `create_default_pipeline`; the result is currently discarded, but the
+  production import remains.
+- `fbf-cli/src/fbf/cli/commands/run_command.py` — `--reference`,
+  `expected_reference_report`, and `reference_month_work` (external CLI
+  consumer).
+
+**4. Tests and tools that still depend on the legacy pipeline:**
+
+- `tests/unit/execution/test_reference.py` — `ReferenceSimulationExecutor`,
+  `execute_reference`, and the default factory.
+- `tests/unit/execution/test_determinism.py` — legacy reference-repeatability
+  coverage; behavioral Numba determinism is covered by `TestNumbaRepeatability`.
+- `tests/unit/execution/test_backend_strategy_matrix.py` —
+  `_make_reference_executor()` via `create_default_pipeline`.
+- `tests/integration/test_part49_buy_and_hold.py` —
+  `create_buy_and_hold_pipeline` and `create_default_pipeline`.
+- Part 49/52 integration tests that construct `create_default_pipeline`
+  directly for behavioral or differential coverage.
+- `tests/oracle/ern/test_ern_timeline_regression.py` — default pipeline.
+- `tests/integration/test_part49_numba_executor.py` and
+  `tests/integration/test_part52_numba_executor.py` no longer import the
+  default factory after D4.2b removed their legacy differential classes.
+- `tests/benchmarks/test_cost_model.py`,
+  `tests/benchmarks/test_part49_performance.py`,
+  `tests/benchmarks/test_numba_cost_breakdown.py`, and
+  `tools/ern/mem_probe_*.py` — legacy factory / reference executor.
+
+These consumers must be migrated or explicitly retained before the final
+deletion gate is satisfied.
+
+### 7.1.2 Independent debt-recurrence coverage after D4.2a/D4.2b
+
+`tests/unit/execution/debt_recurrence_reference.py` implements the fee-free
+Part 49 and Part 52 monthly recurrences with exact `Decimal` arithmetic and no
+imports from `fbf.core`. The parallel test classes are:
+
+- `tests/integration/test_part49_numba_executor.py::TestPart49IndependentDebtReference`
+- `tests/integration/test_part52_numba_executor.py::TestPart52IndependentDebtReference`
+
+D4.2b removed the redundant legacy differential classes after mapping every
+scenario to an independent replacement:
+
+| Removed legacy case | Independent replacement |
+|---------------------|-------------------------|
+| Part 49 flat growth | `test_flat_growth_matches_independent_reference` |
+| Part 49 constant growth, zero draw | `test_constant_growth_zero_loan_draw_matches` |
+| Part 49 constant growth, positive draw | `test_constant_growth_positive_loan_draw_matches` |
+| Part 49 varying returns | `test_varying_returns_match_independent_reference` |
+| Part 49 real-rate CPI bypass | `test_real_rate_bypasses_cpi_and_matches` |
+| Part 49 CPI-adjusted rate | `test_cpi_adjusted_rate_matches_independent_reference` |
+| Part 49 depletion | `test_depleted_matches_independent_reference` |
+| Part 49 terminal margin call | `test_margin_call_terminal_matches_independent_reference` |
+| Part 49 final-value target pass/fail | `test_final_value_target_pass_and_fail` |
+| Part 49 enforcement off | `test_enforcement_off_matches_independent_reference` |
+| Part 52 schedule-backed borrowing | `test_schedule_backed_matches_independent_reference` |
+| Part 52 fixed-rate borrowing | `test_schedule_less_fixed_rate_matches_independent_reference` |
+| Part 52 terminal loan | `test_terminal_loan_matches_independent_reference` |
+| Part 52 full-schedule CPI adjustment | `test_schedule_backed_nonzero_inflation_matches_independent_reference` |
+| Part 52 partial-schedule CPI adjustment | `test_partial_schedule_nonzero_inflation_matches_independent_reference` |
+| Part 52 terminal margin call | `test_margin_call_terminal_matches_independent_reference` |
+| Part 52 depletion | `test_depleted_matches_independent_reference` |
+
+The independent tests include one hand-calculated flat-market anchor per part.
+The removed legacy classes were the only users of the local
+`_reference_result`/`_legacy_terminal_loan` helpers in those files, so those
+helpers were removed as well. The remaining Part 49 buy-and-hold and generic
+buy-and-hold/escalating legacy differentials were mapped and closed in
+D4.2f–D4.2h; see §7.1.3.
+
+### 7.1.3 Part 49 buy-and-hold coverage after D4.2c
+
+`TestPart49BuyAndHoldIndependentReference` now maps every scenario in
+`TestPart49BuyAndHoldLegacyDifferential`. The independent recurrence uses
+`compute_monthly_rates` from the test-only Decimal helper, so it covers the
+real-rate bypass and CPI-adjusted conventions without importing production or
+legacy code.
+
+| Legacy case | Independent counterpart | Status |
+|-------------|-------------------------|--------|
+| Constant growth, 0% equity | `test_constant_growth_matches_reference[0.0-...]` | Existing |
+| Constant growth, 50% equity | `test_constant_growth_legacy_returns_match_reference` | Added D4.2c |
+| Constant growth, 75% equity | `test_constant_growth_matches_reference[0.75-...]` | Existing |
+| Constant growth, 100% equity | `test_constant_growth_matches_reference[1.0-...]` | Existing |
+| Varying returns | `test_varying_returns_match_reference` | Existing |
+| CPI-adjusted interest | `test_cpi_adjusted_rate_matches_reference` | Added D4.2c |
+| Depletion | `test_depletion_matches_reference` | Existing |
+| Terminal margin call | `test_ltv_terminal_matches_reference` | Existing |
+| Enforcement off | `test_enforcement_off_matches_reference` | Added D4.2c |
+| Final-value-target pass/fail | `test_final_value_target_pass_and_fail_match_reference` | Added D4.2c |
+
+The independent class also retains a hand-calculated flat-market/no-leverage
+anchor. D4.2f subsequently removed the 10-case
+`TestPart49BuyAndHoldLegacyDifferential` after confirming the independent class
+mapped every scenario.
+
+**Generic differential status after D4.2f/D4.2h.**
+
+| Differential class | Original legacy-dependent cases | Independent coverage | D4.2 status |
+|--------------------|---------------------------------|----------------------|-------------|
+| `TestBuyAndHoldExecutorDifferential` | 8 (4 legacy-only, 4 legacy plus independent anchors) | Hand-derived anchors for 0/50/75/100% equity and independent recurrence for 25/60/90% | **CLOSED** — four legacy-only cases and their setup/comparison code removed in D4.2f; remaining mixed tests split and renamed so the independent anchors remain |
+| `TestEscalatingExecutorDifferential` | 2 (annual/monthly legacy-only) | Exact-horizon annual/monthly independent recurrence added in D4.2g | **CLOSED** — two legacy-only cases removed in D4.2h; file is legacy-pipeline-free |
+
+### 7.1.4 Legacy-dependency status after D4.2i
+
+Classification:
+
+1. **Independent coverage exists** — a future deletion candidate, but only after
+   an exact-scope review and explicit authorization.
+2. **Independent coverage incomplete** — add the missing independent cases
+   before considering removal.
+3. **Legacy-specific behavior** — retain until the legacy code it covers is
+   retired; do not treat it as redundant merely because a similar scenario has
+   independent coverage.
+
+Status vocabulary: **CLOSED** = D4.2 migration finished; **OPEN** = remaining
+D4.2 work; **DEFERRED** = P5/final deletion gate, not D4.2; **DECISION** =
+scope choice required before the item can be retired.
+
+| Area / tests | Legacy dependency | What it protects | Independent coverage | Class | D4.2 status |
+|--------------|-------------------|------------------|----------------------|:-----:|-------------|
+| `TestPart49BuyAndHoldLegacyDifferential` | `create_buy_and_hold_pipeline`, `SimulationRunner` | Part 49 BH legacy parity, 10 scenarios | D4.2c independent class maps all 10 scenarios | 1 | **CLOSED** — removed in D4.2f |
+| `TestBuyAndHoldExecutorDifferential` | `create_buy_and_hold_pipeline`, `SimulationRunner` | Fee-free BH parity; 4 legacy-only cases and 4 mixed cases | Hand-derived anchors for 0/50/75/100% equity; independent recurrence for 25/60/90% | 1 | **CLOSED** — four legacy-only cases removed and mixed tests split in D4.2f |
+| `TestEscalatingExecutorDifferential` | `create_default_pipeline`, `SimulationRunner` | Annual/monthly escalating parity | Exact-horizon annual/monthly independent recurrence added in D4.2g | 2 | **CLOSED** — two legacy-only cases removed in D4.2h |
+| `TestDeferredFallback::test_nominal_explicit_matches_independent_recurrence` | None after D4.2j | Explicit N-asset constant-nominal recurrence | Independent `_constant_nominal_recurrence` added; checks success, failure month, simulated months, and exact final wealth | 2 | **CLOSED** — P2.1 |
+| `tests/unit/execution/test_determinism.py` | `_create_default_simulation_executor`, `ReferenceSimulationExecutor` | Reference repeatability, parallel == sequential, reference == reference | `TestNumbaRepeatability` added for plan-level sequential repeatability and process-parallel/sequential equivalence | 2 | **CLOSED** — P2.2; legacy reference repeatability remains a P5 contract |
+| `tests/unit/strategies/test_numba_differential.py` | None after D4.2j | Broad edge-case differential: depletion boundaries, horizons, allocations, randomized paths | Independent Decimal beginning-of-period recurrence retained over the full edge/random matrix | 2 | **CLOSED** — P3.5 |
+| `tests/unit/execution/test_trajectory_deduplication.py` | None after D4.2j | FV target as an evaluation dimension; one trajectory per group | Retargeted to `NumbaSimulationExecutor`; asserts one group for distinct FV targets, shared final wealth, and per-target success classification | 2 | **CLOSED** — P4.1 |
+| `tests/unit/execution/test_pipeline_parity.py` | None after D4.2j | Legacy pipeline step composition/order and leveraged parity | Removed; structural assertions are legacy-only, and sequential/parallel behavioral parity is covered by P2.2 and P3.3 | 3 | **CLOSED** — P4.2 retired with rationale |
+| `tests/unit/execution/test_reference.py` | `_create_default_simulation_executor`, `ReferenceSimulationExecutor`, `execute_reference`, `_build_derived_result`, `_slice_plan_units` | Derived horizons, prefix slicing, memory-safe dispatch | N/A — legacy executor internals | 3 | **DEFERRED** — P5 |
+| `TestSummaryOnlyEquivalence` (`test_backend_strategy_matrix.py`) | `create_default_pipeline` | Timeline stripping vs statistics equality | Numba/FAST timelines are empty; no non-legacy full-timeline executor is used | 3 | **DEFERRED** — P5 |
+| Part 49 BH routing/factory tests (`test_part49_buy_and_hold_numba_executor.py`) | `_create_reference_simulation_executor`, `_create_buy_and_hold_simulation_executor` | Dispatch/rejection behavior of legacy factory paths | N/A — factory-specific assertions | 3 | **DEFERRED** — P5 |
+| `tests/integration/test_part49_buy_and_hold.py` | `create_buy_and_hold_pipeline`, `create_default_pipeline` | Legacy BH pipeline structure, withdrawals, debt steps, drift | Numba BH execution tests cover mechanics, not legacy step composition | 3 | **DEFERRED** — P5 |
+| Part 49 production-path suites (`test_part49.py`, `test_part49_canonical_execution.py`, `test_part49_smoke_execution.py`, `test_part49_aggregation.py`) | None after D4.2j | Research plan → context → execution → aggregation, debt timelines | Retargeted to `Part49NumbaExecutor(materialize_timeline=True)`; production `Part49WithdrawalPolicy` with `loan_draw_rate`; debt timeline, aggregation, LTV, zero-interest, and terminal-state assertions retained | 2 | **CLOSED** — P3.1 |
+| Part 52 legacy trajectory suites (`test_part52_compound_drawdown.py`, `test_part52_ffr_floating_rate.py`, `test_part52_numerical_trace.py`) | None after D4.2j | Compound drawdown, FFR schedule, month-by-month numerical trace | Retargeted to `Part52NumbaExecutor(materialize_timeline=True)`; borrow/repay, per-month interest, fixed-rate fallback, and numerical trace assertions retained with float-materialization tolerances | 2 | **CLOSED** — P3.2 |
+| Multi-cohort/parallel suites (`test_multi_cohort_execution.py`, `test_part49_multi_cohort.py`, `test_real_engine_execution.py`, `test_glidepath_trajectory.py`) | None after D4.2j | Cohort isolation, process serialization, CLI-plan execution | Retargeted to `NumbaSimulationExecutor` / `Part49NumbaExecutor(materialize_timeline=True)`; cohort isolation, parallel/sequential equivalence, serialization, and glidepath targets retained | 2 | **CLOSED** — P3.3 |
+| Research-layer debt plumbing (`test_research_layer_debt_flow.py`) | None after D4.2j | Context translation, debt-flag propagation, end-to-end debt | Retargeted to `Part49NumbaExecutor(materialize_timeline=True)`; parameter translation, real/nominal rate propagation, and debt timelines retained | 2 | **CLOSED** — P3.4 |
+| Debt/pipeline structural suites (`test_debt_pipeline_regression.py`, `test_debt_invariants.py::TestDeterministicPipelineOrder`, `test_schedule.py`, `test_zero_interest_debt.py::TestZeroInterestFullPipeline`) | `create_default_pipeline` | Legacy step order, zero-interest debt, schedule behavior | N/A — legacy pipeline internals | 3 | **DEFERRED** — P5 |
+| Legacy pipeline unit suites (`tests/unit/pipeline/test_simulation_runner.py`, `test_simulation_runner_integration.py`, `test_simulation_executor.py`, `test_terminal_depletion.py`, `test_ern_timeline_event_order.py`) | `SimulationRunner`, `create_default_pipeline` | Runner mechanics, step composition, depletion, event order | Numba executor tests cover supported execution behavior; pipeline-internal assertions are legacy-only | 3 | **DEFERRED** — P5 |
+| Fast-path/grid suites (`test_fast_path.py`, `test_workbook_outcome_contract.py`, `test_fv_target_failure_month_contract.py`, `test_grid_reference.py`) | `FastPathSimulationExecutor`, `sequential_execute` | Decimal fast-path outcomes, grid derivation, FV failure month | Numba executors cover supported execution behavior; FastPath retention is a D5/D4.3 decision | 3 | **DEFERRED** — P5 / D5 decision |
+| Oracle/benchmark/tool/Part 42 consumers (`test_ern_timeline_regression.py`, benchmark modules and scripts, `tools/ern/mem_probe_*`, `test_part42_e2e_audit.py`) | Default factory/pipeline, `ReferenceSimulationExecutor`, `reference_month_work` | Legacy timeline oracle, performance/memory baselines, Part 42 audit | N/A — intentionally legacy-specific | 3 | **DEFERRED** — P5 / out of scope |
+
+**Prioritized D4.2j plan.**
+
+1. **P1 — CLOSED; committed in `1882d22`.** Exact P1 deletions completed in
+   D4.2f and D4.2h.
+2. **P2 — CLOSED; committed in `35976b6`.** Added the independent
+   constant-nominal N-asset recurrence (replacing the reference-executor
+   comparison) and plan-level Numba sequential-repeatability and
+   process-parallel/sequential equivalence coverage. Legacy
+   reference-repeatability tests remain deferred to P5.
+3. **P3 — CLOSED; committed in `35976b6`.** P3.1–P3.5 migrated the Part 49
+   production-path, Part 52 trajectory, multi-cohort/parallel, research-layer
+   debt, and broad edge/random suites onto supported Numba paths or independent
+   recurrences.
+4. **P4 — CLOSED; committed in `c04c058`.** P4.1 retargeted
+   FV-target/deduplication semantics to `NumbaSimulationExecutor`. P4.2 retired
+   the legacy pipeline-parity suite because its structural assertions have no
+   supported-engine analogue; its behavioral parity guarantee is already
+   covered by P2.2 and P3.3.
+5. **P5 — DEFERRED.** Reference/derived-horizon internals, summary-only legacy
+   helper coverage, structural debt/schedule tests, oracle/benchmark/tool
+   consumers, Part 42, and the active production fallbacks remain
+   legacy-specific until D4.3 removes their code paths.
+
+P2–P4 and the related D4.1/D4.2a–c/P1 changes are committed. This documentation
+reconciliation completes D4.2; P5 remains deferred.
+
+D4.2i made no test, production, oracle, expected-value, executor, factory,
+pipeline, or export change. No heavyweight E2E or full-grid workload was run.
+
+### 7.1.5 D4.2 remaining work, dependencies, and exit criteria
+
+**Scope boundary.**
+
+- **D4.2** is test-migration work: migrate test oracles and contracts away from
+  the legacy engine where supported behavior can be independently pinned.
+- **D4.3** is legacy-engine deletion: remove production fallbacks, legacy
+  factories/pipelines/exports, and the tests that exclusively describe them.
+- P2–P4 are D4.2. P5 is D4.3/final-gate work. A legacy dependency that remains
+  after D4.2 must be explicitly classified as deferred to P5, not silently
+  overlooked.
+
+**Remaining work and dependencies.**
+
+| Group | Remaining work | Dependency / decision |
+|-------|----------------|-----------------------|
+| P2.1 | **Complete** — independent constant-nominal N-asset recurrence | Preserved the exact multi-asset scenario; no production engine as oracle |
+| P2.2 | **Complete** — plan-level Numba repeatability and parallel/sequential equivalence | Legacy reference-repeatability tests classified as P5 |
+| P3.1 | **Complete** — retargeted Part 49 production-path suites | Preserved aggregation, debt-timeline, LTV, zero-interest, and terminal-state coverage; custom test policy replaced by the production Part 49 policy |
+| P3.2 | **Complete** — retargeted Part 52 trajectory suites | Preserved FFR, compound-drawdown, and month-by-month trace pins using the materialized Part 52 Numba path |
+| P3.3 | **Complete** — retargeted multi-cohort/parallel suites | Preserved cohort isolation, process serialization, parallel/sequential equivalence, and glidepath trajectory coverage |
+| P3.4 | **Complete** — retargeted research-layer debt end-to-end | Preserved structural translation assertions and added materialized Part 49 debt execution |
+| P3.5 | **Complete** — retargeted broad edge/random differential | Preserved the edge-case matrix with an independent Decimal recurrence, not the legacy pipeline |
+| P4.1 | **Complete** — retargeted FV-target/deduplication semantics | Numba grouping excludes FV target; per-target classification and shared final wealth are asserted directly |
+| P4.2 | **Complete** — retired legacy pipeline-parity suite | Structural legacy-only; sequential/parallel behavioral parity retained by P2.2 and P3.3 |
+
+**Validation requirements after each task.** Focused tests for the changed
+group; Ruff; `mypy --strict .`; the routine suite and contract tests at
+milestones; and `git diff --check`. No heavyweight E2E or full historical grid
+without separate authorization. No oracle or unrelated expected-value changes
+to force agreement.
+
+**Explicit D4.2 exit criteria.**
+
+D4.2 is complete because all of the following are verified:
+
+1. P1–P4 are complete, or an explicitly retired contract has a documented,
+   defensible rationale.
+2. The independent multi-asset recurrence and plan-level Numba determinism gaps
+   in P2 are closed.
+3. P3 suites retain meaningful behavioral and numerical coverage without using
+   the legacy engine as the oracle for migrated tests.
+4. P4 semantics are ported to supported behavior or explicitly classified as
+   legacy-only.
+5. The roadmap accurately reflects completed, open/decision, and deferred work,
+   including the P5/D4.3 boundary.
+6. Focused tests, the routine suite, contract tests, Ruff, strict mypy, and
+   `git diff --check` pass.
+7. No oracle or unrelated expected values were changed to force agreement.
+8. A final read-only audit identifies remaining legacy dependencies and
+   confirms they are deferred to P5/D4.3.
+
+D4.2j does not authorize D4.3 legacy-engine deletion, production fallback
+changes, or public API removal.
 
 ### 7.2 Configuration / CLI / public surface
 
@@ -696,16 +1131,20 @@ independent of production code and must not be imported by it.
 
 ### 7.3 Test inventory
 
+Statuses in this inventory describe committed work. P2/P3 (`35976b6`), P4
+(`c04c058`), D4.1 (`01e4aeb`), D4.2a–c (`ce2ec97`), and P1 (`1882d22`) are
+committed; the documentation reconciliation is committed in Step E.
+
 | Test | Class | Phase | Action |
 |------|-------|:-----:|--------|
 | `tests/oracle/ern/*` | Canonical correctness | — | Keep (primary acceptance) |
 | `tests/unit/execution/test_determinism.py::TestReferenceDecimalEquivalence` | Obsolete equivalence | A | **DELETED** — tested FAST vs legacy reference (multiplicative fee) |
 | `tests/unit/execution/test_fast_path_exact_equivalence.py` | Obsolete equivalence | A | **DELETED** — tested FAST vs legacy reference (multiplicative fee) |
-| `tests/unit/execution/test_reference.py` | Legacy executor internals | D | Delete after D2; port FV dedup cases to `test_trajectory_deduplication.py` |
-| `tests/unit/execution/test_trajectory_deduplication.py` | Behavioral (FV dedup) | A/D | Keep; retarget to `FastPathSimulationExecutor` / `NumbaSimulationExecutor` |
+| `tests/unit/execution/test_reference.py` | Legacy executor internals | D | Delete in P5/D4.3; FV dedup cases were ported to `test_trajectory_deduplication.py` in D4.2j |
+| `tests/unit/execution/test_trajectory_deduplication.py` | Behavioral (FV dedup) | D | **RETAINED** — retargeted to `NumbaSimulationExecutor` in D4.2j |
 | `tests/unit/execution/test_backend_equivalence.py` | Routing | A | Keep; fix "reference" naming |
 | `tests/unit/execution/test_backend_strategy_matrix.py` | Routing | A | Keep; replace `_make_reference_executor()` with `FastPathSimulationExecutor` |
-| `tests/unit/execution/test_pipeline_parity.py` | Behavioral/equivalence | C/D | Reclassify; keep behavioral contract tests |
+| `tests/unit/execution/test_pipeline_parity.py` | Behavioral/equivalence | D | **DELETED** in D4.2j — structural legacy-only assertions; behavioral parity covered by P2.2/P3.3 |
 | `tests/unit/strategies/test_numba_executor_differential.py` | Differential vs workbook oracle | B/C | **ACTIVE** — Numba executor vs workbook SCR oracle for static allocations |
 | `tests/unit/execution/test_grid_reference.py` | Legacy grid | C/D | Reclassify; keep routing tests |
 | `tests/integration/test_numba_e2e.py` | Numba E2E (workbook oracle) | B/C | **ACTIVE** — full study path vs workbook oracle for static allocations |
@@ -715,8 +1154,17 @@ independent of production code and must not be imported by it.
 | `fbf-cli/tests/unit/test_run_command.py`, `test_grid_cli_contract.py` | Routing/CLI | A | Keep; align to repaired dispatch (A1) |
 | `tests/unit/execution/test_fast_path.py` | Fast path workbook SCR | B | **PASSING** (22/22) — validates workbook SCR path, depletion boundary, multi-horizon equivalence |
 | `tests/unit/research/test_part20_corrected_methodology.py` | Part20 workbook fidelity | B | **PASSING** (9/9) — updated expectations for workbook methodology |
-| `tests/integration/test_part52_numba_executor.py` | Part 52 Numba path | A | **NEW** — prove eligible configs execute without fallback |
-| `tests/integration/test_part52_numba_executor.py` (ineligibility cases) | Unsupported config errors | A | **ACTIVE** — ineligible Part 52 configs invoke fallback (e.g. `test_ineligible_context_invokes_fallback`) |
+| `tests/integration/test_part52_numba_executor.py` | Part 52 Numba path | A/D4.1 | **ACTIVE** — eligible configs execute without a reference hook; D4.1 asserts `_reference` is absent |
+| `tests/integration/test_part52_numba_executor.py` (ineligibility cases) | Unsupported config errors | A/D4.1 | **ACTIVE** — ineligible Part 52 configs raise `UnsupportedConfigurationError`; no fallback is invoked |
+| `tests/integration/test_part49_numba_executor.py`, `tests/integration/test_part49_buy_and_hold_numba_executor.py` | Part 49 Numba paths | C/D4.1 | **ACTIVE** — eligible configs execute without a reference hook; D4.1 asserts `_reference` is absent |
+| `tests/unit/execution/debt_recurrence_reference.py` | Independent Decimal debt recurrence | D4.2a | **ACTIVE** — no production or legacy imports; test-only oracle |
+| `tests/integration/test_part49_numba_executor.py::TestPart49IndependentDebtReference` | Part 49 independent differential | D4.2a/D4.2b | **ACTIVE** — all legacy debt scenarios have independent counterparts; hand-calculated anchor retained |
+| `tests/integration/test_part52_numba_executor.py::TestPart52IndependentDebtReference` | Part 52 independent differential | D4.2a/D4.2b | **ACTIVE** — all legacy debt scenarios have independent counterparts; hand-calculated anchor retained |
+| `TestPart49DecimalDifferential`, `TestPart52DecimalDifferential` | Legacy debt differentials | D4.2b | **DELETED** — 17 cases mapped to the independent classes; local legacy helpers removed |
+| `tests/integration/test_part49_buy_and_hold_numba_executor.py::TestPart49BuyAndHoldIndependentReference` | Part 49 buy-and-hold independent differential | D4.2c | **ACTIVE** — maps all 10 legacy scenarios; CPI, enforcement-off, FVT, and hand-calculated anchor included |
+| `tests/integration/test_part49_buy_and_hold_numba_executor.py::TestPart49BuyAndHoldLegacyDifferential` | Part 49 buy-and-hold legacy differential | C4/D4.2c/D4.2f | **DELETED** — 10 cases mapped to the independent class and removed in D4.2f |
+| `TestBuyAndHoldExecutorDifferential` | Generic buy-and-hold legacy differential | C4/D4.2f | **CLOSED** — four legacy-only cases and legacy setup/comparison code removed; mixed tests split so independent anchors remain |
+| `TestEscalatingExecutorDifferential` | Generic escalating legacy differential | B3/D4.2g/D4.2h | **DELETED** — exact-horizon independent anchors added in D4.2g; two legacy cases removed in D4.2h |
 
 ---
 
@@ -801,9 +1249,9 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | C4: Part 49 buy-and-hold | ✅ Complete (supported scope, Option B) | `part49_buy_and_hold_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`; production flag propagation covered in `test_research_layer_debt_flow.py` | 6abda00 | Supported scope: Part 49 buy-and-hold, two assets, zero fee. Option B approved after independent verification of synthetic production-path dispatch, independent Decimal differential, legacy differential, LTV, and real-rate tests. The C4 gate is independent of C3; the 10,434-unit constant-allocation test is unrelated. This closure does not establish real-data canonical-scale equivalence, 1,739-cohort coverage, or a canonical ERN buy-and-hold oracle. |
 | C5: LTV terminal state | ✅ Complete | `numba_kernel.py`, `part49_numba_executor.py`, `part49_buy_and_hold_numba_executor.py`, `part52_numba_executor.py`; `test_part49_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`, `test_part52_numba_executor.py` | b5ad4a2, 5d5a569, 6abda00 | Part 49 debt, Part 49 buy-and-hold, and Part 52 Numba kernels emit `margin_call_terminal` and match Decimal/legacy references. Targeted Numba executor and debt flag propagation tests pass. C3 and C4 closure are governed by their separate gates. |
 | D1: Trajectory materialization | ✅ Complete | `execution/strategies/*`, `execution/strategies/trajectory.py`, `test_timeline_materialization.py` | 46687ce | Optional flag; use D2 streaming at grid scale |
-| D2: Cohort-slice for memory | ✅ Complete | `execution/slicing.py`, `execution/__init__.py`, `part52_evaluator.py`, `part49_aggregation.py`, `persistence/studies/sqlite/sqlite_repository.py` | a46ab2c | Streaming API + guard + consumer migration + incremental persistence + CLI persistence wiring complete. Full 313,020-unit run through `iter_execute_study_plan` completed in 16 summary-only slices; peak RSS 451.3 MiB (REFERENCE) / 582.2 MiB (FAST), under 16 GB. Streaming matches whole-plan on every cell, both backends agree, and the production grid matches `workbook_oracle_table.csv` 180/180 exactly. The 13/180 published-oracle differences are documented as the T vs T+1 historical divergence, not a production failure. |
+| D2: Cohort-slice for memory | ✅ Complete | `execution/slicing.py`, `execution/__init__.py`, `part52_evaluator.py`, `part49_aggregation.py`, `persistence/studies/sqlite/sqlite_repository.py`, `tests/oracle/ern/test_streaming_aggregate.py` | a46ab2c | Streaming API + guard + consumer migration + incremental persistence + CLI persistence wiring complete. External full-grid validation: 313,020 units through `iter_execute_study_plan` in 16 summary-only slices; peak RSS 451.3 MiB (REFERENCE) / 582.2 MiB (FAST), under 16 GB. Streaming matched whole-plan on every cell, both backends agreed, and the production grid matched `workbook_oracle_table.csv` 180/180 exactly. The routine regression streams a four-cell production subset across all 1,739 cohorts, persists/reloads it, and matches streaming, whole-plan, and persisted per-cell aggregates to the workbook oracle with exact Decimal equality. The 13/180 published-oracle differences are documented as the T vs T+1 historical divergence, not a production failure. The routine regression is committed in `9f00a89` as Step A and was validated against both the current workspace and an isolated `HEAD + A` worktree. |
 | D3: Deterministic trajectory | ✅ Complete | `execution/deterministic.py`, `execution/strategies/deterministic_kernel.py`, `test_deterministic_kernel.py`, `test_part20_experiment_e.py` | ccedb79 | Dedicated unit-tracking kernel; additive fee; annual/monthly rebalance; corrected Experiment E values pinned; published anchors remain unresolved |
-| D4: Legacy removal | ⬜ Not Started | — | — | Blocked by Phase C closure, capability-parity decisions, and the final deletion gate. |
+| D4: Legacy removal | 🔄 In Progress (D4.2 complete; P5/D4.3 deferred) | `part49_numba_executor.py`, `part52_numba_executor.py`, `part49_buy_and_hold_numba_executor.py`; `test_part49_numba_executor.py`, `test_part52_numba_executor.py`, `test_part49_buy_and_hold_numba_executor.py`; `tests/unit/execution/debt_recurrence_reference.py` | 35976b6 (P2/P3), c04c058 (P4), 01e4aeb (D4.1), ce2ec97 (D4.2a–c), 1882d22 (P1); documentation in Step E | D4.1 removed redundant `_reference` hooks from the dedicated Part 49/52 executors; unsupported configurations still raise `UnsupportedConfigurationError`. D4.2a–D4.2d added independent debt/buy-and-hold coverage, removed redundant legacy debt differentials, and classified the remaining legacy dependencies. D4.2e prepared the exact P1 deletion proposal. D4.2f removed the Part 49 buy-and-hold legacy differential and the generic buy-and-hold legacy-only cases, splitting the mixed tests. D4.2g added exact-horizon escalating independent anchors. D4.2h removed the escalating legacy differential; P1 implementation is closed. D4.2i audited the remaining work read-only: P2–P4 open at audit time; P5 deferred to the final deletion gate/D4.3. D4.2j reconciled this roadmap and closed P2 with independent multi-asset nominal and plan-level Numba determinism coverage, then closed P3.1 by retargeting the four Part 49 production-path suites, P3.2 by retargeting the three Part 52 trajectory suites, P3.3 by retargeting the multi-cohort/parallel suites, P3.4 the research-layer debt suites to Numba paths, and P3.5 the broad edge/random differential to an independent recurrence. P4.1 retargeted FV-target deduplication to `NumbaSimulationExecutor`; P4.2 retired the legacy pipeline-parity suite with replacement coverage noted. P2–P4 are closed at implementation level. P2/P3, P4, D4.1, D4.2a–c, and P1 are committed; this reconciliation completes D4.2. Legacy pipeline, remaining fallbacks, and P5 consumers are unchanged. D4.2j is not a legacy-engine deletion phase. |
 | D5: Public API resolution | ⬜ Not Started | — | — | Breaking API decision; depends on D4 and a complete consumer inventory for `ExecutionBackend.REFERENCE` and legacy exports. |
 
 **Legend:** ✅ Complete | 🔄 In Progress | ⬜ Not Started | ❌ Blocked
@@ -1015,11 +1463,13 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 
 - `ExecutionBackend.REFERENCE` routes to `FastPathSimulationExecutor`
   (`execution/__init__.py:458`); it is not the legacy engine.
-- `execute_reference()` (`reference.py:455`) is the legacy engine with
+- `execute_reference()` (`reference.py:467`) is the legacy engine with
   cohort-sliced dispatch.
-- Every executor falls back to `_create_default_simulation_executor()`
-  (`fast_path.py:1099`, `numba_executor.py:476`, `part52_numba_executor.py:287`,
-  `reference.py:322`).
+- `FastPathSimulationExecutor`, `NumbaSimulationExecutor`, and
+  `ReferenceSimulationExecutor` still construct a legacy-engine fallback via
+  `_create_default_simulation_executor()` (`fast_path.py:1100`,
+  `numba_executor.py:492`, `reference.py:334`). The dedicated Part 49/52
+  executors no longer do so after D4.1.
 - Numba executors emit empty timelines (`numba_executor.py:890,959,1034,1114,1223`;
   `part52_numba_executor.py:460`).
 - Debt aggregation reads monthly `debt_snapshot`

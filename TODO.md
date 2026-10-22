@@ -175,8 +175,10 @@ observed at WR=3.5%.
 - With fix (WR=3.50%, B%=41.08%): **1739/1739** (all succeed)
 - With fix (WR=3.91%, B%=41.08%): 1733/1739 (6 baseline failures remain)
 
-Pipeline parity regression tests (`test_pipeline_parity.py`) now protect
-against future divergence between the canonical and parallel pipelines.
+Pipeline parity was historically protected by `test_pipeline_parity.py`. That
+legacy-only suite was retired during the Numba migration; supported-engine
+sequential/parallel parity is covered by `TestNumbaRepeatability` and the
+multi-cohort/parallel suites.
 
 ### Remaining baseline discrepancy — DEFERRED to E2E validation pass
 
