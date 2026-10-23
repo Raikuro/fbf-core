@@ -232,6 +232,46 @@ def test_public_facade_symbols() -> None:
     )
 
 
+def test_execution_backend_decimal_fast_path_alias() -> None:
+    """DECIMAL_FAST_PATH is canonical; REFERENCE is a same-value alias."""
+    import fbf.core.execution as execution
+
+    backend = execution.ExecutionBackend
+    canonical = backend.DECIMAL_FAST_PATH
+
+    assert canonical.value == "reference"
+    assert canonical.name == "DECIMAL_FAST_PATH"
+    assert backend.REFERENCE is canonical
+    assert backend("reference") is canonical
+
+
+def test_legacy_reference_exports_removed_from_public_facade() -> None:
+    """Legacy reference helpers are no longer part of the public execution API."""
+    import fbf.core.execution as execution
+
+    for name in (
+        "execute_reference",
+        "expected_reference_report",
+        "reference_month_work",
+    ):
+        assert name not in execution.__all__
+        assert not hasattr(execution, name)
+
+
+def test_legacy_reference_implementations_remain_available() -> None:
+    """Tier-3 implementations remain importable for the D4.3 migration."""
+    from fbf.core.execution import reporting
+    from fbf.core.execution.strategies.reference import (
+        ReferenceSimulationExecutor,
+        execute_reference,
+    )
+
+    assert callable(execute_reference)
+    assert isinstance(ReferenceSimulationExecutor, type)
+    assert callable(reporting.expected_reference_report)
+    assert callable(reporting.reference_month_work)
+
+
 def test_simulation_runner_and_executor_have_no_financial_domain_imports() -> None:
     """SimulationRunner and SimulationExecutor must not import financial-domain details.
 

@@ -864,7 +864,7 @@ class TestPart49BuyAndHoldDispatchContract:
         reference = execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.REFERENCE,
+                backend=ExecutionBackend.DECIMAL_FAST_PATH,
                 strategy=ExecutionStrategy.SEQUENTIAL,
             ),
         )
@@ -945,7 +945,7 @@ class TestPart49BuyAndHoldDispatchContract:
         executed = execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.REFERENCE,
+                backend=ExecutionBackend.DECIMAL_FAST_PATH,
                 strategy=ExecutionStrategy.SEQUENTIAL,
             ),
         ).experiment_result.simulation_results[0].statistics.final_wealth.amount

@@ -271,7 +271,7 @@ These decisions are **shared with Part 49** and are consistent across both studi
 | Root namespace | `fbf.core` |
 | Third-party runtime deps | **Zero** |
 | Python requirement | ≥ 3.13 |
-| Current version | 0.1.0 |
+| Current version | 0.2.0 |
 
 ### B.2 Layer Architecture
 

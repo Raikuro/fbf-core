@@ -204,7 +204,7 @@ class TestFastStrictness:
             built, ExecutionOptions(backend=ExecutionBackend.FAST)
         )
         reference = execute_study_plan(
-            built, ExecutionOptions(backend=ExecutionBackend.REFERENCE)
+            built, ExecutionOptions(backend=ExecutionBackend.DECIMAL_FAST_PATH)
         )
 
         assert len(fast.experiment_result.simulation_results) == 1

@@ -78,7 +78,7 @@ class TestStreamingEquivalence:
             ),
             (
                 ExecutionOptions(
-                    backend=ExecutionBackend.REFERENCE,
+                    backend=ExecutionBackend.DECIMAL_FAST_PATH,
                     strategy=ExecutionStrategy.SEQUENTIAL,
                 ),
                 "reference",
@@ -116,7 +116,7 @@ class TestStreamingEquivalence:
             )
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.SEQUENTIAL,
         )
         full = execute_study_plan(built, options)
@@ -277,7 +277,7 @@ class TestStreamingSafety:
         iterator = iter_execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.REFERENCE,
+                backend=ExecutionBackend.DECIMAL_FAST_PATH,
                 strategy=ExecutionStrategy.SEQUENTIAL,
             ),
             max_units_per_slice=2,
@@ -324,7 +324,7 @@ class TestStreamingSafety:
         iterator = iter_execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.REFERENCE,
+                backend=ExecutionBackend.DECIMAL_FAST_PATH,
                 strategy=ExecutionStrategy.SEQUENTIAL,
             ),
             max_units_per_slice=2,
@@ -342,7 +342,7 @@ class TestStreamingSafety:
                 iter_execute_study_plan(
                     built,
                     ExecutionOptions(
-                        backend=ExecutionBackend.REFERENCE,
+                        backend=ExecutionBackend.DECIMAL_FAST_PATH,
                         strategy=ExecutionStrategy.SEQUENTIAL,
                     ),
                     max_units_per_slice=0,

@@ -13,11 +13,7 @@ from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from fbf.core.execution import (
-    expected_reference_report,
-    reference_month_work,
-    reporting,
-)
+from fbf.core.execution import reporting
 from fbf.core.execution.strategies.fast_path import (
     reference_month_work as fast_path_reference_month_work,
 )
@@ -118,7 +114,7 @@ class TestExpectedReferenceReport:
     def test_prefix_consistent_horizons_are_derived(self) -> None:
         plan = _make_plan((24, 36))
 
-        report = expected_reference_report(plan)
+        report = reporting.expected_reference_report(plan)
 
         assert report == ReferenceReport(
             logical_units=2,
@@ -153,7 +149,7 @@ class TestExpectedReferenceReport:
             ),
         )
 
-        report = expected_reference_report(plan)
+        report = reporting.expected_reference_report(plan)
 
         assert report == ReferenceReport(
             logical_units=2,
@@ -191,18 +187,26 @@ class TestExpectedReferenceReport:
             ),
         )
 
-        report = expected_reference_report(plan)
+        report = reporting.expected_reference_report(plan)
 
         assert report.month_work == 48
-        assert reference_month_work(plan) == 48
+        assert reporting.reference_month_work(plan) == 48
 
 
 class TestReportCompatibility:
-    def test_public_exports_delegate_to_reporting_module(self) -> None:
+    def test_public_facade_no_longer_exports_report_helpers(self) -> None:
+        import fbf.core.execution as execution
+
+        assert "expected_reference_report" not in execution.__all__
+        assert "reference_month_work" not in execution.__all__
+        assert not hasattr(execution, "expected_reference_report")
+        assert not hasattr(execution, "reference_month_work")
+
+    def test_reporting_module_remains_the_implementation(self) -> None:
         plan = _make_plan((24, 36))
 
-        assert expected_reference_report(plan) == reporting.expected_reference_report(plan)
-        assert reference_month_work(plan) == reporting.reference_month_work(plan) == 60
+        assert reporting.expected_reference_report(plan).month_work == 36
+        assert reporting.reference_month_work(plan) == 60
 
     def test_legacy_module_aliases_preserve_object_identity(self) -> None:
         assert ReferenceReport is reporting.ReferenceReport

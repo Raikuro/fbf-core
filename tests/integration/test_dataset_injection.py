@@ -30,7 +30,7 @@ def test_run_study_uses_injected_published_dataset() -> None:
         data_dir="unused-data-dir",
         initial_wealth=Money(Decimal("1000000"), Currency.EUR),
         options=ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             summary_only=True,
         ),
         dataset=dataset,

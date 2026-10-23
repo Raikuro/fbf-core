@@ -360,7 +360,7 @@ class TestCorrectedMethodology:
             )
 
             opts = ExecutionOptions(
-                workers=1, summary_only=True, backend=ExecutionBackend.REFERENCE
+                workers=1, summary_only=True, backend=ExecutionBackend.DECIMAL_FAST_PATH
             )
             effective_opts = replace(
                 opts,
@@ -404,7 +404,7 @@ class TestCorrectedMethodology:
             final_value_target=Decimal("0"),
             cape_regime="HIGH",
             options=ExecutionOptions(
-                workers=1, summary_only=True, backend=ExecutionBackend.REFERENCE
+                workers=1, summary_only=True, backend=ExecutionBackend.DECIMAL_FAST_PATH
             ),
             step_label="regression_exp_a",
             cache=self.cache,
@@ -423,7 +423,7 @@ class TestCorrectedMethodology:
             final_value_target=Decimal("0"),
             cape_regime="HIGH",
             options=ExecutionOptions(
-                workers=1, summary_only=True, backend=ExecutionBackend.REFERENCE
+                workers=1, summary_only=True, backend=ExecutionBackend.DECIMAL_FAST_PATH
             ),
             step_label="regression_exp_b",
             cache=self.cache,

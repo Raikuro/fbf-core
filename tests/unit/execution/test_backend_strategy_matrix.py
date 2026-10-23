@@ -38,14 +38,14 @@ def _make_built_study(cohorts: int = 1, horizons: list[int] | None = None) -> Bu
 
 
 class TestReferenceBackendStrategy:
-    """REFERENCE backend × strategy combinations."""
+    """DECIMAL_FAST_PATH backend × strategy combinations."""
 
     def test_reference_auto_small_workload_selects_sequential(self) -> None:
-        """REFERENCE + AUTO with a small plan resolves to sequential."""
+        """DECIMAL_FAST_PATH + AUTO with a small plan resolves to sequential."""
         built = _make_built_study(cohorts=1, horizons=[720])
         # Fewer units than threshold → sequential
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.AUTO,
             workers=8,
             summary_only=True,
@@ -58,14 +58,14 @@ class TestReferenceBackendStrategy:
     def test_reference_auto_large_workload_selects_parallel(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """REFERENCE + AUTO with a large plan resolves to parallel when workers available."""
+        """DECIMAL_FAST_PATH + AUTO with a large plan resolves to parallel."""
         built = _make_built_study(cohorts=1, horizons=[720])
         # Patch the threshold to 0 so the small test plan triggers parallel
         monkeypatch.setattr(
             "fbf.core.execution._DEFAULT_PARALLEL_UNIT_THRESHOLD", 0
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.AUTO,
             workers=2,
             summary_only=True,
@@ -75,10 +75,10 @@ class TestReferenceBackendStrategy:
         assert result.experiment_result is not None
 
     def test_reference_auto_workers_none_uses_host_default(self) -> None:
-        """REFERENCE + AUTO with workers=None inspects host capabilities."""
+        """DECIMAL_FAST_PATH + AUTO with workers=None inspects host capabilities."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.AUTO,
             workers=None,
             summary_only=True,
@@ -88,10 +88,10 @@ class TestReferenceBackendStrategy:
         assert result.experiment_result is not None
 
     def test_reference_sequential_forces_sequential(self) -> None:
-        """REFERENCE + SEQUENTIAL always executes sequentially."""
+        """DECIMAL_FAST_PATH + SEQUENTIAL always executes sequentially."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.SEQUENTIAL,
             workers=8,
             summary_only=True,
@@ -100,10 +100,10 @@ class TestReferenceBackendStrategy:
         assert result.experiment_result is not None
 
     def test_reference_parallel_forces_parallel(self) -> None:
-        """REFERENCE + PARALLEL always executes in parallel."""
+        """DECIMAL_FAST_PATH + PARALLEL always executes in parallel."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.PARALLEL,
             workers=2,
             summary_only=True,
@@ -188,7 +188,7 @@ class TestAutoRoutingPolicy:
             "fbf.core.execution._DEFAULT_PARALLEL_UNIT_THRESHOLD", 100_000
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.AUTO,
             workers=64,
             summary_only=True,
@@ -201,7 +201,7 @@ class TestAutoRoutingPolicy:
         """Explicit SEQUENTIAL prevents parallel even for large plans."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.SEQUENTIAL,
             workers=64,
             summary_only=True,
@@ -218,7 +218,7 @@ class TestAutoRoutingPolicy:
             "fbf.core.execution._DEFAULT_PARALLEL_UNIT_THRESHOLD", 100_000
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.PARALLEL,
             workers=2,
             summary_only=True,
@@ -262,7 +262,7 @@ class TestAutoBackendDispatch:
         assert result.experiment_result is not None
 
     def test_auto_dispatch_falls_back_to_default_for_unsupported(self) -> None:
-        """backend=None + AUTO falls back to REFERENCE for unsupported policies."""
+        """backend=None + AUTO falls back to DECIMAL_FAST_PATH for unsupported policies."""
         from fbf.core.domain.model.money import Currency, Money
         from fbf.core.domain.policies import (
             ConstantAllocationPolicy,
@@ -318,10 +318,10 @@ class TestAutoBackendDispatch:
         assert result.experiment_result is not None
 
     def test_explicit_reference_bypasses_auto_dispatch(self) -> None:
-        """backend=REFERENCE always uses Decimal reference, even for eligible workloads."""
+        """backend=DECIMAL_FAST_PATH always uses Decimal reference, even for eligible workloads."""
         built = _make_built_study(cohorts=1, horizons=[720])
         options = ExecutionOptions(
-            backend=ExecutionBackend.REFERENCE,
+            backend=ExecutionBackend.DECIMAL_FAST_PATH,
             strategy=ExecutionStrategy.AUTO,
             summary_only=True,
         )
@@ -367,7 +367,7 @@ class TestSummaryOnlyEquivalence:
     returned ``SimulationResult`` objects.  All other semantic content —
     aggregate statistics, plan, experiment definition — must be unchanged.
 
-    The REFERENCE and FAST backends always produce empty timelines (they use
+    The DECIMAL_FAST_PATH and FAST backends always produce empty timelines (they use
     closed-form / Numba kernels that don't build monthly results).  To test
     the stripping behaviour we must use the reference SimulationExecutor
     directly via ``sequential_execute``.

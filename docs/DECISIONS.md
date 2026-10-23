@@ -881,3 +881,37 @@ to constraints, which requires a fixed budget base.
 **Consequence:** The policy computes budget from `initial_wealth` and
 `withdrawal_rate`, not from current `portfolio_value`. This ensures
 consistent budget across all periods regardless of portfolio performance.
+
+---
+
+## Execution Backend Naming and Legacy Public Exports
+
+**Decision:** The exact-Decimal execution backend is named
+`ExecutionBackend.DECIMAL_FAST_PATH`. Its underlying string value remains
+`"reference"`, and `ExecutionBackend.REFERENCE` is retained as a deprecated
+same-value alias throughout the `0.2.x` minor line. The legacy public exports
+`execute_reference`, `expected_reference_report`, and `reference_month_work`
+are removed from the `fbf.core.execution` facade and its `__all__`.
+
+**Why:** The token "reference" previously denoted three different things: the
+public enum value, the legacy `ReferenceSimulationExecutor`/`execute_reference`
+implementation, and the legacy pipeline engine. The enum actually selects the
+Decimal fast path, which performs horizon derivation and delegates only
+ineligible contexts to the legacy engine. Keeping the string value preserves
+compatibility with `ExecutionBackend("reference")` and existing external
+callers, while the canonical name makes the public contract accurate. The
+reporting helpers are pure plan-reporting utilities with no production consumer
+after the CLI migrated to explicit FAST; their implementations remain available
+under `fbf.core.execution.reporting` for the D4.3 migration.
+
+**Alternatives rejected:** Introducing a new `"decimal_fast_path"` string value
+— rejected in this milestone because it would break value-based compatibility
+without improving the rollout. Immediately removing `REFERENCE` — deferred to a
+future breaking release after a compatibility review. Deleting the legacy
+executor, pipelines, or reporting implementations — deferred to D4.3, which is
+responsible for removing the legacy stack.
+
+**Consequence:** Existing callers using `ExecutionBackend.REFERENCE` or the
+string `"reference"` continue to work unchanged. New code should use
+`DECIMAL_FAST_PATH`. FAST remains fail-closed, and AUTO retains its current
+legacy fallback until D4.3.

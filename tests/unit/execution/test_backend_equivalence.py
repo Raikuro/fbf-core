@@ -143,7 +143,7 @@ class TestAutoDispatchCorrectness:
         result = execute_study_plan(
             built,
             options=ExecutionOptions(
-                backend=ExecutionBackend.REFERENCE,
+                backend=ExecutionBackend.DECIMAL_FAST_PATH,
                 strategy=ExecutionStrategy.SEQUENTIAL,
                 summary_only=True,
             ),

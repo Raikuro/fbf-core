@@ -649,7 +649,7 @@ class TestPart49DispatchContract:
 
         fast = execute_study_plan(built, ExecutionOptions(backend=ExecutionBackend.FAST))
         reference = execute_study_plan(
-            built, ExecutionOptions(backend=ExecutionBackend.REFERENCE)
+            built, ExecutionOptions(backend=ExecutionBackend.DECIMAL_FAST_PATH)
         )
         fast_wealth = fast.experiment_result.simulation_results[0].statistics.final_wealth
         ref_wealth = reference.experiment_result.simulation_results[0].statistics.final_wealth

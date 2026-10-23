@@ -54,29 +54,6 @@ def parallel_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
     return implementation(*args, **kwargs)
 
 
-def execute_reference(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
-    """Execute the public Reference operation."""
-    from fbf.core.execution.strategies.reference import (
-        execute_reference as implementation,
-    )
-
-    return implementation(*args, **kwargs)
-
-
-def expected_reference_report(*args: Any, **kwargs: Any) -> Any:
-    from fbf.core.execution.reporting import (
-        expected_reference_report as implementation,
-    )
-
-    return implementation(*args, **kwargs)
-
-
-def reference_month_work(*args: Any, **kwargs: Any) -> int:
-    from fbf.core.execution.reporting import reference_month_work as implementation
-
-    return implementation(*args, **kwargs)
-
-
 def fast_path_unit_counts(*args: Any, **kwargs: Any) -> tuple[int, int]:
     from fbf.core.execution.strategies.fast_path import fast_path_unit_counts as implementation
 
@@ -129,20 +106,28 @@ class ExecutionBackend(StrEnum):
 
     ``FAST`` executes with float64 numerical semantics for maximum throughput.
     Currently implemented with Numba; the implementation may evolve without
-    changing the public name.
+    changing the public name.  Explicit ``FAST`` is fail-closed: workloads the
+    Numba kernels cannot execute raise ``UnsupportedConfigurationError`` rather
+    than falling back to another engine.
 
-    ``REFERENCE`` executes with exact Decimal semantics.  It is the
-    authoritative reference implementation against which optimized backends
-    are validated.  Used for validation, debugging, oracle comparisons,
-    and regression testing.
+    ``DECIMAL_FAST_PATH`` selects the exact-Decimal execution path.  It
+    currently wraps the legacy reference engine and performs horizon
+    derivation for eligible workload families.  It is the Decimal validation
+    path, not the Numba backend, and it is not the legacy engine itself.
+
+    ``REFERENCE`` is a deprecated same-value alias for
+    ``DECIMAL_FAST_PATH``.  It is retained throughout the ``0.2.x`` minor
+    line for compatibility and may be removed in a future breaking release.
 
     When no backend is specified (the default ``None``), the AUTO dispatch
     selects the best validated backend for the workload: FAST when all units
-    are eligible, REFERENCE otherwise.
+    are eligible, ``DECIMAL_FAST_PATH`` otherwise.
     """
 
-    REFERENCE = "reference"
+    DECIMAL_FAST_PATH = "reference"
     FAST = "fast"
+    # Deprecated same-value alias; resolves to DECIMAL_FAST_PATH.
+    REFERENCE = DECIMAL_FAST_PATH
 
 
 class ExecutionStrategy(StrEnum):
@@ -163,14 +148,14 @@ class ExecutionStrategy(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# AUTO routing policy for REFERENCE backend
+# AUTO routing policy for DECIMAL_FAST_PATH backend
 # ---------------------------------------------------------------------------
-# The REFERENCE backend benefits from parallelism at meaningful workloads but
+# The DECIMAL_FAST_PATH backend benefits from parallelism at meaningful workloads but
 # incurs measurable overhead (process creation, IPC, result aggregation) for
 # small plans.
 #
 # The threshold below is the minimum unit count at which the AUTO strategy
-# selects parallel execution for the REFERENCE backend, provided that multiple
+# selects parallel execution for the DECIMAL_FAST_PATH backend, provided that multiple
 # workers are available.
 #
 # Measured crossover on the reference development host (4 workers, 120-month
@@ -207,10 +192,12 @@ class ExecutionOptions:
     backend:
         Execution backend selection.  ``None`` (the default) enables AUTO
         dispatch: the system selects the best validated backend for the
-        workload (FAST when all units are eligible, REFERENCE otherwise).
-        ``REFERENCE`` explicitly requests the authoritative Decimal reference
-        implementation.  ``FAST`` explicitly requests the optimized float64
-        backend (currently Numba).  Default is ``None``.
+        workload (FAST when all units are eligible, ``DECIMAL_FAST_PATH``
+        otherwise).  ``DECIMAL_FAST_PATH`` selects the exact-Decimal execution
+        path that currently wraps the legacy reference engine; it is not the
+        Numba backend.  ``REFERENCE`` is a deprecated same-value alias for
+        ``DECIMAL_FAST_PATH``.  ``FAST`` explicitly requests the optimized
+        float64 backend (currently Numba).  Default is ``None``.
     strategy:
         Execution strategy (``AUTO``, ``SEQUENTIAL``, or ``PARALLEL``).
         ``PARALLEL`` is not supported by the ``FAST`` backend.
@@ -349,7 +336,7 @@ def _auto_select_backend(
     Returns the SimulationExecutor for the selected backend.  When numba is
     available and all units are FAST-eligible (Part52, FixedReal, escalating,
     buy-and-hold, or glidepath), the optimized Numba executor is used.
-    Otherwise the Decimal fast-path (REFERENCE fallback) is used.
+    Otherwise the Decimal fast path (``DECIMAL_FAST_PATH``) is used.
     """
     try:
         import numba as _numba_mod  # noqa: F401
@@ -604,7 +591,7 @@ def _select_simulation_executor(
                 materialize_timeline=opt.materialize_timeline,
                 require_all_eligible=True,
             )
-    elif backend == ExecutionBackend.REFERENCE:
+    elif backend == ExecutionBackend.DECIMAL_FAST_PATH:
         from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
         from fbf.core.execution.strategies.parallel_executor import (
             _create_reference_simulation_executor,
@@ -686,11 +673,11 @@ def _use_parallel_execution(
             ):
                 use_parallel = False
             else:
-                # REFERENCE path: use parallel when workers available.
+                # DECIMAL_FAST_PATH: use parallel when workers available.
                 available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
                 use_parallel = available_workers > 1
         else:
-            # REFERENCE: use parallel when workers available.
+            # DECIMAL_FAST_PATH: use parallel when workers available.
             available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
             use_parallel = available_workers > 1
     return use_parallel
@@ -716,15 +703,17 @@ def execute_study_plan(
 
     - ``None`` (default): AUTO dispatch selects the best validated backend.
       FAST when all units are Part52-eligible or FixedReal-eligible,
-      REFERENCE otherwise.
+      ``DECIMAL_FAST_PATH`` otherwise.
     - ``FAST``: explicitly request the optimized Numba backend.
-    - ``REFERENCE``: explicitly request the authoritative Decimal reference.
+    - ``DECIMAL_FAST_PATH``: explicitly request the exact-Decimal execution
+      path.  ``REFERENCE`` remains a deprecated same-value alias.
 
     Strategy selection (``options.strategy``):
 
-    - ``AUTO``: ``FAST`` always resolves to sequential.  ``REFERENCE`` selects
-      parallel when the plan has at least ``_DEFAULT_PARALLEL_UNIT_THRESHOLD``
-      units *and* more than one worker is available; otherwise sequential.
+    - ``AUTO``: ``FAST`` always resolves to sequential.
+      ``DECIMAL_FAST_PATH`` selects parallel when the plan has at least
+      ``_DEFAULT_PARALLEL_UNIT_THRESHOLD`` units *and* more than one worker is
+      available; otherwise sequential.
     - ``SEQUENTIAL``: force single-process execution.
     - ``PARALLEL``: explicitly request multiprocessing.  Not supported by
       ``FAST``; raises ``ValueError``.
@@ -914,10 +903,7 @@ __all__ = [
     "FastPathValidationError",
     "UnsupportedConfigurationError",
     "NumbaSimulationExecutor",
-    "reference_month_work",
-    "execute_reference",
     "execute_numba",
-    "expected_reference_report",
     "fast_path_unit_counts",
     "expected_report",
     "run_fast_path_validation",
