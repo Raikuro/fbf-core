@@ -1,11 +1,10 @@
-"""Engine application package.
+"""Simulation contracts shared by every execution strategy.
 
-Contains orchestration logic for simulation execution.
+This package contains immutable simulation inputs and outputs plus the
+``SimulationExecutor`` abstraction.  It has no execution engine of its own.
 """
 
 from .executor import SimulationExecutor
-from .pipeline import PipelineStep, SimulationPipeline
-from .runner import SimulationRunner
 from .simulation import (
     ExperimentDefinition,
     ExperimentRun,
@@ -16,10 +15,6 @@ from .simulation import (
     SimulationTimeline,
 )
 from .simulation_context import SimulationContext
-from .statistics_builder import (
-    DefaultSimulationStatisticsBuilder,
-    SimulationStatisticsBuilder,
-)
 
 __all__ = [
     "SimulationContext",
@@ -30,10 +25,5 @@ __all__ = [
     "SimulationTimeline",
     "ExperimentDefinition",
     "ExperimentRun",
-    "SimulationPipeline",
-    "PipelineStep",
-    "SimulationRunner",
     "SimulationExecutor",
-    "SimulationStatisticsBuilder",
-    "DefaultSimulationStatisticsBuilder",
 ]

@@ -41,22 +41,11 @@ from fbf.core.execution import (
     _extract_simulation_contexts,
     execute_study_plan,
 )
-from fbf.core.execution.executor import ResearchExecutor
-from fbf.core.execution.pipeline.default_pipeline import (
-    create_buy_and_hold_pipeline,
-    create_default_pipeline,
-)
-from fbf.core.execution.pipeline.executor import SimulationExecutor
-from fbf.core.execution.pipeline.runner import SimulationRunner
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     SimulationResult,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.strategies.parallel_executor import (
-    _create_buy_and_hold_simulation_executor,
-    _create_reference_simulation_executor,
-)
 from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
     Part49BuyAndHoldNumbaExecutor,
     is_part49_buy_and_hold_eligible,
@@ -218,15 +207,6 @@ def _numba_result(ctx: SimulationContext) -> SimulationResult:
         EngineExperimentDefinition(name="numba", description="numba", simulation_contexts=(ctx,))
     )
     return run.simulation_results[0]
-
-
-def _legacy_buy_and_hold_result(ctx: SimulationContext) -> SimulationResult:
-    return SimulationRunner(pipeline=create_buy_and_hold_pipeline()).run(ctx)
-
-
-def _reference_pipeline_result(ctx: SimulationContext) -> SimulationResult:
-    """Legacy *rebalancing* default pipeline (the old, wrong fallback)."""
-    return SimulationRunner(pipeline=create_default_pipeline()).run(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -572,7 +552,7 @@ class TestPart49BuyAndHoldIndependentReference:
 
         import numpy as np
 
-        from fbf.core.execution.strategies.fast_path import _index_series
+        from fbf.core.execution.strategies.eligibility import _index_series
         from fbf.core.execution.strategies.numba_kernel import (
             _materialize_price_float,
             _simulate_part49_buy_and_hold,
@@ -830,17 +810,6 @@ def _built_plan(
     )
 
 
-def _execution_context(built: BuiltStudy, index: int = 0) -> SimulationContext:
-    executor = ResearchExecutor(
-        simulation_executor=SimulationExecutor(
-            simulation_runner=SimulationRunner(create_default_pipeline())
-        )
-    )
-    return executor._create_context_for_unit(  # noqa: SLF001 - test uses the production translation
-        built.experiment_definition, built.plan.units[index]
-    )
-
-
 class TestPart49BuyAndHoldDispatchContract:
     def test_auto_routes_part49_buy_and_hold_to_numba(self) -> None:
         dataset = _create_flat_dataset(12)
@@ -850,7 +819,7 @@ class TestPart49BuyAndHoldDispatchContract:
             _auto_select_backend(built, NoOpProfiler()), Part49BuyAndHoldNumbaExecutor
         )
 
-    def test_fast_runs_and_matches_reference(self) -> None:
+    def test_fast_runs_part49_buy_and_hold_through_study_plan(self) -> None:
         dataset = _create_growth_dataset(12, Decimal("0.005"), Decimal("0.002"))
         unit = _bh_unit(date(1965, 11, 1), 12, dataset)
         built = _built_plan((unit,))
@@ -861,16 +830,9 @@ class TestPart49BuyAndHoldDispatchContract:
                 backend=ExecutionBackend.FAST, strategy=ExecutionStrategy.SEQUENTIAL
             ),
         )
-        reference = execute_study_plan(
-            built,
-            ExecutionOptions(
-                backend=ExecutionBackend.DECIMAL_FAST_PATH,
-                strategy=ExecutionStrategy.SEQUENTIAL,
-            ),
-        )
-        fast_wealth = fast.experiment_result.simulation_results[0].statistics.final_wealth
-        ref_wealth = reference.experiment_result.simulation_results[0].statistics.final_wealth
-        assert abs(fast_wealth.amount - ref_wealth.amount) < _WEALTH_TOLERANCE
+        stats = fast.experiment_result.simulation_results[0].statistics
+        assert stats.success is True
+        assert stats.months_simulated == 12
 
     def test_fast_rejects_unsupported_part49_buy_and_hold(self) -> None:
         dataset = _create_flat_dataset(12)
@@ -887,12 +849,7 @@ class TestPart49BuyAndHoldDispatchContract:
                 ),
             )
 
-    def test_auto_unsupported_buy_and_hold_never_rebalances(self) -> None:
-        """An ineligible buy-and-hold unit must use the buy-and-hold pipeline.
-
-        It previously fell through to the fast path's reference, which is the
-        periodically rebalancing default pipeline.
-        """
+    def test_auto_unsupported_buy_and_hold_fails_explicitly(self) -> None:
         horizon = 120
         dataset = _create_trend_dataset(horizon)
         unit = _bh_unit(
@@ -903,57 +860,15 @@ class TestPart49BuyAndHoldDispatchContract:
         )
         built = _built_plan((unit,), horizon_months=horizon)
 
-        ctx = _execution_context(built)
-        assert not is_part49_buy_and_hold_eligible(ctx)
-        assert _auto_select_backend(built, NoOpProfiler()).__class__.__name__ == (
-            "FastPathSimulationExecutor"
-        )
+        with pytest.raises(UnsupportedConfigurationError):
+            execute_study_plan(
+                built,
+                ExecutionOptions(
+                    backend=None, strategy=ExecutionStrategy.SEQUENTIAL
+                ),
+            )
 
-        buy_and_hold = _legacy_buy_and_hold_result(ctx).statistics.final_wealth.amount
-        rebalanced = _reference_pipeline_result(ctx).statistics.final_wealth.amount
-        # The two legacy policies are materially different on a trending market;
-        # the fix is meaningful only because they diverge.
-        assert abs(buy_and_hold - rebalanced) > Decimal("1000")
-
-        executed = execute_study_plan(
-            built,
-            ExecutionOptions(
-                backend=None, strategy=ExecutionStrategy.SEQUENTIAL
-            ),
-        ).experiment_result.simulation_results[0].statistics.final_wealth.amount
-
-        assert abs(executed - buy_and_hold) < _WEALTH_TOLERANCE
-        assert abs(executed - rebalanced) > Decimal("1000")
-
-    def test_reference_backend_buy_and_hold_never_rebalances(self) -> None:
-        horizon = 120
-        dataset = _create_trend_dataset(horizon)
-        unit = _bh_unit(
-            date(1965, 11, 1),
-            horizon,
-            dataset.slice(dataset[0].date, horizon),
-            rate=None,
-            schedule=None,
-        )
-        built = _built_plan((unit,), horizon_months=horizon)
-        ctx = _execution_context(built)
-
-        buy_and_hold = _legacy_buy_and_hold_result(ctx).statistics.final_wealth.amount
-        rebalanced = _reference_pipeline_result(ctx).statistics.final_wealth.amount
-        assert abs(buy_and_hold - rebalanced) > Decimal("1000")
-
-        executed = execute_study_plan(
-            built,
-            ExecutionOptions(
-                backend=ExecutionBackend.DECIMAL_FAST_PATH,
-                strategy=ExecutionStrategy.SEQUENTIAL,
-            ),
-        ).experiment_result.simulation_results[0].statistics.final_wealth.amount
-
-        assert abs(executed - buy_and_hold) < _WEALTH_TOLERANCE
-        assert abs(executed - rebalanced) > Decimal("1000")
-
-    def test_auto_mixed_plan_does_not_use_buy_and_hold_numba(self) -> None:
+    def test_auto_mixed_plan_fails_explicitly(self) -> None:
         dataset = _create_flat_dataset(12)
         bh_unit = _bh_unit(date(1965, 11, 1), 12, dataset)
         constant_unit = PlannedSimulationUnit(
@@ -975,65 +890,8 @@ class TestPart49BuyAndHoldDispatchContract:
         built = _built_plan((bh_unit, constant_unit))
         contexts = _extract_simulation_contexts(built.plan)
         assert not all(is_part49_buy_and_hold_eligible(ctx) for ctx in contexts)
-        executor = _auto_select_backend(built, NoOpProfiler())
-        assert not isinstance(executor, Part49BuyAndHoldNumbaExecutor)
-
-
-class TestAllocationRoutedReferenceExecutor:
-    """The allocation-aware reference delegates per policy."""
-
-    def test_routes_buy_and_hold_and_default_separately(self) -> None:
-        horizon = 120
-        dataset = _create_trend_dataset(horizon)
-        bh_ctx = _make_context(dataset, horizon)
-        constant_ctx = SimulationContext(
-            experiment_name="test",
-            cohort="const",
-            start_date=dataset[0].date,
-            horizon_months=horizon,
-            initial_wealth=INITIAL_WEALTH,
-            initial_portfolio=bh_ctx.initial_portfolio,
-            dataset=dataset.slice(dataset[0].date, horizon),
-            allocation_policy=ConstantAllocationPolicy(EQUITY_ALLOCATION),
-            withdrawal_policy=FixedRealWithdrawalPolicy(
-                withdrawal_rate=Decimal("0.04")
-            ),
-        )
-
-        router = _create_reference_simulation_executor()
-        run = router.execute(
-            EngineExperimentDefinition(
-                name="t",
-                description="t",
-                simulation_contexts=(bh_ctx, constant_ctx),
-            )
-        )
-
-        routed_bh = run.simulation_results[0].statistics.final_wealth.amount
-        routed_constant = run.simulation_results[1].statistics.final_wealth.amount
-        expected_bh = _legacy_buy_and_hold_result(bh_ctx).statistics.final_wealth.amount
-        expected_constant = _reference_pipeline_result(
-            constant_ctx
-        ).statistics.final_wealth.amount
-
-        assert abs(routed_bh - expected_bh) < _WEALTH_TOLERANCE
-        assert abs(routed_constant - expected_constant) < _WEALTH_TOLERANCE
-        assert abs(
-            routed_bh - _reference_pipeline_result(bh_ctx).statistics.final_wealth.amount
-        ) > Decimal("1000")
-
-    def test_buy_and_hold_factory_uses_buy_and_hold_pipeline(self) -> None:
-        horizon = 120
-        dataset = _create_trend_dataset(horizon)
-        ctx = _make_context(dataset, horizon)
-        executor = _create_buy_and_hold_simulation_executor()
-        result = executor.execute(
-            EngineExperimentDefinition(
-                name="t", description="t", simulation_contexts=(ctx,)
-            )
-        ).simulation_results[0]
-        expected = _legacy_buy_and_hold_result(ctx).statistics.final_wealth.amount
-        assert abs(result.statistics.final_wealth.amount - expected) < _WEALTH_TOLERANCE
+        with pytest.raises(UnsupportedConfigurationError):
+            _auto_select_backend(built, NoOpProfiler())
 
 
 if __name__ == "__main__":

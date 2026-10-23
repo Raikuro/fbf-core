@@ -1,19 +1,14 @@
 """Numba-accelerated executor for leveraged buy-and-hold (Part 49) studies.
 
-Combines the two previously separate legacy capabilities:
+Combines two capabilities:
 
-* ``create_buy_and_hold_pipeline`` — the target equity/bond split is
-  established once and never rebalanced, so weights drift with the
-  asset-specific returns; and
+* buy-and-hold allocation — the target equity/bond split is established once
+  and never rebalanced, so weights drift with the asset-specific returns; and
 * the Part 49 debt recurrence — a fixed monthly loan draw derived from the
   initial portfolio value (``loan_draw_rate``), interest on the prior balance,
   and the ``ltv_limit`` / ``ltv_enforcement`` rules.
 
-Before this executor existed, a buy-and-hold study combined with a
-``Part49WithdrawalPolicy`` matched no Numba-eligible class and was routed to the
-Decimal fast path, whose ineligible-context fallback is the *periodically
-rebalancing* default pipeline.  That silently changed the allocation semantics.
-The executor here is selected by :func:`is_part49_buy_and_hold_eligible`;
+The executor is selected by :func:`is_part49_buy_and_hold_eligible`;
 buy-and-hold configurations that are *not* eligible are rejected rather than
 simulated by a rebalancing or legacy reference pipeline.
 
@@ -57,7 +52,7 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
-from fbf.core.execution.strategies.fast_path import (
+from fbf.core.execution.strategies.eligibility import (
     _dataset_token,
     _index_series,
     _trajectory_clusters,

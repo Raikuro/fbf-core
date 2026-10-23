@@ -29,10 +29,11 @@ from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.runner import SimulationRunner
+from fbf.core.execution.pipeline.simulation import (
+    ExperimentDefinition as EngineExperimentDefinition,
+)
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.strategies.fast_path import evaluate_closed_form
+from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 from tools.ern.reference_oracle import (
@@ -61,10 +62,6 @@ def _make_study_config(weight: float, rate: float, horizons: tuple[int, ...]) ->
         withdrawal_policy_values=(Decimal(str(rate)),),
         horizon_years=horizons,
     )
-
-
-def _production_pipeline() -> SimulationRunner:
-    return SimulationRunner(create_default_pipeline())
 
 
 @pytest.fixture(scope="module")
@@ -217,10 +214,14 @@ def _engine_success(
                 expense_ratio=Decimal("0.0005"),
             )
         )
-    results = tuple(
-        evaluate_closed_form(ctx) for ctx in contexts
+    run = NumbaSimulationExecutor().execute(
+        EngineExperimentDefinition(
+            name="ern-timeline-regression",
+            description="",
+            simulation_contexts=tuple(contexts),
+        )
     )
-    return [r.statistics.success for r in results]
+    return [result.statistics.success for result in run.simulation_results]
 
 
 def test_plan_exposes_pre_retirement_snapshot(grid_plan: BuiltStudy) -> None:
@@ -234,17 +235,16 @@ def test_plan_exposes_pre_retirement_snapshot(grid_plan: BuiltStudy) -> None:
     assert len(by_horizon[HORIZON_MONTHS[30]]) == COHORTS_PER_CELL
 
 
-def test_boundary_cohort_306_exposes_scr_simulation_boundary(
+def test_boundary_cohort_306_matches_workbook_not_published_oracle(
     grid_plan: BuiltStudy,
 ) -> None:
     """Cohort 306 (0% / 3.25% / 30y) is a precision boundary.
 
     The engine's cohort 306 retires in July-1896 (base snapshot 1896-07-01).
     With exact workbook returns the closed-form SCR is 3.2506386%, marginally
-    above the 3.25% withdrawal rate.  The full portfolio pipeline nevertheless
-    depletes in the final month, while the workbook SCR / fast path classifies
-    the cohort as a success.  The published-ERN oracle also classifies it as a
-    failure.  The published-ERN cell is 79%; the workbook cell is 77%.
+    above the 3.25% withdrawal rate.  The Numba engine follows the workbook and
+    classifies the cohort as a success; the published-ERN oracle classifies it
+    as a failure.  The published-ERN cell is 79%; the workbook cell is 77%.
     """
     by_horizon = _units_by_horizon(grid_plan.plan)
     unit = by_horizon[HORIZON_MONTHS[30]][306]
@@ -254,12 +254,20 @@ def test_boundary_cohort_306_exposes_scr_simulation_boundary(
     context = _engine_contexts(
         grid_plan.plan, by_horizon, 0.0, 0.0325, 30, {306}
     )[0]
-    result = _production_pipeline().run(context)
+    run = NumbaSimulationExecutor().execute(
+        EngineExperimentDefinition(
+            name="ern-boundary-306",
+            description="",
+            simulation_contexts=(context,),
+        )
+    )
+    result = run.simulation_results[0]
 
     assert oracle_ok is False
     assert _workbook_cell_ok(0.0, 0.0325, 30)[306] is True
-    assert result.statistics.success is False
-    assert result.statistics.failure_month == 360
+    assert result.statistics.success is True
+    assert result.statistics.failure_month is None
+    assert result.statistics.months_simulated == HORIZON_MONTHS[30]
 
 
 def test_boundary_cell_306_engine_percentage_matches_workbook(

@@ -18,7 +18,7 @@ Reconstruction rules:
 * ``portfolio`` holds ``AssetHolding`` units that revalue to the captured
   value at the month's own snapshot prices, using canonical asset order
   ``(id, name, description)`` with the residual assigned to the last asset
-  (mirroring ``fast_path._evaluate_workbook_scr_path``).
+  (mirroring the workbook SCR model).
 * ``allocation`` is the *actual* weight vector (drifting for buy-and-hold);
   ``allocation_target`` is the policy's target vector.
 * ``cash_balance`` is zero: withdrawals consume any borrowed cash first, so the

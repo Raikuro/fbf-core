@@ -11,8 +11,8 @@ groups sharing the same trajectory and allocation.  Trajectory identity is
 part of the cache key (a dataset-identity token), so contexts built from
 different market data never share growth factors.
 
-The canonical reference engine remains untouched; this executor delegates
-every non-eligible context to the standard engine path.
+Every context must be handled by one of the Numba kernels; ineligible
+contexts are rejected rather than delegated to another engine.
 
 Architecture
 ------------
@@ -84,7 +84,7 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
-from fbf.core.execution.strategies.fast_path import (
+from fbf.core.execution.strategies.eligibility import (
     _dataset_token,
     _group_key,
     _index_series,
@@ -103,9 +103,6 @@ from fbf.core.execution.strategies.numba_kernel import (
     _simulate_trajectory_varying,
     _simulate_trajectory_workbook,
     compute_growth_factors_varying_weights_batch,
-)
-from fbf.core.execution.strategies.parallel_executor import (
-    _create_default_simulation_executor,
 )
 from fbf.core.execution.strategies.trajectory import build_simulation_timeline
 
@@ -156,12 +153,11 @@ def _initial_value_equals_wealth(context: SimulationContext) -> bool:
     ``build_initial_portfolio`` constructs the initial holdings so that their
     month-0 value equals ``initial_wealth``.  The Numba trajectories derive
     their withdrawal base from that initial portfolio value (``v0``) whereas the
-    legacy policies derive it from ``context.initial_wealth``.  Sharing one
+    withdrawal policies derive it from ``context.initial_wealth``.  Sharing one
     evaluated path, and omitting ``initial_wealth`` from the trajectory key,
     therefore requires the two to agree.  The equality is exact for the
     supported two-asset portfolios; for larger portfolios the underlying
-    Decimal divisions may round, so a mismatch is detected here.  AUTO then
-    falls back to the legacy engine, while explicit FAST rejects the context.
+    Decimal divisions may round, so a mismatch is rejected here.
     """
     snapshot = context.dataset[0]
     value = Decimal("0")
@@ -183,7 +179,7 @@ def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
         return False
     if context.allocation_policy.allocations is not None:
         # Explicit N-asset allocations are only supported by the fixed-real
-        # workbook path; constant-nominal falls back to the reference backend.
+        # workbook path; constant-nominal rejects them.
         return False
     if not isinstance(context.withdrawal_policy, ConstantWithdrawalPolicy):
         return False
@@ -212,7 +208,7 @@ def _is_escalating_eligible(context: SimulationContext) -> bool:
         return False
     if context.allocation_policy.allocations is not None:
         # Explicit N-asset allocations are only supported by the fixed-real
-        # workbook path; escalating falls back to the reference backend.
+        # workbook path; escalating rejects them.
         return False
     if not isinstance(context.withdrawal_policy, EscalatingWithdrawalPolicy):
         return False
@@ -312,7 +308,7 @@ def is_numba_context_eligible(context: SimulationContext) -> bool:
     LTV fields belong to the dedicated Part 49/52 executors; the generic
     kernels would otherwise ignore them.
 
-    Fixed-real contexts that use the legacy (non-workbook) recurrence derive
+    Fixed-real contexts that use the non-workbook recurrence derive
     their withdrawal from ``v0`` while the reference policy derives it from
     ``initial_wealth``.  Such contexts are admitted only when the two values
     are exactly equal.  Workbook SCR contexts use ``v0`` as their explicit
@@ -511,7 +507,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
     initial value and growth factors.  Grouping is further split into
     identity-prefix clusters so a derived context only ever reuses a trajectory
     whose snapshots are the very same objects (see
-    ``fast_path._trajectory_clusters``).
+    ``eligibility._trajectory_clusters``).
 
     Growth factors are cached by
     (start_date, equity_allocation, dataset_token), so computation is shared
@@ -525,10 +521,9 @@ class NumbaSimulationExecutor(SimulationExecutor):
     persist growth factors across multiple executor invocations (e.g., across
     bisection steps).
 
-    Non-eligible contexts are delegated to the reference Decimal executor by
-    default.  With ``require_all_eligible=True`` (used by explicit ``FAST``),
-    an ineligible context raises ``UnsupportedConfigurationError`` instead and
-    no reference executor is constructed.
+    Every context must be eligible for one of the Numba kernels.  An ineligible
+    context raises ``UnsupportedConfigurationError``; there is no fallback
+    execution engine.
 
     Advertises ``processes_whole_definition = True`` so progress wrappers
     pass the full definition through unchanged (preserving group-level
@@ -539,22 +534,12 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
     def __init__(
         self,
-        reference_executor: SimulationExecutor | None = None,
         profiler: Profiler | None = None,
         glidepath_gf_cache: (
             dict[GlidepathGFKey, NDArray[np.float64]] | None
         ) = None,
         materialize_timeline: bool = False,
-        *,
-        require_all_eligible: bool = False,
     ) -> None:
-        self._require_all_eligible = require_all_eligible
-        if reference_executor is not None:
-            self._reference: SimulationExecutor | None = reference_executor
-        elif require_all_eligible:
-            self._reference = None
-        else:
-            self._reference = _create_default_simulation_executor()
         self._profiler = profiler or NoOpProfiler()
         self._materialize_timeline = materialize_timeline
         self._last_report: NumbaReport | None = None
@@ -605,28 +590,14 @@ class NumbaSimulationExecutor(SimulationExecutor):
         key_to_contexts: dict[tuple[object, ...], list[SimulationContext]] = {}
         is_eligible: list[bool] = []
         for context in definition.simulation_contexts:
-            if self._require_all_eligible and not is_numba_context_eligible(context):
-                raise UnsupportedConfigurationError(
-                    "FAST backend cannot execute this plan on Numba: a context "
-                    "is not supported by the generic Numba kernels "
-                    f"(cohort={context.cohort!r}, "
-                    f"start_date={context.start_date.isoformat()!r}). "
-                    "Use backend=AUTO to route unsupported workloads through "
-                    "the reference engine."
-                )
             key = _numba_group_key(context)
-            if key is None:
-                if self._require_all_eligible:
-                    raise UnsupportedConfigurationError(
-                        "FAST backend cannot execute this plan on Numba: a "
-                        "context is not supported by the generic Numba kernels "
-                        f"(cohort={context.cohort!r}, "
-                        f"start_date={context.start_date.isoformat()!r}). "
-                        "Use backend=AUTO to route unsupported workloads "
-                        "through the reference engine."
-                    )
-                is_eligible.append(False)
-                continue
+            if key is None or not is_numba_context_eligible(context):
+                raise UnsupportedConfigurationError(
+                    "Numba backend cannot execute this plan: a context is not "
+                    "supported by the generic Numba kernels "
+                    f"(cohort={context.cohort!r}, "
+                    f"start_date={context.start_date.isoformat()!r})."
+                )
             is_eligible.append(True)
             key_to_contexts.setdefault(key, []).append(context)
         profiler.stop("numba_grouping")
@@ -851,23 +822,11 @@ class NumbaSimulationExecutor(SimulationExecutor):
         ordered_results: list[SimulationResult] = []
         for index, context in enumerate(definition.simulation_contexts):
             if not is_eligible[index]:
-                if self._reference is None:
-                    raise UnsupportedConfigurationError(
-                        "FAST backend cannot execute this plan on Numba: an "
-                        "ineligible context reached assembly without a "
-                        "reference fallback."
-                    )
-                single = EngineExperimentDefinition(
-                    name=definition.name,
-                    description=definition.description,
-                    simulation_contexts=(context,),
+                raise AssertionError(
+                    "an ineligible context reached result assembly after the "
+                    "eligibility check"
                 )
-                run = self._reference.execute(single)
-                ordered_results.append(run.simulation_results[0])
-                stats["independent_count"] += 1
-                stats["month_work"] += context.horizon_months
-            else:
-                ordered_results.append(results[id(context)])
+            ordered_results.append(results[id(context)])
         profiler.stop("numba_assembly")
 
         longest_path_evaluations = sum(
@@ -942,13 +901,13 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 # horizon includes the pre-retirement snapshot, so the number of
                 # return / withdrawal periods is ``horizon - 1``.  Withdraw
                 # before growth in every period and compound the final month's
-                # return, exactly as ``fast_path._evaluate_workbook_scr_path``.
+                # return, exactly as the workbook SCR model.
                 #
                 # ``success`` is the SCR verdict (``scr >= rate``).  The
                 # operational terminal failure -- the month the trajectory
                 # reaches zero -- is taken from the trajectory itself and is
                 # never inferred from ``scr < rate``; the reported month uses
-                # the same convention as ``fast_path.evaluate_workbook_path``
+                # the same convention as ``numba_executor._process_static_group``
                 # (0-based period index + 1, since month 0 is pre-retirement).
                 periods = horizon - 1
                 growth_factors_arr = growth_factors_full[:periods]

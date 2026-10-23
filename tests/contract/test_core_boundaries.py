@@ -17,6 +17,8 @@ import ast
 import os
 from pathlib import Path
 
+import pytest
+
 import fbf.core
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -232,17 +234,15 @@ def test_public_facade_symbols() -> None:
     )
 
 
-def test_execution_backend_decimal_fast_path_alias() -> None:
-    """DECIMAL_FAST_PATH is canonical; REFERENCE is a same-value alias."""
+def test_execution_backend_is_fast_only() -> None:
+    """The Numba FAST backend is the sole execution backend."""
     import fbf.core.execution as execution
 
     backend = execution.ExecutionBackend
-    canonical = backend.DECIMAL_FAST_PATH
-
-    assert canonical.value == "reference"
-    assert canonical.name == "DECIMAL_FAST_PATH"
-    assert backend.REFERENCE is canonical
-    assert backend("reference") is canonical
+    assert list(backend) == [backend.FAST]
+    assert backend.FAST.value == "fast"
+    for name in ("DECIMAL_FAST_PATH", "REFERENCE"):
+        assert not hasattr(backend, name)
 
 
 def test_legacy_reference_exports_removed_from_public_facade() -> None:
@@ -258,30 +258,27 @@ def test_legacy_reference_exports_removed_from_public_facade() -> None:
         assert not hasattr(execution, name)
 
 
-def test_legacy_reference_implementations_remain_available() -> None:
-    """Tier-3 implementations remain importable for the D4.3 migration."""
-    from fbf.core.execution import reporting
-    from fbf.core.execution.strategies.reference import (
-        ReferenceSimulationExecutor,
-        execute_reference,
-    )
+def test_legacy_reference_implementations_removed() -> None:
+    """The Decimal reference engine and reporting are no longer importable."""
+    import importlib
 
-    assert callable(execute_reference)
-    assert isinstance(ReferenceSimulationExecutor, type)
-    assert callable(reporting.expected_reference_report)
-    assert callable(reporting.reference_month_work)
+    for module in (
+        "fbf.core.execution.reporting",
+        "fbf.core.execution.strategies.reference",
+        "fbf.core.execution.strategies.fast_path",
+    ):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(module)
 
 
-def test_simulation_runner_and_executor_have_no_financial_domain_imports() -> None:
-    """SimulationRunner and SimulationExecutor must not import financial-domain details.
+def test_simulation_executor_has_no_financial_domain_imports() -> None:
+    """SimulationExecutor must not import financial-domain details.
 
-    These classes are orchestration-only: they coordinate pipeline steps and
-    delegate to injected policies. They must never import financial-domain
-    implementation details (asset classes, market data, portfolio construction,
-    policy implementations).
+    The executor is orchestration-only: it delegates to injected policies and
+    must never import financial-domain implementation details (asset classes,
+    market data, portfolio construction, policy implementations).
     """
     import fbf.core.execution.pipeline.executor as executor_mod
-    import fbf.core.execution.pipeline.runner as runner_mod
 
     forbidden_prefixes = (
         "fbf.core.domain.model",
@@ -289,7 +286,7 @@ def test_simulation_runner_and_executor_have_no_financial_domain_imports() -> No
         "fbf.core.study",
     )
 
-    for mod in (runner_mod, executor_mod):
+    for mod in (executor_mod,):
         assert mod.__file__ is not None
         source = Path(mod.__file__).read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(mod.__file__))

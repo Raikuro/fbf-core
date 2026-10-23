@@ -7,10 +7,10 @@ simulation and safe withdrawal rate research engine.
 
 ## Overview
 
-`fbf-core` is a pure Python library with **zero third-party runtime
+`fbf-core` is a pure Python library with **zero required third-party runtime
 dependencies**. It provides the computational substrate for FIRE research:
-a canonical monthly simulation pipeline, a closed-form analytical fast path,
-parameter-sweep study planning, SWR optimisation, and an SQLite-backed
+a Numba-backed simulation engine (optional `numba` extra), parameter-sweep study
+planning, SWR optimisation, independent oracle tooling, and an SQLite-backed
 persistence layer.
 
 ---
@@ -20,9 +20,9 @@ persistence layer.
 | Feature | Description |
 |---------|-------------|
 | **Deterministic Decimal arithmetic** | All monetary calculations use `decimal.Decimal`. No floating-point drift. |
-| **9-Step monthly pipeline** | Canonical per-month simulation: withdrawal, rebalance, market evolution, and seven other steps. |
-| **Closed-form fast path** | Analytical recurrence for constant-policy studies, validated bit-exact against the reference pipeline. |
-| **Multi-horizon execution** | Deterministic derivation for multi-worker cohort execution. |
+| **Single Numba engine** | Dedicated Part 52/49 and generic policy-family kernels. Unsupported configurations fail explicitly; there is no fallback engine. |
+| **Workbook-aligned semantics** | Withdraw-before-growth ordering and additive fee handling for workbook-defined workloads. |
+| **Multi-horizon execution** | Deterministic trajectory-prefix derivation for multi-horizon grids. |
 | **SWR optimisation** | Binary-search solver for maximum safe withdrawal rate across a parameter space. |
 | **ERN oracle** | Canonical acceptance matrix for regression testing against published ERN data. |
 | **Study planning** | Cohort generators, parameter axes, experiment definitions. |
@@ -33,13 +33,14 @@ persistence layer.
 ## Installation
 
 ```bash
-pip install fbf-core
+pip install "fbf-core[numba]"
 ```
 
 ### Requirements
 
 * Python ≥ 3.13
-* No third-party runtime dependencies
+* Numba is optional for the package, but required to execute studies
+* The domain, planning, and persistence layers have no required third-party runtime dependencies
 
 ---
 
@@ -52,7 +53,7 @@ import fbf.core
 config = fbf.core.StudyConfiguration.from_dict({...})
 plan = fbf.core.build_study_plan(config)
 
-# Execute the plan
+# Execute the plan (requires the numba extra)
 result = fbf.core.execute_study_plan(plan)
 
 # Optimise SWR
@@ -88,7 +89,7 @@ fbf-core/
 │           ├── errors.py            # CoreError hierarchy
 │           ├── py.typed             # PEP 561 marker
 │           ├── domain/              # value objects, policies, services
-│           ├── execution/           # pipeline, strategies, executor
+│           ├── execution/           # simulation contracts, Numba strategies, executor
 │           ├── optimization/        # SWR solver, strategy comparator
 │           ├── persistence/         # SQLite repository
 │           ├── research/            # public research facade and pipelines

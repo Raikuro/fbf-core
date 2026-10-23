@@ -82,9 +82,11 @@ def _build_plan(mode: str, underwater_flags: list[bool]) -> tuple[Dataset, Resea
         withdrawal_policies=(withdrawal,),
     )
 
+    # Initial prices are 80 (equity) and 50 (bond); the holdings must value
+    # exactly to the initial wealth so the Numba admission check can run.
     portfolio = Portfolio(holdings=(
-        AssetHolding(asset_class=_EQUITY, units=Decimal("500000")),
-        AssetHolding(asset_class=_BOND, units=Decimal("10000000")),
+        AssetHolding(asset_class=_EQUITY, units=Decimal("6250")),
+        AssetHolding(asset_class=_BOND, units=Decimal("10000")),
     ))
 
     sliced = dataset.slice(base, horizon_months)

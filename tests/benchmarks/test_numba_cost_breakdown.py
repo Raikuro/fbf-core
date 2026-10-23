@@ -1,15 +1,7 @@
-"""End-to-end cost breakdown for Numba vs reference execution.
+"""End-to-end cost breakdown for Numba execution.
 
-Measures separately:
-  1. Context/data preparation
-  2. Dataset extraction
-  3. Decimal → float conversion
-  4. Batch construction (grouping, growth factor computation)
-  5. Numba execution (kernel time)
-  6. Result reconstruction
-  7. Total wall-clock time
-
-Compares Numba executor against the Decimal reference engine.
+Measures the Numba executor's wall-clock time and the internal grouping and
+growth-factor preparation separately.
 """
 
 from __future__ import annotations
@@ -29,9 +21,6 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
-from fbf.core.execution.strategies.parallel_executor import (
-    _create_default_simulation_executor,
-)
 from fbf.core.study.builder import build_initial_portfolio
 
 _EQ = AssetClass(id="equity", name="", description="")
@@ -149,11 +138,10 @@ def run_cost_breakdown() -> None:
             )
     defn_batch = _make_experiment(ctxs_batch)
 
-    ref_exec = _create_default_simulation_executor()
     numba_exec = NumbaSimulationExecutor()
 
     print("=" * 72)
-    print("R7.5.3 End-to-End Cost Breakdown")
+    print("Numba End-to-End Cost Breakdown")
     print("=" * 72)
 
     for label, defn in [
@@ -163,30 +151,17 @@ def run_cost_breakdown() -> None:
     ]:
         n_ctxs = len(defn.simulation_contexts)
         total_months = sum(c.horizon_months for c in defn.simulation_contexts)
-
-        ref_times = _benchmark_executor(ref_exec, defn)
         numba_times = _benchmark_executor(numba_exec, defn)
-
-        ref_med = _median(ref_times)
         numba_med = _median(numba_times)
-        speedup = ref_med / numba_med if numba_med > 0 else float("inf")
 
         print(f"\n--- {label} ({n_ctxs} ctxs, {total_months} months) ---")
-        print(f"  Reference:  {ref_med*1000:8.1f} ms  (median of 5)")
         print(f"  Numba:      {numba_med*1000:8.1f} ms  (median of 5)")
-        print(f"  Speedup:    {speedup:8.1f}x")
-
-        # Per-context breakdown
         if n_ctxs > 0:
-            ref_per = ref_med / n_ctxs * 1000
-            numba_per = numba_med / n_ctxs * 1000
-            print(f"  Per ctx:    ref={ref_per:.2f} ms  numba={numba_per:.2f} ms")
+            print(f"  Per ctx:    numba={numba_med / n_ctxs * 1000:.2f} ms")
 
-    # --- Numba executor internal breakdown ---
     print(f"\n--- Numba executor internal breakdown (batch, {len(ctxs_batch)} ctxs) ---")
 
-    # Time the grouping + data preparation separately
-    from fbf.core.execution.strategies.fast_path import (
+    from fbf.core.execution.strategies.eligibility import (
         _group_key,
         _index_series,
         _weights_by_class,
@@ -208,7 +183,6 @@ def run_cost_breakdown() -> None:
     t1 = time.perf_counter()
     grouping_ms = (t1 - t0) * 1000
 
-    # Time growth factor computation
     t0 = time.perf_counter()
     for contexts in group_contexts:
         longest = max(contexts, key=lambda c: c.horizon_months)
@@ -219,7 +193,6 @@ def run_cost_breakdown() -> None:
     t1 = time.perf_counter()
     gf_ms = (t1 - t0) * 1000
 
-    # Time the full Numba executor
     t0 = time.perf_counter()
     numba_exec.execute(defn_batch)
     t1 = time.perf_counter()
@@ -230,23 +203,13 @@ def run_cost_breakdown() -> None:
     print(f"  Kernel + results:  {total_ms - grouping_ms - gf_ms:8.2f} ms")
     print(f"  Total:             {total_ms:8.2f} ms")
 
-    # Reference full time
-    t0 = time.perf_counter()
-    ref_exec.execute(defn_batch)
-    t1 = time.perf_counter()
-    ref_total_ms = (t1 - t0) * 1000
-    print(f"\n  Reference total:   {ref_total_ms:8.2f} ms")
-    print(f"  Overall speedup:   {ref_total_ms / total_ms:.1f}x")
-
-    # --- batch-size sweep ---
     print("\n" + "=" * 72)
-    print("R7.5.4 Batch-Size Sweep")
+    print("Batch-Size Sweep")
     print("=" * 72)
-    print(f"{'batch':>8}  {'ref_ms':>10}  {'numba_ms':>10}  {'speedup':>8}  {'us/ctx':>10}")
-    print("-" * 60)
+    print(f"{'batch':>8}  {'numba_ms':>10}  {'us/ctx':>10}")
+    print("-" * 40)
 
     for batch_n in [1, 6, 18, 36, 72, 180]:
-        # Build batch: batch_n contexts, each a different cohort start, horizon 720
         ctxs = []
         for i in range(batch_n):
             month_offset = (i % 12) + 1
@@ -267,19 +230,10 @@ def run_cost_breakdown() -> None:
                 )
             )
         defn = _make_experiment(ctxs)
-
-        ref_times = _benchmark_executor(ref_exec, defn, warmup=1, rounds=3)
         numba_times = _benchmark_executor(numba_exec, defn, warmup=1, rounds=3)
-
-        ref_med = _median(ref_times)
         numba_med = _median(numba_times)
-        speedup = ref_med / numba_med if numba_med > 0 else float("inf")
         us_per_ctx = numba_med / batch_n * 1_000_000
-
-        row = f"{batch_n:>8}  {ref_med*1000:>10.1f}  {numba_med*1000:>10.1f}"
-        row += f"  {speedup:>7.1f}x  {us_per_ctx:>10.1f}"
-        print(row)
-
+        print(f"{batch_n:>8}  {numba_med*1000:>10.1f}  {us_per_ctx:>10.1f}")
 
 if __name__ == "__main__":
     run_cost_breakdown()

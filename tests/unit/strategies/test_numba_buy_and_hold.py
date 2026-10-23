@@ -42,6 +42,7 @@ from fbf.core.domain.policies import (
     FixedRealWithdrawalPolicy,
 )
 from fbf.core.execution import _auto_select_backend
+from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
@@ -497,8 +498,8 @@ class TestBuyAndHoldEligibility:
         base = _flat_dataset(37)
         context = _make_context(base, 36, wealth=Decimal("990000"))
         assert _is_buy_and_hold_eligible(context) is False
-        # Falls back to the reference executor and still yields a result.
-        assert len(_run_numba([context])) == 1
+        with pytest.raises(UnsupportedConfigurationError):
+            _run_numba([context])
 
     def test_leveraged_part49_is_not_eligible(self) -> None:
         """Leverage uses ``Part49WithdrawalPolicy`` (C4), never the B4 kernel."""
@@ -521,8 +522,8 @@ class TestBuyAndHoldEligibility:
             interest_rate=Decimal("0.02"),
         )
         assert _is_buy_and_hold_eligible(leveraged) is False
-        # Falls back to the reference executor and still yields a result.
-        assert len(_run_numba([leveraged])) == 1
+        with pytest.raises(UnsupportedConfigurationError):
+            _run_numba([leveraged])
 
     def test_three_asset_portfolio_is_not_eligible(self) -> None:
         gold = AssetClass(id="gold", name="", description="")
@@ -673,8 +674,7 @@ class TestBuyAndHoldRouting:
             param_configs=(),
         )
         # One buy-and-hold unit and one constant-allocation unit: not all units
-        # share the buy-and-hold eligibility, so the buy-and-hold dispatch is
-        # not selected.  (Constant-allocation units are also not all eligible,
-        # so the plan falls through to the Decimal fast path.)
-        executor = _auto_select_backend(mixed_built, NoOpProfiler())
-        assert not isinstance(executor, NumbaSimulationExecutor)
+        # share the same policy family, so AUTO fails closed instead of
+        # selecting an executor that cannot execute the whole plan.
+        with pytest.raises(UnsupportedConfigurationError):
+            _auto_select_backend(mixed_built, NoOpProfiler())

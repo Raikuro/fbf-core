@@ -27,10 +27,9 @@ from fbf.core.execution.pipeline.simulation import (
     SimulationResult,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.strategies.fast_path import (
+from fbf.core.execution.strategies.eligibility import (
     _index_series,
     _weights_by_class,
-    evaluate_closed_form,
 )
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.study.builder import build_initial_portfolio
@@ -328,40 +327,6 @@ class TestNumbaExecutorRandomizedVsWorkbook:
             ctx = contexts[i]
             oracle = compute_workbook_oracle_result(ctx)
             _assert_matches_workbook(oracle, numba[i], f"random_group_s{seed}_h{h}")
-
-
-class TestNumbaVsFastPathEquivalence:
-    """The Numba workbook path and the Decimal fast path must agree.
-
-    Guards against terminal-period drift: the Numba kernel must use the same
-    number of periods (``horizon_months - 1``) and the same withdraw-then-grow
-    order as ``fast_path`` (the canonical workbook implementation).
-    """
-
-    @pytest.mark.parametrize("horizon", [12, 60, 120, 240, 360, 720])
-    @pytest.mark.parametrize("w", [0.0, 0.5, 1.0])
-    def test_matches_fast_path(self, horizon: int, w: float) -> None:
-        ctx = _make_context_workbook(horizon=horizon, w=w, r=0.04)
-        numba_ok, numba_fm, numba_fv, numba_months = _run_numba([ctx])[0]
-        fast = evaluate_closed_form(ctx).statistics
-
-        assert numba_ok == fast.success
-        assert numba_months == fast.months_simulated
-        if fast.success:
-            assert numba_fm is None
-            assert fast.failure_month is None
-            assert abs(numba_fv - fast.final_wealth.amount) < WEALTH_TOLERANCE
-
-    @pytest.mark.parametrize("rate", [0.0, 0.01, 0.02, 0.05, 0.10])
-    def test_matches_fast_path_rates(self, rate: float) -> None:
-        ctx = _make_context_workbook(horizon=360, w=0.6, r=rate)
-        numba_ok, _numba_fm, numba_fv, numba_months = _run_numba([ctx])[0]
-        fast = evaluate_closed_form(ctx).statistics
-
-        assert numba_ok == fast.success
-        assert numba_months == fast.months_simulated
-        if fast.success:
-            assert abs(numba_fv - fast.final_wealth.amount) < WEALTH_TOLERANCE
 
 
 def _wb_ctx(
@@ -884,7 +849,6 @@ class TestIndexSeriesCache:
 
     def test_numerical_equivalence_with_uncached(self) -> None:
         """Cached _index_series produces same values as uncached."""
-        from fbf.core.execution.strategies.fast_path import _index_series
         executor = NumbaSimulationExecutor()
         ds = _make_dataset(241)
         ctx = _make_context(ds, horizon=120, w=0.5, r=0.04)

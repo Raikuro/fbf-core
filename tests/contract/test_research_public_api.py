@@ -140,7 +140,7 @@ def test_public_research_facade_supports_part3_workflow(tmp_path: Path) -> None:
     result = execute_part3_pipeline(
         plan_result,
         ExecutionOptions(
-            backend=ExecutionBackend.DECIMAL_FAST_PATH,
+            backend=ExecutionBackend.FAST,
             strategy=ExecutionStrategy.SEQUENTIAL,
         ),
     )

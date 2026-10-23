@@ -22,16 +22,14 @@ from fbf.core.domain.policies import (
     FixedRealWithdrawalPolicy,
 )
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
+from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     SimulationResult,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.strategies.fast_path import (
-    evaluate_closed_form,
-    is_fast_path_eligible,
-)
+from fbf.core.execution.strategies.eligibility import is_fast_path_eligible
 from fbf.core.execution.strategies.numba_executor import (
     NumbaSimulationExecutor,
     _is_constant_nominal_eligible,
@@ -151,44 +149,6 @@ def _oracle(
     return scr, scr >= rate, value
 
 
-def _constant_nominal_recurrence(
-    dataset: Dataset,
-    horizon: int,
-    weights: dict[AssetClass, Decimal],
-    rate: Decimal,
-    initial_value: Decimal,
-) -> tuple[Decimal, bool, int | None]:
-    """Independent N-asset constant-nominal recurrence.
-
-    Each month withdraws ``value * rate / 12`` at the current snapshot, then
-    grows the remainder by the weighted asset return to the next snapshot. The
-    final month has no next snapshot. Failure is reported at the month in which
-    the portfolio cannot fund the withdrawal or is depleted.
-    """
-    snapshots = dataset.snapshots
-    value = initial_value
-    for month in range(horizon):
-        withdrawal = value * rate / Decimal("12")
-        if withdrawal > value:
-            return Decimal("0"), False, month + 1
-        value -= withdrawal
-        if value <= 0:
-            return Decimal("0"), False, month + 1
-        if month == horizon - 1:
-            break
-        monthly_return = Decimal("0")
-        for asset_class, weight in weights.items():
-            monthly_return += weight * (
-                snapshots[month + 1].index_levels[asset_class]
-                / snapshots[month].index_levels[asset_class]
-                - Decimal("1")
-            )
-        value *= Decimal("1") + monthly_return
-        if value <= 0:
-            return Decimal("0"), False, month + 1
-    return value, True, None
-
-
 def _run(executor: SimulationExecutor, context: SimulationContext) -> SimulationResult:
     definition = EngineExperimentDefinition(
         name="test", description="test", simulation_contexts=(context,)
@@ -202,40 +162,24 @@ def _weights_ordered() -> dict[AssetClass, Decimal]:
 
 
 @pytest.mark.parametrize("fee", [Decimal("0"), Decimal("0.0005")])
-def test_fast_path_matches_independent_oracle(fee: Decimal) -> None:
+def test_numba_matches_independent_oracle(fee: Decimal) -> None:
     dataset = _make_dataset(241)
     context = _make_context(dataset, 120, _WEIGHTS, fee=fee)
-    result = evaluate_closed_form(context)
+    numba = _run(_NUMBA, context)
     _, expected_success, expected_value = _oracle(
         dataset.slice(dataset[0].date, 120), 120, _weights_ordered(), _RATE, fee
     )
-    assert result.statistics.success is expected_success
-    assert result.statistics.final_wealth.amount == expected_value
-
-
-@pytest.mark.parametrize("fee", [Decimal("0"), Decimal("0.0005")])
-def test_numba_matches_fast_path(fee: Decimal) -> None:
-    dataset = _make_dataset(241)
-    context = _make_context(dataset, 120, _WEIGHTS, fee=fee)
-    fast = evaluate_closed_form(context)
-    numba = _run(_NUMBA, context)
-    assert numba.statistics.success == fast.statistics.success
-    assert numba.statistics.failure_month == fast.statistics.failure_month
-    assert numba.statistics.months_simulated == fast.statistics.months_simulated
-    diff = abs(
-        numba.statistics.final_wealth.amount - fast.statistics.final_wealth.amount
-    )
+    assert numba.statistics.success is expected_success
+    diff = abs(numba.statistics.final_wealth.amount - expected_value)
     assert diff < Decimal("0.05")
 
 
-def test_numba_matches_fast_path_on_depletion() -> None:
+def test_numba_matches_independent_oracle_on_depletion() -> None:
     dataset = _make_dataset(241)
     context = _make_context(dataset, 120, _WEIGHTS, rate=Decimal("0.20"))
-    fast = evaluate_closed_form(context)
     numba = _run(_NUMBA, context)
-    assert not fast.statistics.success
-    assert numba.statistics.success == fast.statistics.success
-    assert numba.statistics.failure_month == fast.statistics.failure_month
+    assert numba.statistics.success is False
+    assert numba.statistics.failure_month is not None
 
 
 class TestEligibility:
@@ -293,7 +237,7 @@ class TestGroupIdentity:
         assert len(executor.gf_cache) == 2
 
 
-class TestDeferredFallback:
+class TestExplicitNominalUnsupported:
     def test_nominal_gate_rejects_explicit(self) -> None:
         dataset = _make_dataset(121)
         context = _make_context(
@@ -304,7 +248,7 @@ class TestDeferredFallback:
         )
         assert not _is_constant_nominal_eligible(context)
 
-    def test_nominal_explicit_matches_independent_recurrence(self) -> None:
+    def test_nominal_explicit_fails_closed(self) -> None:
         dataset = _make_dataset(241)
         context = _make_context(
             dataset,
@@ -312,20 +256,8 @@ class TestDeferredFallback:
             _WEIGHTS,
             withdrawal_policy=ConstantWithdrawalPolicy(_RATE),
         )
-        expected_value, expected_success, expected_failure_month = (
-            _constant_nominal_recurrence(
-                context.dataset,
-                context.horizon_months,
-                _weights_ordered(),
-                _RATE,
-                context.initial_wealth.amount,
-            )
-        )
-        numba = _run(_NUMBA, context)
-        assert numba.statistics.success is expected_success
-        assert numba.statistics.failure_month == expected_failure_month
-        assert numba.statistics.months_simulated == context.horizon_months
-        assert numba.statistics.final_wealth.amount == expected_value
+        with pytest.raises(UnsupportedConfigurationError):
+            _run(_NUMBA, context)
 
     def test_part52_gate_rejects_explicit(self) -> None:
         dataset = _make_dataset(121)

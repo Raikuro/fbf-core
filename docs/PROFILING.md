@@ -71,19 +71,16 @@ CLI / Consumer
            │
            ├── backend_selection
            ├── strategy_selection
-           └── parallel_dispatch / sequential_dispatch
+           └── sequential_dispatch
                  │
-                 ├── parallel_overhead
-                 ├── parallel_pool_creation
-                 ├── parallel_task_submission
-                 ├── parallel_execution
-                 │     └── ResearchExecutor
-                 │           ├── context_translation
-                 │           └── engine_execution
-                 │                 └── SimulationExecutor
-                 │                       └── SimulationRunner.run()  [per-unit timing]
-                 ├── parallel_result_collection
-                 └── parallel_assembly
+                 └── ResearchExecutor
+                       ├── context_translation
+                       └── engine_execution
+                             └── Numba executor
+                                   ├── *_grouping
+                                   ├── *_growth_factors
+                                   ├── *_kernel_execution
+                                   └── *_assembly
 ```
 
 ## What Is Measured
@@ -97,52 +94,35 @@ CLI / Consumer
 | `strategy_selection` | Strategy routing | `execute_study_plan()` |
 | `sequential_setup` | Sequential init | `sequential_execute()` |
 | `sequential_execution` | Research executor | `sequential_execute()` |
-| `parallel_overhead` | Parallel init | `parallel_execute()` |
-| `parallel_pool_creation` | Pool creation | `parallel_execute()` |
-| `parallel_task_submission` | Task submission | `parallel_execute()` |
-| `parallel_execution` | Full parallel | `parallel_execute()` |
-| `parallel_result_collection` | Result IPC | `parallel_execute()` |
-| `parallel_assembly` | Result assembly | `parallel_execute()` |
 | `context_translation` | Unit→Context | `ResearchExecutor` |
 | `engine_execution` | Executor dispatch | `ResearchExecutor` |
-| `fast_path_grouping` | Fast-path grouping | `FastPathSimulationExecutor` |
-| `fast_path_evaluation` | Fast-path eval | `FastPathSimulationExecutor` |
-| `fast_path_assembly` | Fast-path assembly | `FastPathSimulationExecutor` |
-| `reference_grouping` | Reference grouping | `ReferenceSimulationExecutor` |
-| `reference_evaluation` | Reference eval | `ReferenceSimulationExecutor` |
-| `reference_assembly` | Reference assembly | `ReferenceSimulationExecutor` |
-| `numba_grouping` | Numba grouping | `NumbaSimulationExecutor` |
-| `numba_growth_factors` | GF computation | `NumbaSimulationExecutor` |
+| `numba_grouping` | Generic Numba grouping | `NumbaSimulationExecutor` |
+| `numba_growth_factors_static` | Static GF computation | `NumbaSimulationExecutor` |
+| `numba_growth_factors_glidepath` | Glidepath GF computation | `NumbaSimulationExecutor` |
 | `numba_kernel_execution` | Numba kernels | `NumbaSimulationExecutor` |
 | `numba_assembly` | Numba assembly | `NumbaSimulationExecutor` |
-| Per-unit `execution_time_seconds` | Per-simulation | `SimulationRunner.run()` |
+| `part52_grouping`, `part52_growth_factors`, `part52_kernel_execution`, `part52_assembly` | Part 52 phases | `Part52NumbaExecutor` |
+| `part49_grouping`, `part49_growth_factors`, `part49_kernel_execution`, `part49_assembly` | Part 49 phases | `Part49NumbaExecutor` |
+| `part49_bh_grouping`, `part49_bh_growth_factors`, `part49_bh_kernel_execution`, `part49_bh_assembly` | Part 49 buy-and-hold phases | `Part49BuyAndHoldNumbaExecutor` |
 
 ### Scalar Metrics
 
 | Key | Description |
 |-----|-------------|
 | `total_units` | Total simulation units |
-| `fast_path_groups` | Fast-path context groups |
-| `fast_path_derived` | Derived results (horizon shortcut) |
-| `fast_path_independent` | Independent evaluations |
-| `fast_path_month_work` | Total month-work units |
-| `reference_groups` | Reference context groups |
-| `reference_derived` | Reference derived results |
-| `reference_independent` | Reference independent evals |
-| `reference_month_work` | Reference month-work |
-| `numba_groups` | Numba context groups |
-| `numba_gf_cache_hits` | Growth-factor cache hits |
-| `numba_gf_cache_misses` | Growth-factor cache misses |
-| `parallel_batches` | Number of work batches |
-| `parallel_workers` | Worker count |
-| `parallel_units` | Units in parallel execution |
+| `numba_groups`, `part49_groups`, `part49_bh_groups`, `part52_groups` | Executor context groups |
+| `numba_derived`, `part49_derived`, `part49_bh_derived`, `part52_derived` | Derived results (horizon-prefix shortcut) |
+| `numba_independent`, `part49_independent`, `part49_bh_independent`, `part52_independent` | Independent evaluations |
+| `numba_month_work`, `part49_month_work`, `part49_bh_month_work`, `part52_month_work` | Total month-work units |
+| `numba_gf_cache_hits`, `part49_gf_cache_hits`, `part49_bh_gf_cache_hits`, `part52_gf_cache_hits` | Growth-factor cache hits |
+| `numba_gf_cache_misses`, `part49_gf_cache_misses`, `part49_bh_gf_cache_misses`, `part52_gf_cache_misses` | Growth-factor cache misses |
 | `sequential_units` | Units in sequential execution |
 
 ### Per-Unit Timing
 
-`execution_time_seconds` is set for every `SimulationResult` by
-`SimulationRunner.run()`. This field is excluded from dataclass equality
-comparisons (`compare=False`) to avoid flaky test comparisons.
+`execution_time_seconds` is set for every `SimulationResult` by the production
+executors. This field is excluded from dataclass equality comparisons
+(`compare=False`) to avoid flaky test comparisons.
 
 ### CPU Profiling
 
@@ -198,14 +178,14 @@ print(enhanced.format())
 #      └── sequential_execution          155.1195s  (99.9%)
 #          ├── context_translation         0.0234s   (0.0%)
 #          └── engine_execution           154.8000s  (99.7%)
-#              └── fast_path_evaluation  154.5000s   (99.5%)
+#              └── numba_kernel_execution 154.5000s  (99.5%)
 #
 #  TOTAL                                 155.1234s
 #
 #Metrics:
 #  total_units            1,000
-#  fast_path_groups         100
-#  fast_path_derived        900
+#  numba_groups             100
+#  numba_derived            900
 #========================================================================
 ```
 
@@ -217,18 +197,12 @@ d = enhanced.to_dict()
 print(json.dumps(d, indent=2))
 ```
 
-## Multi-Process Profiling
+## Low-Level Parallel Helper
 
-The profiler runs in the **parent process only**. Worker processes do not
-profile (they have their own address space). The profiler captures:
-
-- **Parent overhead**: pool creation, task submission, result collection
-- **Worker computation**: measured indirectly via wall-clock time
-- **IPC overhead**: implicit in parallel_execution minus worker computation
-
-To distinguish parent vs. worker time, compare:
-- `parallel_execution` (includes worker time)
-- `sequential_execution` (pure computation)
+The high-level execution API rejects `PARALLEL` strategy for Numba workloads.
+The low-level `parallel_execute()` helper remains available to Core tests that
+validate process-parallel equivalence. Its profiler records parent overhead,
+worker computation, and result assembly in the parent process only.
 
 ## Limitations
 

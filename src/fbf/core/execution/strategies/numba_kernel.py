@@ -118,8 +118,8 @@ def _simulate_trajectory_workbook(
     final period is compounded (the trajectory is reported at the *end* of the
     final month).  ``growth_factors[m]`` is ``1 + R(t)`` for the ``m``-th
     (0-based) period and is applied *after* the withdrawal, so all ``horizon``
-    entries are used.  This is the exact recurrence of the Decimal fast path
-    (``fast_path._evaluate_workbook_scr_path``) and of the canonical ERN oracle.
+    entries are used.  This matches the workbook SCR recurrence and the
+    canonical ERN oracle.
 
     Depletion semantics match the reference engine: when the portfolio value is
     insufficient to cover the withdrawal, the remaining value is 0 (all

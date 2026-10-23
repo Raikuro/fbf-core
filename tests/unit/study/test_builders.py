@@ -917,19 +917,23 @@ class TestProductionBuilderHorizon:
             expense_ratio=unit.expense_ratio,
         )
 
-        # The workbook path uses wb_horizon = horizon_months - 1
-        # For unit.horizon_months = 121, wb_horizon = 120 (correct return periods)
-        from fbf.core.execution.strategies.fast_path import evaluate_workbook_path
-        path = evaluate_workbook_path(ctx)
-
-        # Monthly values should have length 121 (month 0 through month 120)
-        # Month 0 = pre-retirement, months 1-120 = 120 return periods
-        assert len(path.monthly_values) == 121, (
-            f"Expected 121 monthly values (0 to 120), got {len(path.monthly_values)}"
+        # For unit.horizon_months = 121, the Numba kernel simulates 121
+        # monthly periods (month 0 through month 120), driven by 120 returns.
+        from fbf.core.execution.pipeline.simulation import (
+            ExperimentDefinition as EngineExperimentDefinition,
+        )
+        from fbf.core.execution.strategies.numba_executor import (
+            NumbaSimulationExecutor,
         )
 
-        # Post-withdrawal values should also have 121 entries
-        assert len(path.post_withdrawal_values) == 121
+        run = NumbaSimulationExecutor().execute(
+            EngineExperimentDefinition(
+                name="horizon-semantics",
+                description="",
+                simulation_contexts=(ctx,),
+            )
+        )
+        assert run.simulation_results[0].statistics.months_simulated == 121
 
 
 _BASE_YAML = {

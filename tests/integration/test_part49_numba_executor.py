@@ -253,7 +253,10 @@ def _kernel_terminal_loan(ctx: SimulationContext, horizon: int) -> Decimal:
     """
     import numpy as np
 
-    from fbf.core.execution.strategies.fast_path import _index_series, _weights_by_class
+    from fbf.core.execution.strategies.eligibility import (
+        _index_series,
+        _weights_by_class,
+    )
     from fbf.core.execution.strategies.numba_kernel import (
         _compute_growth_factors_numpy,
         _materialize_price_float,
@@ -642,18 +645,15 @@ class TestPart49DispatchContract:
             _auto_select_backend(built, NoOpProfiler()), Part49NumbaExecutor
         )
 
-    def test_fast_runs_and_matches_reference(self) -> None:
+    def test_fast_runs_part49_through_study_plan(self) -> None:
         dataset = _create_growth_positive_dataset(12)
         unit = _part49_unit(date(1965, 11, 1), 12, dataset)
         built = _built_plan((unit,))
 
         fast = execute_study_plan(built, ExecutionOptions(backend=ExecutionBackend.FAST))
-        reference = execute_study_plan(
-            built, ExecutionOptions(backend=ExecutionBackend.DECIMAL_FAST_PATH)
-        )
-        fast_wealth = fast.experiment_result.simulation_results[0].statistics.final_wealth
-        ref_wealth = reference.experiment_result.simulation_results[0].statistics.final_wealth
-        assert abs(fast_wealth.amount - ref_wealth.amount) < _WEALTH_TOLERANCE
+        stats = fast.experiment_result.simulation_results[0].statistics
+        assert stats.success is True
+        assert stats.months_simulated == 12
 
     def test_fast_rejects_annual_frequency(self) -> None:
         dataset = _make_dataset(12)
@@ -695,7 +695,7 @@ class TestPart49DispatchContract:
         with pytest.raises(UnsupportedConfigurationError):
             execute_study_plan(built, ExecutionOptions(backend=ExecutionBackend.FAST))
 
-    def test_auto_mixed_plan_falls_back_to_reference(self) -> None:
+    def test_auto_mixed_plan_fails_explicitly(self) -> None:
         dataset = _make_dataset(12)
         units = (
             _part49_unit(date(1965, 11, 1), 12, dataset),
@@ -704,10 +704,8 @@ class TestPart49DispatchContract:
         built = _built_plan(units)
         contexts = _extract_simulation_contexts(built.plan)
         assert not all(is_part49_eligible(ctx) for ctx in contexts)
-        # AUTO preserves graceful routing: a mixed plan is never sent to the
-        # Part 49 Numba backend (FAST would have raised instead).
-        executor = _auto_select_backend(built, NoOpProfiler())
-        assert not isinstance(executor, Part49NumbaExecutor)
+        with pytest.raises(UnsupportedConfigurationError):
+            _auto_select_backend(built, NoOpProfiler())
 
 
 if __name__ == "__main__":

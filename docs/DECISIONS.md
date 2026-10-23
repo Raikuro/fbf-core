@@ -53,6 +53,11 @@ value per array. No backward compatibility with earlier configuration formats.
 
 ## Multi-Horizon Execution
 
+**D4.3 note:** Trajectory-prefix derivation remains in force. Slice dispatch
+remains the memory-safety mechanism, but Numba workloads execute sequentially;
+process-parallel execution is no longer a production strategy. References to
+parallel dispatch below describe the historical Decimal architecture.
+
 **Decision:** The execution model uses horizon derivation — execute the
 longest horizon per family, derive shorter horizons by truncation. Derived
 results reuse identical objects. Splits into cohort-aligned slices,
@@ -113,6 +118,12 @@ the simulation pipeline directly.
 
 ## ERN Oracle as Canonical Ground Truth
 
+**D4.3 note:** The independent ERN and workbook oracles remain canonical ground
+truth for their respective methodologies. The production engine is now the
+float64 Numba engine, so conformance is validated against independent Decimal
+or hand-calculated oracles rather than by routing production through a Decimal
+engine. The documented T vs T+1 and fee-convention differences still apply.
+
 **Decision:** The 180-cell ERN oracle acceptance matrix is the definitive
 mathematical ground truth. The engine source (`src/engine/**`) is never
 modified. Any new execution path — including the decimal fast path — must
@@ -138,7 +149,11 @@ divergences are documented and pinned.
 
 ---
 
-## Fast Path Three-Tier Model
+## Fast Path Three-Tier Model (Superseded by D4.3)
+
+**D4.3 note:** This model is historical. The Reference and Decimal fast-path
+tiers were deleted; Numba is the sole production engine and fails closed for
+unsupported workloads.
 
 **Decision:** The fast path operates in three tiers:
 1. **Reference** — full Decimal pipeline, bit-exact, default, authoritative.
@@ -884,34 +899,32 @@ consistent budget across all periods regardless of portfolio performance.
 
 ---
 
-## Execution Backend Naming and Legacy Public Exports
+## Execution Backend: FAST-only (D4.3)
 
-**Decision:** The exact-Decimal execution backend is named
-`ExecutionBackend.DECIMAL_FAST_PATH`. Its underlying string value remains
-`"reference"`, and `ExecutionBackend.REFERENCE` is retained as a deprecated
-same-value alias throughout the `0.2.x` minor line. The legacy public exports
-`execute_reference`, `expected_reference_report`, and `reference_month_work`
-are removed from the `fbf.core.execution` facade and its `__all__`.
+**Decision:** `ExecutionBackend` exposes exactly one value, `FAST`. The
+`DECIMAL_FAST_PATH` and `REFERENCE` values are removed. The legacy Decimal
+engine, the Decimal fast path, the nine-step pipeline, and their public
+helpers are deleted. Numba is the sole production simulation engine.
 
-**Why:** The token "reference" previously denoted three different things: the
-public enum value, the legacy `ReferenceSimulationExecutor`/`execute_reference`
-implementation, and the legacy pipeline engine. The enum actually selects the
-Decimal fast path, which performs horizon derivation and delegates only
-ineligible contexts to the legacy engine. Keeping the string value preserves
-compatibility with `ExecutionBackend("reference")` and existing external
-callers, while the canonical name makes the public contract accurate. The
-reporting helpers are pure plan-reporting utilities with no production consumer
-after the CLI migrated to explicit FAST; their implementations remain available
-under `fbf.core.execution.reporting` for the D4.3 migration.
+**Why:** Maintaining two engines produced two recurrence implementations,
+divergent fee/timing semantics, and permanent fallback ambiguity. D4.3 moved
+every supported workload to the Numba engine, replaced legacy differentials
+with independent Decimal or hand-calculated oracles, and made unsupported
+configurations fail explicitly. Retaining compatibility aliases would preserve
+a public name whose implementation no longer exists.
 
-**Alternatives rejected:** Introducing a new `"decimal_fast_path"` string value
-— rejected in this milestone because it would break value-based compatibility
-without improving the rollout. Immediately removing `REFERENCE` — deferred to a
-future breaking release after a compatibility review. Deleting the legacy
-executor, pipelines, or reporting implementations — deferred to D4.3, which is
-responsible for removing the legacy stack.
+**Alternatives rejected:**
+- Retaining `DECIMAL_FAST_PATH`/`REFERENCE` as deprecated aliases — rejected
+  because there is no Decimal backend to route to.
+- Retaining the legacy engine as an AUTO fallback for unsupported workloads —
+  rejected because it hides capability gaps and preserves the correctness
+  divergence D4.3 exists to remove.
+- Silently approximating unsupported workloads with a Numba executor —
+  rejected because it changes financial semantics without specification.
 
-**Consequence:** Existing callers using `ExecutionBackend.REFERENCE` or the
-string `"reference"` continue to work unchanged. New code should use
-`DECIMAL_FAST_PATH`. FAST remains fail-closed, and AUTO retains its current
-legacy fallback until D4.3.
+**Consequence:** `ExecutionBackend.FAST` and AUTO dispatch both route through
+Numba capability selection. Unsupported configurations raise
+`UnsupportedConfigurationError`; a missing Numba installation raises
+`ModuleNotFoundError` with installation guidance. `PARALLEL` strategy is
+rejected for Numba workloads. The public API breaking change requires a Core
+minor version increment to `0.3.0` and updated consumer pins.

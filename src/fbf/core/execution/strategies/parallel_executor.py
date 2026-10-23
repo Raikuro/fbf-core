@@ -13,169 +13,18 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 
-from fbf.core.domain.policies import BuyAndHoldAllocationPolicy
 from fbf.core.execution.executor import ResearchExecutor
 from fbf.core.execution.pipeline.executor import SimulationExecutor
-from fbf.core.execution.pipeline.pipeline import SimulationPipeline
-from fbf.core.execution.pipeline.runner import SimulationRunner
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     ExperimentRun,
     SimulationResult,
     SimulationTimeline,
 )
-from fbf.core.execution.pipeline.steps.allocation_decision_step import AllocationDecisionStep
-from fbf.core.execution.pipeline.steps.build_decision_context_step import BuildDecisionContextStep
-from fbf.core.execution.pipeline.steps.initialize_allocation_step import InitializeAllocationStep
-from fbf.core.execution.pipeline.steps.market_evolution_step import MarketEvolutionStep
-from fbf.core.execution.pipeline.steps.monthly_result_builder_step import MonthlyResultBuilderStep
-from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import PortfolioRebalanceStep
-from fbf.core.execution.pipeline.steps.simulation_state_update_step import SimulationStateUpdateStep
-from fbf.core.execution.pipeline.steps.supplemental_cash_flow_step import SupplementalCashFlowStep
-from fbf.core.execution.pipeline.steps.withdrawal_decision_step import WithdrawalDecisionStep
-from fbf.core.execution.pipeline.steps.withdrawal_execution_step import WithdrawalExecutionStep
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
-
-
-def _create_default_simulation_executor(
-    supplemental_cash_flow_step: SupplementalCashFlowStep | None = None,
-) -> SimulationExecutor:
-    """Create a default engine SimulationExecutor with the debt-aware pipeline.
-
-    The pipeline includes debt steps (loan draw, interest accrual, LTV evaluation)
-    which are no-ops when interest_rate = 0. This ensures the production pipeline
-    is debt-capable without requiring separate pipeline configurations.
-
-    Pipeline order (K.5.1 corrected):
-    - LoanDrawStep (step 28): Borrow before withdrawal, cash available for spending
-    - WithdrawalExecutionStep (step 30): Consume cash first, then sell assets
-    - LoanRepaymentStep (step 32): Repay at fresh ATH (Part 52)
-    - InterestAccrualStep (step 65): Compound interest at end of period
-    - LTVEvaluationStep (step 66): Enforce LTV constraint
-    - FailureDetectionStep (step 75): Detect depletion and margin call impossible
-    """
-    from fbf.core.execution.pipeline.steps.expense_deduction_step import ExpenseDeductionStep
-    from fbf.core.execution.pipeline.steps.failure_detection_step import FailureDetectionStep
-    from fbf.core.execution.pipeline.steps.interest_accrual_step import InterestAccrualStep
-    from fbf.core.execution.pipeline.steps.loan_draw_step import LoanDrawStep
-    from fbf.core.execution.pipeline.steps.loan_repayment_step import LoanRepaymentStep
-    from fbf.core.execution.pipeline.steps.ltv_evaluation_step import LTVEvaluationStep
-    from fbf.core.execution.pipeline.steps.supplemental_cash_flow_step import (
-        SupplementalCashFlowStep,
-    )
-
-    # Use provided SS step or create a default inactive one
-    if supplemental_cash_flow_step is None:
-        supplemental_cash_flow_step = SupplementalCashFlowStep(ss_active=False)
-
-    pipeline = SimulationPipeline(
-        [
-            InitializeAllocationStep(),
-            ExpenseDeductionStep(),
-            BuildDecisionContextStep(),
-            WithdrawalDecisionStep(),
-            InterestAccrualStep(),  # BEFORE draw: interest on prior balance (ERN order)
-            LoanDrawStep(),  # AFTER interest: new draw does not accrue interest same month
-            supplemental_cash_flow_step,  # Supplemental cash flow (SS, etc.)
-            # after loan draw, before withdrawal
-            WithdrawalExecutionStep(),  # Consume cash first, then sell assets
-            LoanRepaymentStep(),  # Part 52: repay at fresh ATH
-            AllocationDecisionStep(),
-            PortfolioRebalanceStep(),
-            MarketEvolutionStep(),
-            LTVEvaluationStep(),
-            MonthlyResultBuilderStep(),
-            FailureDetectionStep(),
-            SimulationStateUpdateStep(),
-        ]
-    )
-    runner = SimulationRunner(pipeline)
-    return SimulationExecutor(runner)
-
-
-def _create_buy_and_hold_simulation_executor() -> SimulationExecutor:
-    """Create an engine SimulationExecutor with the buy-and-hold pipeline.
-
-    Buy-and-hold establishes the target equity/bond split once (period 0) and
-    never rebalances, so the portfolio drifts with the market.  This is the
-    reference for buy-and-hold workloads that cannot run on an optimized
-    (fast-path/Numba) backend; it must never be confused with the default
-    pipeline, which rebalances every period.
-    """
-    from fbf.core.execution.pipeline.default_pipeline import (
-        create_buy_and_hold_pipeline,
-    )
-
-    return SimulationExecutor(SimulationRunner(create_buy_and_hold_pipeline()))
-
-
-class _AllocationRoutedSimulationExecutor(SimulationExecutor):
-    """Reference executor that routes each context by allocation policy.
-
-    A buy-and-hold context must never be simulated by the default pipeline: the
-    default pipeline rebalances every period, which silently changes
-    buy-and-hold semantics.  The optimized executors (fast path, Numba) delegate
-    ineligible contexts to their reference; routing those delegations through
-    this executor keeps buy-and-hold workloads on the buy-and-hold pipeline and
-    every other workload on the default pipeline.
-
-    Contexts are grouped by target pipeline and each group is executed in a
-    single delegate call; results are reassembled in the original definition
-    order.
-    """
-
-    processes_whole_definition = True
-
-    def __init__(self) -> None:
-        self._default = _create_default_simulation_executor()
-        self._buy_and_hold = _create_buy_and_hold_simulation_executor()
-
-    def execute(self, definition: EngineExperimentDefinition) -> ExperimentRun:
-        contexts = definition.simulation_contexts
-        buy_and_hold_indices = [
-            index
-            for index, context in enumerate(contexts)
-            if isinstance(context.allocation_policy, BuyAndHoldAllocationPolicy)
-        ]
-        buy_and_hold_set = set(buy_and_hold_indices)
-        default_indices = [
-            index for index in range(len(contexts)) if index not in buy_and_hold_set
-        ]
-
-        by_index: dict[int, SimulationResult] = {}
-        for executor, indices in (
-            (self._default, default_indices),
-            (self._buy_and_hold, buy_and_hold_indices),
-        ):
-            if not indices:
-                continue
-            sub = EngineExperimentDefinition(
-                name=definition.name,
-                description=definition.description,
-                simulation_contexts=tuple(contexts[index] for index in indices),
-            )
-            for index, result in zip(
-                indices, executor.execute(sub).simulation_results, strict=True
-            ):
-                by_index[index] = result
-        return ExperimentRun(
-            definition=definition,
-            simulation_results=tuple(by_index[index] for index in range(len(contexts))),
-        )
-
-
-def _create_reference_simulation_executor() -> SimulationExecutor:
-    """Create the allocation-aware reference executor.
-
-    Used by the fast path and Numba executors as the delegate for contexts they
-    cannot simulate themselves, so that an ineligible buy-and-hold context falls
-    back to the buy-and-hold pipeline rather than to the rebalancing default
-    pipeline (see :class:`_AllocationRoutedSimulationExecutor`).
-    """
-    return _AllocationRoutedSimulationExecutor()
 
 
 class _ProgressReportingSimulationExecutor(SimulationExecutor):
@@ -398,8 +247,8 @@ def _execute_batch_on_shared_state(
     footprint is small because they never materialize per-month timelines.
     """
     exp_def = _WORKER_EXPERIMENT_DEFINITION
-    sim_executor = _WORKER_SIMULATION_EXECUTOR or _create_default_simulation_executor()
-    if exp_def is None:
+    sim_executor = _WORKER_SIMULATION_EXECUTOR
+    if exp_def is None or sim_executor is None:
         raise RuntimeError(
             "Worker shared execution state is not initialised; "
             "the pool must be created with _initialize_worker as initializer"
@@ -468,12 +317,9 @@ def _worker_execute_batch(
     tuple[SimulationResult, ...]
         Ordered engine simulation results for the batch.
     """
-    sim_executor = (
-        simulation_executor
-        if simulation_executor is not None
-        else _create_default_simulation_executor()
-    )
-    research_executor = ResearchExecutor(sim_executor)
+    if simulation_executor is None:
+        raise ValueError("simulation_executor is required")
+    research_executor = ResearchExecutor(simulation_executor)
     sub_plan = ResearchPlan(experiment_definition=exp_def, units=tuple(units))
     result = research_executor.execute(sub_plan)
     if summary_only:
@@ -502,12 +348,9 @@ def _worker_execute_batch_safe(
     tuple[tuple[SimulationResult | None, Exception | None], ...]
         Sequence of (result, exception) pairs matching units index.
     """
-    sim_executor = (
-        simulation_executor
-        if simulation_executor is not None
-        else _create_default_simulation_executor()
-    )
-    research_executor = ResearchExecutor(sim_executor)
+    if simulation_executor is None:
+        raise ValueError("simulation_executor is required")
+    research_executor = ResearchExecutor(simulation_executor)
 
     unit_results: list[tuple[SimulationResult | None, Exception | None]] = []
     for unit in units:
@@ -534,7 +377,8 @@ def sequential_execute(
     plan:
         The immutable research plan to execute.
     simulation_executor:
-        Optional custom SimulationExecutor. If None, default 9-step pipeline executor is used.
+        The SimulationExecutor to delegate to. Required; there is no implicit
+        default engine.
     progress_callback:
         Optional callback ``(completed_units, total_units)`` invoked as units complete.
     summary_only:
@@ -551,7 +395,9 @@ def sequential_execute(
     profiler = profiler or NoOpProfiler()
 
     profiler.start("sequential_setup")
-    sim_exec = simulation_executor or _create_default_simulation_executor()
+    if simulation_executor is None:
+        raise ValueError("simulation_executor is required")
+    sim_exec = simulation_executor
     if progress_callback is not None:
         sim_exec = _ProgressReportingSimulationExecutor(
             sim_exec,
@@ -706,8 +552,9 @@ def parallel_execute(
 
     profiler.start("parallel_assembly")
     # Reconstruct Engine SimulationContexts for engine ExperimentRun
-    sim_exec = simulation_executor or _create_default_simulation_executor()
-    research_executor = ResearchExecutor(sim_exec)
+    if simulation_executor is None:
+        raise ValueError("simulation_executor is required")
+    research_executor = ResearchExecutor(simulation_executor)
 
     contexts = [
         research_executor._create_context_for_unit(plan.experiment_definition, unit)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -28,7 +27,6 @@ from fbf.core.execution.profiling import (
 )
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.execution.slicing import iter_cohort_slices
-from fbf.core.execution.strategies.fast_path import FastPathValidationError
 from fbf.core.study.builder import BuiltStudy, StudyPlanResult
 from fbf.core.study.plan import ResearchPlan
 
@@ -54,24 +52,6 @@ def parallel_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
     return implementation(*args, **kwargs)
 
 
-def fast_path_unit_counts(*args: Any, **kwargs: Any) -> tuple[int, int]:
-    from fbf.core.execution.strategies.fast_path import fast_path_unit_counts as implementation
-
-    return implementation(*args, **kwargs)
-
-
-def expected_report(*args: Any, **kwargs: Any) -> Any:
-    from fbf.core.execution.strategies.fast_path import expected_report as implementation
-
-    return implementation(*args, **kwargs)
-
-
-def run_fast_path_validation(*args: Any, **kwargs: Any) -> Any:
-    from fbf.core.execution.strategies.fast_path import run_fast_path_validation as implementation
-
-    return implementation(*args, **kwargs)
-
-
 def execute_numba(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
     """Execute through the Numba-accelerated backend."""
     from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
@@ -82,10 +62,6 @@ def execute_numba(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
 
 
 def __getattr__(name: str) -> Any:
-    if name == "FastPathSimulationExecutor":
-        from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
-
-        return FastPathSimulationExecutor
     if name == "NumbaSimulationExecutor":
         from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 
@@ -105,29 +81,16 @@ class ExecutionBackend(StrEnum):
     """Public execution backend selection.
 
     ``FAST`` executes with float64 numerical semantics for maximum throughput.
-    Currently implemented with Numba; the implementation may evolve without
-    changing the public name.  Explicit ``FAST`` is fail-closed: workloads the
-    Numba kernels cannot execute raise ``UnsupportedConfigurationError`` rather
-    than falling back to another engine.
+    It is currently implemented with Numba.  Execution is fail-closed: workloads
+    the Numba kernels cannot execute raise ``UnsupportedConfigurationError``
+    rather than falling back to another engine.
 
-    ``DECIMAL_FAST_PATH`` selects the exact-Decimal execution path.  It
-    currently wraps the legacy reference engine and performs horizon
-    derivation for eligible workload families.  It is the Decimal validation
-    path, not the Numba backend, and it is not the legacy engine itself.
-
-    ``REFERENCE`` is a deprecated same-value alias for
-    ``DECIMAL_FAST_PATH``.  It is retained throughout the ``0.2.x`` minor
-    line for compatibility and may be removed in a future breaking release.
-
-    When no backend is specified (the default ``None``), the AUTO dispatch
-    selects the best validated backend for the workload: FAST when all units
-    are eligible, ``DECIMAL_FAST_PATH`` otherwise.
+    When no backend is specified (the default ``None``), AUTO dispatch selects
+    the same Numba executor appropriate to the workload and raises if no Numba
+    kernel supports it.
     """
 
-    DECIMAL_FAST_PATH = "reference"
     FAST = "fast"
-    # Deprecated same-value alias; resolves to DECIMAL_FAST_PATH.
-    REFERENCE = DECIMAL_FAST_PATH
 
 
 class ExecutionStrategy(StrEnum):
@@ -147,35 +110,6 @@ class ExecutionStrategy(StrEnum):
     PARALLEL = "parallel"
 
 
-# ---------------------------------------------------------------------------
-# AUTO routing policy for DECIMAL_FAST_PATH backend
-# ---------------------------------------------------------------------------
-# The DECIMAL_FAST_PATH backend benefits from parallelism at meaningful workloads but
-# incurs measurable overhead (process creation, IPC, result aggregation) for
-# small plans.
-#
-# The threshold below is the minimum unit count at which the AUTO strategy
-# selects parallel execution for the DECIMAL_FAST_PATH backend, provided that multiple
-# workers are available.
-#
-# Measured crossover on the reference development host (4 workers, 120-month
-# horizon, Fast Path Decimal):
-#
-#   100 units:  0.97x  (parallel neutral)
-#   200 units:  0.86x  (parallel slightly slower)
-#   300 units:  1.08x  (parallel neutral)
-#   400 units:  1.28x  (parallel beneficial)
-#   500 units:  1.42x  (parallel clearly beneficial)
-#  1000 units:  1.66x
-#  5000 units:  2.35x
-# 10000 units:  2.43x
-#
-# The threshold is set conservatively at 500 units — above the measured
-# crossover point where parallel execution consistently provides a clear
-# benefit.  This is an execution-routing policy, not a backend invariant;
-# it may be adjusted as batching, overhead, or host hardware changes.
-_DEFAULT_PARALLEL_UNIT_THRESHOLD: int = 500
-
 # Slice targets for the streaming API.  These are memory-control targets, not
 # hard bounds: a cohort is never split.  They are validated empirically by the
 # isolated memory benchmark.
@@ -191,13 +125,10 @@ class ExecutionOptions:
     ----------
     backend:
         Execution backend selection.  ``None`` (the default) enables AUTO
-        dispatch: the system selects the best validated backend for the
-        workload (FAST when all units are eligible, ``DECIMAL_FAST_PATH``
-        otherwise).  ``DECIMAL_FAST_PATH`` selects the exact-Decimal execution
-        path that currently wraps the legacy reference engine; it is not the
-        Numba backend.  ``REFERENCE`` is a deprecated same-value alias for
-        ``DECIMAL_FAST_PATH``.  ``FAST`` explicitly requests the optimized
-        float64 backend (currently Numba).  Default is ``None``.
+        dispatch: the system selects the Numba executor appropriate to the
+        workload and raises if no Numba kernel supports it.  ``FAST``
+        explicitly requests the optimized float64 backend (currently Numba).
+        Default is ``None``.
     strategy:
         Execution strategy (``AUTO``, ``SEQUENTIAL``, or ``PARALLEL``).
         ``PARALLEL`` is not supported by the ``FAST`` backend.
@@ -333,23 +264,18 @@ def _auto_select_backend(
 ) -> Any:
     """AUTO dispatch: select the best validated backend for the workload.
 
-    Returns the SimulationExecutor for the selected backend.  When numba is
-    available and all units are FAST-eligible (Part52, FixedReal, escalating,
-    buy-and-hold, or glidepath), the optimized Numba executor is used.
-    Otherwise the Decimal fast path (``DECIMAL_FAST_PATH``) is used.
+    Returns the SimulationExecutor for the selected workload.  When every unit
+    matches a dedicated Numba executor (Part52, Part49, fixed-real,
+    constant-nominal, escalating, buy-and-hold, or glidepath), that executor
+    is returned.  Otherwise ``UnsupportedConfigurationError`` is raised.
     """
     try:
         import numba as _numba_mod  # noqa: F401
-    except ModuleNotFoundError:
-        from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
-        from fbf.core.execution.strategies.parallel_executor import (
-            _create_reference_simulation_executor,
-        )
-
-        return FastPathSimulationExecutor(
-            reference_executor=_create_reference_simulation_executor(),
-            profiler=profiler,
-        )
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "Execution requires the optional Numba dependency. "
+            "Install it with: pip install fbf-core[numba]"
+        ) from exc
 
     from fbf.core.execution.strategies.part52_numba_executor import (
         is_part52_eligible,
@@ -399,9 +325,10 @@ def _auto_select_backend(
             profiler=profiler, materialize_timeline=materialize_timeline
         )
 
-    from fbf.core.execution.strategies.fast_path import is_fast_path_eligible
+    from fbf.core.execution.strategies.eligibility import is_fast_path_eligible
     from fbf.core.execution.strategies.numba_executor import (
         _is_buy_and_hold_eligible,
+        _is_constant_nominal_eligible,
         _is_escalating_eligible,
         _is_glidepath_eligible,
     )
@@ -409,6 +336,19 @@ def _auto_select_backend(
     all_fixed_real = all(is_fast_path_eligible(ctx) for ctx in contexts)
 
     if all_fixed_real:
+        from fbf.core.execution.strategies.numba_executor import (
+            NumbaSimulationExecutor,
+        )
+
+        return NumbaSimulationExecutor(
+            profiler=profiler, materialize_timeline=materialize_timeline
+        )
+
+    all_constant_nominal = all(
+        _is_constant_nominal_eligible(ctx) for ctx in contexts
+    )
+
+    if all_constant_nominal:
         from fbf.core.execution.strategies.numba_executor import (
             NumbaSimulationExecutor,
         )
@@ -452,18 +392,11 @@ def _auto_select_backend(
             materialize_timeline=materialize_timeline,
         )
 
-    from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
-    from fbf.core.execution.strategies.parallel_executor import (
-        _create_reference_simulation_executor,
-    )
-
-    # No optimized backend matches the whole workload.  The fast path's
-    # ineligible-context fallback is allocation-aware, so a buy-and-hold unit
-    # that reaches here is delegated to the buy-and-hold pipeline rather than to
-    # the rebalancing default pipeline.
-    return FastPathSimulationExecutor(
-        reference_executor=_create_reference_simulation_executor(),
-        profiler=profiler,
+    raise UnsupportedConfigurationError(
+        "No Numba executor supports this plan. Supported workloads are "
+        "Part 52, Part 49, fixed-real, constant-nominal, escalating, "
+        "zero-fee buy-and-hold, and glidepath policies; debt and LTV "
+        "configurations belong to the dedicated Part 49/52 executors."
     )
 
 
@@ -489,10 +422,9 @@ def _select_simulation_executor(
                 "Install it with: pip install fbf-core[numba]"
             ) from exc
 
-        # FAST guarantees Numba execution: a plan containing any Part 52
-        # workload must be entirely Part52-Numba-eligible, otherwise the
-        # request is rejected rather than silently routed to the Decimal
-        # reference engine.
+        # A plan containing any Part 52 workload must be entirely
+        # Part52-Numba-eligible, otherwise the request is rejected rather than
+        # routed to another engine.
         from fbf.core.execution.strategies.part49_numba_executor import (
             is_part49_context,
             is_part49_eligible,
@@ -513,8 +445,7 @@ def _select_simulation_executor(
                     "Part 52 workloads that are not Numba-eligible. Mixed plans "
                     "(Part 52 combined with other policies) and schedule-less "
                     "Part 52 configurations without a fixed interest_rate are "
-                    "unsupported by the FAST backend. Use backend=AUTO to route "
-                    "unsupported workloads through the reference engine."
+                    "unsupported by the FAST backend."
                 )
             from fbf.core.execution.strategies.part52_numba_executor import (
                 Part52NumbaExecutor,
@@ -554,8 +485,7 @@ def _select_simulation_executor(
                     "Part 49 configurations (ANNUAL frequency, non-zero expense "
                     "ratio, explicit multi-asset allocations, an insufficient "
                     "dataset, or no interest-rate source) are unsupported by the "
-                    "FAST backend. Use backend=AUTO to route unsupported "
-                    "workloads through the reference engine."
+                    "FAST backend."
                 )
         else:
             from fbf.core.execution.strategies.numba_executor import (
@@ -581,55 +511,15 @@ def _select_simulation_executor(
                     "escalating, zero-fee buy-and-hold, and glidepath policies "
                     "when the generic kernels' dataset, portfolio, and value "
                     "invariants hold; debt and LTV configurations belong to the "
-                    "dedicated Part 49/52 executors. Use backend=AUTO to route "
-                    "unsupported workloads through the reference engine."
+                    "dedicated Part 49/52 executors."
                 )
 
             sim_executor = NumbaSimulationExecutor(
                 profiler=profiler,
                 glidepath_gf_cache=opt.glidepath_gf_cache,
                 materialize_timeline=opt.materialize_timeline,
-                require_all_eligible=True,
             )
-    elif backend == ExecutionBackend.DECIMAL_FAST_PATH:
-        from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
-        from fbf.core.execution.strategies.parallel_executor import (
-            _create_reference_simulation_executor,
-        )
-
-        sim_executor = FastPathSimulationExecutor(
-            reference_executor=_create_reference_simulation_executor(),
-            profiler=profiler,
-        )
     return sim_executor
-
-
-def _numba_executor_types() -> tuple[type[Any], ...]:
-    """Return the Numba executor classes, or an empty tuple when Numba is absent."""
-    try:
-        import numba as _numba_mod  # noqa: F401
-    except ModuleNotFoundError:
-        return ()
-
-    from fbf.core.execution.strategies.numba_executor import (
-        NumbaSimulationExecutor,
-    )
-    from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
-        Part49BuyAndHoldNumbaExecutor,
-    )
-    from fbf.core.execution.strategies.part49_numba_executor import (
-        Part49NumbaExecutor,
-    )
-    from fbf.core.execution.strategies.part52_numba_executor import (
-        Part52NumbaExecutor,
-    )
-
-    return (
-        Part49NumbaExecutor,
-        Part49BuyAndHoldNumbaExecutor,
-        Part52NumbaExecutor,
-        NumbaSimulationExecutor,
-    )
 
 
 def _use_parallel_execution(
@@ -638,37 +528,17 @@ def _use_parallel_execution(
     sim_executor: Any,
 ) -> bool:
     """Resolve the execution strategy for a complete plan without side effects."""
-    backend = opt.backend
     strategy = opt.strategy
     if strategy == ExecutionStrategy.SEQUENTIAL:
-        use_parallel = False
-    elif strategy == ExecutionStrategy.PARALLEL:
-        if backend == ExecutionBackend.FAST or isinstance(
-            sim_executor, _numba_executor_types()
-        ):
-            raise ValueError(
-                "FAST backend does not support parallel execution. "
-                "Use strategy=ExecutionStrategy.AUTO or "
-                "strategy=ExecutionStrategy.SEQUENTIAL instead."
-            )
-        use_parallel = True
-    else:  # AUTO
-        if backend == ExecutionBackend.FAST:
-            # Parallel was measured as counterproductive for Numba at all scales.
-            use_parallel = False
-        elif backend is None:
-            # AUTO dispatch selected a backend; FAST always sequential.
-            if isinstance(sim_executor, _numba_executor_types()):
-                use_parallel = False
-            else:
-                # DECIMAL_FAST_PATH: use parallel when workers available.
-                available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
-                use_parallel = available_workers > 1
-        else:
-            # DECIMAL_FAST_PATH: use parallel when workers available.
-            available_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
-            use_parallel = available_workers > 1
-    return use_parallel
+        return False
+    if strategy == ExecutionStrategy.PARALLEL:
+        raise ValueError(
+            "The Numba backend does not support parallel execution. "
+            "Use strategy=ExecutionStrategy.AUTO or "
+            "strategy=ExecutionStrategy.SEQUENTIAL instead."
+        )
+    # Parallel was measured as counterproductive for Numba at all scales.
+    return False
 
 
 def execute_study_plan(
@@ -689,22 +559,16 @@ def execute_study_plan(
 
     Backend selection (``options.backend``):
 
-    - ``None`` (default): AUTO dispatch selects the best validated backend.
-      FAST when all units are Part52-eligible or FixedReal-eligible,
-      ``DECIMAL_FAST_PATH`` otherwise.
+    - ``None`` (default): AUTO dispatch selects the Numba executor appropriate
+      to the workload.
     - ``FAST``: explicitly request the optimized Numba backend.
-    - ``DECIMAL_FAST_PATH``: explicitly request the exact-Decimal execution
-      path.  ``REFERENCE`` remains a deprecated same-value alias.
 
     Strategy selection (``options.strategy``):
 
-    - ``AUTO``: ``FAST`` always resolves to sequential.
-      ``DECIMAL_FAST_PATH`` selects parallel when the plan has at least
-      ``_DEFAULT_PARALLEL_UNIT_THRESHOLD`` units *and* more than one worker is
-      available; otherwise sequential.
+    - ``AUTO``: resolves to sequential.
     - ``SEQUENTIAL``: force single-process execution.
-    - ``PARALLEL``: explicitly request multiprocessing.  Not supported by
-      ``FAST``; raises ``ValueError``.
+    - ``PARALLEL``: multiprocessing is not supported by the Numba backend;
+      raises ``ValueError``.
     """
     opt = options or ExecutionOptions()
     built = plan if isinstance(plan, BuiltStudy) else plan.built_study
@@ -737,31 +601,18 @@ def execute_study_plan(
     # When not provided, the execution layer inspects host capabilities.
     workers = opt.workers if opt.workers is not None else kwargs.get("workers")
 
-    use_parallel = _use_parallel_execution(opt, workers, sim_executor)
+    _use_parallel_execution(opt, workers, sim_executor)
 
-    if use_parallel:
-        profiler.stop("strategy_selection")
-        profiler.start("parallel_dispatch")
-        result = parallel_execute(
-            plan=built.plan,
-            max_workers=workers,
-            simulation_executor=sim_executor,
-            progress_callback=opt.progress_callback,
-            summary_only=opt.summary_only,
-            profiler=profiler,
-        )
-        profiler.stop("parallel_dispatch")
-    else:
-        profiler.stop("strategy_selection")
-        profiler.start("sequential_dispatch")
-        result = sequential_execute(
-            plan=built.plan,
-            simulation_executor=sim_executor,
-            progress_callback=opt.progress_callback,
-            summary_only=opt.summary_only,
-            profiler=profiler,
-        )
-        profiler.stop("sequential_dispatch")
+    profiler.stop("strategy_selection")
+    profiler.start("sequential_dispatch")
+    result = sequential_execute(
+        plan=built.plan,
+        simulation_executor=sim_executor,
+        progress_callback=opt.progress_callback,
+        summary_only=opt.summary_only,
+        profiler=profiler,
+    )
+    profiler.stop("sequential_dispatch")
 
     profiler.record("total_units", len(built.plan.units))
     profiler.stop("total")
@@ -829,7 +680,7 @@ def iter_execute_study_plan(
         profiler.stop("backend_selection")
 
         workers = opt.workers
-        use_parallel = _use_parallel_execution(opt, workers, sim_executor)
+        _use_parallel_execution(opt, workers, sim_executor)
 
         profiler.start("context_translation")
         ResearchExecutor(sim_executor).validate_units(built.plan)
@@ -845,23 +696,13 @@ def iter_execute_study_plan(
                 experiment_definition=built.plan.experiment_definition,
                 units=units,
             )
-            if use_parallel:
-                slice_result = parallel_execute(
-                    plan=sub_plan,
-                    max_workers=workers,
-                    simulation_executor=sim_executor,
-                    progress_callback=None,
-                    summary_only=opt.summary_only,
-                    profiler=profiler,
-                )
-            else:
-                slice_result = sequential_execute(
-                    plan=sub_plan,
-                    simulation_executor=sim_executor,
-                    progress_callback=None,
-                    summary_only=opt.summary_only,
-                    profiler=profiler,
-                )
+            slice_result = sequential_execute(
+                plan=sub_plan,
+                simulation_executor=sim_executor,
+                progress_callback=None,
+                summary_only=opt.summary_only,
+                profiler=profiler,
+            )
             completed += len(units)
             if opt.progress_callback is not None:
                 opt.progress_callback(completed, total_units)
@@ -887,14 +728,9 @@ __all__ = [
     "ResearchExecutionResult",
     "parallel_execute",
     "sequential_execute",
-    "FastPathSimulationExecutor",
-    "FastPathValidationError",
     "UnsupportedConfigurationError",
     "NumbaSimulationExecutor",
     "execute_numba",
-    "fast_path_unit_counts",
-    "expected_report",
-    "run_fast_path_validation",
     "ProgressCallback",
     "ProgressEvent",
     "Profiler",

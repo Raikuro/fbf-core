@@ -76,13 +76,6 @@ class TestStreamingEquivalence:
                 ),
                 "numba-summary",
             ),
-            (
-                ExecutionOptions(
-                    backend=ExecutionBackend.DECIMAL_FAST_PATH,
-                    strategy=ExecutionStrategy.SEQUENTIAL,
-                ),
-                "reference",
-            ),
         ],
     )
     def test_slices_reproduce_full_plan(
@@ -100,8 +93,8 @@ class TestStreamingEquivalence:
         assert results == list(full.results)
         assert starts == [0, 2]
 
-    def test_reference_timelines_are_equivalent(self) -> None:
-        plan = make_plan(cohorts=2, horizons=[12, 24])
+    def test_materialized_timelines_are_equivalent(self) -> None:
+        plan = make_plan(cohorts=1, horizons=[12, 24])
         units = tuple(
             replace(
                 unit,
@@ -116,14 +109,13 @@ class TestStreamingEquivalence:
             )
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.DECIMAL_FAST_PATH,
+            backend=ExecutionBackend.FAST,
             strategy=ExecutionStrategy.SEQUENTIAL,
+            materialize_timeline=True,
         )
         full = execute_study_plan(built, options)
         _, results, _ = _collect(built, options, max_units_per_slice=2)
         assert [len(result.timeline.monthly_results) for result in results] == [
-            12,
-            24,
             12,
             24,
         ]
@@ -277,7 +269,7 @@ class TestStreamingSafety:
         iterator = iter_execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.DECIMAL_FAST_PATH,
+                backend=ExecutionBackend.FAST,
                 strategy=ExecutionStrategy.SEQUENTIAL,
             ),
             max_units_per_slice=2,
@@ -324,7 +316,7 @@ class TestStreamingSafety:
         iterator = iter_execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.DECIMAL_FAST_PATH,
+                backend=ExecutionBackend.FAST,
                 strategy=ExecutionStrategy.SEQUENTIAL,
             ),
             max_units_per_slice=2,
@@ -342,7 +334,7 @@ class TestStreamingSafety:
                 iter_execute_study_plan(
                     built,
                     ExecutionOptions(
-                        backend=ExecutionBackend.DECIMAL_FAST_PATH,
+                        backend=ExecutionBackend.FAST,
                         strategy=ExecutionStrategy.SEQUENTIAL,
                     ),
                     max_units_per_slice=0,

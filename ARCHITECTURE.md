@@ -49,27 +49,18 @@ There is **no umbrella `fbf/.git`** and no monorepo layer.
 * **Policy interfaces** — abstract protocols for withdrawal and allocation
   decisions; concrete built-in implementations (`FixedRealWithdrawalPolicy`,
   etc.).
-* **Canonical nine-step monthly simulation pipeline** — the ordered sequence of
-  steps executed per calendar month:
-  1. Initialize Allocation (seeds initial allocation for month 0)
-  2. Build Decision Context
-  3. Withdrawal Decision
-  4. Withdrawal Execution
-  5. Allocation Decision
-  6. Portfolio Rebalance
-  7. Market Evolution
-  8. Monthly Result Builder
-  9. Simulation State Update
-
-  Statistics accumulation is a post-pipeline concern handled by
-  `SimulationStatisticsBuilder` after the simulation loop completes.
-* **Closed-form fast path** — analytical recurrence for constant-policy studies,
-  validated to be bit-exact against the reference pipeline.
-* **Multi-horizon execution** — deterministic multi-worker execution for
-  prefix-consistent multi-horizon grids.
+* **Numba simulation engine** — the single production engine. Dedicated
+  executors cover Part 52, Part 49, Part 49 buy-and-hold, and the generic
+  fixed-real, constant-nominal, escalating, buy-and-hold, and glidepath policy
+  families. The engine is fail-closed: an unsupported configuration raises
+  `UnsupportedConfigurationError` rather than falling back to another engine.
+* **Workbook-aligned recurrence** — withdrawals precede growth, the fee model
+  is additive, and horizon derivation shares trajectory prefixes where the
+  supported kernels define identical semantics.
+* **Sequential execution** — Numba workloads execute sequentially. Parallel
+  execution is rejected because it was measured as counterproductive.
 * **Simulation executor** — application-layer coordinator only. No financial
-  model, no monthly execution, no statistics. Delegates to `SimulationRunner`
-  via dependency injection. One public operation: `execute(experiment) →
+  model and no statistics. One public operation: `execute(experiment) →
   ExperimentResult`.
 * **Study planning** — cohort generation, parameter sweeps, experiment
   definitions. Plans are fully materialized before execution; no plan
@@ -122,7 +113,7 @@ The Core API is organised in three access tiers:
 |------|---------|--------|
 | **Tier 1** | `fbf.core` (root facade) | All consumers |
 | **Tier 2** | `fbf.core.domain`, `fbf.core.domain.model`, `fbf.core.domain.policies`, `fbf.core.study`, `fbf.core.execution`, `fbf.core.optimization`, `fbf.core.persistence`, `fbf.core.research` | Consumers with explicit need |
-| **Tier 3** | `fbf.core.study.internal`, `fbf.core.execution.pipeline.steps`, and all other non-facade submodules | Core tests only |
+| **Tier 3** | `fbf.core.study.internal` and all other non-facade submodules | Core tests only |
 
 External consumers are **forbidden** from importing Tier 3 modules. Core
 tests may freely test implementation details.
@@ -250,8 +241,8 @@ python -m build --wheel
 3. Monetary values use `decimal.Decimal` — no `float` for `Money` objects or
    monetary domain operations. Derived statistical metrics may use other numeric
    representations where explicitly appropriate.
-4. The Decimal fast path is bit-exact against the reference monthly pipeline.
-   The Float fast path is approximate and opt-in.
+4. The Numba engine is the sole production execution engine; unsupported
+   workloads fail explicitly and never fall back to a second engine.
 5. ERN oracle acceptance matrix passes with exact `Decimal` equality (no float tolerance).
 6. External consumers import exclusively through the public Core API (Tier 1 and Tier 2).
 7. No history is rewritten in either repository after the initial migration commit.

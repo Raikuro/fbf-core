@@ -44,7 +44,7 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
-from fbf.core.execution.strategies.fast_path import (
+from fbf.core.execution.strategies.eligibility import (
     _dataset_token,
     _index_series,
     _trajectory_clusters,

@@ -1,7 +1,7 @@
-"""Part 42 study plan builder with Social Security support.
+"""Part 42 study plan builder.
 
-Extends the OMY study plan builder to wire Social Security cash flows
-and SupplementalCashFlowStep into the execution pipeline.
+Extends the OMY study plan builder with the accumulation phase. Supplemental
+cash flows are not part of the optimized execution model.
 """
 
 from __future__ import annotations
@@ -17,9 +17,6 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.domain.policies.concrete import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-from fbf.core.execution.pipeline.pipeline import SimulationPipeline
-from fbf.core.execution.pipeline.steps.supplemental_cash_flow_step import SupplementalCashFlowStep
 from fbf.core.study.builder import (
     BuiltStudy,
     StudyConfiguration,
@@ -40,12 +37,11 @@ def build_part42_study_plan(
     ss_config: dict[str, Any] | None = None,
     cohorts: tuple[CohortSpecification, ...] | None = None,
 ) -> BuiltStudy:
-    """Build a Part 42 study plan with OMY accumulation and Social Security.
+    """Build a Part 42 study plan with OMY accumulation.
 
     This extends build_omy_study_plan to:
     1. Handle 24-month OMY (G_2yr experiment)
-    2. Wire Social Security cash flow via SupplementalCashFlowStep
-    3. Use the correct withdrawal policy with initial_wealth = $2M pre-OMY
+    2. Use the correct withdrawal policy with initial_wealth = $2M pre-OMY
 
     If `cohorts` is provided, uses those specific cohorts instead of generating
     all cohorts from the dataset. This is used by the bisection evaluate function
@@ -75,12 +71,6 @@ def build_part42_study_plan(
         raise ValueError(f"Dataset too small for {retirement_horizon_years + 1}-year OMY horizon")
 
     param_configs = _build_unified_parameter_configs(base_config)
-
-    # Determine SS start period (period_index when SS begins)
-    # SS starts at year 31 of retirement = 360 months into retirement
-    ss_start_period = omy_months + 360  # 0-indexed period_index
-    ss_active = omy_config.social_security if hasattr(omy_config, 'social_security') else False
-    ss_amount = omy_config.ss_amount if hasattr(omy_config, 'ss_amount') else Decimal("3000")
 
     # Accumulation: once per cohort, cached by start_date
     accumulation_cache: dict[date, Portfolio] = {}
@@ -126,11 +116,6 @@ def build_part42_study_plan(
         withdrawal_policies=(representative_withdrawal,),
     )
 
-    # Create pipeline with SupplementalCashFlowStep for SS
-    create_part42_pipeline(
-        ss_active=ss_active, ss_amount=ss_amount, ss_start_period=ss_start_period
-    )
-
     dataset_cache: dict[tuple[date, int], Dataset] = {}
     units: list[PlannedSimulationUnit] = []
     for cohort in cohorts:
@@ -164,36 +149,6 @@ def build_part42_study_plan(
         cohorts=cohorts,
         param_configs=param_configs,
     )
-
-
-def create_part42_pipeline(
-    ss_active: bool = False,
-    ss_amount: Decimal = Decimal("3000"),
-    ss_start_period: int = 360,
-) -> SimulationPipeline:
-    """Create a pipeline with SupplementalCashFlowStep for Part 42.
-
-    The default pipeline already includes a SupplementalCashFlowStep (inactive by default).
-    This function configures the existing step with Part 42-specific parameters.
-    """
-
-    default = create_default_pipeline()
-    steps = list(default.steps)
-
-    # Find and configure the existing SupplementalCashFlowStep
-    for step in steps:
-        if isinstance(step, SupplementalCashFlowStep):
-            # Replace with configured step
-            configured_step = SupplementalCashFlowStep(
-                ss_amount=ss_amount,
-                ss_start_period=ss_start_period,
-                ss_active=ss_active,
-            )
-            idx = steps.index(step)
-            steps[idx] = configured_step
-            break
-
-    return SimulationPipeline(steps=steps)
 
 
 def build_cohort_specs(

@@ -133,12 +133,7 @@ class TestDeterministicTrajectory:
 
     def test_with_schedule(self) -> None:
         dataset = _make_flat_dataset(12)
-        from fbf.core.execution.pipeline.steps.allocation_decision_step import (
-            AllocationDecisionStep,
-        )
-        schedule = ExecutionSchedule(
-            {AllocationDecisionStep: StepCadence.EVERY_PERIOD}
-        )
+        schedule = ExecutionSchedule({"allocation": StepCadence.EVERY_PERIOD})
         trajectory = DeterministicTrajectory(
             name="Test",
             initial_wealth=Money(Decimal("1000000"), Currency.EUR),
@@ -177,12 +172,10 @@ class TestDeterministicTrajectory:
         assert trajectory.schedule is None
 
     def test_conflicting_rebalance_cadence_raises(self) -> None:
-        from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
-            PortfolioRebalanceStep,
-        )
-
         dataset = _make_flat_dataset(12)
-        schedule = ExecutionSchedule({PortfolioRebalanceStep: StepCadence.EVERY_PERIOD})
+        schedule = ExecutionSchedule().with_rebalance_cadence(
+            StepCadence.EVERY_PERIOD
+        )
         with pytest.raises(ValueError, match="conflicts"):
             DeterministicTrajectory(
                 name="Test",
@@ -416,12 +409,8 @@ class TestExecuteDeterministicTrajectory:
         assert len(result.timeline) == 24
         assert result.success is True
 
-    def test_annual_rebalance_cadence_matches_legacy_schedule(self) -> None:
-        """The explicit cadence is equivalent to the legacy schedule key."""
-        from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
-            PortfolioRebalanceStep,
-        )
-
+    def test_annual_rebalance_cadence_matches_schedule_key(self) -> None:
+        """The explicit cadence is equivalent to the schedule helper."""
         dataset = _make_rising_dataset(36)
 
         def build(
@@ -447,19 +436,19 @@ class TestExecuteDeterministicTrajectory:
                 rebalance_cadence=rebalance_cadence,
             )
 
-        legacy_result = execute_deterministic_trajectory(
+        scheduled_result = execute_deterministic_trajectory(
             build(
-                schedule=ExecutionSchedule(
-                    {PortfolioRebalanceStep: StepCadence.ANNUAL}
+                schedule=ExecutionSchedule().with_rebalance_cadence(
+                    StepCadence.ANNUAL
                 )
             )
         )
-        migrated_result = execute_deterministic_trajectory(
+        explicit_result = execute_deterministic_trajectory(
             build(rebalance_cadence=StepCadence.ANNUAL)
         )
 
-        assert migrated_result.final_wealth == legacy_result.final_wealth
-        assert migrated_result.timeline == legacy_result.timeline
+        assert explicit_result.final_wealth == scheduled_result.final_wealth
+        assert explicit_result.timeline == scheduled_result.timeline
 
     def test_annual_glidepath_integration(self) -> None:
         """Deterministic adapter should work with annual glidepath cadence."""

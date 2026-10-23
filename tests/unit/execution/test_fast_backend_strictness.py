@@ -1,8 +1,7 @@
-"""Contract tests for strict explicit-FAST execution.
+"""Contract tests for fail-closed Numba execution.
 
-Explicit ``FAST`` must either run every context on a Numba kernel or reject the
-plan with ``UnsupportedConfigurationError``.  It must never construct or call
-the legacy reference executor as an internal fallback.
+Every plan must either run entirely on a Numba kernel or be rejected with
+``UnsupportedConfigurationError``.  There is no fallback engine.
 """
 
 from __future__ import annotations
@@ -40,10 +39,7 @@ from fbf.core.execution import (
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
-from fbf.core.execution.strategies.fast_path import (
-    FastPathSimulationExecutor,
-    is_fast_path_eligible,
-)
+from fbf.core.execution.strategies.eligibility import is_fast_path_eligible
 from fbf.core.execution.strategies.numba_executor import (
     NumbaSimulationExecutor,
     is_numba_context_eligible,
@@ -190,25 +186,22 @@ def _fast_options() -> ExecutionOptions:
         ),
     ],
 )
-def test_supported_generic_families_never_construct_reference(
-    monkeypatch: pytest.MonkeyPatch,
+def test_supported_generic_families_execute(
     allocation_policy: Any,
     withdrawal_policy: Any,
 ) -> None:
-    def _unexpected_reference(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("explicit FAST must not construct a reference executor")
-
-    monkeypatch.setattr(
-        "fbf.core.execution.strategies.numba_executor._create_default_simulation_executor",
-        _unexpected_reference,
-    )
-    monkeypatch.setattr(
-        "fbf.core.execution.strategies.parallel_executor._create_reference_simulation_executor",
-        _unexpected_reference,
-    )
-
     built = _make_built_study(allocation_policy, withdrawal_policy)
     result = execute_study_plan(built, _fast_options())
+
+    assert len(result.results) == 1
+
+
+def test_auto_routes_constant_nominal() -> None:
+    built = _make_built_study(
+        ConstantAllocationPolicy(Decimal("0.6")),
+        ConstantWithdrawalPolicy(Decimal("0.04")),
+    )
+    result = execute_study_plan(built, ExecutionOptions())
 
     assert len(result.results) == 1
 
@@ -225,7 +218,7 @@ def test_unsupported_generic_workload_raises() -> None:
         execute_study_plan(built, _fast_options())
 
 
-def test_auto_keeps_graceful_route_for_unsupported_workload() -> None:
+def test_auto_rejects_unsupported_workload() -> None:
     built = _make_built_study(
         ConstantAllocationPolicy(Decimal("0.5")),
         FixedRealWithdrawalPolicy(Decimal("0.04")),
@@ -233,8 +226,8 @@ def test_auto_keeps_graceful_route_for_unsupported_workload() -> None:
         dataset=_make_dataset(include_gold=True),
     )
 
-    executor = _auto_select_backend(built, NoOpProfiler())
-    assert isinstance(executor, FastPathSimulationExecutor)
+    with pytest.raises(UnsupportedConfigurationError):
+        _auto_select_backend(built, NoOpProfiler())
 
 
 def test_non_workbook_static_requires_v0_equals_initial_wealth() -> None:
@@ -273,8 +266,8 @@ def test_non_workbook_static_requires_v0_equals_initial_wealth() -> None:
         execute_study_plan(target_built, _fast_options())
 
 
-def test_strict_executor_rejects_ineligible_without_reference() -> None:
-    executor = NumbaSimulationExecutor(require_all_eligible=True)
+def test_executor_rejects_ineligible_context() -> None:
+    executor = NumbaSimulationExecutor()
     built = _make_built_study(
         ConstantAllocationPolicy(Decimal("0.5")),
         FixedRealWithdrawalPolicy(Decimal("0.04")),
@@ -288,7 +281,7 @@ def test_strict_executor_rejects_ineligible_without_reference() -> None:
         simulation_contexts=contexts,
     )
 
-    with pytest.raises(UnsupportedConfigurationError, match="FAST backend"):
+    with pytest.raises(UnsupportedConfigurationError, match="Numba backend"):
         executor.execute(definition)
 
 

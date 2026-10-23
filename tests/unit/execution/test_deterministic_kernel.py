@@ -28,9 +28,6 @@ from fbf.core.execution import (
 )
 from fbf.core.execution.pipeline.schedule import ExecutionSchedule, StepCadence
 from fbf.core.execution.pipeline.simulation import MonthlyResult
-from fbf.core.execution.pipeline.steps.portfolio_rebalance_step import (
-    PortfolioRebalanceStep,
-)
 
 from .deterministic_reference import ReferenceResult, simulate_reference
 
@@ -84,7 +81,7 @@ def _make_dataset(horizon: int, *, pattern: str = "volatile") -> Dataset:
 
 
 def _annual_schedule() -> ExecutionSchedule:
-    return ExecutionSchedule({PortfolioRebalanceStep: StepCadence.ANNUAL})
+    return ExecutionSchedule().with_rebalance_cadence(StepCadence.ANNUAL)
 
 
 def _trajectory(
@@ -587,8 +584,8 @@ class TestWithdrawalAndFailureSemantics:
             assert checkpoint.allocation.weights[_EQUITY] == Decimal("1")
 
 
-class TestFallbackPolicy:
-    def test_fee_free_unsupported_configuration_uses_legacy_pipeline(self) -> None:
+class TestUnsupportedPolicy:
+    def test_fee_free_unsupported_configuration_raises(self) -> None:
         dataset = _make_dataset(12)
         trajectory = _trajectory(
             dataset,
@@ -602,9 +599,11 @@ class TestFallbackPolicy:
             schedule=_annual_schedule(),
         )
 
-        result = execute_deterministic_trajectory(trajectory)
-        assert result.success is True
-        assert len(result.timeline) == 12
+        with pytest.raises(
+            UnsupportedConfigurationError,
+            match="does not support this configuration",
+        ):
+            execute_deterministic_trajectory(trajectory)
 
     def test_nonzero_fee_unsupported_configuration_raises(self) -> None:
         dataset = _make_dataset(12)
@@ -622,6 +621,6 @@ class TestFallbackPolicy:
 
         with pytest.raises(
             UnsupportedConfigurationError,
-            match="non-zero expense ratio",
+            match="does not support this configuration",
         ):
             execute_deterministic_trajectory(trajectory)

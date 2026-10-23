@@ -11,10 +11,8 @@ The kernel implements the workbook fee convention:
     fee_t = V_{t-1} * expense_ratio / 12
     V_t   = V_{t-1} * (1 + g_t) - fee_t - W_t
 
-Unsupported configurations with no fee are delegated to the legacy pipeline.
-Unsupported configurations with a non-zero fee raise
-``UnsupportedConfigurationError`` rather than silently using the legacy
-stale-base expense correction.
+Unsupported configurations raise ``UnsupportedConfigurationError``; there is
+no fallback execution engine.
 """
 
 from __future__ import annotations
@@ -26,7 +24,7 @@ from typing import TYPE_CHECKING
 from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
-from fbf.core.domain.model.money import Currency, Money
+from fbf.core.domain.model.money import Money
 from fbf.core.domain.policies import AllocationPolicy, WithdrawalPolicy
 from fbf.core.domain.policies.concrete import (
     ConstantAllocationPolicy,
@@ -527,76 +525,23 @@ def _execute_deterministic_kernel(
     )
 
 
-def _execute_legacy_deterministic(
-    trajectory: DeterministicTrajectory,
-    options: ExecutionOptions | None = None,
-) -> DeterministicResult:
-    """Execute through the legacy Decimal pipeline (fee-free fallback only)."""
-    from fbf.core.execution import ExecutionOptions
-    from fbf.core.execution.pipeline.default_pipeline import create_default_pipeline
-    from fbf.core.execution.pipeline.runner import SimulationRunner
-    from fbf.core.execution.pipeline.simulation import SimulationResult
-
-    _ = options or ExecutionOptions()
-
-    context = _build_context(trajectory)
-    pipeline = create_default_pipeline()
-    runner = SimulationRunner(pipeline=pipeline)
-    schedule = trajectory.schedule
-    if trajectory.rebalance_cadence is not None:
-        schedule = (schedule or ExecutionSchedule()).with_rebalance_cadence(
-            trajectory.rebalance_cadence
-        )
-    result: SimulationResult = runner.run(context, schedule=schedule)
-
-    monthly_results = tuple(result.timeline.monthly_results)
-    checkpoints = {mr.period_index: mr for mr in monthly_results}
-
-    def _portfolio_value(monthly_result: MonthlyResult, currency: Currency) -> Money:
-        from fbf.core.domain.model.money import Money
-
-        total = Decimal("0")
-        for holding in monthly_result.portfolio.holdings:
-            price = monthly_result.market_snapshot.index_levels.get(holding.asset_class)
-            if price is not None:
-                total += holding.units * price
-        return Money(total, currency)
-
-    final_wealth = trajectory.initial_wealth
-    if monthly_results:
-        final_wealth = _portfolio_value(
-            monthly_results[-1], trajectory.initial_wealth.currency
-        )
-
-    return DeterministicResult(
-        name=trajectory.name,
-        timeline=monthly_results,
-        checkpoints=checkpoints,
-        final_wealth=final_wealth,
-        success=result.statistics.success,
-        failure_period=result.statistics.failure_month,
-        failure_state=result.statistics.failure_state,
-    )
-
-
 def execute_deterministic_trajectory(
     trajectory: DeterministicTrajectory,
     options: ExecutionOptions | None = None,
 ) -> DeterministicResult:
     """Execute a deterministic trajectory.
 
-    Two-asset configurations with supported allocation/withdrawal policies are
-    executed by the dedicated Numba kernel.  Unsupported fee-free
-    configurations fall back to the legacy Decimal pipeline.  Unsupported
-    configurations with a non-zero fee raise ``UnsupportedConfigurationError``.
+    Supported two-asset configurations are executed by the dedicated Numba
+    kernel.  Unsupported configurations raise
+    ``UnsupportedConfigurationError``; there is no fallback engine.
 
     Parameters
     ----------
     trajectory:
         The deterministic trajectory configuration.
     options:
-        Optional ExecutionOptions for the legacy fallback.  The kernel path
-        always materializes the full monthly timeline.
+        Accepted for API compatibility.  The kernel path always materializes
+        the full monthly timeline.
 
     Returns
     -------
@@ -607,13 +552,10 @@ def execute_deterministic_trajectory(
     if reason is None:
         return _execute_deterministic_kernel(trajectory)
 
-    if trajectory.expense_ratio > 0:
-        raise UnsupportedConfigurationError(
-            "deterministic Numba execution does not support this configuration "
-            f"with a non-zero expense ratio: {reason}"
-        )
-
-    return _execute_legacy_deterministic(trajectory, options)
+    raise UnsupportedConfigurationError(
+        "deterministic Numba execution does not support this configuration: "
+        f"{reason}"
+    )
 
 
 __all__ = [

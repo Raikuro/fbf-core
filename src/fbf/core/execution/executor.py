@@ -188,7 +188,7 @@ class ResearchExecutor:
         Returns
         -------
         SimulationContext
-            A fully populated, frozen engine context ready for ``SimulationRunner``.
+            A fully populated, frozen engine context ready for a ``SimulationExecutor``.
 
         Raises
         ------

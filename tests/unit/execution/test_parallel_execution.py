@@ -10,7 +10,6 @@ Verifies the behavioral specification PARALLEL_EXECUTION_SPECIFICATION.md:
 
 from __future__ import annotations
 
-import random
 from datetime import date
 from decimal import Decimal
 from unittest.mock import Mock
@@ -23,7 +22,6 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
-from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.decisions import AllocationDecision, WithdrawalDecision
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
@@ -43,17 +41,12 @@ from fbf.core.execution.strategies.parallel_executor import (
     parallel_execute,
     sequential_execute,
 )
-from fbf.core.study.builder import build_initial_portfolio
-from fbf.core.study.internal.cohort.generator import CohortGenerator
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
-from fbf.core.study.internal.parameter.axis import ParameterAxis
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
-from fbf.core.study.internal.parameter.engine import ParameterSweepEngine
 from fbf.core.study.plan import (
     PlannedSimulationUnit,
     ResearchPlan,
-    materialize_research_plan,
 )
 
 # ---------------------------------------------------------------------------
@@ -293,74 +286,6 @@ def test_parallel_determinism_across_runs() -> None:
     )
 
     assert run1.results == run2.results
-
-
-def _make_real_engine_plan() -> ResearchPlan:
-    """Build a small multi-cohort, multi-config plan for the real Decimal fbf.core."""
-    rng = random.Random(11)
-    equity = AssetClass(id="equity", name="", description="")
-    bond = AssetClass(id="bond", name="", description="")
-    pe = pb = Decimal("100")
-    snapshots = []
-    d = date(2000, 1, 1)
-    for _ in range(60):
-        snapshots.append(
-            MarketSnapshot(
-                date=d,
-                index_levels={equity: pe, bond: pb},
-                inflation=Decimal("0"),
-                inflation_cumulative=Decimal("0"),
-                is_ath=True,
-                is_underwater=False,
-                running_ath=Decimal("100"),
-            )
-        )
-        pe *= Decimal(str(1 + rng.gauss(0.006, 0.04)))
-        pb *= Decimal(str(1 + rng.gauss(0.002, 0.01)))
-        d = date(d.year + (d.month // 12), d.month % 12 + 1, 1)
-    dataset = Dataset(snapshots=snapshots, frequency="monthly")
-
-    cohorts = CohortGenerator.generate_rolling_monthly(dataset, 36)
-    alloc = ConstantAllocationPolicy(Decimal("0.6"))
-    withdraw = FixedRealWithdrawalPolicy(Decimal("0.04"))
-    configs = ParameterSweepEngine.cartesian_product(
-        [
-            ParameterAxis(name="equity_allocation", values=(0.6, 0.4)),
-            ParameterAxis(name="withdrawal_rate", values=(0.03, 0.04)),
-        ]
-    )
-    exp_def = ExperimentDefinition(
-        name="real-determinism",
-        description="real-engine parallel determinism",
-        dataset=dataset,
-        horizon_months=36,
-        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-        cohorts=cohorts,
-        allocation_policies=(alloc,),
-        withdrawal_policies=(withdraw,),
-    )
-    return materialize_research_plan(
-        experiment_def=exp_def,
-        canonical_trajectory=dataset,
-        cohorts=cohorts,
-        param_configs=configs,
-        initial_portfolio=build_initial_portfolio(exp_def.initial_wealth, dataset),
-        horizon_resolver=lambda c: 36,
-        policy_resolver=lambda c: (alloc, withdraw),
-    )
-
-
-def test_real_engine_parallel_matches_sequential() -> None:
-    """Parallel execution through the real Decimal engine is bit-for-bit equal
-    to sequential execution (result and per-month timeline)."""
-    plan = _make_real_engine_plan()
-
-    seq_result = sequential_execute(plan)
-    par_result = parallel_execute(plan, max_workers=2)
-
-    assert len(par_result.results) == len(seq_result.results)
-    for seq, par in zip(seq_result.results, par_result.results, strict=True):
-        assert seq == par
 
 
 def test_parallel_executor_class_wrapper() -> None:

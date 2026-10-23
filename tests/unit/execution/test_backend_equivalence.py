@@ -137,19 +137,6 @@ class TestAutoDispatchCorrectness:
         )
         assert result.experiment_result is not None
 
-    def test_explicit_reference_always_uses_decimal(self) -> None:
-        """Explicit REFERENCE always uses Decimal, even for eligible workloads."""
-        built = _make_built_study(cohorts=1, horizons=[720])
-        result = execute_study_plan(
-            built,
-            options=ExecutionOptions(
-                backend=ExecutionBackend.DECIMAL_FAST_PATH,
-                strategy=ExecutionStrategy.SEQUENTIAL,
-                summary_only=True,
-            ),
-        )
-        assert result.experiment_result is not None
-
     def test_explicit_fast_always_uses_numba(self) -> None:
         """Explicit FAST always uses Numba, even when AUTO would choose differently."""
         built = _make_built_study(cohorts=1, horizons=[720])

@@ -1,4 +1,8 @@
-"""Parallel execution module for FIRE Backtesting Framework (v0.4)."""
+"""Simulation execution strategies.
+
+The optimized Numba executors are the only simulation engines.  Shared
+eligibility and trajectory-grouping helpers live in :mod:`.eligibility`.
+"""
 
 from .parallel_executor import (
     ExecutionConfig,
@@ -7,7 +11,6 @@ from .parallel_executor import (
     parallel_execute,
     sequential_execute,
 )
-from .reference import ReferenceSimulationExecutor
 
 __all__ = [
     "ExecutionConfig",
@@ -15,5 +18,4 @@ __all__ = [
     "create_work_batches",
     "parallel_execute",
     "sequential_execute",
-    "ReferenceSimulationExecutor",
 ]

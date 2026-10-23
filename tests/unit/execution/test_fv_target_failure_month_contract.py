@@ -8,10 +8,10 @@ and ``failure_state`` remain ``None``.
 
 These tests pin the contract at two levels:
 
-1. Every final-value-check implementation across execution modes agrees on the
-   contract (direct, parametrized over the private helpers).
-2. Equivalent FixedReal configurations produce consistent end-to-end results
-   through the REFERENCE and FAST execution modes.
+1. Every final-value-check implementation agrees on the contract (direct,
+   parametrized over the private helpers).
+2. FixedReal configurations produce consistent end-to-end results through the
+   Numba executor.
 """
 
 from __future__ import annotations
@@ -31,11 +31,9 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies import (
-    fast_path,
     numba_executor,
     part49_numba_executor,
     part52_numba_executor,
-    reference,
 )
 from fbf.core.study.plan import ResearchPlan
 from tests.unit.execution.conftest import make_context, make_dataset, make_plan
@@ -43,8 +41,6 @@ from tests.unit.execution.conftest import make_context, make_dataset, make_plan
 _FV_CHECK = Callable[[SimulationResult, SimulationContext], SimulationResult]
 
 _FV_CHECKS = [
-    pytest.param(fast_path._apply_fv_check, id="fast_path"),
-    pytest.param(reference._apply_fv_check, id="reference"),
     pytest.param(numba_executor._apply_fv_check, id="numba"),
     pytest.param(part52_numba_executor._apply_fv_check, id="part52_numba"),
     pytest.param(part49_numba_executor._apply_part49_fv_check, id="part49_numba"),
@@ -144,21 +140,14 @@ def _plan_with_target(target: Decimal) -> ResearchPlan:
     return ResearchPlan(experiment_definition=base.experiment_definition, units=units)
 
 
-def _execute_fixed_real(target: Decimal, fast: bool) -> SimulationStatistics:
+def _execute_fixed_real(target: Decimal) -> SimulationStatistics:
     pytest.importorskip("numba")
+    from fbf.core.execution.strategies.numba_executor import (
+        NumbaSimulationExecutor,
+    )
     from fbf.core.execution.strategies.parallel_executor import sequential_execute
 
-    executor: SimulationExecutor
-    if fast:
-        from fbf.core.execution.strategies.numba_executor import (
-            NumbaSimulationExecutor,
-        )
-
-        executor = NumbaSimulationExecutor()
-    else:
-        from fbf.core.execution.strategies.fast_path import FastPathSimulationExecutor
-
-        executor = FastPathSimulationExecutor()
+    executor: SimulationExecutor = NumbaSimulationExecutor()
 
     run = sequential_execute(
         _plan_with_target(target),
@@ -169,21 +158,17 @@ def _execute_fixed_real(target: Decimal, fast: bool) -> SimulationStatistics:
     return run.results[0].statistics
 
 
-class TestFixedRealCrossModeConsistency:
-    """Equivalent FixedReal configurations agree across REFERENCE and FAST."""
+class TestFixedRealEndToEndConsistency:
+    """FixedReal configurations preserve the FV failure-month contract."""
 
     def test_fv_miss_is_consistent(self) -> None:
-        reference_stats = _execute_fixed_real(Decimal("100"), fast=False)
-        fast_stats = _execute_fixed_real(Decimal("100"), fast=True)
-        for stats in (reference_stats, fast_stats):
-            assert stats.success is False
-            assert stats.failure_month is None
-            assert stats.failure_state is None
+        stats = _execute_fixed_real(Decimal("100"))
+        assert stats.success is False
+        assert stats.failure_month is None
+        assert stats.failure_state is None
 
     def test_fv_target_met_is_consistent(self) -> None:
-        reference_stats = _execute_fixed_real(Decimal("0.5"), fast=False)
-        fast_stats = _execute_fixed_real(Decimal("0.5"), fast=True)
-        for stats in (reference_stats, fast_stats):
-            assert stats.success is True
-            assert stats.failure_month is None
-            assert stats.failure_state is None
+        stats = _execute_fixed_real(Decimal("0.5"))
+        assert stats.success is True
+        assert stats.failure_month is None
+        assert stats.failure_state is None

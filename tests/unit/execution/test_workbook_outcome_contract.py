@@ -4,10 +4,8 @@
 (the portfolio reaching zero).  It is never inferred from ``SCR < rate`` and is
 never merely the horizon at which a success criterion is evaluated.
 
-These tests exercise the three production workbook paths -- the Decimal closed
-form, the Fast Path group executor and the Numba executor -- and require them to
-agree on ``success`` / ``failure_month`` / ``failure_state`` / ``months_simulated``
-for the same context.  The expected month is derived independently from the
+These tests exercise the Numba executor and require it to agree on ``success`` /
+``failure_month`` / ``failure_state`` / ``months_simulated`` with the
 authoritative workbook recurrence (``SWR_Toolbox_v2.0.xlsx`` ``Case Study``:
 withdraw before growth; fee embedded additively in returns).
 """
@@ -28,10 +26,6 @@ from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.strategies.fast_path import (
-    FastPathSimulationExecutor,
-    evaluate_closed_form,
-)
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.study.builder import build_initial_portfolio
 
@@ -113,43 +107,38 @@ def _expected_depletion_month(rate: Decimal, horizon: int) -> int | None:
 
 
 @pytest.mark.parametrize("horizon,rate", _SCENARIOS)
-def test_workbook_outcome_consistent_across_paths(horizon: int, rate: Decimal) -> None:
+def test_workbook_outcome_matches_independent_recurrence(
+    horizon: int, rate: Decimal
+) -> None:
     context = _context(horizon, rate)
     expected_month = _expected_depletion_month(rate, horizon)
     expected_success = expected_month is None
     expected_months = horizon if expected_month is None else expected_month
     expected_state = None if expected_month is None else "depleted"
 
-    closed = evaluate_closed_form(context).statistics
-    fast = (
-        FastPathSimulationExecutor()
-        .execute(_definition(context))
-        .simulation_results[0]
-        .statistics
-    )
-    numba = (
+    stats = (
         NumbaSimulationExecutor()
         .execute(_definition(context))
         .simulation_results[0]
         .statistics
     )
 
-    for label, stats in (
-        ("evaluate_closed_form", closed),
-        ("FastPathSimulationExecutor", fast),
-        ("NumbaSimulationExecutor", numba),
-    ):
-        assert stats.success == expected_success, label
-        assert stats.failure_month == expected_month, label
-        assert stats.failure_state == expected_state, label
-        assert stats.months_simulated == expected_months, label
+    assert stats.success == expected_success
+    assert stats.failure_month == expected_month
+    assert stats.failure_state == expected_state
+    assert stats.months_simulated == expected_months
 
 
 def test_depletion_month_is_not_the_horizon() -> None:
     """An unsustainable rate reports the actual depletion month, not the horizon."""
     horizon, rate = 120, Decimal("0.15")
     context = _context(horizon, rate)
-    stats = evaluate_closed_form(context).statistics
+    stats = (
+        NumbaSimulationExecutor()
+        .execute(_definition(context))
+        .simulation_results[0]
+        .statistics
+    )
 
     assert stats.success is False
     assert stats.failure_state == "depleted"
@@ -162,7 +151,12 @@ def test_depletion_month_is_not_the_horizon() -> None:
 def test_sustainable_path_has_no_failure_fields() -> None:
     horizon, rate = 60, Decimal("0.04")
     context = _context(horizon, rate)
-    stats = evaluate_closed_form(context).statistics
+    stats = (
+        NumbaSimulationExecutor()
+        .execute(_definition(context))
+        .simulation_results[0]
+        .statistics
+    )
 
     assert stats.success is True
     assert stats.failure_month is None

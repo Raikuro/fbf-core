@@ -207,9 +207,8 @@ class BuyAndHoldAllocationPolicy(AllocationPolicy):
 
     This policy returns the same initial allocation target on every call.
     The buy-and-hold behavior is enforced by applying the allocation target
-    once in period 0: ``create_buy_and_hold_pipeline`` includes
-    AllocationDecisionStep and PortfolioRebalanceStep restricted to the first
-    period, after which the weights drift with market movements.
+    once in period 0 and never rebalancing afterwards, so the weights drift
+    with market movements.
     """
 
     def __init__(self, equity_allocation: Decimal) -> None:

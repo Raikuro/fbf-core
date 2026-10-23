@@ -29,6 +29,7 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, EscalatingWithdrawalPolicy
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.execution import _auto_select_backend
+from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
@@ -514,9 +515,8 @@ class TestEscalatingExecutorDifferential:
         context = _make_context(base, 36, wealth=Decimal("990000"))
         assert _is_escalating_eligible(context) is False
 
-        # Falls back to the reference executor and still yields a result.
-        results = _run_numba([context])
-        assert len(results) == 1
+        with pytest.raises(UnsupportedConfigurationError):
+            _run_numba([context])
 
     def test_glidepath_allocation_is_not_escalating_eligible(self) -> None:
         from fbf.core.domain.policies import GlidepathAllocationPolicy
@@ -538,10 +538,10 @@ class TestEscalatingExecutorDifferential:
             ),
             withdrawal_policy=context.withdrawal_policy,
         )
-        # Ineligible for the escalating kernel; falls back to the reference
-        # path and still returns a well-formed result.
-        results = _run_numba([glide_ctx])
-        assert len(results) == 1
+        # Ineligible for the escalating kernel and not eligible as a glidepath
+        # either (escalating withdrawal), so execution fails closed.
+        with pytest.raises(UnsupportedConfigurationError):
+            _run_numba([glide_ctx])
 
 
 # ---------------------------------------------------------------------------
