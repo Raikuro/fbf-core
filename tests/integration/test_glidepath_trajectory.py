@@ -136,13 +136,17 @@ def test_active_glidepath_controlled_trajectory() -> None:
     expected_weights = _compute_expected_equity_weights(
         uw, Decimal("0.6"), _SLOPE
     )
+    assert len(timeline.monthly_results) == len(uw)
 
+    # Month 0 is the pre-retirement base row.  The weight applied to the
+    # return from month j-1 to month j is shown at month j.
+    expected_timeline = [expected_weights[0]] + expected_weights[: len(uw) - 1]
     for i, monthly in enumerate(timeline.monthly_results):
         if monthly.allocation_target is not None:
             actual = monthly.allocation_target.weights.get(_EQUITY)
             assert actual is not None, f"Period {i}: no equity"
-            assert actual == expected_weights[i], (
-                f"Period {i}: expected={expected_weights[i]}, got={actual}"
+            assert actual == expected_timeline[i], (
+                f"Period {i}: expected={expected_timeline[i]}, got={actual}"
             )
 
 
@@ -159,12 +163,17 @@ def test_passive_glidepath_controlled_trajectory() -> None:
 
     assert len(result.results) == 1
     timeline = result.results[0].timeline
+    assert len(timeline.monthly_results) == len(uw)
 
     for i, monthly in enumerate(timeline.monthly_results):
         if monthly.allocation_target is not None:
             actual = monthly.allocation_target.weights.get(_EQUITY)
             assert actual is not None, f"Period {i}: no equity"
-            expected = min(Decimal("0.6") + _SLOPE * i, Decimal("1"))
+            # Month 0 is the base row; month i >= 1 applies the (i - 1)-th
+            # step of the passive glidepath.
+            expected = min(
+                Decimal("0.6") + _SLOPE * max(i - 1, 0), Decimal("1")
+            )
             assert actual == expected, (
                 f"Period {i}: expected={expected}, got={actual}"
             )

@@ -101,7 +101,6 @@ from fbf.core.execution.strategies.numba_kernel import (
     _simulate_trajectory_buy_and_hold,
     _simulate_trajectory_constant_nominal,
     _simulate_trajectory_escalating,
-    _simulate_trajectory_varying,
     _simulate_trajectory_workbook,
     compute_growth_factors_varying_weights_batch,
 )
@@ -1352,26 +1351,33 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
         for horizon, h_contexts in horizon_to_ctxs.items():
             stats["month_work"] += horizon
-            growth_factors_arr = growth_factors_full[:horizon]
+
+            # Workbook convention (SWR Toolbox ``Case Study``): the context
+            # horizon includes the pre-retirement snapshot, so the number of
+            # withdrawal / return periods is ``horizon - 1``.  Withdraw before
+            # growth in every period and compound the final period's return.
+            # The glidepath weight sequence is the simulator extension: the
+            # workbook's own glidepath is a fixed 120-month linear transition,
+            # whereas ERN uses an active/passive slope relative to the
+            # beginning-of-period underwater state.
+            periods = horizon - 1
+            growth_factors_arr = growth_factors_full[:periods]
 
             out_values = (
-                np.empty(horizon, dtype=np.float64)
+                np.empty(periods + 1, dtype=np.float64)
                 if self._materialize_timeline
                 else None
             )
-            _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_varying(
-                growth_factors_arr, v0, c, horizon, out_values
+            final_value, traj_success, fail_month, _ = _simulate_trajectory_workbook(
+                growth_factors_arr, v0, c, periods, out_values
             )
 
-            if 0 <= fail_month < horizon:
-                success = False
-                failure_month = fail_month
+            success = traj_success
+            failure_month = fail_month + 1 if 0 <= fail_month < periods else None
+            if failure_month is not None:
                 final_value = 0.0
-                months_simulated = fail_month
+                months_simulated = failure_month
             else:
-                final_value = _final_val
-                success = True
-                failure_month = None
                 months_simulated = horizon
 
             timeline = None
@@ -1379,19 +1385,30 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 policy = cast(
                     GlidepathAllocationPolicy, sample_ctx.allocation_policy
                 )
+                # Month 0 is the pre-retirement base row (no withdrawal).  The
+                # weight applied to the return from month j-1 to month j is the
+                # sequence entry j-1, so the timeline shows the initial weight
+                # at month 0 and shifts the sequence by one month thereafter.
+                weight_months = max(periods, 1)
                 is_underwater = _extract_is_underwater(
-                    sample_ctx.dataset, months_simulated
+                    sample_ctx.dataset, weight_months
                 )
                 equity_weights = _compute_equity_weight_sequence(
-                    policy, is_underwater, months_simulated
+                    policy, is_underwater, weight_months
+                )
+                timeline_weights = (
+                    [equity_weights[0]] + list(equity_weights[: months_simulated - 1])
+                    if months_simulated > 0
+                    else []
                 )
                 timeline = build_simulation_timeline(
                     sample_ctx,
                     out_values,
                     n_months=months_simulated,
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
-                    withdrawal_amounts=[Decimal(str(c))] * months_simulated,
-                    target_equity_weights=equity_weights,
+                    withdrawal_amounts=[Decimal("0")]
+                    + [Decimal(str(c))] * (months_simulated - 1),
+                    target_equity_weights=timeline_weights,
                 )
 
             for ctx in h_contexts:

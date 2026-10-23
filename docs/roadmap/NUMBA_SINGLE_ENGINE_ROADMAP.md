@@ -196,10 +196,10 @@ Classification key:
 | 1 | Fixed-real withdrawals (workbook SCR) | `concrete.py:121` `FixedRealWithdrawalPolicy` | 1 | `_simulate_trajectory_end_of_period` (`numba_kernel.py:104`), `_compute_workbook_scr` (`:63`), `_evaluate_workbook_scr_path` (`fast_path.py:502`), `_process_static_group` (`numba_executor.py:908`) | None for summary stats | None | `tests/unit/execution/test_fast_path.py`, Part20 tests | None | SCR-based success matches workbook SCR formula; end-of-period trajectory matches workbook timing |
 | 2 | Constant nominal withdrawals | `concrete.py:85` `ConstantWithdrawalPolicy`; `_simulate_trajectory_constant_nominal` (`numba_kernel.py:204`) | 1 | Numba value-scaled recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` (B2) | Glidepath + constant-nominal not eligible | None for `ConstantAllocationPolicy` | `tests/unit/execution/test_backend_strategy_matrix.py`; generic studies | Additive fee convention (B1) | Recurrence test + differential vs legacy (fee = 0) |
 | 3 | Constant allocation weights | `concrete.py:23` `ConstantAllocationPolicy` | 1 | `_weights_by_class` (`fast_path.py:209`) | Fixed-real: legacy two-asset form and explicit N-asset `allocations` (B5); other withdrawal policies retain the legacy two-asset form | None for fixed-real | ERN grid, Part 19/20 | Legacy scalar form exposes only `equity_allocation`; explicit `allocations` covers fixed-real | Covered for legacy 2-asset and explicit N-asset fixed-real (B5) |
-| 4 | Time-varying weights / glidepaths (dynamic, not in workbook) | `glidepath.py` `GlidepathAllocationPolicy` | 2 | `_is_glidepath_eligible` (`numba_executor.py:239`), `_compute_equity_weight_sequence` (`:465`), `compute_growth_factors_varying_weights_batch` (`numba_kernel.py:946`) | **Not adapted to workbook methodology**; uses legacy beginning-of-period recurrence with multiplicative fee. D1 timeline materialization and the D3 deterministic adapter do not close this gap | Document coherent extension spec; implement workbook-aligned timing/fee for glidepaths | Part 19/20 (`research/part19_*`, `part20_*`) | Workbook does not implement glidepaths; extension must be designed. **OPEN** | Static workbook fidelity complete; **glidepath fidelity NOT STARTED; specification still missing** |
+| 4 | Time-varying weights / glidepaths (ERN dynamic extension) | `glidepath.py` `GlidepathAllocationPolicy` | 2 | `_is_glidepath_eligible` (`numba_executor.py:239`), `_compute_equity_weight_sequence` (`:465`), `compute_growth_factors_varying_weights_batch` (`numba_kernel.py:946`), `_process_glidepath_group` (`numba_executor.py:1329`) | Shared workbook mechanics aligned: base row, `horizon - 1` withdraw/grow periods, terminal compounding, additive fee in the weighted return. ERN's active/passive weight sequence is an intentional extension (the workbook's glidepath is a fixed 120-month linear transition) | **COMPLETE** (shared mechanics aligned; extension documented in §5.2) | Part 19/20 (`research/part19_*`, `part20_*`) | None. Workbook keeps its own fixed linear glidepath; ERN active/passive is not defined there | Glidepath withdraws before growth, compounds the final period, and cancels the base-row withdrawal; ERN weight sequence and trajectory-depletion success preserved |
 | 5 | Two-asset portfolios | `fast_path.py:188`, `numba_executor.py:186` | 1 | All Numba kernels | None | None | ERN workloads | None | Already covered |
 | 6 | Multi-asset portfolios (3+) | `concrete.py` `ConstantAllocationPolicy.allocations`; `fast_path.py:209` `_weights_by_class` | 1 | Growth-factor helper is N-asset; `_weights_by_class` resolves per-class weights via `resolve_target_weights` (B5) | None for constant fixed-real; nominal/escalating/Part 52 gate to the legacy form | **COMPLETE** (B5) | `tests/unit/domain/test_multi_asset_allocation.py`, `tests/unit/strategies/test_multi_asset_allocation.py` | Deferred withdrawal policies fall back for explicit allocations | Independent N-asset Decimal oracle + differential test on 3 assets pass |
-| 7 | Expense ratios / fee application (workbook additive) | `expense_deduction_step.py` `ExpenseDeductionStep` | 1 | Workbook SCR formula uses additive fee in returns: `weighted_return - fee/12`; growth factors computed with fee embedded; end-of-period trajectory in `numba_kernel.py:104` and `fast_path.py:466` | Fee model aligned with workbook for static allocations and Part 52 (C2); Part 49 fee semantics pending | **COMPLETE** (implemented in workbook SCR path and Part 52 kernel) | `ern_grid.yaml` sets `expense_ratio: 0.0005`; Part20 tests updated; Part 52 B1 tests | Fee model differs by study (Part 49 legacy vs Part 52/workbook additive) | Static allocation + Part 52: workbook additive fee validated; Dynamic glidepaths: pending |
+| 7 | Expense ratios / fee application (workbook additive) | `expense_deduction_step.py` `ExpenseDeductionStep` | 1 | Workbook SCR formula uses additive fee in returns: `weighted_return - fee/12`; growth factors computed with fee embedded; end-of-period trajectory in `numba_kernel.py:104` and `fast_path.py:466` | Fee model aligned with workbook for static allocations and Part 52 (C2); Part 49 fee semantics pending | **COMPLETE** (implemented in workbook SCR path and Part 52 kernel) | `ern_grid.yaml` sets `expense_ratio: 0.0005`; Part20 tests updated; Part 52 B1 tests | Fee model differs by study (Part 49 legacy vs Part 52/workbook additive) | Static allocation + Part 52 + glidepath: workbook additive fee validated; glidepath fee uses the same embedded form in varying-weight growth factors |
 | 8 | Debt state + loan drawdown | `loan_draw_step.py` `LoanDrawStep`; `part49_withdrawal.py`, `part52_withdrawal.py` | 2 | Part52 kernel `_simulate_part52` (`numba_kernel.py:1559`) tracks `Y`, draws | Part 49 leverage (`Part49WithdrawalPolicy`) not eligible | Generalize debt kernel or add Part 49 eligibility | `tests/integration/test_part52_*`, Part 49 debt tests | Requires `interest_rate_schedule` for Part52 | Part 52 + Part 49 leverage E2E pass |
 | 9 | Repay at fresh ATH | `loan_repayment_step.py` `LoanRepaymentStep` | 1 | `_simulate_part52` repay branch (`numba_kernel.py:1559`, loan-repayment step) | None for Part52 | None | `test_part52_compound_drawdown.py` | None | Part 52 E2E pass |
 | 10 | Floating-rate interest (FFR) | `interest_accrual_step.py` `InterestAccrualStep` | 1 | `_compute_monthly_rates` (`part52_numba_executor.py:157`) | None for Part52 | None | `test_part52_ffr_floating_rate.py` | None | Part 52 FFR test pass |
@@ -285,10 +285,11 @@ classes so they stop using the legacy fallback.
 Work items (each independently testable):
 
 1. **B1 — Non-zero expense ratio (additive fee).** ✅ Implemented for static
-   allocations and Part 52. Additive fee is embedded in the growth factors
+   allocations, Part 52, and glidepaths. Additive fee is embedded in the growth factors
    (`g_m' = g_m - fee/12`, matching the workbook's `1 + r - f/12`), not the
    multiplicative form. See the B1 milestone below. Glidepath fee alignment is
-   tracked under capability #4.
+   implemented in the varying-weight growth factors and validated under
+   capability #4.
 
 2. **B2 — Constant nominal withdrawal.** ✅ Implemented for
    `ConstantAllocationPolicy`: value-scaled recurrence
@@ -342,7 +343,8 @@ Work items:
    `g_m = Σ_j w_j · P_{j,m}/P_{j,m-1} − fee/12`, matching the workbook's
    `1 + r − f/12`. Validated by independent numerical checks
    (`TestPart52ExpenseRatioIndependentValidation`) plus the B1 audit tests.
-   Glidepath fee alignment is tracked under capability #4.
+   Glidepath fee alignment is implemented in the varying-weight growth factors
+   and validated under capability #4.
 
 3. **C3 — Part 49 debt (`loan_draw_rate`) migration.**
    ✅ Complete.
@@ -712,7 +714,8 @@ Work items:
 Phase D gate (Final Deletion Gate):
 - All capabilities in §3 migrated or explicitly retained.
 - Workbook fidelity for static allocations validated.
-- Dynamic glidepath extension specification documented.
+- Dynamic glidepath extension specification documented and validated: shared
+  workbook timing/fee mechanics plus the ERN active/passive weight sequence.
 - Zero production references to legacy symbols.
 - D5b complete: `ExecutionBackend.DECIMAL_FAST_PATH` canonicalized with
   `REFERENCE` retained as a deprecated same-value alias; Core minor version
@@ -778,7 +781,28 @@ Each specialized workload preserves its own semantics:
   fresh ATH, FFR interest, LTV enforcement. Its fee/ordering convention is
   that of its own reference and anchors, not the Part 49 workbook.
 - **Part 49 (debt)** — `loan_draw_rate` leverage semantics.
-- **Part 19/20** — glidepath weight sequences and CAPE aggregation.
+- **Part 19/20 (glidepath extension).** The workbooks define the shared
+  withdrawal/growth mechanics but not ERN's dynamic glidepath. The extension is
+  specified as two separable layers:
+  1. **Shared workbook mechanics (validated against both workbooks).** The
+     pre-retirement snapshot is the base row and has no withdrawal. Each of the
+     `horizon - 1` periods withdraws before growth:
+     `P(t) = (P(t-1) - W(t)) * (1 + R(t))`, the final period's return is
+     compounded, and the additive fee is embedded as
+     `weighted_return - fee/12`. Depletion is reported with the base-row month
+     convention (first withdrawal period is month 1).
+  2. **ERN-specific weight sequence (simulator extension).** The equity weight
+     is `min(start + slope * advancements, end)`, where `advancements` is the
+     period index for passive mode and the count of beginning-of-period
+     underwater snapshots for active mode. The workbook's own glidepath is a
+     fixed 120-month linear transition, so it is not used as the ERN weight
+     authority. Success remains trajectory depletion; the workbook SCR verdict
+     is defined only for static allocations.
+
+  Validated by `tests/unit/strategies/test_numba_glidepath_workbook.py`
+  (independent Decimal recurrence, fee, terminal period, depletion) and
+  `tests/integration/test_glidepath_trajectory.py` (controlled active/passive
+  allocation path). CAPE aggregation is unchanged.
 - **Buy-and-hold** — no periodic rebalancing.
 - **Deterministic trajectory** — checkpoint contract.
 
@@ -881,7 +905,7 @@ does not affect the execution architecture; see `TODO.md`.
 | `src/fbf/core/execution/strategies/part49_numba_executor.py` | `Part49NumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError` |
 | `src/fbf/core/execution/strategies/part52_numba_executor.py` | `Part52NumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError`; expense ratio supported (B1/C2) |
 | `src/fbf/core/execution/strategies/part49_buy_and_hold_numba_executor.py` | `Part49BuyAndHoldNumbaExecutor` | D4.1 | Removed `_reference` / `reference_executor`; ineligible configurations raise `UnsupportedConfigurationError` |
-| `src/fbf/core/execution/strategies/numba_kernel.py` | `_simulate_trajectory`, `_simulate_trajectory_end_of_period`, `_simulate_trajectory_varying`, `_compute_workbook_scr`, `_simulate_part52` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); trajectories (D1); debt snapshots |
+| `src/fbf/core/execution/strategies/numba_kernel.py` | `_simulate_trajectory`, `_simulate_trajectory_end_of_period`, `_simulate_trajectory_workbook`, `_compute_workbook_scr`, `_simulate_part52` | B/C/D | **Workbook SCR COMPLETE**; nominal/escalating/buy-and-hold complete (B2/B3/B4); glidepath uses the workbook recurrence; trajectories (D1); debt snapshots |
 | `src/fbf/core/execution/deterministic.py` | `execute_deterministic_trajectory`, `_execute_legacy_deterministic` | D | Numba kernel implemented (D3); legacy fee-free fallback remains |
 
 ### 7.1.1 Reference-hook and legacy-consumer inventory after D4.1
@@ -1279,7 +1303,8 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | A3: Document legacy consumers | ✅ Complete | §1.3 | b4ff4ad | Verified via grep |
 | E1: Strict Numba FAST execution | ✅ Complete (enabler) | `test_fast_backend_strictness.py`; explicit FAST rejects ineligible contexts; AUTO unchanged | f28f571 (fbf-core) | Hardens §2.1/§2.2; not a roadmap phase completion |
 | E2: Public Part 3 research facade | ✅ Complete (enabler) | `fbf.core.research` Tier 2; `tests/contract/test_research_public_api.py` | d44213c (fbf-core) | Prerequisite for D5a; CLI still imports Tier 3 until D5a |
-| B1: Expense ratios (additive fee) | ✅ Complete (audited & fixed) | `workbook_scr.py`, `test_fast_path.py`, `part52_numba_executor.py` | 8dfbf24 (audited) | Static + Part 52 complete; Glidepath pending; **Critical cache key + fee pass-through bug fixed** |
+| B1: Expense ratios (additive fee) | ✅ Complete (audited & fixed) | `workbook_scr.py`, `test_fast_path.py`, `part52_numba_executor.py`, `test_numba_glidepath_workbook.py` | 8dfbf24 (audited) | Static + Part 52 + glidepath complete; **Critical cache key + fee pass-through bug fixed** |
+| Capability #4: Glidepath shared mechanics | ✅ Complete | `numba_executor.py` `_process_glidepath_group`; `test_numba_glidepath_workbook.py`; `test_glidepath_trajectory.py` | See git history | Workbook recurrence applied (base row, `horizon - 1` periods, terminal compounding, additive fee); ERN active/passive weight sequence retained and specified in §5.2 |
 | B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | 00b5770 | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
 | Numba cache/dataset identity fix | ✅ Complete | `test_numba_executor_differential.py`, `test_part52_numba_executor.py` | 99aa5a4 | Dataset-identity tokens + identity-prefix clustering in both Numba executors |
 | B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | a00c0ec | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
