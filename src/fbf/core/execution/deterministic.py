@@ -23,9 +23,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-import numpy as np
-from numpy.typing import NDArray
-
 from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
@@ -44,6 +41,9 @@ from fbf.core.execution.pipeline.schedule import ExecutionSchedule, StepCadence
 from fbf.core.execution.strategies.trajectory import build_simulation_timeline
 
 if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import NDArray
+
     from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
     from fbf.core.execution import ExecutionOptions
     from fbf.core.execution.pipeline.simulation import MonthlyResult
@@ -317,6 +317,8 @@ def _effective_rebalance_cadence(trajectory: DeterministicTrajectory) -> StepCad
 
 
 def _rebalance_flags(trajectory: DeterministicTrajectory) -> NDArray[np.bool_]:
+    import numpy as np
+
     horizon = trajectory.horizon_months
     if _effective_rebalance_cadence(trajectory) is StepCadence.ANNUAL:
         return np.array(
@@ -335,6 +337,8 @@ def _withdrawal_plan(
     tuple[Decimal, ...] | None,
 ]:
     """Return (proportional, rate, annual, fixed_amounts, exact_amounts)."""
+    import numpy as np
+
     horizon = trajectory.horizon_months
     policy = trajectory.withdrawal_policy
     fixed = np.zeros(horizon, dtype=np.float64)
@@ -381,6 +385,8 @@ def _withdrawal_plan(
 
 
 def _prepare_kernel_inputs(trajectory: DeterministicTrajectory) -> _KernelInputs:
+    import numpy as np
+
     equity_class, bond_class = _select_asset_classes(trajectory)
     horizon = trajectory.horizon_months
     equity_prices: list[float] = []
@@ -442,6 +448,8 @@ def _build_context(trajectory: DeterministicTrajectory) -> SimulationContext:
 def _execute_deterministic_kernel(
     trajectory: DeterministicTrajectory,
 ) -> DeterministicResult:
+    import numpy as np
+
     from fbf.core.execution.strategies.deterministic_kernel import (
         simulate_deterministic_two_asset,
     )

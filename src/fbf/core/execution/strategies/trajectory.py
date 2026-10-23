@@ -31,9 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from decimal import Decimal
-
-import numpy as np
-from numpy.typing import NDArray
+from typing import TYPE_CHECKING
 
 from fbf.core.domain.model.allocation import Allocation, AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
@@ -51,6 +49,10 @@ from fbf.core.execution.pipeline.simulation import (
     SimulationTimeline,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
+
+if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import NDArray
 
 _EQUITY_ID = "equity"
 

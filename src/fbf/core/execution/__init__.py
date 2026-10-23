@@ -8,9 +8,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-from numpy.typing import NDArray
-
 from fbf.core.execution.deterministic import (
     DeterministicResult,
     DeterministicTrajectory,
@@ -32,12 +29,15 @@ from fbf.core.execution.profiling import (
 from fbf.core.execution.result import ResearchExecutionResult
 from fbf.core.execution.slicing import iter_cohort_slices
 from fbf.core.execution.strategies.fast_path import FastPathValidationError
-from fbf.core.execution.strategies.numba_executor import GlidepathGFKey
 from fbf.core.study.builder import BuiltStudy, StudyPlanResult
 from fbf.core.study.plan import ResearchPlan
 
 if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import NDArray
+
     from fbf.core.execution.pipeline.simulation_context import SimulationContext
+    from fbf.core.execution.strategies.numba_executor import GlidepathGFKey
 
 
 def sequential_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
@@ -604,6 +604,34 @@ def _select_simulation_executor(
     return sim_executor
 
 
+def _numba_executor_types() -> tuple[type[Any], ...]:
+    """Return the Numba executor classes, or an empty tuple when Numba is absent."""
+    try:
+        import numba as _numba_mod  # noqa: F401
+    except ModuleNotFoundError:
+        return ()
+
+    from fbf.core.execution.strategies.numba_executor import (
+        NumbaSimulationExecutor,
+    )
+    from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
+        Part49BuyAndHoldNumbaExecutor,
+    )
+    from fbf.core.execution.strategies.part49_numba_executor import (
+        Part49NumbaExecutor,
+    )
+    from fbf.core.execution.strategies.part52_numba_executor import (
+        Part52NumbaExecutor,
+    )
+
+    return (
+        Part49NumbaExecutor,
+        Part49BuyAndHoldNumbaExecutor,
+        Part52NumbaExecutor,
+        NumbaSimulationExecutor,
+    )
+
+
 def _use_parallel_execution(
     opt: ExecutionOptions,
     workers: int | None,
@@ -615,27 +643,8 @@ def _use_parallel_execution(
     if strategy == ExecutionStrategy.SEQUENTIAL:
         use_parallel = False
     elif strategy == ExecutionStrategy.PARALLEL:
-        from fbf.core.execution.strategies.numba_executor import (
-            NumbaSimulationExecutor,
-        )
-        from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
-            Part49BuyAndHoldNumbaExecutor,
-        )
-        from fbf.core.execution.strategies.part49_numba_executor import (
-            Part49NumbaExecutor,
-        )
-        from fbf.core.execution.strategies.part52_numba_executor import (
-            Part52NumbaExecutor,
-        )
-
         if backend == ExecutionBackend.FAST or isinstance(
-            sim_executor,
-            (
-                Part49NumbaExecutor,
-                Part49BuyAndHoldNumbaExecutor,
-                Part52NumbaExecutor,
-                NumbaSimulationExecutor,
-            ),
+            sim_executor, _numba_executor_types()
         ):
             raise ValueError(
                 "FAST backend does not support parallel execution. "
@@ -649,28 +658,7 @@ def _use_parallel_execution(
             use_parallel = False
         elif backend is None:
             # AUTO dispatch selected a backend; FAST always sequential.
-            from fbf.core.execution.strategies.numba_executor import (
-                NumbaSimulationExecutor,
-            )
-            from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
-                Part49BuyAndHoldNumbaExecutor,
-            )
-            from fbf.core.execution.strategies.part49_numba_executor import (
-                Part49NumbaExecutor,
-            )
-            from fbf.core.execution.strategies.part52_numba_executor import (
-                Part52NumbaExecutor,
-            )
-
-            if isinstance(
-                sim_executor,
-                (
-                    Part49NumbaExecutor,
-                    Part49BuyAndHoldNumbaExecutor,
-                    Part52NumbaExecutor,
-                    NumbaSimulationExecutor,
-                ),
-            ):
+            if isinstance(sim_executor, _numba_executor_types()):
                 use_parallel = False
             else:
                 # DECIMAL_FAST_PATH: use parallel when workers available.
