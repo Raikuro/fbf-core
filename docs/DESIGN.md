@@ -204,6 +204,13 @@ simulated outcome:
 * **No growth after the final withdrawal.** Market growth is applied for months
   `0 … horizon - 2`; the last scheduled withdrawal closes the trajectory.
 
+When escalating withdrawals are combined with a glidepath allocation, the
+withdrawal timing above is preserved. The glidepath target advances according to
+its configured cadence (`MONTHLY`, or annually at `m // 12` boundaries) and is
+rebalanced monthly before each growth period. This combined path is distinct
+from the workbook fixed-real glidepath recurrence and from the deterministic
+Experiment E adapter, which retain their own contracts.
+
 The failure boundary is likewise intentional: a scheduled withdrawal **strictly
 greater** than the available value fails at that month, whereas a withdrawal
 **exactly equal** to it drains the portfolio to zero without triggering that

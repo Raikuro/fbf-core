@@ -31,24 +31,27 @@ identical growth factors, initial value, and withdrawal amount.
 
 For glidepath strategies, the growth factors vary by month because the
 target equity weight changes.  The equity weight sequence is precomputed
-from the glidepath parameters and the canonical market data:
+from the glidepath parameters (including the monthly or annual cadence) and
+the canonical market data:
 
     g_m = w_m * equity_return[m] + (1 - w_m) * bond_return[m]
 
-where w_m is the equity weight after rebalancing at month m.
+where w_m is the equity weight after rebalancing at month m.  Fixed-real
+withdrawals use the workbook timing; escalating withdrawals keep their own
+documented timing.  The two contracts are evaluated separately.
 
 Growth-factor caching
 ---------------------
 Growth factors are a function of (market trajectory, allocation weights)
 only.  They do not depend on withdrawal rate, initial wealth, or horizon.
 The cache key is (start_date, equity_allocation, dataset_token) for static
-strategies, or (start_date, glidepath_params, dataset_token) for glidepath
-strategies.  For the ERN workload this significantly reduces growth-factor
-computation.
+strategies, or (start_date, glidepath_params, cadence, expense_ratio,
+dataset_token) for glidepath strategies.  For the ERN workload this
+significantly reduces growth-factor computation.
 
 Glidepath growth-factor cache key:
 (start_date, glidepath_type, start_equity, end_equity, slope, mode,
-dataset_token)
+cadence, expense_ratio, dataset_token)
 """
 
 from __future__ import annotations
@@ -73,7 +76,10 @@ from fbf.core.domain.policies import (
     allocation_identity,
 )
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
-from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
+from fbf.core.domain.policies.glidepath import (
+    GlidepathAllocationPolicy,
+    GlidepathCadence,
+)
 from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
@@ -114,12 +120,46 @@ WeightIdentity = tuple[tuple[str, Decimal], ...]
 GFKey = tuple[date, WeightIdentity, int]
 
 # Glidepath trajectory-parameter key (no dataset identity):
-# (start_date, glidepath_type, start_equity, end_equity, slope, mode)
-GlidepathGroupKey = tuple[date, str, Decimal, Decimal, Decimal, str]
+# (start_date, glidepath_type, start_equity, end_equity, slope, mode,
+#  cadence, expense_ratio, withdrawal_rate, initial_portfolio)
+GlidepathGroupKey = tuple[
+    date,
+    str,
+    Decimal,
+    Decimal,
+    Decimal,
+    str,
+    GlidepathCadence,
+    Decimal,
+    Decimal,
+    object,
+]
 
 # Glidepath growth-factor cache key:
-# (start_date, glidepath_type, start_equity, end_equity, slope, mode, dataset_token)
-GlidepathGFKey = tuple[date, str, Decimal, Decimal, Decimal, str, int]
+# (start_date, glidepath_type, start_equity, end_equity, slope, mode,
+#  cadence, expense_ratio, dataset_token)
+GlidepathGFKey = tuple[
+    date, str, Decimal, Decimal, Decimal, str, GlidepathCadence, Decimal, int
+]
+
+# Glidepath + escalating trajectory key (no dataset identity):
+# (start_date, glidepath_type, start_equity, end_equity, slope, mode,
+#  cadence, expense_ratio, withdrawal_rate, escalation_rate, frequency,
+#  initial_portfolio)
+GlidepathEscalatingGroupKey = tuple[
+    date,
+    str,
+    Decimal,
+    Decimal,
+    Decimal,
+    str,
+    GlidepathCadence,
+    Decimal,
+    Decimal,
+    Decimal,
+    WithdrawalFrequency,
+    object,
+]
 
 
 @dataclass(frozen=True)
@@ -221,6 +261,35 @@ def _is_escalating_eligible(context: SimulationContext) -> bool:
     return _initial_value_equals_wealth(context)
 
 
+def _is_glidepath_escalating_eligible(context: SimulationContext) -> bool:
+    """Return True for a glidepath allocation with escalating withdrawals.
+
+    The combined capability uses the documented escalating-withdrawal timing
+    (withdrawal before growth, no growth after the final withdrawal) while the
+    glidepath target weight advances according to its own cadence.  It is a
+    separate contract from the workbook fixed-real glidepath path.
+    """
+    if not isinstance(context.allocation_policy, GlidepathAllocationPolicy):
+        return False
+    if not isinstance(context.withdrawal_policy, EscalatingWithdrawalPolicy):
+        return False
+    if context.horizon_months is None or context.horizon_months < 1:
+        return False
+    if context.dataset is None or len(context.dataset.snapshots) < 1:
+        return False
+    if len(context.dataset.snapshots) < context.horizon_months:
+        return False
+    holdings = context.initial_portfolio.holdings
+    if not holdings or len(holdings) != 2:
+        return False
+    equity_count = sum(1 for h in holdings if h.asset_class.id == "equity")
+    if equity_count != 1:
+        return False
+    if any(h.asset_class not in context.dataset[0].index_levels for h in holdings):
+        return False
+    return _initial_value_equals_wealth(context)
+
+
 def _is_glidepath_eligible(context: SimulationContext) -> bool:
     """Return True when *context* is a glidepath strategy eligible for Numba.
 
@@ -309,6 +378,8 @@ def is_numba_context_eligible(context: SimulationContext) -> bool:
         return True
     if _is_escalating_eligible(context):
         return True
+    if _is_glidepath_escalating_eligible(context):
+        return True
     if _is_buy_and_hold_eligible(context):
         return True
     if _is_glidepath_eligible(context):
@@ -330,6 +401,8 @@ def _numba_group_key(context: SimulationContext) -> tuple[object, ...] | None:
         return _constant_nominal_group_key(context)
     if _is_escalating_eligible(context):
         return _escalating_group_key(context)
+    if _is_glidepath_escalating_eligible(context):
+        return _glidepath_escalating_group_key(context)
     if _is_buy_and_hold_eligible(context):
         return _buy_and_hold_group_key(context)
     if _is_glidepath_eligible(context):
@@ -417,10 +490,64 @@ def _escalating_group_key(context: SimulationContext) -> tuple[object, ...]:
 
 
 def _glidepath_group_key(context: SimulationContext) -> GlidepathGroupKey:
-    """Trajectory-parameter key for glidepath contexts (no dataset identity).
+    """Trajectory-parameter key for fixed-real glidepath contexts.
 
-    Used to group contexts for cross-horizon derivation; trajectory identity is
-    enforced separately by the identity-prefix guard.
+    Withdrawal rate, cadence, expense ratio, and the initial portfolio are
+    part of the key: contexts that differ in any of them cannot share one
+    evaluated trajectory.  Dataset identity is enforced separately by the
+    identity-prefix guard.
+    """
+    allocation = cast(GlidepathAllocationPolicy, context.allocation_policy)
+    withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
+    return (
+        context.start_date,
+        "glidepath",
+        allocation.start_equity,
+        allocation.end_equity,
+        allocation.slope,
+        allocation.mode,
+        allocation.cadence,
+        context.expense_ratio or Decimal("0"),
+        withdrawal.withdrawal_rate,
+        context.initial_portfolio,
+    )
+
+
+def _glidepath_escalating_group_key(
+    context: SimulationContext,
+) -> GlidepathEscalatingGroupKey:
+    """Trajectory-parameter key for glidepath + escalating contexts.
+
+    The withdrawal base is the value-independent initial portfolio value
+    (``v0``), so ``initial_wealth`` is excluded; the FV check is applied per
+    context afterwards.  Withdrawal cadence and escalation rate must match,
+    as must the glidepath cadence and expense ratio.
+    """
+    allocation = cast(GlidepathAllocationPolicy, context.allocation_policy)
+    withdrawal = cast(EscalatingWithdrawalPolicy, context.withdrawal_policy)
+    return (
+        context.start_date,
+        "glidepath-escalating",
+        allocation.start_equity,
+        allocation.end_equity,
+        allocation.slope,
+        allocation.mode,
+        allocation.cadence,
+        context.expense_ratio or Decimal("0"),
+        withdrawal.withdrawal_rate,
+        withdrawal.escalation_rate,
+        withdrawal.frequency,
+        context.initial_portfolio,
+    )
+
+
+def _glidepath_gf_cache_key(context: SimulationContext) -> GlidepathGFKey:
+    """Cache key for glidepath growth factors.
+
+    Growth factors depend on the market trajectory, the glidepath weight
+    sequence, and the additive fee.  Withdrawal parameters do not enter the
+    key, so fixed-real and escalating contexts may share them.  The dataset
+    token keeps contexts built from different data from sharing growth factors.
     """
     allocation = cast(GlidepathAllocationPolicy, context.allocation_policy)
     return (
@@ -430,18 +557,10 @@ def _glidepath_group_key(context: SimulationContext) -> GlidepathGroupKey:
         allocation.end_equity,
         allocation.slope,
         allocation.mode,
+        allocation.cadence,
+        context.expense_ratio or Decimal("0"),
+        _dataset_token(context),
     )
-
-
-def _glidepath_gf_cache_key(context: SimulationContext) -> GlidepathGFKey:
-    """Cache key for glidepath growth factors.
-
-    Growth factors depend on (market trajectory, glidepath weight sequence).
-    The weight sequence is determined by the glidepath parameters and the
-    canonical is_underwater sequence from the dataset; the dataset token keeps
-    contexts built from different data from sharing growth factors.
-    """
-    return (*_glidepath_group_key(context), _dataset_token(context))
 
 
 def _compute_equity_weight_sequence(
@@ -450,6 +569,10 @@ def _compute_equity_weight_sequence(
     horizon: int,
 ) -> list[Decimal]:
     """Precompute the equity weight sequence for a glidepath.
+
+    The annual cadence advances at ``m // 12`` boundaries: periods 0-11 use
+    the initial target, period 12 advances once, and so on.  Monthly passive
+    advances every period; active advances only in underwater periods.
 
     Parameters
     ----------
@@ -466,9 +589,10 @@ def _compute_equity_weight_sequence(
     equity_weights[m] is the weight AFTER rebalancing at month m.
     """
     weights: list[Decimal] = []
-    advancement_count = 0
     for m in range(horizon):
-        if policy.mode == "passive":
+        if policy.cadence is GlidepathCadence.ANNUAL:
+            advancement_count = m // 12
+        elif policy.mode == "passive":
             advancement_count = m
         else:  # active
             advancement_count = sum(1 for i in range(m + 1) if is_underwater[i])
@@ -653,7 +777,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
         glidepath_computations: list[tuple[GlidepathGFKey, int, SimulationContext]] = []
         for cluster in clusters:
             sample_ctx = cluster[0]
-            if not _is_glidepath_eligible(sample_ctx):
+            if not (
+                _is_glidepath_eligible(sample_ctx)
+                or _is_glidepath_escalating_eligible(sample_ctx)
+            ):
                 continue
             max_h = max(ctx.horizon_months for ctx in cluster)
             glide_gf_k = _glidepath_gf_cache_key(sample_ctx)
@@ -797,6 +924,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 self._process_constant_nominal_group(cluster, results, stats)
             elif _is_escalating_eligible(sample_ctx):
                 self._process_escalating_group(cluster, results, stats)
+            elif _is_glidepath_escalating_eligible(sample_ctx):
+                self._process_glidepath_escalating_group(cluster, results, stats)
             elif _is_buy_and_hold_eligible(sample_ctx):
                 self._process_buy_and_hold_group(cluster, results, stats)
             elif _is_glidepath_eligible(sample_ctx):
@@ -1146,6 +1275,127 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     n_months=months_simulated,
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
                     withdrawal_amounts=amounts,
+                )
+
+            for ctx in h_contexts:
+                cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
+                if cache_key in horizon_result_cache:
+                    results[id(ctx)] = horizon_result_cache[cache_key]
+                    continue
+
+                final_wealth = _money(final_value)
+
+                base = SimulationResult(
+                    timeline=timeline or SimulationTimeline(monthly_results=()),
+                    statistics=SimulationStatistics(
+                        final_wealth=final_wealth,
+                        max_drawdown=0.0,
+                        success=success,
+                        failure_month=failure_month,
+                        failure_state=None if success else "depleted",
+                        months_simulated=months_simulated,
+                        execution_time_seconds=0.0,
+                    ),
+                )
+                result = _apply_fv_check(base, ctx)
+                horizon_result_cache[cache_key] = result
+                results[id(ctx)] = result
+                stats["derived_count"] += 1
+
+    def _process_glidepath_escalating_group(
+        self,
+        contexts: list[SimulationContext],
+        results: dict[int, SimulationResult],
+        stats: dict[str, int],
+    ) -> None:
+        """Process glidepath allocation with escalating withdrawals.
+
+        The withdrawal schedule follows the documented escalating contract
+        (withdrawal before growth, no growth after the final withdrawal).  The
+        glidepath target weight advances according to its configured cadence
+        and is rebalanced to monthly before each growth period.
+        """
+        horizon_to_ctxs: dict[int, list[SimulationContext]] = {}
+        for ctx in contexts:
+            horizon_to_ctxs.setdefault(ctx.horizon_months, []).append(ctx)
+
+        sample_ctx = contexts[0]
+        initial_snapshot = sample_ctx.dataset[0]
+        v0 = float(
+            sum(
+                holding.units * initial_snapshot.index_levels[holding.asset_class]
+                for holding in sample_ctx.initial_portfolio.holdings
+            )
+        )
+        allocation = cast(GlidepathAllocationPolicy, sample_ctx.allocation_policy)
+        withdrawal_policy = cast(
+            EscalatingWithdrawalPolicy, sample_ctx.withdrawal_policy
+        )
+        rate_f = float(withdrawal_policy.withdrawal_rate)
+        escalation_f = float(withdrawal_policy.escalation_rate)
+        annual = withdrawal_policy.frequency is WithdrawalFrequency.ANNUAL
+
+        gf_key = _glidepath_gf_cache_key(sample_ctx)
+        growth_factors_full = self._glidepath_gf_cache[gf_key]
+
+        horizon_result_cache: dict[tuple[int, object, object], SimulationResult] = {}
+
+        for horizon, h_contexts in horizon_to_ctxs.items():
+            stats["month_work"] += horizon
+            growth_factors_arr = growth_factors_full[:horizon]
+
+            out_values = (
+                np.empty(horizon, dtype=np.float64)
+                if self._materialize_timeline
+                else None
+            )
+            _final_val, _kernel_success, fail_month, _ = (
+                _simulate_trajectory_escalating(
+                    growth_factors_arr,
+                    v0,
+                    rate_f,
+                    escalation_f,
+                    horizon,
+                    annual,
+                    out_values,
+                )
+            )
+
+            if 0 <= fail_month < horizon:
+                success = False
+                failure_month = fail_month
+                final_value = 0.0
+                months_simulated = fail_month
+            else:
+                final_value = _final_val
+                success = True
+                failure_month = None
+                months_simulated = horizon
+
+            timeline = None
+            if out_values is not None:
+                amounts = []
+                for m in range(months_simulated):
+                    escalated = (
+                        Decimal(str(v0))
+                        * Decimal(str(rate_f))
+                        * (Decimal("1") + Decimal(str(escalation_f)))
+                        ** (m // 12)
+                    )
+                    amounts.append(escalated if annual else escalated / Decimal("12"))
+                is_underwater = _extract_is_underwater(
+                    sample_ctx.dataset, horizon
+                )
+                equity_weights = _compute_equity_weight_sequence(
+                    allocation, is_underwater, horizon
+                )
+                timeline = build_simulation_timeline(
+                    sample_ctx,
+                    out_values,
+                    n_months=months_simulated,
+                    withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
+                    withdrawal_amounts=amounts,
+                    target_equity_weights=equity_weights[:months_simulated],
                 )
 
             for ctx in h_contexts:

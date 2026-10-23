@@ -38,6 +38,7 @@ from fbf.core.execution.profiling import NoOpProfiler
 from fbf.core.execution.strategies.numba_executor import (
     NumbaSimulationExecutor,
     _is_escalating_eligible,
+    _is_glidepath_escalating_eligible,
 )
 from fbf.core.execution.strategies.numba_kernel import (
     _simulate_trajectory_escalating,
@@ -518,7 +519,7 @@ class TestEscalatingExecutorDifferential:
         with pytest.raises(UnsupportedConfigurationError):
             _run_numba([context])
 
-    def test_glidepath_allocation_is_not_escalating_eligible(self) -> None:
+    def test_glidepath_allocation_is_escalating_eligible(self) -> None:
         from fbf.core.domain.policies import GlidepathAllocationPolicy
 
         context = _make_context(_flat_dataset(37), 36)
@@ -538,10 +539,8 @@ class TestEscalatingExecutorDifferential:
             ),
             withdrawal_policy=context.withdrawal_policy,
         )
-        # Ineligible for the escalating kernel and not eligible as a glidepath
-        # either (escalating withdrawal), so execution fails closed.
-        with pytest.raises(UnsupportedConfigurationError):
-            _run_numba([glide_ctx])
+        assert _is_glidepath_escalating_eligible(glide_ctx) is True
+        assert _run_numba([glide_ctx])[0][0] is True
 
 
 # ---------------------------------------------------------------------------

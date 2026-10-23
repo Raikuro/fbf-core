@@ -212,7 +212,7 @@ Classification key:
 | 17 | Result persistence | `persistence/studies/sqlite/codecs.py`; `sqlite_repository.py`; `run_command.py` | 3 | Schema v4 incremental writer: per-slice transactions, attempt tokens, explicit status, completion verification; completed-result readers filter incomplete executions; CLI streams persisted runs and appends each slice | No automatic age-based recovery | Document operational recovery | `test_streaming_persistence.py`, `test_sqlite_persistence.py`, `test_schema_migration.py` | #16, #18 | Save/load round-trip preserves statistics and timelines; interrupted runs are invisible until explicitly completed |
 | 18 | Memory-bounded large grids | `execution/slicing.py`, `execution/__init__.py`; legacy `reference.py:_MAX_UNITS_PER_WORKER`, `_DEFAULT_SLICE_COHORTS` | 2 | Streaming API bounds residency by slice target; streaming persistence measured at ~284–289 MiB for 200–400 materialized units | Full 313k-unit grid benchmark not yet validated | Validate full grid | `tests/benchmarks/test_memory_bounded_execution.py` | #14, #16 | Peak RSS within documented host budget on 313k units |
 | 19 | Buy-and-hold allocation | `concrete.py:49` `BuyAndHoldAllocationPolicy`; `_simulate_trajectory_buy_and_hold` (`numba_kernel.py:441`); `_is_buy_and_hold_eligible` (`numba_executor.py:267`) | 1 | Numba unit-tracking kernel (B4); weights drift endogenously; workbook additive fee `G - fee/12` with gross-return weight drift | Multi-asset and Part 49 leverage are out of scope (see #6 and C4); the generic executor supports non-zero expense ratios | None for two assets; any expense ratio | `tests/unit/strategies/test_numba_buy_and_hold.py`, `test_part49_buy_and_hold.py` | Part 49 buy-and-hold remains zero-fee (C4); buy-and-hold has no canonical ERN oracle | Two-asset zero- and non-zero-fee differential vs an independent Decimal recurrence passes |
-| 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` (`numba_executor.py`) for `ConstantAllocationPolicy`; deterministic adapter supports constant allocation and annual glidepath through D3 | Glidepath + escalating is not yet eligible in the general Numba executor; the deterministic adapter supports it | Extend general eligibility to `GlidepathAllocationPolicy` | `tests/unit/strategies/test_numba_escalating.py`, `tests/unit/execution/test_deterministic_kernel.py` | General glidepath cadence and the deterministic-trajectory contract are separate migration items | Constant-allocation escalating matches the legacy pipeline (fee = 0) and an independent Decimal recurrence; deterministic annual glidepath + escalating matches the Decimal reference |
+| 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` for `ConstantAllocationPolicy`, and `_process_glidepath_escalating_group` for `GlidepathAllocationPolicy`; deterministic adapter remains separate through D3 | None for supported two-asset allocation families | None | `tests/unit/strategies/test_numba_escalating.py`, `test_numba_glidepath_escalating.py`, `test_numba_glidepath_workbook.py`, `tests/unit/execution/test_deterministic_kernel.py` | Glidepath cadence and the deterministic-trajectory contract remain separate; the general Numba path honors `MONTHLY` and `ANNUAL` cadence | Constant-allocation escalating matches the independent Decimal recurrence; combined glidepath + escalating matches the independent Decimal recurrence for both cadences and withdrawal frequencies; deterministic Experiment E remains on its own annual workbook contract |
 | 21 | Supplemental cash flow | `supplemental_cash_flow_step.py` | 3 | None (inactive by default) | Additional external cash flow | Add once a real consumer activates it | None active today | No active consumer | Only migrate if a consumer exists |
 | 22 | CAPE-regime aggregation | `research/part20_*`, `cape_aggregation.py`, `cape_regime.py` | 4 | None | Regime classification layer | Keep as a post-processing layer over Numba results | Part 20 (`part20_pipeline.py`) | Aggregation, not simulation | Part 20 E2E pass |
 | 23 | `ReferenceSimulationExecutor` wrapper | `reference.py:217` | 5 | Redundant (derivation already in `FastPathSimulationExecutor`) | — | Delete after migrations | `test_reference.py`, `test_determinism.py` | Public export `execute_reference` | No production consumer; resolve in D5b/D4.3 |
@@ -297,10 +297,12 @@ Work items (each independently testable):
    order before extending to other allocation policies.
 
 3. **B3 — Escalating withdrawal.** ✅ Implemented for
-   `ConstantAllocationPolicy`: value-independent annual schedule
-   `v0 * withdrawal_rate * (1 + escalation_rate) ** (m // 12)`. Glidepath +
-   escalating remains future work in the general Numba executor; the
-   deterministic adapter supports it through D3.
+   `ConstantAllocationPolicy` and, under capability #20, for
+   `GlidepathAllocationPolicy`: value-independent annual schedule
+   `v0 * withdrawal_rate * (1 + escalation_rate) ** (m // 12)`. The combined
+   path uses the escalating timing contract and advances glidepath weights by
+   its configured `MONTHLY` or `ANNUAL` cadence. The deterministic adapter
+   remains a separate annual workbook contract through D3.
 
 4. **B4 — Buy-and-hold.** ✅ Implemented: a non-rebalancing unit-tracking
    recurrence with explicit specification, including the workbook additive
@@ -1318,10 +1320,11 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | E2: Public Part 3 research facade | ✅ Complete (enabler) | `fbf.core.research` Tier 2; `tests/contract/test_research_public_api.py` | d44213c (fbf-core) | Prerequisite for D5a; CLI still imports Tier 3 until D5a |
 | B1: Expense ratios (additive fee) | ✅ Complete (audited & fixed) | `workbook_scr.py`, `test_fast_path.py`, `part52_numba_executor.py`, `test_numba_glidepath_workbook.py` | 8dfbf24 (audited) | Static + Part 52 + glidepath complete; **Critical cache key + fee pass-through bug fixed** |
 | Capability #4: Glidepath shared mechanics | ✅ Complete (E2E pending) | `numba_executor.py` `_process_glidepath_group`; `test_numba_glidepath_workbook.py`; `test_glidepath_trajectory.py` | See git history | Workbook recurrence applied (base row, `horizon - 1` periods, terminal compounding, additive fee); ERN active/passive weight sequence retained and specified in §5.2; canonical Part 19/20 E2E not re-run |
+| Capability #20: Glidepath + escalating | ✅ Complete | `numba_executor.py` `_process_glidepath_escalating_group`; `test_numba_glidepath_escalating.py` | See git history | General Numba combined path uses escalating timing and glidepath cadence; fixed-real workbook timing and the deterministic Experiment E contract are unchanged |
 | B2: Constant nominal withdrawal | ✅ Complete | `numba_kernel.py`, `numba_executor.py`, `test_backend_strategy_matrix.py` | 00b5770 | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented; matches legacy for flat/growing markets; fee model uses additive convention |
 | Numba cache/dataset identity fix | ✅ Complete | `test_numba_executor_differential.py`, `test_part52_numba_executor.py` | 99aa5a4 | Dataset-identity tokens + identity-prefix clustering in both Numba executors |
 | B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | a00c0ec | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
-| B3: Escalating withdrawal | ✅ Complete (ConstantAllocation) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py` | 65f1f67 | Value-independent annual schedule; deterministic annual glidepath + escalating is implemented under D3; general Numba glidepath + escalating remains deferred |
+| B3: Escalating withdrawal | ✅ Complete (including capability #20) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py`, `test_numba_glidepath_escalating.py` | 65f1f67; combined path see git history | Value-independent annual schedule; general Numba glidepath + escalating now uses the escalating timing contract with `MONTHLY`/`ANNUAL` glidepath cadence; deterministic annual glidepath + escalating remains separate under D3 |
 | Buy-and-hold initial allocation | ✅ Complete (correction) | `default_pipeline.py`, `allocation_decision_step.py`, `portfolio_rebalance_step.py`, `test_part49_buy_and_hold.py` | 3f2f788 | Buy-and-hold applied the 50/50 default; allocation now applied once in period 0 |
 | B4: Buy-and-hold | ✅ Complete (non-debt, additive fee) | `numba_kernel.py`, `numba_executor.py`, `execution/__init__.py`, `test_numba_buy_and_hold.py` | 5179a3b (B4); see git history for the fee extension | Unit-tracking kernel with workbook additive fee; weight drift uses the gross blended return; Part 49 leverage → C4, multi-asset → B5 |
 | B5: Multi-asset | ✅ Complete | `concrete.py`, `fast_path.py`, `numba_executor.py`, `test_multi_asset_allocation.py` | 85d72582f047279d5d9c42ca3f3cb0e3d9099c7b | Explicit N-asset `allocations`; single `resolve_target_weights`; nominal/escalating/Part 52 gate to the legacy form and fall back for explicit allocations |
@@ -1462,10 +1465,11 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   against the legacy pipeline (fee = 0) for `ANNUAL` and `MONTHLY`, per-context
   `final_value_target` application, ineligible-allocations fall-through, and AUTO
   routing.
-- **Scope note:** escalating withdrawal is migrated for `ConstantAllocationPolicy`
-  in the general Numba executor. Glidepath allocation + escalating in that
-  executor remains future work. The deterministic Experiment E path is now
-  implemented separately on the dedicated D3 kernel (capability #15), which
+- **Scope note:** escalating withdrawal was initially migrated for
+  `ConstantAllocationPolicy` in the general Numba executor. Capability #20 later
+  extended the general path to `GlidepathAllocationPolicy` using the escalating
+  timing contract and the glidepath's own cadence. The deterministic Experiment
+  E path remains separate on the dedicated D3 kernel (capability #15), which
   supports annual glidepath + escalating with the workbook additive fee.
 - All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
   contract).

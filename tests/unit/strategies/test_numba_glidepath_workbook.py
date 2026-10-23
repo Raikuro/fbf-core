@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import cast
 
 import pytest
 
@@ -28,7 +29,10 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import FixedRealWithdrawalPolicy
-from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
+from fbf.core.domain.policies.glidepath import (
+    GlidepathAllocationPolicy,
+    GlidepathCadence,
+)
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     SimulationResult,
@@ -133,7 +137,9 @@ def _weights(
 ) -> list[Decimal]:
     weights: list[Decimal] = []
     for m in range(periods):
-        if policy.mode == "passive":
+        if policy.cadence is GlidepathCadence.ANNUAL:
+            advancements = m // 12
+        elif policy.mode == "passive":
             advancements = m
         else:
             advancements = sum(1 for flag in underwater_flags[: m + 1] if flag)
@@ -283,3 +289,131 @@ def test_glidepath_depletion_reports_base_row_month() -> None:
     assert result.statistics.final_wealth.amount == expected_value
     assert result.statistics.months_simulated == expected_failure
     assert len(result.timeline.monthly_results) == expected_failure
+
+
+def test_annual_cadence_matches_workbook_recurrence_with_fee() -> None:
+    periods = 24
+    dataset = _build_dataset(
+        [Decimal("1.006")] * periods,
+        [Decimal("1.002")] * periods,
+        [False] * periods,
+    )
+    policy = GlidepathAllocationPolicy(
+        start_equity=Decimal("0.60"),
+        end_equity=Decimal("0.90"),
+        slope=Decimal("0.01"),
+        mode="passive",
+        cadence=GlidepathCadence.ANNUAL,
+    )
+    withdrawal_rate = Decimal("0.04")
+    fee = Decimal("0.006")
+    context = _build_context(dataset, policy, withdrawal_rate, fee)
+
+    expected_value, expected_success, expected_failure, _ = _workbook_recurrence(
+        dataset, policy, withdrawal_rate, fee
+    )
+    result = _run(context)
+
+    assert result.statistics.success is expected_success
+    assert result.statistics.failure_month == expected_failure
+    assert abs(result.statistics.final_wealth.amount - expected_value) < _TOLERANCE
+
+
+def test_fixed_real_glidepath_groups_by_withdrawal_rate() -> None:
+    periods = 24
+    dataset = _build_dataset(
+        [Decimal("1.006")] * periods,
+        [Decimal("1.002")] * periods,
+        [False] * periods,
+    )
+    policy = GlidepathAllocationPolicy(
+        start_equity=Decimal("0.60"),
+        end_equity=Decimal("0.90"),
+        slope=Decimal("0.01"),
+        mode="passive",
+    )
+    low_rate = _build_context(dataset, policy, Decimal("0.04"), Decimal("0"))
+    high_rate = _build_context(dataset, policy, Decimal("0.08"), Decimal("0"))
+
+    executor = NumbaSimulationExecutor()
+    definition = EngineExperimentDefinition(
+        name="glidepath-workbook",
+        description="withdrawal-rate grouping regression",
+        simulation_contexts=(low_rate, high_rate),
+    )
+    run = executor.execute(definition)
+
+    report = executor.report
+    assert report is not None
+    assert report.groups == 2
+    for context, result in zip(
+        (low_rate, high_rate), run.simulation_results, strict=True
+    ):
+        expected_value, expected_success, expected_failure, _ = (
+            _workbook_recurrence(
+                dataset,
+                policy,
+                cast(FixedRealWithdrawalPolicy, context.withdrawal_policy).withdrawal_rate,
+                Decimal("0"),
+            )
+        )
+        assert result.statistics.success is expected_success
+        assert result.statistics.failure_month == expected_failure
+        assert (
+            abs(result.statistics.final_wealth.amount - expected_value)
+            < _TOLERANCE
+        )
+
+
+def test_fixed_real_glidepath_groups_by_cadence() -> None:
+    periods = 24
+    dataset = _build_dataset(
+        [Decimal("1.006")] * periods,
+        [Decimal("1.002")] * periods,
+        [False] * periods,
+    )
+    monthly = GlidepathAllocationPolicy(
+        start_equity=Decimal("0.60"),
+        end_equity=Decimal("0.90"),
+        slope=Decimal("0.01"),
+        mode="passive",
+    )
+    annual = GlidepathAllocationPolicy(
+        start_equity=Decimal("0.60"),
+        end_equity=Decimal("0.90"),
+        slope=Decimal("0.01"),
+        mode="passive",
+        cadence=GlidepathCadence.ANNUAL,
+    )
+    withdrawal_rate = Decimal("0.04")
+    monthly_ctx = _build_context(dataset, monthly, withdrawal_rate, Decimal("0"))
+    annual_ctx = _build_context(dataset, annual, withdrawal_rate, Decimal("0"))
+
+    executor = NumbaSimulationExecutor()
+    definition = EngineExperimentDefinition(
+        name="glidepath-workbook",
+        description="cadence grouping regression",
+        simulation_contexts=(monthly_ctx, annual_ctx),
+    )
+    run = executor.execute(definition)
+
+    report = executor.report
+    assert report is not None
+    assert report.groups == 2
+    for policy, result in zip(
+        (monthly, annual), run.simulation_results, strict=True
+    ):
+        expected_value, expected_success, expected_failure, _ = (
+            _workbook_recurrence(
+                dataset,
+                policy,
+                withdrawal_rate,
+                Decimal("0"),
+            )
+        )
+        assert result.statistics.success is expected_success
+        assert result.statistics.failure_month == expected_failure
+        assert (
+            abs(result.statistics.final_wealth.amount - expected_value)
+            < _TOLERANCE
+        )
