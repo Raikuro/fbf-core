@@ -447,6 +447,7 @@ def _simulate_trajectory_buy_and_hold(
     equity_weight: float,
     withdrawal_monthly: float,
     horizon: int,
+    fee_annual: float = 0.0,
     out_values: NDArray[np.float64] | None = None,
     out_weights: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float]:
@@ -458,6 +459,7 @@ def _simulate_trajectory_buy_and_hold(
     withdrawals the weights drift with the asset-specific returns::
 
         V_0 = initial_value,  w_0 = equity_weight
+        fee_m = fee_annual / 12
         for m in 0 .. horizon-1:
             if withdrawal_monthly > V_m: failure at month m
             V_m <- V_m - withdrawal_monthly          (pro rata: w unchanged)
@@ -465,11 +467,15 @@ def _simulate_trajectory_buy_and_hold(
                 g_e = equity_growth[m], g_b = bond_growth[m]
                 G   = w_m * g_e + (1 - w_m) * g_b
                 w_{m+1} = w_m * g_e / G
-                V_{m+1} = V_m * G
+                V_{m+1} = V_m * (G - fee_m)
 
-    The recurrence follows the same beginning-of-period convention as the other
-    Numba kernels (withdrawal before growth, growth only for ``m < horizon - 1``);
-    the target allocation is applied once before the first growth period.
+    The fee follows the workbook additive convention: the monthly expense is
+    subtracted from the blended gross return *after* the withdrawal.  Weight
+    drift uses the gross blended return because the portfolio-level fee does
+    not change the relative asset holdings.  The recurrence follows the same
+    beginning-of-period convention as the other Numba kernels (withdrawal
+    before growth, growth only for ``m < horizon - 1``); the target allocation
+    is applied once before the first growth period.
 
     Parameters
     ----------
@@ -486,6 +492,9 @@ def _simulate_trajectory_buy_and_hold(
         Constant monthly withdrawal amount.
     horizon:
         Number of months to simulate.
+    fee_annual:
+        Annual expense ratio applied as ``fee_annual / 12`` each growth period.
+        ``0.0`` reproduces the fee-free recurrence exactly.
 
     Returns
     -------
@@ -495,6 +504,7 @@ def _simulate_trajectory_buy_and_hold(
     """
     value = initial_value
     weight = equity_weight
+    fee_monthly = fee_annual / 12.0
 
     for m in range(horizon):
         if withdrawal_monthly > value:
@@ -512,7 +522,7 @@ def _simulate_trajectory_buy_and_hold(
             blended = weight * ge + (1.0 - weight) * gb
             if blended != 0.0:
                 weight = weight * ge / blended
-            value *= blended
+            value *= blended - fee_monthly
 
     return value, True, -1, value
 
@@ -601,6 +611,7 @@ def _simulate_batch_buy_and_hold(
     equity_weights: NDArray[np.float64],
     withdrawals_monthly: NDArray[np.float64],
     horizons: NDArray[np.int32],
+    fee_annual: float,
     n_trajectories: int,
 ) -> tuple[
     NDArray[np.float64],
@@ -622,6 +633,7 @@ def _simulate_batch_buy_and_hold(
             equity_weights[i],
             withdrawals_monthly[i],
             int(horizons[i]),
+            fee_annual,
         )
         final_values[i] = fv
         successes[i] = ok
@@ -639,6 +651,7 @@ def _simulate_batch_buy_and_hold_parallel(
     equity_weights: NDArray[np.float64],
     withdrawals_monthly: NDArray[np.float64],
     horizons: NDArray[np.int32],
+    fee_annual: float,
     n_trajectories: int,
 ) -> tuple[
     NDArray[np.float64],
@@ -660,6 +673,7 @@ def _simulate_batch_buy_and_hold_parallel(
             equity_weights[i],
             withdrawals_monthly[i],
             int(horizons[i]),
+            fee_annual,
         )
         final_values[i] = fv
         successes[i] = ok
@@ -1301,6 +1315,7 @@ def simulate_single_buy_and_hold(
     equity_weight: Decimal,
     withdrawal_rate: Decimal,
     horizon: int,
+    fee_annual: float = 0.0,
 ) -> tuple[bool, int | None, Money, int]:
     """Simulate a single buy-and-hold trajectory.
 
@@ -1318,6 +1333,9 @@ def simulate_single_buy_and_hold(
         Constant annual real withdrawal rate (e.g. ``0.04`` for 4%).
     horizon:
         Number of months to simulate.
+    fee_annual:
+        Annual expense ratio applied additively as ``fee_annual / 12`` each
+        growth period.  ``0.0`` reproduces the fee-free recurrence exactly.
 
     Returns
     -------
@@ -1328,7 +1346,7 @@ def simulate_single_buy_and_hold(
     c = v0 * float(withdrawal_rate) / 12.0
 
     final_value, success, failure_month, _ = _simulate_trajectory_buy_and_hold(
-        equity_growth, bond_growth, v0, weight, c, horizon
+        equity_growth, bond_growth, v0, weight, c, horizon, fee_annual
     )
 
     final_wealth = Money(Decimal(str(final_value)), Currency.EUR)
@@ -1346,6 +1364,7 @@ def simulate_batch_buy_and_hold(
     horizons: list[int],
     *,
     parallel: bool = True,
+    fee_annual: float = 0.0,
 ) -> list[tuple[bool, int | None, Money, int]]:
     """Simulate a batch of buy-and-hold trajectories sharing one trajectory.
 
@@ -1366,6 +1385,9 @@ def simulate_batch_buy_and_hold(
         Horizon in months for each trajectory.
     parallel:
         If True, use Numba parallel execution (recommended for batch > 10).
+    fee_annual:
+        Annual expense ratio applied additively as ``fee_annual / 12`` each
+        growth period.  ``0.0`` reproduces the fee-free recurrence exactly.
 
     Returns
     -------
@@ -1388,11 +1410,11 @@ def simulate_batch_buy_and_hold(
 
     if parallel and n > 10:
         final_vals, successes, fail_months, _ = _simulate_batch_buy_and_hold_parallel(
-            equity_growth, bond_growth, v0, w, c, h, n
+            equity_growth, bond_growth, v0, w, c, h, fee_annual, n
         )
     else:
         final_vals, successes, fail_months, _ = _simulate_batch_buy_and_hold(
-            equity_growth, bond_growth, v0, w, c, h, n
+            equity_growth, bond_growth, v0, w, c, h, fee_annual, n
         )
 
     results: list[tuple[bool, int | None, Money, int]] = []

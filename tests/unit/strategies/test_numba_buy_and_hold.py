@@ -15,7 +15,7 @@ the weights drift with the asset-specific returns::
         if m < horizon - 1:
             G = w_m * ge[m] + (1 - w_m) * gb[m]
             w_{m+1} = w_m * ge[m] / G
-            V_{m+1} = V_m * G
+            V_{m+1} = V_m * (G - fee_annual/12)
 
 Correctness is established from two independent angles:
 
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import numpy as np
 import pytest
@@ -41,7 +42,12 @@ from fbf.core.domain.policies import (
     ConstantAllocationPolicy,
     FixedRealWithdrawalPolicy,
 )
-from fbf.core.execution import _auto_select_backend
+from fbf.core.execution import (
+    ExecutionBackend,
+    ExecutionOptions,
+    _auto_select_backend,
+    execute_study_plan,
+)
 from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
@@ -194,8 +200,14 @@ def _bh_recurrence(
     w0: Decimal,
     withdrawal_rate: Decimal,
     horizon: int,
+    fee_annual: Decimal = Decimal("0"),
 ) -> tuple[Decimal, bool, int | None, Decimal]:
     """Independent Decimal unit-tracking buy-and-hold recurrence.
+
+    The expense ratio follows the workbook additive convention: the monthly
+    fee is subtracted from the blended gross return after the withdrawal.
+    Weight drift uses the gross blended return, so the fee does not alter the
+    relative asset holdings.
 
     Returns ``(final_value, success, failure_month, final_equity_weight)``.
     """
@@ -203,6 +215,7 @@ def _bh_recurrence(
     weight = w0
     one = Decimal("1")
     withdrawal = initial_value * withdrawal_rate / Decimal("12")
+    fee_monthly = fee_annual / Decimal("12")
     for m in range(horizon):
         if withdrawal > value:
             return Decimal("0"), False, m, weight
@@ -213,7 +226,7 @@ def _bh_recurrence(
             blended = weight * ge + (one - weight) * gb
             if blended != 0:
                 weight = weight * ge / blended
-            value *= blended
+            value *= blended - fee_monthly
     return value, True, None, weight
 
 
@@ -344,6 +357,112 @@ class TestBuyAndHoldKernelHandCalculated:
         assert exp_value == 0
 
 
+class TestBuyAndHoldKernelFee:
+    def test_additive_fee_is_not_multiplicative(self) -> None:
+        # Both assets earn 10%/month; a 12%/year fee is 1%/month.  The
+        # workbook convention gives 1.10 - 0.01 = 1.09, not
+        # 1.10 * (1 - 0.01) = 1.089.
+        eq = np.array([1.10, 1.10], dtype=np.float64)
+        bd = np.array([1.10, 1.10], dtype=np.float64)
+        final, ok, _, _ = _simulate_trajectory_buy_and_hold(
+            eq, bd, 1_000_000.0, 0.5, 0.0, 2, 0.12
+        )
+        assert ok is True
+        assert abs(final - 1_090_000.0) < 1e-6
+
+    def test_fee_does_not_change_drifting_weights(self) -> None:
+        horizon = 24
+        eq = np.full(horizon, 1.02, dtype=np.float64)
+        bd = np.full(horizon, 1.001, dtype=np.float64)
+        c = 1_000_000.0 * 0.04 / 12.0
+        weights_fee = np.empty(horizon, dtype=np.float64)
+        weights_no_fee = np.empty(horizon, dtype=np.float64)
+
+        final_fee, ok_fee, _, _ = _simulate_trajectory_buy_and_hold(
+            eq, bd, 1_000_000.0, 0.6, c, horizon, 0.012, None, weights_fee
+        )
+        final_no_fee, ok_no_fee, _, _ = _simulate_trajectory_buy_and_hold(
+            eq, bd, 1_000_000.0, 0.6, c, horizon, 0.0, None, weights_no_fee
+        )
+
+        assert ok_fee is True
+        assert ok_no_fee is True
+        assert np.array_equal(weights_fee, weights_no_fee)
+        assert final_fee < final_no_fee
+
+    def test_horizon_one_has_no_growth_or_fee(self) -> None:
+        eq = np.array([1.10], dtype=np.float64)
+        bd = np.array([1.10], dtype=np.float64)
+        final, ok, fm, _ = _simulate_trajectory_buy_and_hold(
+            eq, bd, 1_000_000.0, 0.5, 1_000.0, 1, 0.12
+        )
+        assert ok is True
+        assert fm == -1
+        assert final == 999_000.0
+
+    def test_terminal_period_is_not_grown_or_charged(self) -> None:
+        # Only growth factor 0 is used; the unused terminal factor must not
+        # affect the result even when it is implausibly large.
+        eq = np.array([1.10, 5.0], dtype=np.float64)
+        bd = np.array([1.10, 5.0], dtype=np.float64)
+        final, ok, _, _ = _simulate_trajectory_buy_and_hold(
+            eq, bd, 1_000_000.0, 0.5, 1_000.0, 2, 0.12
+        )
+        assert ok is True
+        assert abs(final - (999_000.0 * 1.09 - 1_000.0)) < 1e-6
+
+    @pytest.mark.parametrize("fee", ["0", "0.0005", "0.012", "0.06"])
+    @pytest.mark.parametrize("w", ["0.0", "0.25", "0.6", "1.0"])
+    @pytest.mark.parametrize("horizon", [1, 12, 60])
+    def test_fee_matches_independent_recurrence(
+        self, fee: str, w: str, horizon: int
+    ) -> None:
+        dataset = _bh_dataset(horizon + 1)
+        eq_dec, bd_dec = _bh_returns(dataset, horizon)
+        eq = np.array([float(g) for g in eq_dec], dtype=np.float64)
+        bd = np.array([float(g) for g in bd_dec], dtype=np.float64)
+        c = float(_WEALTH * Decimal("0.04") / 12)
+        final, ok, fm, _ = _simulate_trajectory_buy_and_hold(
+            eq, bd, float(_WEALTH), float(Decimal(w)), c, horizon, float(Decimal(fee))
+        )
+        exp_value, exp_ok, exp_fm, _ = _bh_recurrence(
+            eq_dec,
+            bd_dec,
+            _WEALTH,
+            Decimal(w),
+            Decimal("0.04"),
+            horizon,
+            Decimal(fee),
+        )
+        assert ok is exp_ok
+        assert (fm if fm >= 0 else None) == exp_fm
+        assert abs(Decimal(str(final)) - exp_value) < _TOLERANCE
+
+    def test_high_fee_depletion_matches_independent_recurrence(self) -> None:
+        horizon = 120
+        dataset = _flat_dataset(horizon + 1)
+        eq_dec, bd_dec = _bh_returns(dataset, horizon)
+        eq = np.array([float(g) for g in eq_dec], dtype=np.float64)
+        bd = np.array([float(g) for g in bd_dec], dtype=np.float64)
+        c = float(_WEALTH * Decimal("0.04") / 12)
+        final, ok, fm, _ = _simulate_trajectory_buy_and_hold(
+            eq, bd, float(_WEALTH), 0.5, c, horizon, 0.6
+        )
+        exp_value, exp_ok, exp_fm, _ = _bh_recurrence(
+            eq_dec,
+            bd_dec,
+            _WEALTH,
+            Decimal("0.5"),
+            Decimal("0.04"),
+            horizon,
+            Decimal("0.6"),
+        )
+        assert ok is exp_ok is False
+        assert fm == exp_fm
+        assert final == 0.0
+        assert exp_value == 0
+
+
 class TestBuyAndHoldKernelWrappers:
     def test_single_matches_recurrence(self) -> None:
         dataset = _bh_dataset(61)
@@ -402,6 +521,87 @@ class TestBuyAndHoldKernelWrappers:
         parallel = simulate_batch_buy_and_hold(eq, bd, *args, parallel=True)
         assert [r[2].amount for r in sequential] == [r[2].amount for r in parallel]
 
+    def test_single_fee_matches_recurrence(self) -> None:
+        dataset = _bh_dataset(61)
+        horizon = 60
+        eq_dec, bd_dec = _bh_returns(dataset, horizon)
+        eq = np.array([float(g) for g in eq_dec], dtype=np.float64)
+        bd = np.array([float(g) for g in bd_dec], dtype=np.float64)
+        ok, fm, wealth, months = simulate_single_buy_and_hold(
+            eq,
+            bd,
+            Money(_WEALTH, Currency.EUR),
+            Decimal("0.75"),
+            Decimal("0.04"),
+            horizon,
+            0.012,
+        )
+        exp_value, exp_ok, exp_fm, _ = _bh_recurrence(
+            eq_dec,
+            bd_dec,
+            _WEALTH,
+            Decimal("0.75"),
+            Decimal("0.04"),
+            horizon,
+            Decimal("0.012"),
+        )
+        assert ok is exp_ok
+        assert fm is exp_fm
+        assert months == horizon
+        assert abs(wealth.amount - exp_value) < _TOLERANCE
+
+    def test_batch_fee_matches_single(self) -> None:
+        horizon = 60
+        dataset = _bh_dataset(horizon + 1)
+        eq_dec, bd_dec = _bh_returns(dataset, horizon)
+        eq = np.array([float(g) for g in eq_dec], dtype=np.float64)
+        bd = np.array([float(g) for g in bd_dec], dtype=np.float64)
+        fee = 0.012
+
+        single = simulate_single_buy_and_hold(
+            eq,
+            bd,
+            Money(_WEALTH, Currency.EUR),
+            Decimal("0.75"),
+            Decimal("0.04"),
+            horizon,
+            fee,
+        )
+        results = simulate_batch_buy_and_hold(
+            eq,
+            bd,
+            [Money(_WEALTH, Currency.EUR)] * 12,
+            [Decimal("0.75")] * 12,
+            [Decimal("0.04")] * 12,
+            [horizon] * 12,
+            parallel=False,
+            fee_annual=fee,
+        )
+        assert len(results) == 12
+        for ok, fm, wealth, months in results:
+            assert (ok, fm, months) == (single[0], single[1], single[3])
+            assert wealth.amount == single[2].amount
+
+    def test_batch_parallel_fee_matches_sequential(self) -> None:
+        horizon = 60
+        dataset = _bh_dataset(horizon + 1)
+        eq_dec, bd_dec = _bh_returns(dataset, horizon)
+        eq = np.array([float(g) for g in eq_dec], dtype=np.float64)
+        bd = np.array([float(g) for g in bd_dec], dtype=np.float64)
+        args = (
+            [Money(_WEALTH, Currency.EUR)] * 12,
+            [Decimal("0.75")] * 12,
+            [Decimal("0.04")] * 12,
+            [horizon] * 12,
+        )
+        sequential = simulate_batch_buy_and_hold(
+            eq, bd, *args, parallel=False, fee_annual=0.012
+        )
+        parallel = simulate_batch_buy_and_hold(
+            eq, bd, *args, parallel=True, fee_annual=0.012
+        )
+        assert [r[2].amount for r in sequential] == [r[2].amount for r in parallel]
+
 
 # ---------------------------------------------------------------------------
 # Executor tests
@@ -447,6 +647,48 @@ class TestBuyAndHoldExecutorDifferential:
         assert months == (horizon if ok else fm)
         assert abs(wealth - exp_value) < _TOLERANCE
 
+    @pytest.mark.parametrize("fee", [None, "0", "0.0005", "0.012"])
+    @pytest.mark.parametrize("w", ["0.25", "0.6", "0.9"])
+    def test_fee_matches_independent_recurrence(
+        self, fee: str | None, w: str
+    ) -> None:
+        horizon = 72
+        dataset = _bh_dataset(horizon + 1)
+        fee_decimal = None if fee is None else Decimal(fee)
+        context = _make_context(dataset, horizon, w=w, rate="0.04", fee=fee_decimal)
+        ok, fm, wealth, months = _run_numba([context])[0]
+        eq_dec, bd_dec = _bh_returns(dataset, horizon)
+        exp_value, exp_ok, exp_fm, _ = _bh_recurrence(
+            eq_dec,
+            bd_dec,
+            _WEALTH,
+            Decimal(w),
+            Decimal("0.04"),
+            horizon,
+            fee_decimal or Decimal("0"),
+        )
+        assert ok is exp_ok
+        assert fm == exp_fm
+        assert months == (horizon if ok else fm)
+        assert abs(wealth - exp_value) < _TOLERANCE
+
+    def test_fee_hand_calculated_flat_market(self) -> None:
+        horizon = 24
+        context = _make_context(
+            _flat_dataset(horizon + 1),
+            horizon,
+            w="0.5",
+            rate="0",
+            fee=Decimal("0.012"),
+        )
+        ok, _, wealth, months = _run_numba([context])[0]
+        expected = _WEALTH * (Decimal("1") - Decimal("0.012") / Decimal("12")) ** (
+            horizon - 1
+        )
+        assert ok is True
+        assert months == horizon
+        assert abs(wealth - expected) < _TOLERANCE
+
     def test_initial_allocation_is_applied_at_month_zero(self) -> None:
         """The configured split is the starting point, not the 50/50 default."""
         horizon = 12
@@ -474,9 +716,9 @@ class TestBuyAndHoldEligibility:
     def test_buy_and_hold_fixed_real_is_eligible(self) -> None:
         assert _is_buy_and_hold_eligible(_make_context(_bh_dataset(37), 36)) is True
 
-    def test_fee_excludes_eligibility(self) -> None:
+    def test_non_zero_fee_is_eligible(self) -> None:
         context = _make_context(_bh_dataset(37), 36, fee=Decimal("0.0005"))
-        assert _is_buy_and_hold_eligible(context) is False
+        assert _is_buy_and_hold_eligible(context) is True
 
     def test_constant_allocation_is_not_buy_and_hold_eligible(self) -> None:
         base = _bh_dataset(37)
@@ -582,6 +824,54 @@ class TestBuyAndHoldGrouping:
         assert report is not None
         assert report.groups == 2
 
+    def test_different_fees_are_separate_groups(self) -> None:
+        base = _bh_dataset(61)
+        no_fee = _make_context(base, 60, fee=None)
+        with_fee = _make_context(base, 60, fee=Decimal("0.0005"))
+
+        executor = NumbaSimulationExecutor()
+        run = executor.execute(
+            EngineExperimentDefinition(
+                name="test",
+                description="test",
+                simulation_contexts=(no_fee, with_fee),
+            )
+        )
+        report = executor.report
+        assert report is not None
+        assert report.groups == 2
+
+        eq_dec, bd_dec = _bh_returns(base, 60)
+        for ctx, result in zip((no_fee, with_fee), run.simulation_results, strict=True):
+            fee = ctx.expense_ratio or Decimal("0")
+            expected, _, _, _ = _bh_recurrence(
+                eq_dec,
+                bd_dec,
+                _WEALTH,
+                Decimal("0.6"),
+                Decimal("0.04"),
+                60,
+                fee,
+            )
+            assert abs(result.statistics.final_wealth.amount - expected) < _TOLERANCE
+
+    def test_same_non_zero_fee_is_one_group(self) -> None:
+        base = _bh_dataset(61)
+        a = _make_context(base, 60, fee=Decimal("0.0005"))
+        b = _make_context(base, 60, fee=Decimal("0.0005"))
+
+        executor = NumbaSimulationExecutor()
+        executor.execute(
+            EngineExperimentDefinition(
+                name="test",
+                description="test",
+                simulation_contexts=(a, b),
+            )
+        )
+        report = executor.report
+        assert report is not None
+        assert report.groups == 1
+
     def test_distinct_datasets_are_not_merged(self) -> None:
         base = _bh_dataset(61)
         a = _make_context(base, 60)
@@ -607,7 +897,7 @@ class TestBuyAndHoldGrouping:
 
 
 class TestBuyAndHoldRouting:
-    def _built_plan(self) -> BuiltStudy:
+    def _built_plan(self, fee: Decimal | None = None) -> BuiltStudy:
         dataset = _bh_dataset(121)
         start = dataset[0].date
         cohort = CohortSpecification(start_date=start)
@@ -633,6 +923,7 @@ class TestBuyAndHoldRouting:
             initial_portfolio=portfolio,
             dataset=dataset.slice(start, 120),
             horizon_months=120,
+            expense_ratio=fee,
         )
         plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
         return BuiltStudy(
@@ -646,6 +937,63 @@ class TestBuyAndHoldRouting:
         built = self._built_plan()
         executor = _auto_select_backend(built, NoOpProfiler())
         assert isinstance(executor, NumbaSimulationExecutor)
+
+    def test_auto_select_routes_non_zero_fee_buy_and_hold_to_numba(self) -> None:
+        built = self._built_plan(fee=Decimal("0.0005"))
+        executor = _auto_select_backend(built, NoOpProfiler())
+        assert isinstance(executor, NumbaSimulationExecutor)
+
+    @pytest.mark.parametrize("backend", [None, ExecutionBackend.FAST])
+    def test_non_zero_fee_buy_and_hold_executes(
+        self, backend: ExecutionBackend | None
+    ) -> None:
+        fee = Decimal("0.0005")
+        built = self._built_plan(fee=fee)
+        result = execute_study_plan(built, ExecutionOptions(backend=backend))
+        assert len(result.results) == 1
+
+        unit = built.plan.units[0]
+        eq_dec, bd_dec = _bh_returns(unit.dataset, 120)
+        expected, expected_ok, _, _ = _bh_recurrence(
+            eq_dec,
+            bd_dec,
+            _WEALTH,
+            Decimal("0.6"),
+            Decimal("0.04"),
+            120,
+            fee,
+        )
+        statistics = result.results[0].statistics
+        assert statistics.success is expected_ok
+        assert abs(statistics.final_wealth.amount - expected) < _TOLERANCE
+
+    @pytest.mark.parametrize(
+        ("backend", "message"),
+        [
+            (None, "Execution requires the optional Numba"),
+            (ExecutionBackend.FAST, "FAST backend requires"),
+        ],
+    )
+    def test_non_zero_fee_buy_and_hold_requires_numba(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        backend: ExecutionBackend | None,
+        message: str,
+    ) -> None:
+        import builtins
+
+        built = self._built_plan(fee=Decimal("0.0005"))
+        original_import = builtins.__import__
+
+        def _block_numba(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "numba" or name.startswith("numba."):
+                raise ModuleNotFoundError(f"No module named '{name}'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _block_numba)
+
+        with pytest.raises(ModuleNotFoundError, match=message):
+            execute_study_plan(built, ExecutionOptions(backend=backend))
 
     def test_auto_select_mixes_generic_policy_families(self) -> None:
         """Generic families may share one Numba executor in a mixed plan."""

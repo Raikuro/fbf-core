@@ -112,8 +112,8 @@ This section describes the repository after D4.3.
   3. All units Part 49 buy-and-hold-eligible →
      `Part49BuyAndHoldNumbaExecutor`.
   4. Every unit generic-Numba-eligible → `NumbaSimulationExecutor`
-     (fixed-real, constant-nominal, escalating, zero-fee buy-and-hold, and
-     glidepath families may be mixed in one plan).
+     (fixed-real, constant-nominal, escalating, buy-and-hold, and glidepath
+     families may be mixed in one plan).
   5. Otherwise → `UnsupportedConfigurationError`.
 - Explicit FAST applies the same families with additional mixed-plan checks:
   a plan containing Part 52 units must be entirely Part 52-eligible; likewise
@@ -124,7 +124,7 @@ This section describes the repository after D4.3.
 
 | Executor | File | Eligible workloads | Ineligible handling |
 |----------|------|--------------------|---------------------|
-| `NumbaSimulationExecutor` | `strategies/numba_executor.py` | Generic fixed-real (including explicit N-asset allocations), constant-nominal, escalating, zero-fee buy-and-hold, and glidepath families | Raises `UnsupportedConfigurationError`; no fallback executor |
+| `NumbaSimulationExecutor` | `strategies/numba_executor.py` | Generic fixed-real (including explicit N-asset allocations), constant-nominal, escalating, buy-and-hold (including non-zero expense ratios), and glidepath families | Raises `UnsupportedConfigurationError`; no fallback executor |
 | `Part49NumbaExecutor` | `strategies/part49_numba_executor.py` | Constant allocation + `Part49WithdrawalPolicy`, 2 assets, debt/LTV supported | Raises `UnsupportedConfigurationError` |
 | `Part52NumbaExecutor` | `strategies/part52_numba_executor.py` | Constant allocation + `Part52WithdrawalPolicy`, 2 assets, interest-rate source, supported additive fee | Raises `UnsupportedConfigurationError` |
 | `Part49BuyAndHoldNumbaExecutor` | `strategies/part49_buy_and_hold_numba_executor.py` | Buy-and-hold + `Part49WithdrawalPolicy`, 2 assets, zero fee, debt/LTV supported | Raises `UnsupportedConfigurationError` |
@@ -171,7 +171,7 @@ a private `"rebalance"` key. It has no dependency on pipeline steps.
 | `is_constant_allocation_eligible` | `strategies/eligibility.py` | Constant allocation + fixed-real withdrawal, horizon ≥ 1, dataset ≥ horizon; either exactly 2 holdings with one equity or an explicit allocation mapping covering held classes |
 | `_is_constant_nominal_eligible` | `strategies/numba_executor.py` | Constant allocation + constant withdrawal, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity |
 | `_is_escalating_eligible` | `strategies/numba_executor.py` | Constant allocation + escalating withdrawal, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `v0 == initial_wealth` |
-| `_is_buy_and_hold_eligible` | `strategies/numba_executor.py` | Buy-and-hold + fixed-real, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `v0 == initial_wealth`, fee ∈ {None, 0} |
+| `_is_buy_and_hold_eligible` | `strategies/numba_executor.py` | Buy-and-hold + fixed-real, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `v0 == initial_wealth`; expense ratio supported with the workbook additive convention |
 | `_is_glidepath_eligible` | `strategies/numba_executor.py` | Glidepath + fixed-real, 2 holdings, one equity, `v0 == initial_wealth` |
 | `is_part52_eligible` | `strategies/part52_numba_executor.py` | Constant allocation + Part 52 withdrawal, 2 holdings, one equity, interest-rate source, supported additive fee |
 | `is_part49_eligible` | `strategies/part49_numba_executor.py` | Part 49 withdrawal, 2 assets, monthly frequency, supported fee, debt/LTV fields |
@@ -211,7 +211,7 @@ Classification key:
 | 16 | Full monthly trajectory | `monthly_result_builder_step.py` `MonthlyResultBuilderStep`; `execution/strategies/trajectory.py` | 3 | Numba executors emit optional `SimulationTimeline` (D1, 46687ce) | Reference/pipeline paths remain separate; materialization at grid scale needs D2 streaming | Keep materialization opt-in; consume through streaming slices | `test_timeline_materialization.py` | Memory/IPC cost; per-month portfolio reconstruction | Trajectory equals legacy month-by-month on a representative case |
 | 17 | Result persistence | `persistence/studies/sqlite/codecs.py`; `sqlite_repository.py`; `run_command.py` | 3 | Schema v4 incremental writer: per-slice transactions, attempt tokens, explicit status, completion verification; completed-result readers filter incomplete executions; CLI streams persisted runs and appends each slice | No automatic age-based recovery | Document operational recovery | `test_streaming_persistence.py`, `test_sqlite_persistence.py`, `test_schema_migration.py` | #16, #18 | Save/load round-trip preserves statistics and timelines; interrupted runs are invisible until explicitly completed |
 | 18 | Memory-bounded large grids | `execution/slicing.py`, `execution/__init__.py`; legacy `reference.py:_MAX_UNITS_PER_WORKER`, `_DEFAULT_SLICE_COHORTS` | 2 | Streaming API bounds residency by slice target; streaming persistence measured at ~284–289 MiB for 200–400 materialized units | Full 313k-unit grid benchmark not yet validated | Validate full grid | `tests/benchmarks/test_memory_bounded_execution.py` | #14, #16 | Peak RSS within documented host budget on 313k units |
-| 19 | Buy-and-hold allocation | `concrete.py:49` `BuyAndHoldAllocationPolicy`; `_simulate_trajectory_buy_and_hold` (`numba_kernel.py:441`); `_is_buy_and_hold_eligible` (`numba_executor.py:267`) | 1 | Numba unit-tracking kernel (B4); weights drift endogenously | Non-zero fee, multi-asset, and Part 49 leverage fall back (see #6 and C4) | None for fee = 0, two assets | `tests/unit/strategies/test_numba_buy_and_hold.py`, `test_part49_buy_and_hold.py` | Non-zero-fee legacy `ExpenseDeductionStep` stale base (`TODO.md`) | Two-asset, fee = 0 differential vs legacy pipeline passes |
+| 19 | Buy-and-hold allocation | `concrete.py:49` `BuyAndHoldAllocationPolicy`; `_simulate_trajectory_buy_and_hold` (`numba_kernel.py:441`); `_is_buy_and_hold_eligible` (`numba_executor.py:267`) | 1 | Numba unit-tracking kernel (B4); weights drift endogenously; workbook additive fee `G - fee/12` with gross-return weight drift | Multi-asset and Part 49 leverage are out of scope (see #6 and C4); the generic executor supports non-zero expense ratios | None for two assets; any expense ratio | `tests/unit/strategies/test_numba_buy_and_hold.py`, `test_part49_buy_and_hold.py` | Part 49 buy-and-hold remains zero-fee (C4); buy-and-hold has no canonical ERN oracle | Two-asset zero- and non-zero-fee differential vs an independent Decimal recurrence passes |
 | 20 | Escalating withdrawal | `escalating_withdrawal.py` `EscalatingWithdrawalPolicy` | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`), `_process_escalating_group` (`numba_executor.py`) for `ConstantAllocationPolicy`; deterministic adapter supports constant allocation and annual glidepath through D3 | Glidepath + escalating is not yet eligible in the general Numba executor; the deterministic adapter supports it | Extend general eligibility to `GlidepathAllocationPolicy` | `tests/unit/strategies/test_numba_escalating.py`, `tests/unit/execution/test_deterministic_kernel.py` | General glidepath cadence and the deterministic-trajectory contract are separate migration items | Constant-allocation escalating matches the legacy pipeline (fee = 0) and an independent Decimal recurrence; deterministic annual glidepath + escalating matches the Decimal reference |
 | 21 | Supplemental cash flow | `supplemental_cash_flow_step.py` | 3 | None (inactive by default) | Additional external cash flow | Add once a real consumer activates it | None active today | No active consumer | Only migrate if a consumer exists |
 | 22 | CAPE-regime aggregation | `research/part20_*`, `cape_aggregation.py`, `cape_regime.py` | 4 | None | Regime classification layer | Keep as a post-processing layer over Numba results | Part 20 (`part20_pipeline.py`) | Aggregation, not simulation | Part 20 E2E pass |
@@ -303,8 +303,9 @@ Work items (each independently testable):
    deterministic adapter supports it through D3.
 
 4. **B4 — Buy-and-hold.** ✅ Implemented: a non-rebalancing unit-tracking
-   recurrence with explicit specification (a simulator extension — the workbook
-   does not define buy-and-hold). See the B4 milestone below.
+   recurrence with explicit specification, including the workbook additive
+   expense convention (a simulator extension — the workbook does not define
+   buy-and-hold). See the B4 milestone below.
 
 5. **B5 — Multi-asset portfolios.** ✅ Implemented (commit
    `85d72582f047279d5d9c42ca3f3cb0e3d9099c7b`): an explicit `allocations`
@@ -1322,7 +1323,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
 | B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | a00c0ec | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
 | B3: Escalating withdrawal | ✅ Complete (ConstantAllocation) | `numba_kernel.py`, `numba_executor.py`, `test_numba_escalating.py` | 65f1f67 | Value-independent annual schedule; deterministic annual glidepath + escalating is implemented under D3; general Numba glidepath + escalating remains deferred |
 | Buy-and-hold initial allocation | ✅ Complete (correction) | `default_pipeline.py`, `allocation_decision_step.py`, `portfolio_rebalance_step.py`, `test_part49_buy_and_hold.py` | 3f2f788 | Buy-and-hold applied the 50/50 default; allocation now applied once in period 0 |
-| B4: Buy-and-hold | ✅ Complete (non-debt, fee=0) | `numba_kernel.py`, `numba_executor.py`, `execution/__init__.py`, `test_numba_buy_and_hold.py` | 5179a3b | Unit-tracking kernel; Part 49 leverage → C4, multi-asset → B5, fee>0 deferred |
+| B4: Buy-and-hold | ✅ Complete (non-debt, additive fee) | `numba_kernel.py`, `numba_executor.py`, `execution/__init__.py`, `test_numba_buy_and_hold.py` | 5179a3b (B4); see git history for the fee extension | Unit-tracking kernel with workbook additive fee; weight drift uses the gross blended return; Part 49 leverage → C4, multi-asset → B5 |
 | B5: Multi-asset | ✅ Complete | `concrete.py`, `fast_path.py`, `numba_executor.py`, `test_multi_asset_allocation.py` | 85d72582f047279d5d9c42ca3f3cb0e3d9099c7b | Explicit N-asset `allocations`; single `resolve_target_weights`; nominal/escalating/Part 52 gate to the legacy form and fall back for explicit allocations |
 | C1: Part 52 Numba-only | ✅ Complete | `part52_numba_executor.py`, `execution/__init__.py`, `test_part52_dispatch_contract.py` | 2343c225278d1e02722a9567ab911e835215b6ff | Eligible Part 52 runs on Numba; explicit FAST on an ineligible Part 52 workload raises `UnsupportedConfigurationError` (no silent fallback) |
 | C2: Part 52 fee behavior | ✅ Complete (B1) | `_compute_growth_factors_numpy` (`numba_kernel.py`) fee passed by `part52_numba_executor.py`; `TestPart52ExpenseRatioSupport`, `TestPart52ExpenseRatioIndependentValidation` | 8dfbf24 (audited) | Additive fee `g_m = Σ_j w_j·P_{j,m}/P_{j,m-1} − fee/12` embedded in kernel growth factors |
@@ -1484,47 +1485,44 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
   via the asset-specific returns::
 
       V_0 = initial_value,  w_0 = equity_weight
+      fee_m = fee_annual / 12
       for m in 0 .. horizon-1:
           if C > V_m: failure at month m
           V_m <- V_m - C
           if m < horizon - 1:
               G = w_m * ge[m] + (1 - w_m) * gb[m]
               w_{m+1} = w_m * ge[m] / G
-              V_{m+1} = V_m * G
+              V_{m+1} = V_m * (G - fee_m)
 
-  This matches the legacy buy-and-hold pipeline exactly (fee = 0), because the
-  proportional liquidation used to fund withdrawals is the reference behavior.
+  The proportional liquidation used to fund withdrawals is the reference
+  behavior for the fee-free case.  The expense term follows the workbook
+  additive convention and leaves weight drift on the gross blended return.
 - Extended `NumbaSimulationExecutor` with `_is_buy_and_hold_eligible`,
-  `_buy_and_hold_group_key` (excludes `initial_wealth`; the withdrawal base is
-  `v0`), `_process_buy_and_hold_group`, and a per-dataset-token per-asset
-  growth-factor cache (`_bh_growth_cache`). Unlike the static/glidepath paths, a
-  single blended growth-factor series cannot be precomputed because the weights
-  are path-dependent, so the kernel consumes the equity and bond series
-  separately. AUTO backend dispatch now routes all-buy-and-hold workloads to
-  `NumbaSimulationExecutor`.
+  `_buy_and_hold_group_key` (excludes `initial_wealth` because the withdrawal
+  base is `v0`; includes the expense ratio), `_process_buy_and_hold_group`, and
+  a per-dataset-token per-asset growth-factor cache (`_bh_growth_cache`).
+  Unlike the static/glidepath paths, a single blended growth-factor series
+  cannot be precomputed because the weights are path-dependent, so the kernel
+  consumes the equity and bond series separately. AUTO backend dispatch now
+  routes all-buy-and-hold workloads to `NumbaSimulationExecutor`.
 - **Eligibility** requires `BuyAndHoldAllocationPolicy` + `FixedRealWithdrawalPolicy`,
-  a two-asset equity/bond portfolio present in the dataset, `v0 == initial_wealth`,
-  and `expense_ratio in (None, 0)`. Fees are excluded because the legacy
-  buy-and-hold path's expense/timing correction is derived from
-  `previous_portfolio_value`, which (absent a periodic rebalance) is only
-  refreshed in period 0 — so a non-zero fee applies the correction on a stale
-  base. A non-zero fee therefore falls back rather than being simulated
-  inconsistently (defect recorded in `TODO.md`). Multi-asset portfolios (B5)
-  and Part 49 leverage (`loan_draw_rate > 0`, C4) are also out of scope and
-  fall back.
+  a two-asset equity/bond portfolio present in the dataset, and
+  `v0 == initial_wealth`. Expense ratios are supported: the kernel applies the
+  workbook additive convention `blended_gross_return - fee_annual/12` after the
+  withdrawal, while weight drift continues to use the gross blended return.
+  Multi-asset portfolios (B5) and Part 49 leverage (`loan_draw_rate > 0`, C4)
+  remain out of scope and are rejected rather than routed to another engine.
 - Validation in `tests/unit/strategies/test_numba_buy_and_hold.py`: closed-form
   flat-market and zero-withdrawal hand calculations, a drift-vs-rebalanced
-  check, an independent Decimal unit-tracking recurrence across horizons and
-  allocations, depletion-boundary cases, batch sequential/parallel equivalence,
-  a differential against the legacy buy-and-hold pipeline (fee = 0) anchored to
-  hand-derived terminal values, per-context `final_value_target`, eligibility
-  (fee, mismatch, three-asset, constant-allocation exclusions), grouping
-  (shared trajectory, distinct allocations, distinct datasets), and AUTO routing
-  (including a mixed-plan negative case).
-- **Known limitation:** buy-and-hold with a non-zero fee is unsupported. The
-  legacy pipeline that contained the stale-base defect was deleted in D4.3;
-  non-zero-fee buy-and-hold now raises `UnsupportedConfigurationError` rather
-  than running an incorrect or approximated recurrence.
+  check, an independent Decimal unit-tracking recurrence across horizons,
+  allocations, and expense ratios (including zero and non-zero fees),
+  depletion-boundary cases, additive-vs-multiplicative fee discrimination,
+  fee-invariant weight drift, terminal-period behavior, batch
+  sequential/parallel equivalence, hand-derived zero- and non-zero-fee
+  terminal values, per-context `final_value_target`, eligibility (mismatch,
+  three-asset, constant-allocation exclusions), grouping (shared trajectory,
+  distinct allocations, distinct fees, distinct datasets), and AUTO/FAST
+  routing plus missing-Numba failure behavior.
 - All quality gates pass: ruff, mypy, pytest (unit, infrastructure, integration,
   contract).
 
@@ -1549,9 +1547,7 @@ Deletion is atomic per Phase D and must not occur until gates 1–10 pass.
    rejected with `UnsupportedConfigurationError`.
 5. **CLI routing is unified** — D5a removed the legacy flags and routed
    `run`/`compare`/`optimize`/Part 3 through explicit FAST with mandatory Numba.
-6. **Buy-and-hold non-zero fee is unsupported on Numba** — it fails explicitly;
-   no approximation or legacy fallback is used.
-7. **No legacy fallback exists** — AUTO and explicit FAST both reject
+6. **No legacy fallback exists** — AUTO and explicit FAST both reject
    ineligible contexts with `UnsupportedConfigurationError`.
 
 ---

@@ -335,7 +335,7 @@ def _auto_select_backend(
     raise UnsupportedConfigurationError(
         "No Numba executor supports this plan. Supported workloads are "
         "Part 52, Part 49, fixed-real, constant-nominal, escalating, "
-        "zero-fee buy-and-hold, and glidepath policies; debt and LTV "
+        "buy-and-hold, and glidepath policies; debt and LTV "
         "configurations belong to the dedicated Part 49/52 executors."
     )
 
@@ -448,7 +448,7 @@ def _select_simulation_executor(
                     f"(cohort={unsupported.cohort!r}, "
                     f"start_date={unsupported.start_date.isoformat()!r}). "
                     "The FAST backend supports fixed-real, constant-nominal, "
-                    "escalating, zero-fee buy-and-hold, and glidepath policies "
+                    "escalating, buy-and-hold, and glidepath policies "
                     "when the generic kernels' dataset, portfolio, and value "
                     "invariants hold; debt and LTV configurations belong to the "
                     "dedicated Part 49/52 executors."

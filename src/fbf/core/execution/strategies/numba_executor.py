@@ -253,17 +253,15 @@ def _is_buy_and_hold_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can use the Numba buy-and-hold kernel.
 
     Eligibility requires the buy-and-hold allocation policy (no periodic
-    rebalancing), a constant real withdrawal policy, a sufficient dataset, a
-    two-asset (equity + bond) portfolio, and no fees.  Fees are excluded
-    because the legacy buy-and-hold path computes its expense/timing correction
-    from ``previous_portfolio_value``, which (without a periodic rebalance) is
-    only refreshed in period 0; with a non-zero fee the legacy correction is
-    therefore applied on a stale base.  Deferring fees keeps the Numba path a
-    faithful match instead of replicating that defect (see ``TODO.md``).
+    rebalancing), a constant real withdrawal policy, a sufficient dataset, and
+    a two-asset (equity + bond) portfolio.  Expense ratios use the workbook
+    additive convention (``blended_return - fee/12``) inside the kernel; the
+    legacy buy-and-hold fee path was removed, so there is no stale-base
+    correction to reproduce.
 
     The withdrawal base is the value-independent initial portfolio value
-    (``v0``) while the legacy policy uses ``initial_wealth``; they must agree
-    (see ``_initial_value_equals_wealth``).
+    (``v0``) while the withdrawal amount is derived from ``initial_wealth``;
+    the two must agree (see ``_initial_value_equals_wealth``).
     """
     if not isinstance(context.allocation_policy, BuyAndHoldAllocationPolicy):
         return False
@@ -274,8 +272,6 @@ def _is_buy_and_hold_eligible(context: SimulationContext) -> bool:
     if context.dataset is None or len(context.dataset.snapshots) < 1:
         return False
     if len(context.dataset.snapshots) < context.horizon_months:
-        return False
-    if context.expense_ratio not in (None, Decimal("0")):
         return False
     holdings = context.initial_portfolio.holdings
     if not holdings or len(holdings) != 2:
@@ -345,11 +341,11 @@ def _buy_and_hold_group_key(context: SimulationContext) -> tuple[object, ...]:
     """Trajectory key for buy-and-hold contexts: excludes initial_wealth.
 
     The path depends on the market trajectory (``start_date`` + dataset),
-    the target equity allocation, the withdrawal rate, and the initial
-    portfolio.  ``initial_wealth`` does not enter the kernel (the withdrawal
-    base is ``v0``, derived from the initial portfolio), so it is excluded;
-    the FV check is applied per-target afterwards.  Dataset identity is
-    enforced separately by the identity-prefix clustering.
+    the target equity allocation, the withdrawal rate, the expense ratio, and
+    the initial portfolio.  ``initial_wealth`` does not enter the kernel (the
+    withdrawal base is ``v0``, derived from the initial portfolio), so it is
+    excluded; the FV check is applied per-target afterwards.  Dataset identity
+    is enforced separately by the identity-prefix clustering.
     """
     allocation = cast(BuyAndHoldAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
@@ -357,6 +353,7 @@ def _buy_and_hold_group_key(context: SimulationContext) -> tuple[object, ...]:
         context.start_date,
         allocation.equity_allocation,
         withdrawal.withdrawal_rate,
+        context.expense_ratio or Decimal("0"),
         context.initial_portfolio,
     )
 
@@ -1203,6 +1200,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
         withdrawal_policy = cast(FixedRealWithdrawalPolicy, sample_ctx.withdrawal_policy)
         rate_f = float(withdrawal_policy.withdrawal_rate)
         c = float(sample_ctx.initial_wealth.amount) * rate_f / 12.0
+        fee_annual = float(sample_ctx.expense_ratio or Decimal("0"))
 
         equity_growth_full, bond_growth_full = self._buy_and_hold_growth_factors(sample_ctx)
 
@@ -1233,6 +1231,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 equity_weight,
                 c,
                 horizon,
+                fee_annual,
                 out_values,
                 out_weights,
             )
