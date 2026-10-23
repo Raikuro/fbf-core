@@ -647,9 +647,8 @@ class TestBuyAndHoldRouting:
         executor = _auto_select_backend(built, NoOpProfiler())
         assert isinstance(executor, NumbaSimulationExecutor)
 
-    def test_auto_select_does_not_broaden_eligibility_for_mixed_plan(self) -> None:
-        """A plan mixing buy-and-hold and other policies must not use the
-        buy-and-hold Numba dispatch."""
+    def test_auto_select_mixes_generic_policy_families(self) -> None:
+        """Generic families may share one Numba executor in a mixed plan."""
         built = self._built_plan()
         unit = built.plan.units[0]
         constant_unit = PlannedSimulationUnit(
@@ -673,8 +672,7 @@ class TestBuyAndHoldRouting:
             cohorts=built.cohorts,
             param_configs=(),
         )
-        # One buy-and-hold unit and one constant-allocation unit: not all units
-        # share the same policy family, so AUTO fails closed instead of
-        # selecting an executor that cannot execute the whole plan.
-        with pytest.raises(UnsupportedConfigurationError):
-            _auto_select_backend(mixed_built, NoOpProfiler())
+        # One buy-and-hold unit and one constant-allocation unit are both
+        # generic-Numba-eligible, so AUTO admits the mixed plan as a whole.
+        executor = _auto_select_backend(mixed_built, NoOpProfiler())
+        assert isinstance(executor, NumbaSimulationExecutor)

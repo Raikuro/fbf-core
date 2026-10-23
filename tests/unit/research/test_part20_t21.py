@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 
-from fbf.core.execution import ExecutionStrategy
 from fbf.core.research.part20_aggregation import (
     PART20_FAILURE_PROBABILITIES,
     classify_displayed_value,
@@ -36,9 +35,7 @@ from fbf.core.research.part20_pipeline import (
     default_max_steps,
 )
 from fbf.core.research.part20_planner import (
-    PART20_PARALLEL_CHUNK_UNITS,
     build_cohort_populations,
-    choose_execution_strategy,
     load_part20_manifest,
 )
 from fbf.core.research.part20_strategies import (
@@ -518,71 +515,3 @@ class TestStructuralAndCompare:
         assert comparison.classification.kind == "REPRODUCED"
         assert comparison.calculation_path == "percentile_swrs[failsafe]"
         assert comparison.unit == "percent"
-
-
-class TestExecutionStrategySelection:
-    def test_all_static_uses_auto_fastest_backend(self) -> None:
-        assert (
-            choose_execution_strategy(100_000, all_static=True)
-            is ExecutionStrategy.AUTO
-        )
-
-    def test_mixed_large_uses_parallel(self) -> None:
-        assert (
-            choose_execution_strategy(500, all_static=False)
-            is ExecutionStrategy.PARALLEL
-        )
-
-    def test_mixed_small_uses_auto(self) -> None:
-        assert (
-            choose_execution_strategy(499, all_static=False)
-            is ExecutionStrategy.AUTO
-        )
-
-    def test_parallel_chunk_units_proven_safe_bound(self) -> None:
-        # Host probe: 12,800 OK; 19,200+ BrokenProcessPool. Bound is 12,000.
-        assert PART20_PARALLEL_CHUNK_UNITS == 12_000
-        assert PART20_PARALLEL_CHUNK_UNITS < 19_200
-        assert PART20_PARALLEL_CHUNK_UNITS >= 12_800 - 800
-
-    def test_sub_bundle_preserves_order_and_counts(self) -> None:
-        """Partition sub-bundles keep unit order and logical counts."""
-        from fbf.core.datasets import load_canonical_dataset
-        from fbf.core.execution import ExecutionOptions
-        from fbf.core.research.part20_planner import Part20ExecutionContext
-        from fbf.core.research.part20_strategies import part20_strategy_universe
-
-        if not MANIFEST_PATH.is_file():
-            pytest.skip("canonical manifest not present")
-        trajectory = load_canonical_dataset(Path("data/ern"))
-        ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)
-        strats = part20_strategy_universe()
-        statics = [s for s in strats if s.is_static][:2]
-        glide = [s for s in strats if not s.is_static][:2]
-        cohorts = ctx.populations.high_dates[:5]
-        rows = [(s, c, Decimal("0.035")) for s in statics + glide for c in cohorts]
-        bundle = ctx.build_units(
-            rows=rows,
-            horizon_months=721,
-            final_value_target=Decimal("0"),
-            step_label="unit_sub",
-        )
-        n = len(bundle.plan.units)
-        static_idx = [i for i, s in enumerate(bundle.strategies) if s.is_static]
-        glide_idx = [i for i, s in enumerate(bundle.strategies) if not s.is_static]
-        assert len(static_idx) + len(glide_idx) == n
-        assert len(static_idx) == len(statics) * len(cohorts)
-        assert len(glide_idx) == len(glide) * len(cohorts)
-
-        sub_s = ctx._sub_bundle(bundle, static_idx)
-        sub_g = ctx._sub_bundle(bundle, glide_idx)
-        assert len(sub_s.plan.units) == len(static_idx)
-        assert len(sub_g.plan.units) == len(glide_idx)
-        # Order within each partition matches original relative order
-        for orig_list, sub in ((static_idx, sub_s), (glide_idx, sub_g)):
-            for j, oi in enumerate(orig_list):
-                assert sub.plan.units[j] is bundle.plan.units[oi]
-                assert sub.strategies[j] is bundle.strategies[oi]
-        # Merged logical count
-        assert len(sub_s.plan.units) + len(sub_g.plan.units) == n
-        _ = ExecutionOptions()  # import used; no execution in unit suite

@@ -1,5 +1,9 @@
 # Proof: Scalar Recurrence Equivalence with Reference Engine
 
+> **Historical note (post-D4.3):** This proof predates removal of the legacy
+> Decimal engine. "Reference engine" below denotes the deleted pre-migration
+> implementation, not a production execution path.
+
 **Date:** 2026-08-25
 **Status:** Proof complete — verified by 98 differential tests
 

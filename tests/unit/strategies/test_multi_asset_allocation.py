@@ -29,7 +29,7 @@ from fbf.core.execution.pipeline.simulation import (
     SimulationResult,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.strategies.eligibility import is_fast_path_eligible
+from fbf.core.execution.strategies.eligibility import is_constant_allocation_eligible
 from fbf.core.execution.strategies.numba_executor import (
     NumbaSimulationExecutor,
     _is_constant_nominal_eligible,
@@ -186,19 +186,19 @@ class TestEligibility:
     def test_explicit_three_asset_eligible(self) -> None:
         dataset = _make_dataset(121)
         context = _make_context(dataset, 120, _WEIGHTS)
-        assert is_fast_path_eligible(context)
+        assert is_constant_allocation_eligible(context)
 
     def test_legacy_three_asset_not_eligible(self) -> None:
         dataset = _make_dataset(121)
         context = _make_context(dataset, 120, None)
-        assert not is_fast_path_eligible(context)
+        assert not is_constant_allocation_eligible(context)
 
     def test_explicit_incomplete_mapping_not_eligible(self) -> None:
         dataset = _make_dataset(121)
         context = _make_context(
             dataset, 120, {"equity": Decimal("0.5"), "bond": Decimal("0.5")}
         )
-        assert not is_fast_path_eligible(context)
+        assert not is_constant_allocation_eligible(context)
 
 
 class TestGroupIdentity:

@@ -165,7 +165,7 @@ def run_cost_breakdown() -> None:
         _group_key,
         _index_series,
         _weights_by_class,
-        is_fast_path_eligible,
+        is_constant_allocation_eligible,
     )
     from fbf.core.execution.strategies.numba_kernel import compute_growth_factors
 
@@ -173,7 +173,7 @@ def run_cost_breakdown() -> None:
     key_to_group: dict[tuple[object, ...], int] = {}
     group_contexts: list[list[SimulationContext]] = []
     for ctx in defn_batch.simulation_contexts:
-        if not is_fast_path_eligible(ctx):
+        if not is_constant_allocation_eligible(ctx):
             continue
         key = _group_key(ctx)
         if key not in key_to_group:

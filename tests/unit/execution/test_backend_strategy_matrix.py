@@ -90,6 +90,28 @@ class TestMissingDependency:
         with pytest.raises(ModuleNotFoundError, match="FAST backend requires"):
             execute_study_plan(built, options)
 
+    def test_missing_numba_auto_raises_clear_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import builtins
+
+        built = _make_built_study(cohorts=1, horizons=[720])
+        options = ExecutionOptions()
+
+        original_import = builtins.__import__
+
+        def _block_numba(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "numba" or name.startswith("numba."):
+                raise ModuleNotFoundError(f"No module named '{name}'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _block_numba)
+
+        with pytest.raises(
+            ModuleNotFoundError, match="Execution requires the optional Numba"
+        ):
+            execute_study_plan(built, options)
+
 
 class TestExecutionOptionsDefaults:
     """Verify ExecutionOptions default values."""

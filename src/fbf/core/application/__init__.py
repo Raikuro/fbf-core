@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.money import Money
 from fbf.core.execution import ExecutionOptions, ResearchExecutionResult, execute_study_plan
 from fbf.core.study import StudyConfiguration, build_study_plan
 
@@ -12,11 +11,11 @@ from fbf.core.study import StudyConfiguration, build_study_plan
 def run_study(
     config: StudyConfiguration,
     data_dir: str,
-    initial_wealth: Any,
+    initial_wealth: Money,
     options: ExecutionOptions | None = None,
     *,
     dataset: Dataset | None = None,
-) -> Any:
+) -> ResearchExecutionResult:
     """Execute a standard study from configuration to results.
 
     This is the outermost public application entry point for standard study execution.
@@ -31,7 +30,8 @@ def run_study(
     initial_wealth:
         The initial portfolio wealth for the study.
     options:
-        Execution options controlling backend, strategy, workers, etc.
+        Execution options controlling backend, strategy, result materialization,
+        and profiling.
     dataset:
         Optional pre-built dataset.  When supplied, it is used directly
         instead of loading CSV data from ``data_dir``.

@@ -189,7 +189,6 @@ def test_public_facade_symbols() -> None:
         "GlidepathAllocationPolicy",
         "GlidepathCadence",
         "StudyConfiguration",
-        "StudyPlanResult",
         "build_study_plan",
         "ExecutionBackend",
         "ExecutionStrategy",

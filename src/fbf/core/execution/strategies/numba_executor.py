@@ -16,7 +16,8 @@ contexts are rejected rather than delegated to another engine.
 
 Architecture
 ------------
-The Numba kernel computes the same scalar recurrence as the fast path::
+The Numba kernel computes the same scalar recurrence as the independent
+Decimal oracle::
 
     V_0      = value(initial_portfolio @ snapshot_0)
     C        = V_0 * withdrawal_rate / 12          (constant real withdrawal)
@@ -90,7 +91,7 @@ from fbf.core.execution.strategies.eligibility import (
     _index_series,
     _trajectory_clusters,
     _weights_by_class,
-    is_fast_path_eligible,
+    is_constant_allocation_eligible,
 )
 from fbf.core.execution.strategies.numba_kernel import (
     _compute_growth_factors_numpy,
@@ -134,17 +135,6 @@ class NumbaReport:
     month_work: int
     gf_cache_hits: int
     gf_cache_misses: int
-
-
-def _is_numba_eligible(context: SimulationContext) -> bool:
-    """Return True when *context* can use the Numba backend.
-
-    Same eligibility criteria as the fast path: ConstantAllocationPolicy
-    + FixedRealWithdrawalPolicy, sufficient dataset, and either the legacy
-    two-asset form or an explicit allocation mapping covering the held
-    asset classes.
-    """
-    return is_fast_path_eligible(context)
 
 
 def _initial_value_equals_wealth(context: SimulationContext) -> bool:
@@ -316,7 +306,7 @@ def is_numba_context_eligible(context: SimulationContext) -> bool:
     """
     if context.loan_draw_rate is not None or context.ltv_limit is not None:
         return False
-    if _is_numba_eligible(context):
+    if is_constant_allocation_eligible(context):
         if context.final_value_target not in (None, Decimal("0")):
             return _initial_value_equals_wealth(context)
         return True
@@ -339,7 +329,7 @@ def _numba_group_key(context: SimulationContext) -> tuple[object, ...] | None:
     executor's internal routing; ``FAST`` admission additionally applies the
     strict checks in :func:`is_numba_context_eligible`.
     """
-    if _is_numba_eligible(context):
+    if is_constant_allocation_eligible(context):
         return _group_key(context)
     if _is_constant_nominal_eligible(context):
         return _constant_nominal_group_key(context)
@@ -619,7 +609,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
         for cluster in clusters:
             sample_ctx = cluster[0]
             if not (
-                _is_numba_eligible(sample_ctx)
+                is_constant_allocation_eligible(sample_ctx)
                 or _is_constant_nominal_eligible(sample_ctx)
                 or _is_escalating_eligible(sample_ctx)
             ):
@@ -805,7 +795,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
         for cluster in clusters:
             sample_ctx = cluster[0]
-            if _is_numba_eligible(sample_ctx):
+            if is_constant_allocation_eligible(sample_ctx):
                 self._process_static_group(cluster, results, stats)
             elif _is_constant_nominal_eligible(sample_ctx):
                 self._process_constant_nominal_group(cluster, results, stats)

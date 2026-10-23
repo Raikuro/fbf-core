@@ -20,24 +20,23 @@ validated, and never alter default behaviour.
 
 ---
 
-## Reference Decimal Engine as Semantic Oracle
+## Numba Engine and Independent Oracles
 
-The reference monthly pipeline (`decimal.Decimal`, step-by-step) is the
-**canonical source of truth** for simulation correctness. Both the closed-form
-fast path and the multi-horizon execution strategy are *derived* from it and
-must produce bit-equivalent results.
+Production simulation runs on the float64 Numba engine. Correctness is pinned
+by independent `Decimal` and hand-calculated oracles, including the 180-cell
+ERN acceptance matrix, rather than by maintaining a second production engine.
 
 This design exists because:
 
-* SWR research requires exact arithmetic — float rounding produces
-  unbounded accuracy-conformance surface.
-* The 180-cell ERN oracle acceptance matrix is pinned to exact `Decimal`
-  equality. Any discrepancy is a defect, not a tolerance issue.
-* Having a single reference engine makes correctness verifiable by
-  construction rather than by sampling.
+* SWR research requires exact expected values. The oracles are expressed as
+  `Decimal`, and any discrepancy is a defect rather than a tolerance issue.
+* A single production engine eliminates divergent recurrence implementations,
+  fee/timing differences, and permanent fallback ambiguity.
+* Independent oracles make conformance verifiable without routing production
+  execution through a parallel implementation.
 
-The fast path validates against the reference. Multi-horizon execution
-reuses reference results. Neither replaces the reference.
+The Numba engine is the sole production path. Unsupported workloads fail
+explicitly; they never fall back to a legacy or `Decimal` engine.
 
 ---
 
@@ -50,7 +49,7 @@ truncation.
 
 **Why it exists:** It reduces month-work by exactly 3× (e.g. 169M → 56M
 months) without any correctness sacrifice. Derived results reuse identical
-`MonthlySimulationResult` objects and `Decimal` statistics.
+`MonthlySimulationResult` objects and aggregation semantics.
 
 **Why slice-based dispatch is mandatory:** Whole-plan materialization would
 hold ~0.37 MiB per unit, extrapolating to ~110 GiB for a full grid. Sliced
@@ -61,15 +60,16 @@ whole-plan.
 
 ---
 
-## Parallel Execution
+## Low-Level Parallel Helper
 
-The parallel execution invariant is:
+Production execution is single-process. The low-level test-only helper retains
+the equivalence invariant:
 
 ```
 parallel_execute(plan, workers=k) ≡ sequential_execute(plan)   for all k ≥ 1
 ```
 
-This is a hard correctness requirement, not a performance aspiration.
+This guards the helper's correctness, not a production execution mode.
 
 **Why deterministic batching:** Work is distributed by batch (not individual
 units). `batch_size = ceil(len(units) / workers)`. Same plan + same worker
@@ -210,10 +210,9 @@ greater** than the available value fails at that month, whereas a withdrawal
 failure condition. This distinguishes running out before a withdrawal can be met
 from exhausting the portfolio exactly at the final withdrawal.
 
-These rules are mirrored by the legacy pipeline and the Numba kernel
-(`numba_kernel.py`) and are pinned by hand-calculated and independent-recurrence
-tests. Changing them changes results and is therefore a semantic change, not a
-refactor.
+These rules are encoded by the Numba kernel (`numba_kernel.py`) and pinned by
+hand-calculated and independent-recurrence tests. Changing them changes results
+and is therefore a semantic change, not a refactor.
 
 ---
 
@@ -224,11 +223,12 @@ refactor.
 * **Document every optimisation.** Record what changed and why.
 * **Correctness before performance.** Engine, research, and optimization
   layers are frozen; never trade correctness for speed.
-* **Opt-in only.** Performance modes (fast path, multi-horizon execution) are activated
-  explicitly and never affect default behaviour.
-* **Memory boundedness.** Plan-build RSS is measured. Parallel memory is
-  bounded by slice sizing. Whole-plan materialization is explicitly
-  prohibited when extrapolation exceeds available RAM.
+* **Opt-in only.** Explicit performance modes (multi-horizon derivation and
+  timeline materialization) are activated deliberately and never alter default
+  financial semantics.
+* **Memory boundedness.** Plan-build RSS is measured. The low-level test-only
+  parallel helper bounds memory by slice sizing. Whole-plan materialization is
+  explicitly prohibited when extrapolation exceeds available RAM.
 
 ---
 
@@ -301,9 +301,10 @@ through the facade is subject to change without notice.
 
 ## Deliberately Rejected Approaches
 
-* **Float fast path for production use:** Rejected because it creates an
-  unbounded accuracy-conformance surface. The reference engine remains the
-  semantic oracle; the fast path validates against it.
+* **Dual production engines:** Rejected. Maintaining a legacy `Decimal` engine
+  and a high-throughput engine produced divergent semantics and fallback
+  ambiguity. Numba is the sole production engine; independent `Decimal`
+  oracles define expected results.
 * **Whole-plan sequential execution:** Rejected due to ~110 GiB memory
   extrapolation. Slice-based dispatch is mandatory.
 * **Base/fallback policy scalar duality:** Rejected in favour of a
@@ -313,8 +314,9 @@ through the facade is subject to change without notice.
   eliminates base/fallback redundancy and precedence ambiguity.
 * **Grid-ness inferred from shape:** Rejected. Exactly one
   policy-resolution rule applies to all study kinds.
-* **Independent whole-horizon reference execution:** Rejected. Multi-horizon
-  derivation is bit-exact and makes the independent path redundant.
+* **Independent whole-horizon execution:** Rejected. Multi-horizon
+  derivation preserves the required semantics and makes the independent path
+  redundant.
 
 ---
 

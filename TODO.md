@@ -6,6 +6,33 @@ file.
 
 ---
 
+## External Integration: UI Timeline Persistence
+
+**Classification:** external integration gap — deferred; not a Core execution
+defect
+
+### Problem
+
+The UI execution flow in `fbf-ui` calls `execute_study_plan()` without
+`materialize_timeline=True` and persists through `save_execution_result`.
+Persisted UI runs therefore contain empty monthly timelines, so trajectory
+charts have no data even though the run completed successfully.
+
+### Core status
+
+Core supports materialized timelines through `iter_execute_study_plan()` and
+incremental persistence through the streaming writer. No Core execution
+semantics need to change for this integration.
+
+### Required resolution
+
+Resolve in `fbf-ui`: request materialized trajectories and persist completed
+slices incrementally, then add an integration test proving a UI-created study
+exposes non-empty trajectory data. Do not change Core execution behavior as
+part of that work.
+
+---
+
 ## S2 Part 20: 0.111 pp/month Glidepath Endpoint Timing
 
 **Classification:** intentional semantic consequence (not a defect)

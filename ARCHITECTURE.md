@@ -246,7 +246,10 @@ python -m build --wheel
 5. ERN oracle acceptance matrix passes with exact `Decimal` equality (no float tolerance).
 6. External consumers import exclusively through the public Core API (Tier 1 and Tier 2).
 7. No history is rewritten in either repository after the initial migration commit.
-8. **Determinism:** `parallel_execute(plan, workers=k) ≡ sequential_execute(plan)` for all k ≥ 1.
+8. **Execution determinism:** the production Numba path is single-process and
+   deterministic. The low-level test-only helper additionally guarantees
+   `parallel_execute(plan, workers=k) ≡ sequential_execute(plan)` for all k ≥ 1;
+   production routing rejects `ExecutionStrategy.PARALLEL`.
 9. **Domain purity:** `fbf.core.domain` never imports from execution, study, optimization, persistence, or CLI.
 10. **Policy determinism:** Same `DecisionContext` produces identical `PolicyDecision`.
 11. **Portfolio invariant:** Total wealth equals sum of asset holdings; no negative holdings; allocation sums to 100%.
@@ -372,7 +375,7 @@ identical `PolicyDecision`. Policies are stateless; all state resides in
 
 Identical inputs must produce identical outputs unless nondeterminism is
 explicitly part of the modeled behaviour. This applies to simulation runs,
-parallel execution, and all domain computations.
+the low-level test-only parallel helper, and all domain computations.
 
 ### YAGNI
 

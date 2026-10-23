@@ -53,30 +53,25 @@ value per array. No backward compatibility with earlier configuration formats.
 
 ## Multi-Horizon Execution
 
-**D4.3 note:** Trajectory-prefix derivation remains in force. Slice dispatch
-remains the memory-safety mechanism, but Numba workloads execute sequentially;
-process-parallel execution is no longer a production strategy. References to
-parallel dispatch below describe the historical Decimal architecture.
-
 **Decision:** The execution model uses horizon derivation — execute the
 longest horizon per family, derive shorter horizons by truncation. Derived
-results reuse identical objects. Splits into cohort-aligned slices,
-dispatches via parallel execution, and merges back in plan order.
+results reuse identical objects. Work is split into cohort-aligned slices and
+merged back in plan order.
 
 **Why:** 3× month-work reduction without correctness sacrifice (e.g. 169M →
-56M months). Derived results reuse identical objects. Bit-exact with
-independent execution on the full 313,020-unit ERN grid. Slice-based
+56M months). Derived results reuse identical objects. Conformance is verified
+against independent oracles on the full 313,020-unit ERN grid. Slice-based
 dispatch is mandatory because whole-plan materialization would hold
 ~0.37 MiB per unit, extrapolating to ~110 GiB for a full grid.
 
 **Alternatives rejected:** Maintaining an independent whole-horizon
-reference execution path — rejected because derivation is bit-exact and
-makes the independent path redundant. Whole-plan sequential execution —
+execution path — rejected because derivation preserves the required semantics
+and makes the independent path redundant. Whole-plan sequential execution —
 rejected due to memory exhaustion at scale.
 
-**Consequence:** Both the reference engine and the fast path use the same
-slice-based dispatch for memory safety. Cohort alignment preserves horizon
-family grouping.
+**Consequence:** Numba execution uses slice-based dispatch for memory safety.
+Cohort alignment preserves horizon family grouping. Process-parallel
+execution is not a production strategy.
 
 ---
 
@@ -118,34 +113,28 @@ the simulation pipeline directly.
 
 ## ERN Oracle as Canonical Ground Truth
 
-**D4.3 note:** The independent ERN and workbook oracles remain canonical ground
-truth for their respective methodologies. The production engine is now the
-float64 Numba engine, so conformance is validated against independent Decimal
-or hand-calculated oracles rather than by routing production through a Decimal
-engine. The documented T vs T+1 and fee-convention differences still apply.
+**Decision:** The independent ERN and workbook oracles remain canonical ground
+truth for their respective methodologies. The 180-cell ERN oracle acceptance
+matrix is the definitive mathematical reference. Production conformance is
+validated against independent `Decimal` or hand-calculated oracles rather than
+by routing production through a second engine. The documented T vs T+1 and
+fee-convention differences still apply.
 
-**Decision:** The 180-cell ERN oracle acceptance matrix is the definitive
-mathematical ground truth. The engine source (`src/engine/**`) is never
-modified. Any new execution path — including the decimal fast path — must
-reproduce the oracle bit-for-bit using identical per-month, per-asset
-Decimal arithmetic (withdrawal ratio, negative-unit clamp, canonical
-rebalance order, residual closure).
+**Why:** SWR research requires exact expected values. The acceptance matrix is
+pinned to exact `Decimal` equality: any discrepancy is a defect, not a
+tolerance issue. Independent oracles make correctness verifiable without
+maintaining a parallel production engine.
 
-**Why:** SWR research requires exact arithmetic — float rounding produces
-unbounded accuracy-conformance surface. The 180-cell ERN oracle acceptance
-matrix is pinned to exact `Decimal` equality. Any discrepancy is a defect,
-not a tolerance issue. Having a single reference engine makes correctness
-verifiable by construction rather than by sampling.
+**Alternatives rejected:** Tolerance-based equivalence — rejected because the
+architecture demands exact identity for oracle comparison. Algebraic
+recurrences that diverge at exact-equality depletion boundaries are
+insufficient; the expected arithmetic and ordering must be encoded by the
+oracle exactly.
 
-**Alternatives rejected:** Tolerance-based equivalence — rejected because
-the architecture demands exact identity for Decimal execution paths.
-Algebraic recurrences that diverge at exact-equality depletion boundaries
-are insufficient; the arithmetic order must replicate the reference exactly.
-
-**Consequence:** The ERN E2E gates are opt-in (environment-gated) and
-remain the final arbiter of correctness. The decimal fast path produces
-identical results to the reference engine on all fields. Float boundary
-divergences are documented and pinned.
+**Consequence:** The ERN E2E gates are opt-in (environment-gated) and remain
+the final arbiter of correctness. The float64 Numba engine is the sole
+production execution path; conformance is validated against the independent
+oracles. Float boundary divergences are documented and pinned.
 
 ---
 

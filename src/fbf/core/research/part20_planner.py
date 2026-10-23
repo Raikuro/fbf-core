@@ -56,28 +56,12 @@ __all__ = [
     "Part20ExecutionContext",
     "Part20PlanBundle",
     "Part20RunStats",
-    "choose_execution_strategy",
     "extract_successes",
     "load_part20_manifest",
     "PART20_INITIAL_WEALTH",
-    "PART20_PARALLEL_UNIT_THRESHOLD",
-    "PART20_PARALLEL_CHUNK_UNITS",
 ]
 
 PART20_INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
-
-
-def _is_glidepath_strategy(strategy: Part20Strategy) -> bool:
-    """Check if a Part20Strategy is a glidepath (eligible for Numba glidepath path)."""
-    return strategy.kind == "glidepath"
-
-# Minimum batch size at which mixed (glidepath) plans use PARALLEL.
-PART20_PARALLEL_UNIT_THRESHOLD = 500
-
-# Max units per PARALLEL execute_study_plan call for glidepath partitions.
-# Host probe: 12,800 units OK; 19,200+ raised BrokenProcessPool (worker
-# death during long Decimal batches).  12,000 is a proven-safe bound.
-PART20_PARALLEL_CHUNK_UNITS = 12_000
 
 
 def load_part20_manifest(path: Path) -> CohortManifest:
@@ -159,31 +143,6 @@ class Part20RunStats:
     executions: int = 0
     units_executed: int = 0
     reused_search_cells: int = 0
-
-
-def choose_execution_strategy(
-    unit_count: int,
-    *,
-    all_static: bool,
-    all_glidepath_numba: bool = False,
-) -> ExecutionStrategy:
-    """Select the execution strategy for one audit batch.
-
-    All-static batches (ConstantAllocationPolicy + FixedRealWithdrawalPolicy)
-    use AUTO so the execution layer picks the fastest validated backend
-    (Numba closed form when available).
-
-    All-glidepath batches that are Numba-eligible use AUTO so the execution
-    layer picks the Numba backend (which runs sequentially).
-
-    Other mixed/glidepath batches use PARALLEL at
-    ``PART20_PARALLEL_UNIT_THRESHOLD`` units; smaller mixed batches use AUTO.
-    """
-    if all_static or all_glidepath_numba:
-        return ExecutionStrategy.AUTO
-    if unit_count >= PART20_PARALLEL_UNIT_THRESHOLD:
-        return ExecutionStrategy.PARALLEL
-    return ExecutionStrategy.AUTO
 
 
 def extract_successes(results: tuple[SimulationResult, ...]) -> tuple[bool, ...]:
@@ -380,91 +339,15 @@ class Part20ExecutionContext:
 
     # -- execution -----------------------------------------------------------
 
-    def _sub_bundle(
-        self,
-        bundle: Part20PlanBundle,
-        indices: Sequence[int],
-    ) -> Part20PlanBundle:
-        """Materialize a sub-plan for *indices* (order preserved)."""
-        units = tuple(bundle.plan.units[i] for i in indices)
-        strategies = tuple(bundle.strategies[i] for i in indices)
-        param_configs = tuple(bundle.param_configs[i] for i in indices)
-        seen: dict[str, CohortSpecification] = {}
-        for unit in units:
-            key = unit.cohort.start_date.isoformat()
-            seen.setdefault(key, unit.cohort)
-        plan = ResearchPlan(
-            experiment_definition=bundle.plan.experiment_definition,
-            units=units,
-        )
-        return Part20PlanBundle(
-            plan=plan,
-            param_configs=param_configs,
-            cohorts=tuple(seen.values()),
-            strategies=strategies,
-        )
-
     def _execute_bundle(
         self,
         bundle: Part20PlanBundle,
         options: ExecutionOptions,
-        *,
-        all_static: bool,
     ) -> tuple[bool, ...]:
-        """Run one homogeneous bundle through the chosen execution path.
-
-        Large PARALLEL glidepath plans are split into
-        ``PART20_PARALLEL_CHUNK_UNITS``-sized consecutive chunks so each
-        ``execute_study_plan`` call stays within the host's proven-safe
-        worker-pool size.  Chunks preserve unit order; results are merged
-        positionally.  SEQUENTIAL (static) plans are never chunked.
-
-        All-glidepath Numba-eligible bundles use AUTO (Numba sequential).
-        Other large mixed/glidepath bundles use PARALLEL.
-        """
-        n_units = len(bundle.plan.units)
-        # Check if all strategies in this bundle are glidepath and Numba-eligible
-        has_strategies = bool(bundle.strategies)
-        all_non_static = all(not s.is_static for s in bundle.strategies)
-        all_glidepath = all(_is_glidepath_strategy(s) for s in bundle.strategies)
-        all_glidepath_numba: bool = (
-            not all_static
-            and has_strategies
-            and all_non_static
-            and all_glidepath
-        )
-        strategy = choose_execution_strategy(
-            n_units, all_static=all_static, all_glidepath_numba=all_glidepath_numba
-        )
-
-        if (
-            strategy is ExecutionStrategy.PARALLEL
-            and n_units > PART20_PARALLEL_CHUNK_UNITS
-        ):
-            merged: list[bool | None] = [None] * n_units
-            for start in range(0, n_units, PART20_PARALLEL_CHUNK_UNITS):
-                stop = min(start + PART20_PARALLEL_CHUNK_UNITS, n_units)
-                chunk = self._sub_bundle(bundle, list(range(start, stop)))
-                chunk_successes = self._execute_bundle_uncached(
-                    chunk, options, strategy=strategy
-                )
-                for offset, ok in enumerate(chunk_successes):
-                    merged[start + offset] = ok
-            return tuple(bool(flag) for flag in merged)
-
-        return self._execute_bundle_uncached(bundle, options, strategy=strategy)
-
-    def _execute_bundle_uncached(
-        self,
-        bundle: Part20PlanBundle,
-        options: ExecutionOptions,
-        *,
-        strategy: ExecutionStrategy,
-    ) -> tuple[bool, ...]:
-        """Single ``execute_study_plan`` call for *bundle*."""
+        """Execute one bundle through the Numba path."""
         effective = replace(
             options,
-            strategy=strategy,
+            strategy=ExecutionStrategy.AUTO,
             summary_only=True,
             glidepath_gf_cache=self.glidepath_gf_cache,
         )
@@ -484,41 +367,14 @@ class Part20ExecutionContext:
     ) -> tuple[bool, ...]:
         """Execute *bundle* and return per-unit success flags in plan order.
 
-        Mixed batches (static + glidepath strategies) are partitioned so
-        static/FixedReal units regain the FastPath/Numba closed-form path
-        while glidepath units use the parallel/reference path.  This is an
-        execution-path optimization only: cohorts, strategies, rates,
-        horizons, targets, datasets, and logical unit count are unchanged.
+        Every unit is executed through the Numba path, which may mix generic
+        policy families in one plan.  The caller's strategy is overridden with
+        AUTO because production parallel execution is unsupported.
+
         Result order matches ``bundle.plan.units``.  Stats count one logical
         execution and the full logical unit count per call.
         """
-        n_units = len(bundle.plan.units)
-        static_idx = [i for i, s in enumerate(bundle.strategies) if s.is_static]
-        glide_idx = [i for i, s in enumerate(bundle.strategies) if not s.is_static]
-
-        if not glide_idx or not static_idx:
-            # Homogeneous: single path (unchanged behaviour).
-            all_static = not glide_idx
-            successes = self._execute_bundle(
-                bundle, options, all_static=all_static
-            )
-            self.stats.executions += 1
-            self.stats.units_executed += n_units
-            return successes
-
-        # Mixed: partition, execute each subset, merge by original index.
-        merged: list[bool | None] = [None] * n_units
-        for indices, all_static in (
-            (static_idx, True),
-            (glide_idx, False),
-        ):
-            sub = self._sub_bundle(bundle, indices)
-            sub_successes = self._execute_bundle(
-                sub, options, all_static=all_static
-            )
-            for orig_i, ok in zip(indices, sub_successes, strict=True):
-                merged[orig_i] = ok
-
+        successes = self._execute_bundle(bundle, options)
         self.stats.executions += 1
-        self.stats.units_executed += n_units
-        return tuple(bool(flag) for flag in merged)
+        self.stats.units_executed += len(bundle.plan.units)
+        return successes

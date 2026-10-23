@@ -41,7 +41,6 @@ from fbf.core.study import (
     PlannedSimulationUnit,
     ResearchPlan,
     StudyConfiguration,
-    StudyPlanResult,
     build_study_plan,
 )
 
@@ -54,7 +53,6 @@ __all__ = [
     "GlidepathCadence",
     "StudyConfiguration",
     "run_study",
-    "StudyPlanResult",
     "build_study_plan",
     "BuiltStudy",
     "ResearchPlan",
@@ -71,7 +69,6 @@ __all__ = [
     "execute_study_plan",
     "execute_deterministic_trajectory",
     "ResearchExecutionResult",
-    "run_study",
     "optimize_study_swr",
     "optimize_part52",
     "load_canonical_dataset",

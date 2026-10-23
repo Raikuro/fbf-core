@@ -57,7 +57,7 @@ class Part52EvaluatorConfig:
     cohort_horizon_years:
         Cohort generation horizon (ERN uses 60y for comparability).
     workers:
-        Number of parallel workers (None for auto).
+        Retained for API compatibility.  Ignored: execution is sequential.
     """
 
     data_dir: str
@@ -79,9 +79,8 @@ class Part52Evaluator:
     Tests each candidate withdrawal rate against a grid of Borrow% values.
     Returns success if any Borrow% achieves full cohort feasibility.
 
-    This evaluator delegates simulation execution to the existing optimized
-    execution path (fast path + parallel workers), creating no duplicate
-    worker or batching logic.
+    This evaluator delegates simulation execution to the Numba execution
+    path, creating no duplicate batching logic.
     """
 
     def __init__(self, config: Part52EvaluatorConfig) -> None:

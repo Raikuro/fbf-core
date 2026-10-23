@@ -1,5 +1,10 @@
 # R7 — Execution Engine Performance Optimization Investigation Report
 
+> **Historical note (post-D4.3):** This report predates removal of the legacy
+> Decimal engine. "Reference engine" below denotes the deleted pre-migration
+> implementation used as the comparison baseline, not a production execution
+> path. The independent oracles under `tools/ern/` remain.
+
 **Date:** 2026-08-25
 **Status:** R7.1 COMPLETE, R7.2/R7.3 COMPLETE, R7.4+ pending
 **Scope:** Simulation engine performance profiling, optimization candidate identification, and feasibility analysis

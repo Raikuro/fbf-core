@@ -1,12 +1,12 @@
 """Numba-accelerated scalar simulation kernel.
 
 This module provides a high-performance scalar kernel that replicates the
-reference Decimal engine's monthly trajectory computation using float64
+independent Decimal oracle's monthly trajectory computation using float64
 arithmetic with Numba JIT compilation.
 
 Mathematical equivalence
 ------------------------
-The reference engine's monthly pipeline (withdraw → rebalance → market
+The canonical monthly pipeline (withdraw → rebalance → market
 evolution) reduces to a scalar recurrence when the allocation target is
 constant and rebalancing is performed at the same snapshot used for
 market evolution:
@@ -31,17 +31,19 @@ where ``w_m`` is the equity weight for month ``m`` (after rebalancing).
 
 The engine fails at month ``m`` when ``V_m < C`` (depletion at the
 withdrawal step).  On depletion, the remaining value is 0 (all holdings
-are sold), matching the reference engine's ``remaining_value = Money.ZERO``.
+are sold), matching the Decimal oracle's ``remaining_value = Money.ZERO``.
 
 Performance
 -----------
-- Numba scalar: ~0.003ms per 720-month trajectory (~16,000× faster than reference)
-- Numba parallel: ~0.003ms per trajectory at batch=78,255 (~171× faster than reference)
+- Numba scalar: ~0.003ms per 720-month trajectory
+  (~16,000× faster than the legacy Decimal pipeline)
+- Numba parallel: ~0.003ms per trajectory at batch=78,255
+  (~171× faster than the legacy Decimal pipeline)
 - Precomputed growth factors are shared across batch trajectories
 
 Limitations
 -----------
-- Float64 precision (~1e-15 per step) — not bit-exact with Decimal reference
+- Float64 precision (~1e-15 per step) — not bit-exact with the independent Decimal oracle
 - FixedRealWithdrawalPolicy only
 - No additional cash flows, costs, or taxes
 - Portfolio state after rebalancing is completely determined by total value
@@ -121,7 +123,7 @@ def _simulate_trajectory_workbook(
     entries are used.  This matches the workbook SCR recurrence and the
     canonical ERN oracle.
 
-    Depletion semantics match the reference engine: when the portfolio value is
+    Depletion semantics match the Decimal oracle: when the portfolio value is
     insufficient to cover the withdrawal, the remaining value is 0 (all
     holdings are sold).  The exact-boundary case (value == withdrawal) is NOT
     depleted — the withdrawal succeeds with remaining value 0.
@@ -171,12 +173,12 @@ def _simulate_trajectory(
 
     Kept for backward compatibility with non-workbook contexts.
 
-    The recurrence matches the reference engine's monthly pipeline:
+    The recurrence matches the Decimal oracle's monthly pipeline:
     withdrawal → rebalance → market evolution.  Growth is applied for months
     0..horizon-2 (transition to the next month).  The final month (horizon-1)
     has no further growth because there is no next snapshot.
 
-    Depletion semantics match the reference engine: when the portfolio value
+    Depletion semantics match the Decimal oracle: when the portfolio value
     is insufficient to cover the withdrawal, the remaining value is 0
     (all holdings are sold).  The exact-boundary case (value == withdrawal)
     is NOT depleted — the withdrawal succeeds with remaining value 0.
@@ -197,9 +199,9 @@ def _simulate_trajectory(
     -------
     tuple of (final_value, success, failure_month, post_withdrawal_value)
 
-    On depletion, final_value is 0.0 (matching the reference engine's
+    On depletion, final_value is 0.0 (matching the Decimal oracle's
     ``remaining_value = Money.ZERO``).  On success, failure_month is -1
-    (the wrapper converts this to None to match the reference engine's
+    (the wrapper converts this to None to match the Decimal oracle's
     ``SimulationStatistics.failure_month = None``).
     """
     value = initial_value
@@ -1020,9 +1022,9 @@ def _simulate_trajectory_varying(
     -------
     tuple of (final_value, success, failure_month, post_withdrawal_value)
 
-    On depletion, final_value is 0.0 (matching the reference engine's
+    On depletion, final_value is 0.0 (matching the Decimal oracle's
     ``remaining_value = Money.ZERO``).  On success, failure_month is -1
-    (the wrapper converts this to None to match the reference engine's
+    (the wrapper converts this to None to match the Decimal oracle's
     ``SimulationStatistics.failure_month = None``).
     """
     value = initial_value
@@ -1177,7 +1179,7 @@ def simulate_single(
     horizon: int,
 ) -> tuple[bool, int | None, Money, int]:
     """Simulate a single trajectory and return results compatible with the
-    reference engine's SimulationStatistics format.
+    canonical SimulationStatistics format.
 
     Parameters
     ----------

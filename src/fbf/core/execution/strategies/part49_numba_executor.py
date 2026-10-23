@@ -97,7 +97,7 @@ def is_part49_eligible(context: SimulationContext) -> bool:
         return False
     if context.allocation_policy.allocations is not None:
         # Explicit N-asset allocations are only supported by the fixed-real
-        # workbook path; Part 49 falls back to the reference backend.
+        # workbook path; Part 49 uses the generic fixed-real workbook path.
         return False
     if not isinstance(context.withdrawal_policy, Part49WithdrawalPolicy):
         return False

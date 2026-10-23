@@ -39,7 +39,7 @@ from fbf.core.execution import (
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
 )
-from fbf.core.execution.strategies.eligibility import is_fast_path_eligible
+from fbf.core.execution.strategies.eligibility import is_constant_allocation_eligible
 from fbf.core.execution.strategies.numba_executor import (
     NumbaSimulationExecutor,
     is_numba_context_eligible,
@@ -152,6 +152,58 @@ def _fast_options() -> ExecutionOptions:
     )
 
 
+def _make_mixed_generic_built_study() -> BuiltStudy:
+    dataset = _make_dataset()
+    fixed_real = PlannedSimulationUnit(
+        cohort=CohortSpecification(start_date=START),
+        parameter_config=ParameterConfiguration(
+            values={"withdrawal_rate": 0.04}
+        ),
+        allocation_policy=ConstantAllocationPolicy(Decimal("0.6")),
+        withdrawal_policy=FixedRealWithdrawalPolicy(Decimal("0.04")),
+        initial_portfolio=_two_asset_portfolio(),
+        dataset=dataset,
+        horizon_months=12,
+    )
+    constant_nominal = PlannedSimulationUnit(
+        cohort=CohortSpecification(start_date=START),
+        parameter_config=ParameterConfiguration(
+            values={"withdrawal_rate": 0.03}
+        ),
+        allocation_policy=ConstantAllocationPolicy(Decimal("0.6")),
+        withdrawal_policy=ConstantWithdrawalPolicy(Decimal("0.03")),
+        initial_portfolio=_two_asset_portfolio(),
+        dataset=dataset,
+        horizon_months=12,
+    )
+    experiment = ExperimentDefinition(
+        name="Mixed generic families",
+        description="Mixed generic families",
+        dataset=dataset,
+        horizon_months=12,
+        initial_wealth=INITIAL_WEALTH,
+        cohorts=(fixed_real.cohort,),
+        allocation_policies=(fixed_real.allocation_policy,),
+        withdrawal_policies=(
+            fixed_real.withdrawal_policy,
+            constant_nominal.withdrawal_policy,
+        ),
+    )
+    plan = ResearchPlan(
+        experiment_definition=experiment,
+        units=(fixed_real, constant_nominal),
+    )
+    return BuiltStudy(
+        plan=plan,
+        experiment_definition=experiment,
+        cohorts=(fixed_real.cohort,),
+        param_configs=(
+            fixed_real.parameter_config,
+            constant_nominal.parameter_config,
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     ("allocation_policy", "withdrawal_policy"),
     [
@@ -206,6 +258,19 @@ def test_auto_routes_constant_nominal() -> None:
     assert len(result.results) == 1
 
 
+def test_auto_and_fast_execute_mixed_generic_families() -> None:
+    built = _make_mixed_generic_built_study()
+
+    auto = execute_study_plan(built, ExecutionOptions(summary_only=True))
+    fast = execute_study_plan(built, _fast_options())
+
+    assert len(auto.results) == 2
+    assert len(fast.results) == 2
+    assert [r.statistics.success for r in auto.results] == [
+        r.statistics.success for r in fast.results
+    ]
+
+
 def test_unsupported_generic_workload_raises() -> None:
     built = _make_built_study(
         ConstantAllocationPolicy(Decimal("0.5")),
@@ -248,7 +313,7 @@ def test_non_workbook_static_requires_v0_equals_initial_wealth() -> None:
         dataset=dataset,
     )
     workbook_context = _extract_simulation_contexts(workbook_built.plan)[0]
-    assert is_fast_path_eligible(workbook_context)
+    assert is_constant_allocation_eligible(workbook_context)
     assert is_numba_context_eligible(workbook_context)
 
     target_built = _make_built_study(
@@ -259,7 +324,7 @@ def test_non_workbook_static_requires_v0_equals_initial_wealth() -> None:
         final_value_target=Decimal("0.5"),
     )
     target_context = _extract_simulation_contexts(target_built.plan)[0]
-    assert is_fast_path_eligible(target_context)
+    assert is_constant_allocation_eligible(target_context)
     assert not is_numba_context_eligible(target_context)
 
     with pytest.raises(UnsupportedConfigurationError, match="FAST backend"):

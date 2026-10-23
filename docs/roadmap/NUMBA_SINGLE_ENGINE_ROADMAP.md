@@ -6,13 +6,13 @@ simulation engine, `ExecutionBackend.FAST` is the only backend value, Core is
 `0.3.0`, and consumer pins are updated. The independent historical oracle
 (`tools/ern/reference_oracle.py`) is preserved (see §9).
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
-**Objective:** Make Numba the sole simulation engine, progressively shrink and
-eventually delete the legacy Reference execution stack, and preserve
-`tools/ern/reference_oracle.py` as the independent historical published-ERN oracle.
+**Objective:** Make Numba the sole simulation engine, delete the legacy
+Reference execution stack, and preserve `tools/ern/reference_oracle.py` as the
+independent historical published-ERN oracle.
 
-> This document is a plan. It does not authorize code changes. Every phase
-> lists explicit deletion and migration gates that must be satisfied before
-> the next phase begins.
+> This document records the completed migration plan and the deletion gates
+> that governed it. Historical phase sections describe the pre-deletion state;
+> current architecture and surfaces are described in §§1–2, §7.2, and §§9–10.
 
 ---
 
@@ -21,14 +21,11 @@ eventually delete the legacy Reference execution stack, and preserve
 ### 1.1 Objective
 
 1. Numba is the sole execution engine for simulation workloads.
-2. Functionality already supported by Numba must stop depending on the legacy
-   Reference execution stack.
-3. Functionality Numba does not yet support is documented as an explicit
-   migration item.
-4. The legacy Reference pipeline shrinks as capabilities migrate.
-5. Once all required capability has migrated, the legacy Reference engine and
-   its redundant abstractions are deleted.
-6. `tools/ern/reference_oracle.py` remains untouched as an independent
+2. No production path depends on the legacy Reference execution stack.
+3. Unsupported workloads raise `UnsupportedConfigurationError`; there is no
+   fallback engine.
+4. The legacy Reference engine and its redundant abstractions are deleted.
+5. `tools/ern/reference_oracle.py` remains untouched as an independent
    implementation for validating historical published-ERN replication.
 
 ### 1.2 Target architecture
@@ -114,12 +111,10 @@ This section describes the repository after D4.3.
   2. All units Part 49-eligible → `Part49NumbaExecutor`.
   3. All units Part 49 buy-and-hold-eligible →
      `Part49BuyAndHoldNumbaExecutor`.
-  4. All units fixed-real-eligible → `NumbaSimulationExecutor`.
-  5. All units constant-nominal-eligible → `NumbaSimulationExecutor`.
-  6. All units escalating-eligible → `NumbaSimulationExecutor`.
-  7. All units zero-fee buy-and-hold-eligible → `NumbaSimulationExecutor`.
-  8. All units glidepath-eligible → `NumbaSimulationExecutor`.
-  9. Otherwise → `UnsupportedConfigurationError`.
+  4. Every unit generic-Numba-eligible → `NumbaSimulationExecutor`
+     (fixed-real, constant-nominal, escalating, zero-fee buy-and-hold, and
+     glidepath families may be mixed in one plan).
+  5. Otherwise → `UnsupportedConfigurationError`.
 - Explicit FAST applies the same families with additional mixed-plan checks:
   a plan containing Part 52 units must be entirely Part 52-eligible; likewise
   for Part 49. Unsatisfied plans raise `UnsupportedConfigurationError`.
@@ -142,7 +137,7 @@ execution.
 ### 2.3 Shared eligibility and grouping
 
 `strategies/eligibility.py` owns the shared predicates and trajectory helpers:
-`is_fast_path_eligible`, `_weights_by_class`, dataset identity/cluster/group
+`is_constant_allocation_eligible`, `_weights_by_class`, dataset identity/cluster/group
 helpers, and trajectory prefix clustering. The dedicated executors and the
 generic executor import these helpers; there is no legacy pipeline module.
 
@@ -173,8 +168,7 @@ a private `"rebalance"` key. It has no dependency on pipeline steps.
 
 | Predicate | Location | Requires |
 |-----------|----------|----------|
-| `is_fast_path_eligible` | `strategies/eligibility.py` | Constant allocation + fixed-real withdrawal, horizon ≥ 1, dataset ≥ horizon; either exactly 2 holdings with one equity or an explicit allocation mapping covering held classes |
-| `_is_numba_eligible` | `strategies/numba_executor.py` | Alias of `is_fast_path_eligible` |
+| `is_constant_allocation_eligible` | `strategies/eligibility.py` | Constant allocation + fixed-real withdrawal, horizon ≥ 1, dataset ≥ horizon; either exactly 2 holdings with one equity or an explicit allocation mapping covering held classes |
 | `_is_constant_nominal_eligible` | `strategies/numba_executor.py` | Constant allocation + constant withdrawal, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity |
 | `_is_escalating_eligible` | `strategies/numba_executor.py` | Constant allocation + escalating withdrawal, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `v0 == initial_wealth` |
 | `_is_buy_and_hold_eligible` | `strategies/numba_executor.py` | Buy-and-hold + fixed-real, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `v0 == initial_wealth`, fee ∈ {None, 0} |
@@ -803,7 +797,7 @@ independent of production code and must not be imported by it.
 | Workbook conformance (production) | Production grid vs `data/ern/workbook_oracle_table.csv` | Keep; production acceptance target |
 | Behavioral contract | Part 52/49 debt mechanics, glidepath, deterministic checkpoints | Keep; migrate to run on Numba |
 | Determinism | Repeated runs identical; parallel == sequential | Keep |
-| Routing | AUTO selects expected executor; backend × strategy matrix | Keep, but fix names once §1.3 is resolved |
+| Routing | AUTO selects the expected Numba executor; backend × strategy matrix | Keep; naming reflects §1.3 |
 | Obsolete implementation equivalence | `FAST == legacy Reference` where methodologies differ | **DELETED** in Phase A (§7.3) |
 
 ---
@@ -812,61 +806,64 @@ independent of production code and must not be imported by it.
 
 ### 6.1 Dependencies
 
-- Numba remains an optional core dependency (`fbf-core[numba]`), and core AUTO
-  dispatch retains its legacy fallback until D4.3. **Decision recorded for the
-  CLI (D5a): the CLI requires Numba through `fbf-core[numba]` and uses explicit
-  FAST, so a missing Numba fails instead of falling back.** Whether core retains
-  a pure-Python fallback after D4.3 remains a D4.3/D5b decision.
-- Full trajectories (#16) block persistence (#17), debt aggregation, and
-  deterministic execution.
-- Slice dispatch (#14/D2) blocks memory-bounded execution once #16 lands.
+- Numba is an optional install extra (`fbf-core[numba]`) but is mandatory for
+  simulation execution. Core has no pure-Python fallback; a missing Numba fails
+  explicitly. The CLI declares the extra and uses explicit FAST (D5a).
+- Trajectory materialization (#16), cohort-slice dispatch (#14/D2), streaming
+  persistence (#17), debt aggregation, and deterministic execution are
+  implemented. `iter_execute_study_plan()` bounds residency by slice, and
+  persistence consumes released slices.
+- No unresolved dependency blocks the single-engine architecture.
 
 ### 6.2 Risks
 
-1. **Fee-model divergence.** The legacy `ExpenseDeductionStep` uses a linear
-   approximation with a timing correction; the canonical workbook uses an
-   **additive fee embedded in returns** (`weighted_return - fee/12`). The
+1. **Fee-model divergence.** The deleted legacy `ExpenseDeductionStep` used a
+   linear approximation with a timing correction; the canonical workbook uses
+   an **additive fee embedded in returns** (`weighted_return - fee/12`). The
    `reference_oracle.py` uses multiplicative fees (its own methodology).
-   Migrating fee support (B1) must follow the *study's* required model, not
-   a single global rule. **Note**: The workbook's additive fee convention has
-   been implemented in the workbook SCR path (B1 COMPLETE for static
-   allocations).
+   Fee support must follow the *study's* required model, not a single global
+   rule. The workbook additive fee convention is implemented in the workbook
+   SCR path (B1 COMPLETE for static allocations).
 2. **Methodology drift.** Forcing Part 52 onto the Part 49 recurrence would
    silently change results. Preserve per-study semantics.
-3. **Trajectory payload size.** Materializing timelines for 313k units is
-   enormous (~0.37 MiB/unit per the legacy notes in `reference.py:419`); D2 is
-   a hard prerequisite for persistence at grid scale.
-4. **Public API breakage.** D5b removed the legacy reporting exports and
-   canonicalized `DECIMAL_FAST_PATH` while retaining `REFERENCE` as a
-   same-value alias; Core was bumped to `0.2.0` and consumer pins updated.
-   Removing the alias and the legacy implementations remains a future breaking
-   change coordinated with D4.3.
-5. **CLI routing ambiguity — resolved by D5a.** The legacy `--reference`,
-   `--fast-path`, and `--validate` flags were removed; `run`, `compare`,
-   `optimize`, and Part 3 use explicit FAST and require `fbf-core[numba]`.
-   Core AUTO retains its legacy fallback until D4.3.
+3. **Trajectory payload size.** Materializing timelines for the full ERN grid
+   is enormous. Whole-plan materialized execution is guarded, and grid-scale
+   trajectory work must use cohort-slice dispatch and incremental persistence.
+4. **Public API breakage.** D4.3 removed the `DECIMAL_FAST_PATH`/`REFERENCE`
+   backend values and the legacy reporting/execution exports, bumped Core to
+   `0.3.0`, and updated consumer pins. Future breaking changes still require a
+   Core minor-version increment.
+5. **CLI routing — resolved by D5a.** The legacy `--reference`, `--fast-path`,
+   and `--validate` flags are removed; `run`, `compare`, `optimize`, and Part 3
+   use explicit FAST and require `fbf-core[numba]`.
 
-### 6.3 Unresolved questions (require human decision)
+### 6.3 Resolved architectural decisions
 
-1. Numba dependency: **resolved for the CLI by D5a** (mandatory through
-   `fbf-core[numba]`, explicit FAST, no fallback). Core keeps AUTO fallback
-   until D4.3; whether core retains a pure-Python fallback after D4.3 remains
-   open.
-2. Should `ExecutionBackend.REFERENCE` be renamed, aliased, or removed?
-   **Resolved by D5b:** canonicalized as `DECIMAL_FAST_PATH`; `REFERENCE` is a
-   deprecated same-value alias through `0.2.x`; removal deferred.
-3. Does any external consumer depend on `execute_reference` /
-   `expected_reference_report` as public API?
-4. Is `execution/deterministic.py` to be reimplemented on Numba, or retained as
-   a specialized trajectory feature?
-5. What is the authoritative behavioral oracle for Part 52 and debt-aware
-   Part 49 if no pinned cell table exists?
-6. What is the intended default CLI execution path? **Resolved by D5a:**
-   explicit FAST for all execution commands.
+1. **Numba dependency:** optional at install time, mandatory for execution;
+   Core and CLI fail explicitly rather than falling back.
+2. **Backend naming:** `DECIMAL_FAST_PATH` and `REFERENCE` are removed;
+   `ExecutionBackend.FAST` is the only backend value.
+3. **Legacy public API consumers:** no production consumer remained;
+   `execute_reference`, `expected_reference_report`, and
+   `reference_month_work` are deleted.
+4. **Deterministic adapter:** implemented on the Numba kernel, with no fallback
+   engine.
+5. **CLI default:** explicit FAST for all execution commands.
+
+### 6.4 Open research-validation question
+
+The authoritative behavioral oracle for Part 52 and debt-aware Part 49 remains
+an open research-validation question where no pinned cell table exists. This
+does not affect the execution architecture; see `TODO.md`.
 
 ---
 
 ## 7. File- and Symbol-Level Migration Inventory
+
+> **Historical record.** Sections 7.1–7.1.5 and 8 preserve the migration
+> inventory and deletion gate as they stood before D4.3. Pre-deletion symbols,
+> files, and fallback descriptions there are not current architecture. See
+> §§1–2, §7.2, and §§9–10 for the delivered state.
 
 ### 7.1 Production files to modify or delete
 
@@ -1153,12 +1150,12 @@ changes, or public API removal.
 
 | Surface | File | Note |
 |---------|------|------|
-| `ExecutionBackend` | `execution/__init__.py` | D5b canonicalized `DECIMAL_FAST_PATH`; `REFERENCE` is a deprecated same-value alias through `0.2.x`. |
+| `ExecutionBackend` | `execution/__init__.py` | `FAST` is the only backend value; `DECIMAL_FAST_PATH` and `REFERENCE` are removed. |
 | `--reference`, `--fast-path` | `fbf-cli/src/fbf/cli/commands/run_command.py` | Removed by D5a. |
 | `--validate` | same file | Removed by D5a. |
 | `compare` / `optimize` execution | `compare_command.py`, `optimize_command.py` | D5a routes both through explicit FAST `execute_study_plan`. |
 | Part 3 execution/imports | `run_command.py` | D5a uses the Tier 2 `fbf.core.research` facade and explicit FAST. |
-| CLI packaging | `fbf-cli/pyproject.toml` | D5a declares `fbf-core[numba]`, making Numba mandatory for the CLI. Core AUTO fallback remains until D4.3. |
+| CLI packaging | `fbf-cli/pyproject.toml` | D5a declares `fbf-core[numba]`, making Numba mandatory for the CLI; Core has no fallback. |
 | Persistence guard | `run_command.py` | D5a removed the flag and persists explicit FAST runs with `materialize_timeline=True`. |
 | `ExecutionOptions` | `execution/__init__.py` | `summary_only`, `materialize_timeline`, `glidepath_gf_cache` |
 
@@ -1199,19 +1196,18 @@ committed; the documentation reconciliation is committed in Step E.
 | `TestBuyAndHoldExecutorDifferential` | Generic buy-and-hold legacy differential | C4/D4.2f | **CLOSED** — four legacy-only cases and legacy setup/comparison code removed; mixed tests split so independent anchors remain |
 | `TestEscalatingExecutorDifferential` | Generic escalating legacy differential | B3/D4.2g/D4.2h | **DELETED** — exact-horizon independent anchors added in D4.2g; two legacy cases removed in D4.2h |
 
-**D5a CLI evidence (to be added in `fbf-cli`; not yet present).** The D5a
-milestone must prove: all execution commands pass
+**D5a CLI evidence.** D5a is complete in `fbf-cli`: all execution commands use
 `ExecutionOptions(backend=ExecutionBackend.FAST)`; `run`, `compare`, `optimize`,
-and Part 3 call neither `_create_default_simulation_executor` nor the legacy
-runner as an execution path; missing Numba and unsupported configurations fail
-explicitly; and CLI production imports resolve only to Tier 1/Tier 2 Core
-modules (`fbf.core.research` included, `fbf.core.research.part3_pipeline` and
-`part3_planner` excluded). The existing CLI tests that assert `AUTO` for
-`--reference` do not satisfy D5a.
+and Part 3 do not use the deleted legacy runner; missing Numba and unsupported
+configurations fail explicitly; and CLI production imports resolve through the
+Tier 1/Tier 2 Core facade. CLI contract tests cover these boundaries.
 
 ---
 
 ## 8. Final Deletion Gate for the Legacy Reference Engine
+
+**Status:** Satisfied by D4.3. This gate is retained as the audit record for
+the deletion decision.
 
 The legacy engine may be deleted only when **all** of the following hold (Phase D gate):
 

@@ -86,7 +86,7 @@ def run_experiment_a(
         ctx: Part20ExecutionContext with cohort populations and trajectory.
         fv_targets: Final value targets to test (default: 0%, 50%, 100%).
         cape_conditions: CAPE conditions to test (default: "ALL", "HIGH").
-        options: Execution options (default: summary_only=True, auto workers).
+        options: Execution options (default: summary_only=True).
 
     Returns:
         Tuple of Part19ExperimentACell results for each
@@ -214,7 +214,7 @@ def run_experiment_b(
     Args:
         ctx: Part20ExecutionContext with cohort populations and trajectory.
         cape_conditions: CAPE conditions to test (default: "ALL", "HIGH").
-        options: Execution options (default: summary_only=True, auto workers).
+        options: Execution options (default: summary_only=True).
         cache: Optional search cache for cross-experiment reuse.
 
     Returns:

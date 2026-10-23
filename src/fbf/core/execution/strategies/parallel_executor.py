@@ -1,8 +1,9 @@
-"""Parallel execution engine for research studies (v0.4).
+"""Low-level parallel execution helpers for Core equivalence tests.
 
-Provides deterministic parallel execution of a ``ResearchPlan`` across multiple worker
-processes using ``ProcessPoolExecutor``. Guarantees bit-for-bit equivalence to
-sequential execution.
+Provides deterministic parallel execution of a ``ResearchPlan`` across multiple
+worker processes using ``ProcessPoolExecutor``. Guarantees bit-for-bit
+equivalence to sequential execution.  Production execution does not route
+through this module; the high-level API rejects ``ExecutionStrategy.PARALLEL``.
 """
 
 from __future__ import annotations
@@ -37,8 +38,8 @@ class _ProgressReportingSimulationExecutor(SimulationExecutor):
     per-unit progress reporting in sequential execution without altering the
     orchestrator contract or simulation semantics.
 
-    Executors that advertise ``processes_whole_definition = True`` (e.g. the
-    fast path) are passed the full definition unchanged: splitting it
+    Executors that advertise ``processes_whole_definition = True`` are passed
+    the full definition unchanged: splitting it
     into single-context calls would silently disable their cross-context
     optimisation (horizon derivation).  Progress is then reported once, after the
     whole definition completes.
@@ -241,8 +242,8 @@ def _execute_batch_on_shared_state(
     Memory is bounded per worker: timelines are stripped (or a result discarded)
     as each unit completes, so a worker never holds more than one unit's monthly
     payload regardless of the dispatch batch size.  Executors that advertise
-    ``processes_whole_definition = True`` (e.g. the fast path) still
-    receive the whole batch as a single definition, since splitting it would
+    ``processes_whole_definition = True`` still receive the whole batch as a
+    single definition, since splitting it would
     silently disable their cross-context optimisation (horizon derivation); their
     footprint is small because they never materialize per-month timelines.
     """

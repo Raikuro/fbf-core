@@ -9,10 +9,10 @@ cannot batch independent pair brackets.
 
 No new domain behavior.  Part 19/20 shared abstraction: DEFERRED (T2.1).
 
-Workload notes (host measurements during T2.1 design):
-- static FixedReal plans use the FastPath closed form when eligible;
-- glidepath plans fall back to the Decimal reference path;
-- batched multi-strategy steps keep pool-creation overhead low.
+Workload notes:
+- static FixedReal and glidepath plans route through Numba when eligible;
+- unsupported configurations fail explicitly;
+- batched multi-strategy steps share one plan execution.
 """
 
 from __future__ import annotations

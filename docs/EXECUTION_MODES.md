@@ -35,12 +35,13 @@ nine-step pipeline have been removed.
 execute_study_plan(built)  # backend=None, strategy=AUTO
 ```
 
-AUTO dispatch selects the first executor that supports every unit in the plan:
+AUTO dispatch selects the executor that supports every unit in the plan:
 
 1. All units Part 52-eligible → `Part52NumbaExecutor`
 2. All units Part 49-eligible → `Part49NumbaExecutor`
 3. All units Part 49 buy-and-hold-eligible → `Part49BuyAndHoldNumbaExecutor`
-4. All units eligible for one generic Numba family → `NumbaSimulationExecutor`
+4. Every unit eligible for the generic Numba kernels → `NumbaSimulationExecutor`
+   (generic families may be mixed in one plan)
 5. Otherwise → `UnsupportedConfigurationError`
 
 AUTO never constructs a legacy or Decimal fallback.
@@ -53,7 +54,8 @@ execute_study_plan(built, options=ExecutionOptions(backend=ExecutionBackend.FAST
 ```
 
 Explicit `FAST` applies the same routing and the same fail-closed guarantees.
-A mixed plan whose units do not all share a supported executor is rejected.
+A plan that mixes a dedicated Part 52/49 family with another family is rejected;
+mixed generic families are handled by one `NumbaSimulationExecutor`.
 
 ### Summary
 
@@ -86,7 +88,8 @@ AUTO dispatch (backend=None) and FAST
   → Part52NumbaExecutor               (when all units are Part52-eligible)
   → Part49NumbaExecutor               (when all units are Part49-eligible)
   → Part49BuyAndHoldNumbaExecutor     (when all units are Part49 buy-and-hold-eligible)
-  → NumbaSimulationExecutor           (when all units share one generic Numba family)
+  → NumbaSimulationExecutor           (when every unit is generic-Numba-eligible;
+                                       generic families may be mixed)
   → UnsupportedConfigurationError
 
 All executors
@@ -107,7 +110,7 @@ All executors
 | Generic escalating: `ConstantAllocationPolicy` + `EscalatingWithdrawalPolicy` + supported 2-asset portfolio/dataset + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
 | Generic buy-and-hold: `BuyAndHoldAllocationPolicy` + `FixedRealWithdrawalPolicy` + 2 assets + zero fee + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
 | Generic glidepath: `GlidepathAllocationPolicy` + `FixedRealWithdrawalPolicy` + supported 2-asset portfolio/dataset + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
-| Mixed/unsupported workload | Not eligible | `UnsupportedConfigurationError` |
+| Mixed dedicated-family plan, or any unsupported workload | Not eligible | `UnsupportedConfigurationError` |
 
 The generic Numba families do not model debt/LTV fields; those configurations
 belong to the dedicated Part 49/52 executors.

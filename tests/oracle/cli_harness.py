@@ -143,7 +143,6 @@ class CliHarness:
         workers: int = 4,
         timeout: int = 3600,
         persist: bool = True,
-        fast_path: bool = False,
     ) -> CliResult:
         """Run a study file and return the CLI completion summary.
 
@@ -153,15 +152,10 @@ class CliHarness:
             When False the CLI is invoked with ``--no-persist --summary-only``:
             nothing is written to the study database and only aggregate
             statistics are kept in memory (the summary output is identical).
-        fast_path:
-            When True, pass ``--fast-path`` to exercise the closed-form fast
-            path (results must match the reference engine).
         """
         argv = ["run", str(study_yaml), "--workers", str(workers)]
         if not persist:
             argv += ["--no-persist", "--summary-only"]
-        if fast_path:
-            argv += ["--fast-path"]
         return self.run(argv, timeout=timeout)
 
     def list_studies(self) -> list[StudyInfo]:

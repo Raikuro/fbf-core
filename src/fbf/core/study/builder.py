@@ -1456,9 +1456,6 @@ def build_study_plan(
         param_configs=param_configs,
     )
 
-StudyPlanResult = BuiltStudy
-
-
 # ---------------------------------------------------------------------------
 # Part 42 OMY study-plan builder
 #

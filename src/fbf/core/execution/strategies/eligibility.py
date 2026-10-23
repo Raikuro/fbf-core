@@ -24,7 +24,7 @@ from fbf.core.execution.pipeline.simulation_context import SimulationContext
 _EquityId = "equity"
 
 
-def is_fast_path_eligible(context: SimulationContext) -> bool:
+def is_constant_allocation_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can be evaluated by a constant-allocation kernel.
 
     Eligibility is restricted to the exact policy classes whose semantics the

@@ -63,8 +63,7 @@ def optimize_part52(
 
     Uses SWROptimizer binary search with a Part52Evaluator that tests
     each candidate WR against a grid of Borrow% values. Delegates
-    simulation execution to the existing optimized execution path
-    (fast path + parallel workers).
+    simulation execution to the Numba execution path.
 
     Parameters
     ----------
@@ -92,7 +91,7 @@ def optimize_part52(
     precision:
         WR precision for binary search convergence (default 0.01%).
     workers:
-        Number of parallel workers (None for auto).
+        Retained for API compatibility.  Ignored: execution is sequential.
 
     Returns
     -------
