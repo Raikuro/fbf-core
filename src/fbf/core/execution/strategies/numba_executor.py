@@ -103,7 +103,6 @@ from fbf.core.execution.strategies.numba_kernel import (
     _compute_growth_factors_numpy,
     _compute_workbook_scr,
     _materialize_price_float,
-    _simulate_trajectory,
     _simulate_trajectory_buy_and_hold,
     _simulate_trajectory_constant_nominal,
     _simulate_trajectory_escalating,
@@ -370,17 +369,14 @@ def is_numba_context_eligible(context: SimulationContext) -> bool:
     LTV fields belong to the dedicated Part 49/52 executors; the generic
     kernels would otherwise ignore them.
 
-    Fixed-real contexts that use the non-workbook recurrence derive
-    their withdrawal from ``v0`` while the reference policy derives it from
-    ``initial_wealth``.  Such contexts are admitted only when the two values
-    are exactly equal.  Workbook SCR contexts use ``v0`` as their explicit
-    starting value and do not require that equality.
+    Every fixed-real constant-allocation context uses the workbook recurrence.
+    The final-value target is an evaluation dimension and does not affect
+    admission or the simulated path.  Workbook contexts use ``v0`` as their
+    explicit starting value and do not require it to equal ``initial_wealth``.
     """
     if context.loan_draw_rate is not None or context.ltv_limit is not None:
         return False
     if is_constant_allocation_eligible(context):
-        if context.final_value_target not in (None, Decimal("0")):
-            return _initial_value_equals_wealth(context)
         return True
     if _is_constant_nominal_eligible(context):
         return True
@@ -984,25 +980,18 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
         return ExperimentRun(definition=definition, simulation_results=tuple(ordered_results))
 
-    def _use_workbook_scr(self, context: SimulationContext) -> bool:
-        """Check if workbook SCR methodology should be used for this context."""
-        if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
-            return False
-        if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
-            return False
-        if context.final_value_target is not None and context.final_value_target != Decimal("0"):
-            return False
-        if context.loan_draw_rate is not None:
-            return False
-        return context.ltv_limit is None
-
     def _process_static_group(
         self,
         contexts: list[SimulationContext],
         results: dict[int, SimulationResult],
         stats: dict[str, int],
     ) -> None:
-        """Process a group of static (ConstantAllocationPolicy) contexts."""
+        """Process a group of static (ConstantAllocationPolicy) contexts.
+
+        All admitted fixed-real contexts use the workbook recurrence.  The
+        final-value target is applied per context afterwards and never selects
+        a different recurrence.
+        """
         horizon_to_ctxs: dict[int, list[SimulationContext]] = {}
         for ctx in contexts:
             horizon_to_ctxs.setdefault(ctx.horizon_months, []).append(ctx)
@@ -1023,75 +1012,45 @@ class NumbaSimulationExecutor(SimulationExecutor):
 
         horizon_result_cache: dict[tuple[int, object], SimulationResult] = {}
 
-        use_workbook = self._use_workbook_scr(sample_ctx)
-
         for horizon, h_contexts in horizon_to_ctxs.items():
             stats["month_work"] += horizon
 
-            if use_workbook:
-                # Workbook convention (SWR Toolbox ``Case Study``): the context
-                # horizon includes the pre-retirement snapshot, so the number of
-                # return / withdrawal periods is ``horizon - 1``.  Withdraw
-                # before growth in every period and compound the final month's
-                # return, exactly as the workbook SCR model.
-                #
-                # ``success`` is the SCR verdict (``scr >= rate``).  The
-                # operational terminal failure -- the month the trajectory
-                # reaches zero -- is taken from the trajectory itself and is
-                # never inferred from ``scr < rate``; the reported month uses
-                # the same convention as ``numba_executor._process_static_group``
-                # (0-based period index + 1, since month 0 is pre-retirement).
-                periods = horizon - 1
-                growth_factors_arr = growth_factors_full[:periods]
-                scr = _compute_workbook_scr(growth_factors_arr, periods, fee_annual)
-                success = scr >= rate_f
-                out_values = (
-                    np.empty(periods + 1, dtype=np.float64)
-                    if self._materialize_timeline
-                    else None
-                )
-                final_value, _traj_success, fail_month, _ = _simulate_trajectory_workbook(
-                    growth_factors_arr, v0, c, periods, out_values
-                )
-                failure_month = (
-                    fail_month + 1 if 0 <= fail_month < periods else None
-                )
-                months_simulated = (
-                    failure_month if failure_month is not None else horizon
-                )
-                captured = out_values
-                workbook_convention = True
-            else:
-                growth_factors_arr = growth_factors_full[:horizon]
-                out_values = (
-                    np.empty(horizon, dtype=np.float64)
-                    if self._materialize_timeline
-                    else None
-                )
-                _final_val, _kernel_success, fail_month, _ = _simulate_trajectory(
-                    growth_factors_arr, v0, c, horizon, out_values
-                )
-
-                if 0 <= fail_month < horizon:
-                    success = False
-                    failure_month = fail_month
-                    final_value = 0.0
-                    months_simulated = fail_month
-                else:
-                    final_value = _final_val
-                    success = True
-                    failure_month = None
-                    months_simulated = horizon
-                captured = out_values
-                workbook_convention = False
+            # Workbook convention (SWR Toolbox ``Case Study``): the context
+            # horizon includes the pre-retirement snapshot, so the number of
+            # return / withdrawal periods is ``horizon - 1``.  Withdraw
+            # before growth in every period and compound the final month's
+            # return, exactly as the workbook SCR model.
+            #
+            # ``success`` is the SCR verdict (``scr >= rate``).  The
+            # operational terminal failure -- the month the trajectory
+            # reaches zero -- is taken from the trajectory itself and is
+            # never inferred from ``scr < rate``; the reported month uses
+            # the same convention as ``numba_executor._process_static_group``
+            # (0-based period index + 1, since month 0 is pre-retirement).
+            periods = horizon - 1
+            growth_factors_arr = growth_factors_full[:periods]
+            scr = _compute_workbook_scr(growth_factors_arr, periods, fee_annual)
+            success = scr >= rate_f
+            out_values = (
+                np.empty(periods + 1, dtype=np.float64)
+                if self._materialize_timeline
+                else None
+            )
+            final_value, _traj_success, fail_month, _ = _simulate_trajectory_workbook(
+                growth_factors_arr, v0, c, periods, out_values
+            )
+            failure_month = (
+                fail_month + 1 if 0 <= fail_month < periods else None
+            )
+            months_simulated = (
+                failure_month if failure_month is not None else horizon
+            )
+            captured = out_values
 
             timeline = None
             if captured is not None:
                 c_decimal = Decimal(str(c))
-                if workbook_convention:
-                    amounts = [Decimal("0")] + [c_decimal] * (months_simulated - 1)
-                else:
-                    amounts = [c_decimal] * months_simulated
+                amounts = [Decimal("0")] + [c_decimal] * (months_simulated - 1)
                 timeline = build_simulation_timeline(
                     sample_ctx,
                     captured,

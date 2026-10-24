@@ -180,11 +180,10 @@ not affect any month-by-month simulation state.
 
 When `final_value_target` is included in the Cartesian product (as in the
 ERN 900-cell grid), the planning layer expands logical units by the
-number of targets (5×). However, the Reference executor correctly
-deduplicates trajectory evaluation: contexts with different
-`final_value_target` values but identical trajectory parameters share a
-single simulation path. The FV check is applied per-target after path
-evaluation.
+number of targets (5×). However, the executors deduplicate trajectory
+evaluation: contexts with different `final_value_target` values but identical
+trajectory parameters share a single simulation path. The FV check is applied
+per-target after path evaluation.
 
 Measured overhead of the current representation (5 FV targets vs 0):
 
@@ -211,6 +210,14 @@ the same pattern: excluded from trajectory identity, applied per-target
 after trajectory evaluation. If the overhead becomes material with many
 more targets, a `TrajectoryPlan` / `EvaluationPlan` separation can be
 revisited with empirical evidence.
+
+**Fixed-real recurrence correction:** The generic Numba fixed-real path now
+uses the workbook recurrence for every context, regardless of the target.
+Earlier builds selected a non-workbook recurrence when the target was
+positive, which contradicted this decision and made grouping order-dependent.
+Because the recurrence is now uniform, positive-target final wealth can differ
+from those earlier builds; the final-value classification itself remains a
+post-simulation check.
 
 ---
 

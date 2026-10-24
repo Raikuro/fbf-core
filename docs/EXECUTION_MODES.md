@@ -105,12 +105,16 @@ All executors
 | Part52: `ConstantAllocationPolicy` + `Part52WithdrawalPolicy` + 2 assets + dataset coverage + an interest-rate source covering the horizon | All units eligible | `Part52NumbaExecutor` |
 | Part49: dedicated eligibility predicate (2 assets, monthly frequency, zero fee where required, debt/LTV supported) | All units eligible | `Part49NumbaExecutor` |
 | Part49 buy-and-hold: dedicated eligibility predicate (2 assets, zero fee, debt/LTV supported) | All units eligible | `Part49BuyAndHoldNumbaExecutor` |
-| Generic fixed-real: `ConstantAllocationPolicy` + `FixedRealWithdrawalPolicy` + supported portfolio/dataset; non-workbook contexts additionally require `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
+| Generic fixed-real: `ConstantAllocationPolicy` + `FixedRealWithdrawalPolicy` + supported portfolio/dataset | All units eligible | `NumbaSimulationExecutor` |
 | Generic constant-nominal: `ConstantAllocationPolicy` + `ConstantWithdrawalPolicy` + supported 2-asset portfolio/dataset | All units eligible | `NumbaSimulationExecutor` |
 | Generic escalating: `ConstantAllocationPolicy` + `EscalatingWithdrawalPolicy` + supported 2-asset portfolio/dataset + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
 | Generic buy-and-hold: `BuyAndHoldAllocationPolicy` + `FixedRealWithdrawalPolicy` + 2 assets + zero fee + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
 | Generic glidepath: `GlidepathAllocationPolicy` + `FixedRealWithdrawalPolicy` + supported 2-asset portfolio/dataset + `v0 == initial_wealth` | All units eligible | `NumbaSimulationExecutor` |
 | Mixed dedicated-family plan, or any unsupported workload | Not eligible | `UnsupportedConfigurationError` |
+
+Generic fixed-real execution uses the workbook recurrence for every
+final-value target. The target is an evaluation dimension applied per context
+after the shared trajectory; it does not select a different recurrence.
 
 The generic Numba families do not model debt/LTV fields; those configurations
 belong to the dedicated Part 49/52 executors.

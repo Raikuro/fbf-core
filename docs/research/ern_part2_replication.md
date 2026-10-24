@@ -64,7 +64,10 @@ Part 2 introduces **no change** to any of these inherited assumptions.
 
 #### 2.2.1 Final-Value Target Dimension
 
-Part 2 adds a final-value target as an additional simulation dimension. The success criterion becomes:
+Part 2 adds a final-value target as an additional **evaluation dimension**. The
+target does not select a different simulation recurrence or alter the
+month-by-month path; it is applied to the completed trajectory. The success
+criterion becomes:
 
 ```
 success = survived (portfolio did not deplete before horizon end)
@@ -124,12 +127,18 @@ The formula is:
 success = survived AND (final_wealth >= final_value_target × initial_wealth)
 ```
 
+Fixed-real Numba execution uses the workbook recurrence for every target. The
+terminal threshold is applied to the completed trajectory by `_apply_fv_check`.
+Positive-target final wealth can therefore differ from earlier builds that
+selected a non-workbook recurrence for positive targets.
+
 ### 3.2 Properties
 
 | Property | FBF Behavior | Article Requirement |
 |----------|-------------|---------------------|
 | Evaluated at terminal period only | ✅ Yes — checked once after simulation completes | ✅ "success criterion applies only to the final period" |
 | Temporary breach allowed | ✅ Yes — engine continues after target breach | ✅ "You could temporarily fall below that target" |
+| Same simulated path for every target | ✅ Yes — universal workbook recurrence; target applied after the path | ✅ Consistent with article |
 | Proportional comparison | ✅ `target_fraction × initial_wealth` | ✅ "25%, 50%, 75%, and 100% of the capital" |
 | Only depletion stops simulation | ✅ Early termination only on `value ≤ 0` | ✅ Consistent with article |
 | Real terms | ✅ Engine operates on real returns for ERN datasets | ✅ "real, inflation-adjusted" |
@@ -623,7 +632,7 @@ The article makes several qualitative observations (0.50pp haircut, 70% equity t
 
 ## 14. Summary
 
-ERN Part 2 extends Part 1 by adding a final-value target dimension to the success criterion. The key addition is the **terminal-only** check: `final_wealth >= target × initial_wealth`. The FBF engine already implements this semantics correctly (Section 3). The YAML configuration already supports multiple FV targets as a Cartesian-product axis (Section 9). No Part-2-specific engine behavior, YAML fields, or CLI flags are required for the final-value target dimension itself. However, the temporal-configuration gap identified by the Part 1 audit remains open.
+ERN Part 2 extends Part 1 by adding a final-value target dimension to the success criterion. The key addition is the **terminal-only** check: `final_wealth >= target × initial_wealth`. The target is evaluation-only: fixed-real execution uses the workbook recurrence for every target, and the terminal threshold is applied to the completed trajectory (Section 3). The YAML configuration already supports multiple FV targets as a Cartesian-product axis (Section 9). No Part-2-specific engine behavior, YAML fields, or CLI flags are required for the final-value target dimension itself. However, the temporal-configuration gap identified by the Part 1 audit remains open.
 
 The future E2E requires:
 

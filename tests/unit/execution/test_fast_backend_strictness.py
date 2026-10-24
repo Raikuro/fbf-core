@@ -382,7 +382,7 @@ def test_auto_rejects_unsupported_workload() -> None:
         _auto_select_backend(built, NoOpProfiler())
 
 
-def test_non_workbook_static_requires_v0_equals_initial_wealth() -> None:
+def test_fixed_real_static_uses_workbook_recurrence_regardless_of_target() -> None:
     allocation = ConstantAllocationPolicy(
         allocations={
             "equity": Decimal("0.5"),
@@ -412,10 +412,10 @@ def test_non_workbook_static_requires_v0_equals_initial_wealth() -> None:
     )
     target_context = _extract_simulation_contexts(target_built.plan)[0]
     assert is_constant_allocation_eligible(target_context)
-    assert not is_numba_context_eligible(target_context)
+    assert is_numba_context_eligible(target_context)
 
-    with pytest.raises(UnsupportedConfigurationError, match="FAST backend"):
-        execute_study_plan(target_built, _fast_options())
+    result = execute_study_plan(target_built, _fast_options())
+    assert len(result.results) == 1
 
 
 def test_executor_rejects_ineligible_context() -> None:

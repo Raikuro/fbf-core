@@ -116,7 +116,7 @@ def _execute(
 
 
 class TestFvTargetGrouping:
-    """final_value_target must not split trajectory groups."""
+    """final_value_target must not split groups or select a recurrence."""
 
     def test_different_targets_share_group(self) -> None:
         ds = _make_dataset()
@@ -130,6 +130,29 @@ class TestFvTargetGrouping:
         assert executor.report is not None
         assert executor.report.groups == 1
         assert len(run.simulation_results) == 3
+
+    def test_target_order_does_not_change_grouped_results(self) -> None:
+        ds = _make_dataset()
+        targets = (None, Decimal("0"), Decimal("0.5"), Decimal("1.0"))
+        contexts = tuple(
+            _make_context(final_value_target=target, dataset=ds)
+            for target in targets
+        )
+        isolated = {
+            id(context): _execute((context,))[1].simulation_results[0]
+            for context in contexts
+        }
+
+        for ordered in (contexts, tuple(reversed(contexts))):
+            executor, run = _execute(ordered)
+
+            assert executor.report is not None
+            assert executor.report.groups == 1
+            assert len(run.simulation_results) == len(ordered)
+            for context, grouped in zip(
+                ordered, run.simulation_results, strict=True
+            ):
+                assert grouped.statistics == isolated[id(context)].statistics
 
     def test_trajectory_params_split_groups(self) -> None:
         ds = _make_dataset()

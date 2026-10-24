@@ -148,28 +148,28 @@ def test_workbook_timeline_matches_decimal_oracle() -> None:
     assert abs(result.statistics.final_wealth.amount - expected[-1]) < Decimal("0.01")
 
 
-def test_non_workbook_timeline_matches_decimal_oracle() -> None:
+def test_positive_fv_target_uses_workbook_timeline() -> None:
     horizon = 12
     dataset = _dataset(horizon, Decimal("0.006"), Decimal("0.002"))
     context = _context(dataset, horizon, final_value_target=Decimal("0.5"))
     result = _run(context, materialize=True)
     timeline = result.timeline.monthly_results
 
+    # Independent workbook recurrence: month 0 is pre-retirement
+    # (no withdrawal), then withdraw before growth.
     v0 = _initial_value(context)
     c = v0 * Decimal("0.04") / Decimal("12")
     growth = Decimal("0.6") * Decimal("1.006") + Decimal("0.4") * Decimal("1.002")
-
-    expected = []
+    expected = [v0]
     value = v0
-    for m in range(horizon):
-        value -= c
+    for _ in range(horizon - 1):
+        value = (value - c) * growth
         expected.append(value)
-        if m < horizon - 1:
-            value *= growth
 
     assert len(timeline) == horizon
     for m, expected_value in enumerate(expected):
         assert abs(_value(timeline[m]) - expected_value) < Decimal("0.01")
+    assert abs(result.statistics.final_wealth.amount - expected[-1]) < Decimal("0.01")
 
 
 def test_buy_and_hold_weights_drift_and_revalue() -> None:
