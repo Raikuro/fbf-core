@@ -596,3 +596,23 @@ Do NOT redesign the optimizer now.
 - Rerun expensive optimizer sweeps
 
 ---
+
+## Numba Annual Withdrawal Frequency Coverage
+
+**Classification:** unsupported Numba scope — rejected explicitly
+
+The generic fixed-real, constant-nominal, buy-and-hold, fixed-real glidepath,
+Part 49, and Part 52 Numba kernels implement monthly withdrawals only. The
+policy layer, escalating Numba paths (including combined glidepath + escalating),
+and the deterministic kernel support annual frequency, but the monthly-only
+kernels must reject annual contexts rather than execute a full annual amount
+every month.
+
+### Required resolution
+
+If a consumer requires annual withdrawals in a monthly-only family, implement
+the annual withdrawal boundary (`period_index % 12 == 0`) in the corresponding
+kernel and add an independent Decimal recurrence test for annual timing.
+Otherwise retain the explicit rejection. Do not silently map annual to monthly.
+
+---

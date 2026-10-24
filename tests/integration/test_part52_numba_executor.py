@@ -20,7 +20,7 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
-from fbf.core.domain.policies import ConstantAllocationPolicy
+from fbf.core.domain.policies import ConstantAllocationPolicy, WithdrawalFrequency
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
 from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.simulation import (
@@ -314,6 +314,22 @@ class TestPart52Eligibility:
         )
         assert is_part52_eligible(ctx) is False
 
+    def test_ineligible_annual_frequency(self) -> None:
+        """The Part 52 kernel implements monthly withdrawals only."""
+        dataset = _create_dataset(12)
+        ctx = _make_context(dataset, 12)
+        annual = replace(
+            ctx,
+            withdrawal_policy=Part52WithdrawalPolicy(
+                withdrawal_rate=WITHDRAWAL_RATE,
+                borrow_pct=BORROW_PCT,
+                drawdown_threshold=DRAWDOWN_THRESHOLD,
+                frequency=WithdrawalFrequency.ANNUAL,
+            ),
+        )
+
+        assert is_part52_eligible(annual) is False
+
     def test_eligible_with_expense_ratio(self) -> None:
         """Positive expense_ratio should now be eligible (additive fee supported)."""
         dataset = _create_dataset(12)
@@ -405,6 +421,29 @@ class TestPart52NumbaExecutorDirect:
         )
 
         assert not hasattr(executor, "_reference")
+
+        with pytest.raises(UnsupportedConfigurationError):
+            executor.execute(definition)
+
+    def test_annual_frequency_raises_unsupported(self) -> None:
+        """Annual Part 52 contexts must fail loudly, never execute as monthly."""
+        dataset = _create_ffr_dataset(12, (Decimal("0.015"),) * 12)
+        ctx = _make_context(dataset, 12)
+        annual = replace(
+            ctx,
+            withdrawal_policy=Part52WithdrawalPolicy(
+                withdrawal_rate=WITHDRAWAL_RATE,
+                borrow_pct=BORROW_PCT,
+                drawdown_threshold=DRAWDOWN_THRESHOLD,
+                frequency=WithdrawalFrequency.ANNUAL,
+            ),
+        )
+        executor = Part52NumbaExecutor()
+        definition = EngineExperimentDefinition(
+            name="test",
+            description="test",
+            simulation_contexts=(annual,),
+        )
 
         with pytest.raises(UnsupportedConfigurationError):
             executor.execute(definition)

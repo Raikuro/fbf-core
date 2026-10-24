@@ -335,7 +335,8 @@ def _auto_select_backend(
     raise UnsupportedConfigurationError(
         "No Numba executor supports this plan. Supported workloads are "
         "Part 52, Part 49, fixed-real, constant-nominal, escalating, "
-        "buy-and-hold, and glidepath policies; debt and LTV "
+        "buy-and-hold, and glidepath policies with a monthly withdrawal "
+        "frequency (escalating supports monthly or annual); debt and LTV "
         "configurations belong to the dedicated Part 49/52 executors."
     )
 
@@ -383,9 +384,9 @@ def _select_simulation_executor(
                 raise UnsupportedConfigurationError(
                     "FAST backend cannot execute this plan on Numba: it contains "
                     "Part 52 workloads that are not Numba-eligible. Mixed plans "
-                    "(Part 52 combined with other policies) and schedule-less "
-                    "Part 52 configurations without a fixed interest_rate are "
-                    "unsupported by the FAST backend."
+                    "(Part 52 combined with other policies), ANNUAL frequency, "
+                    "and schedule-less Part 52 configurations without a fixed "
+                    "interest_rate are unsupported by the FAST backend."
                 )
             from fbf.core.execution.strategies.part52_numba_executor import (
                 Part52NumbaExecutor,
@@ -448,9 +449,10 @@ def _select_simulation_executor(
                     f"(cohort={unsupported.cohort!r}, "
                     f"start_date={unsupported.start_date.isoformat()!r}). "
                     "The FAST backend supports fixed-real, constant-nominal, "
-                    "escalating, buy-and-hold, and glidepath policies "
-                    "when the generic kernels' dataset, portfolio, and value "
-                    "invariants hold; debt and LTV configurations belong to the "
+                    "escalating, buy-and-hold, and glidepath policies when the "
+                    "generic kernels' dataset, portfolio, and value invariants "
+                    "hold; non-escalating generic withdrawals require monthly "
+                    "frequency; debt and LTV configurations belong to the "
                     "dedicated Part 49/52 executors."
                 )
 

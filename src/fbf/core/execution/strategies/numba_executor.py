@@ -202,7 +202,7 @@ def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can use the Numba backend for constant nominal withdrawal.
 
     Eligibility criteria: ConstantAllocationPolicy + ConstantWithdrawalPolicy,
-    sufficient dataset, two-asset portfolio.
+    monthly frequency, sufficient dataset, two-asset portfolio.
     """
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
@@ -211,6 +211,8 @@ def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
         # workbook path; constant-nominal rejects them.
         return False
     if not isinstance(context.withdrawal_policy, ConstantWithdrawalPolicy):
+        return False
+    if context.withdrawal_policy.frequency is not WithdrawalFrequency.MONTHLY:
         return False
     if context.horizon_months is None or context.horizon_months < 1:
         return False
@@ -295,13 +297,15 @@ def _is_glidepath_eligible(context: SimulationContext) -> bool:
 
     Glidepath eligibility requires:
     - GlidepathAllocationPolicy (passive or active)
-    - FixedRealWithdrawalPolicy
+    - FixedRealWithdrawalPolicy with monthly frequency
     - Sufficient dataset (horizon months of prices)
     - Two-asset portfolio (equity + bond)
     """
     if not isinstance(context.allocation_policy, GlidepathAllocationPolicy):
         return False
     if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
+        return False
+    if context.withdrawal_policy.frequency is not WithdrawalFrequency.MONTHLY:
         return False
     if context.horizon_months is None or context.horizon_months < 1:
         return False
@@ -322,9 +326,9 @@ def _is_buy_and_hold_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can use the Numba buy-and-hold kernel.
 
     Eligibility requires the buy-and-hold allocation policy (no periodic
-    rebalancing), a constant real withdrawal policy, a sufficient dataset, and
-    a two-asset (equity + bond) portfolio.  Expense ratios use the workbook
-    additive convention (``blended_return - fee/12``) inside the kernel; the
+    rebalancing), a monthly constant-real withdrawal policy, a sufficient
+    dataset, and a two-asset (equity + bond) portfolio.  Expense ratios use the
+    workbook additive convention (``blended_return - fee/12``) inside the kernel; the
     legacy buy-and-hold fee path was removed, so there is no stale-base
     correction to reproduce.
 
@@ -335,6 +339,8 @@ def _is_buy_and_hold_eligible(context: SimulationContext) -> bool:
     if not isinstance(context.allocation_policy, BuyAndHoldAllocationPolicy):
         return False
     if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
+        return False
+    if context.withdrawal_policy.frequency is not WithdrawalFrequency.MONTHLY:
         return False
     if context.horizon_months is None or context.horizon_months < 1:
         return False
@@ -704,7 +710,8 @@ class NumbaSimulationExecutor(SimulationExecutor):
             if key is None or not is_numba_context_eligible(context):
                 raise UnsupportedConfigurationError(
                     "Numba backend cannot execute this plan: a context is not "
-                    "supported by the generic Numba kernels "
+                    "supported by the generic Numba kernels; non-escalating "
+                    "generic withdrawals require monthly frequency "
                     f"(cohort={context.cohort!r}, "
                     f"start_date={context.start_date.isoformat()!r})."
                 )

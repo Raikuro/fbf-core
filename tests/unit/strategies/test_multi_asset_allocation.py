@@ -20,6 +20,7 @@ from fbf.core.domain.policies import (
     ConstantAllocationPolicy,
     ConstantWithdrawalPolicy,
     FixedRealWithdrawalPolicy,
+    WithdrawalFrequency,
 )
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 from fbf.core.execution.errors import UnsupportedConfigurationError
@@ -199,6 +200,28 @@ class TestEligibility:
             dataset, 120, {"equity": Decimal("0.5"), "bond": Decimal("0.5")}
         )
         assert not is_constant_allocation_eligible(context)
+
+    def test_annual_fixed_real_not_eligible(self) -> None:
+        dataset = _make_dataset(121)
+        context = _make_context(
+            dataset,
+            120,
+            withdrawal_policy=FixedRealWithdrawalPolicy(
+                _RATE, frequency=WithdrawalFrequency.ANNUAL
+            ),
+        )
+        assert not is_constant_allocation_eligible(context)
+
+    def test_annual_constant_nominal_not_eligible(self) -> None:
+        dataset = _make_dataset(121)
+        context = _make_context(
+            dataset,
+            120,
+            withdrawal_policy=ConstantWithdrawalPolicy(
+                _RATE, frequency=WithdrawalFrequency.ANNUAL
+            ),
+        )
+        assert not _is_constant_nominal_eligible(context)
 
 
 class TestGroupIdentity:

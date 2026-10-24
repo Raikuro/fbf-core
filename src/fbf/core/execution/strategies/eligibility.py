@@ -16,6 +16,7 @@ from typing import cast
 from fbf.core.domain.policies import (
     ConstantAllocationPolicy,
     FixedRealWithdrawalPolicy,
+    WithdrawalFrequency,
     allocation_identity,
     resolve_target_weights,
 )
@@ -28,14 +29,17 @@ def is_constant_allocation_eligible(context: SimulationContext) -> bool:
     """Return True when *context* can be evaluated by a constant-allocation kernel.
 
     Eligibility is restricted to the exact policy classes whose semantics the
-    recurrence encodes.  Any other policy pair (or a horizon below one month)
-    is rejected.  The dataset must also cover the full horizon: the recurrence
-    reads monthly index levels up to ``horizon_months - 1``, so a dataset
-    shorter than the horizon is refused.
+    recurrence encodes.  The fixed-real Numba recurrence implements monthly
+    withdrawals only, so annual frequency is rejected.  Any other policy pair
+    (or a horizon below one month) is rejected.  The dataset must also cover
+    the full horizon: the recurrence reads monthly index levels up to
+    ``horizon_months - 1``, so a dataset shorter than the horizon is refused.
     """
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
     if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
+        return False
+    if context.withdrawal_policy.frequency is not WithdrawalFrequency.MONTHLY:
         return False
     if context.horizon_months is None or context.horizon_months < 1:
         return False

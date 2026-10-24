@@ -28,7 +28,7 @@ from numpy.typing import NDArray
 
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.domain.policies import ConstantAllocationPolicy
+from fbf.core.domain.policies import ConstantAllocationPolicy, WithdrawalFrequency
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
 from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.executor import SimulationExecutor
@@ -82,7 +82,8 @@ def is_part52_eligible(context: SimulationContext) -> bool:
 
     Eligibility requires:
     - ConstantAllocationPolicy (constant equity/bond target weights)
-    - Part52WithdrawalPolicy (timing-leverage withdrawal)
+    - Part52WithdrawalPolicy (timing-leverage withdrawal) with monthly
+      frequency
     - horizon_months >= 1
     - Dataset covers full horizon
     - Exactly 2 holdings (one equity, one bond)
@@ -99,6 +100,8 @@ def is_part52_eligible(context: SimulationContext) -> bool:
         # workbook path; Part52 uses the generic fixed-real workbook path.
         return False
     if not isinstance(context.withdrawal_policy, Part52WithdrawalPolicy):
+        return False
+    if context.withdrawal_policy.frequency is not WithdrawalFrequency.MONTHLY:
         return False
     if context.horizon_months is None or context.horizon_months < 1:
         return False

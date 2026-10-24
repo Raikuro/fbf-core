@@ -26,6 +26,7 @@ from fbf.core.domain.policies import (
     WithdrawalFrequency,
 )
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
+from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
 from fbf.core.execution import (
     ExecutionBackend,
     ExecutionOptions,
@@ -112,6 +113,8 @@ def _make_built_study(
     dataset: Dataset | None = None,
     final_value_target: Decimal | None = None,
     loan_draw_rate: Decimal | None = None,
+    interest_rate: Decimal | None = None,
+    ltv_limit: Decimal | None = None,
 ) -> BuiltStudy:
     dataset = dataset or _make_dataset()
     unit = PlannedSimulationUnit(
@@ -124,6 +127,8 @@ def _make_built_study(
         horizon_months=12,
         final_value_target=final_value_target,
         loan_draw_rate=loan_draw_rate,
+        interest_rate=interest_rate,
+        ltv_limit=ltv_limit,
     )
     experiment = ExperimentDefinition(
         name="FAST strictness",
@@ -243,6 +248,88 @@ def test_supported_generic_families_execute(
     withdrawal_policy: Any,
 ) -> None:
     built = _make_built_study(allocation_policy, withdrawal_policy)
+    result = execute_study_plan(built, _fast_options())
+
+    assert len(result.results) == 1
+
+
+@pytest.mark.parametrize(
+    ("allocation_policy", "withdrawal_policy"),
+    [
+        (
+            ConstantAllocationPolicy(Decimal("0.6")),
+            FixedRealWithdrawalPolicy(
+                Decimal("0.04"), frequency=WithdrawalFrequency.ANNUAL
+            ),
+        ),
+        (
+            ConstantAllocationPolicy(Decimal("0.6")),
+            ConstantWithdrawalPolicy(
+                Decimal("0.04"), frequency=WithdrawalFrequency.ANNUAL
+            ),
+        ),
+        (
+            BuyAndHoldAllocationPolicy(Decimal("0.6")),
+            FixedRealWithdrawalPolicy(
+                Decimal("0.04"), frequency=WithdrawalFrequency.ANNUAL
+            ),
+        ),
+        (
+            GlidepathAllocationPolicy(
+                Decimal("0.4"),
+                Decimal("0.8"),
+                Decimal("0.005"),
+                "passive",
+            ),
+            FixedRealWithdrawalPolicy(
+                Decimal("0.04"), frequency=WithdrawalFrequency.ANNUAL
+            ),
+        ),
+    ],
+)
+def test_annual_frequency_rejected_by_monthly_only_generic_kernels(
+    allocation_policy: Any,
+    withdrawal_policy: Any,
+) -> None:
+    built = _make_built_study(allocation_policy, withdrawal_policy)
+    context = _extract_simulation_contexts(built.plan)[0]
+
+    assert not is_numba_context_eligible(context)
+    with pytest.raises(UnsupportedConfigurationError):
+        execute_study_plan(built, _fast_options())
+    with pytest.raises(UnsupportedConfigurationError):
+        _auto_select_backend(built, NoOpProfiler())
+
+
+def test_annual_part52_frequency_rejected_by_dispatch() -> None:
+    built = _make_built_study(
+        ConstantAllocationPolicy(Decimal("0.75")),
+        Part52WithdrawalPolicy(
+            withdrawal_rate=Decimal("0.0391"),
+            borrow_pct=Decimal("0.4108"),
+            drawdown_threshold=Decimal("0.20"),
+            frequency=WithdrawalFrequency.ANNUAL,
+        ),
+        interest_rate=Decimal("0.015"),
+        ltv_limit=Decimal("0.5"),
+    )
+
+    with pytest.raises(UnsupportedConfigurationError):
+        execute_study_plan(built, _fast_options())
+    with pytest.raises(UnsupportedConfigurationError):
+        execute_study_plan(built, ExecutionOptions(summary_only=True))
+
+
+def test_annual_escalating_frequency_executes() -> None:
+    built = _make_built_study(
+        ConstantAllocationPolicy(Decimal("0.6")),
+        EscalatingWithdrawalPolicy(
+            Decimal("0.035"),
+            Decimal("0.02"),
+            frequency=WithdrawalFrequency.ANNUAL,
+        ),
+    )
+
     result = execute_study_plan(built, _fast_options())
 
     assert len(result.results) == 1
