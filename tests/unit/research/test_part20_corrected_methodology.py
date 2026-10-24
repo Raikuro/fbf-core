@@ -33,7 +33,10 @@ from fbf.core.research.part20_pipeline import (
     run_fixed_swr_grid,
     run_percentile_search,
 )
-from fbf.core.research.part20_planner import Part20ExecutionContext
+from fbf.core.research.part20_planner import (
+    PART20_EXPENSE_RATIO,
+    Part20ExecutionContext,
+)
 from fbf.core.research.part20_strategies import Part20Strategy, part20_strategy_universe
 
 DATA_DIR = Path("data/ern")
@@ -202,9 +205,8 @@ class TestCorrectedMethodology:
     def test_static_100_4pct_60y_corrected(self) -> None:
         """Test corrected static_100 @ 4% 60Y failure rate.
 
-        With workbook fidelity methodology: ~28.4% failure.
-        Previously (incorrect implementation): 100% failure.
-        Published ERN: 33.5% failure.
+        With workbook alignment (fee, prior-month returns, lagged CAPE):
+        ~30.4% failure.  Published ERN: 33.5% failure.
         """
         strat = next(s for s in self.strategies if s.id == "static_100")
         cells = run_fixed_swr_grid(
@@ -218,9 +220,8 @@ class TestCorrectedMethodology:
         for c in cells:
             if c.strategy_id == "static_100" and c.withdrawal_rate == Decimal("0.04"):
                 obs = to_displayed_failure_percent(c.failure_rate)
-                # Workbook fidelity result: ~28.4% failure
-                assert abs(obs - Decimal("28.4")) < Decimal("0.2"), \
-                    f"static_100 @ 4% 60Y: expected ~28.4%, got {obs}%"
+                assert abs(obs - Decimal("30.4")) < Decimal("0.2"), \
+                    f"static_100 @ 4% 60Y: expected ~30.4%, got {obs}%"
                 return
         pytest.fail("Cell not found")
 
@@ -228,9 +229,8 @@ class TestCorrectedMethodology:
     def test_gp_030_070_4pct_60y_corrected(self) -> None:
         """Test corrected gp_030_070 @ 4% 60Y failure rate.
 
-        With corrected methodology (ERN projection from 2026-07): ~32.0%
-        This is a significant improvement from the old 31.1% (14 ULP from 32.5%).
-        Published: 32.5%
+        With workbook alignment (fee, prior-month returns, lagged CAPE):
+        ~34.9% failure.  Published: 32.5%.
         """
         strat = next(s for s in self.strategies if s.id == "gp_030_070_0.00111_passive")
         cells = run_fixed_swr_grid(
@@ -244,9 +244,8 @@ class TestCorrectedMethodology:
         for c in cells:
             if c.strategy_id == strat.id and c.withdrawal_rate == Decimal("0.04"):
                 obs = to_displayed_failure_percent(c.failure_rate)
-                # Corrected result: ~32.0% (5 ULP from 32.5%)
-                assert abs(obs - Decimal("32.0")) < Decimal("0.2"), \
-                    f"gp_030_070 @ 4% 60Y: expected ~32.0%, got {obs}%"
+                assert abs(obs - Decimal("34.9")) < Decimal("0.2"), \
+                    f"gp_030_070 @ 4% 60Y: expected ~34.9%, got {obs}%"
                 return
         pytest.fail("Cell not found")
 
@@ -254,9 +253,8 @@ class TestCorrectedMethodology:
     def test_static_080_3p75_60y_corrected(self) -> None:
         """Test corrected static_080 @ 3.75% 60Y failure rate.
 
-        With workbook fidelity methodology: ~19.2% failure.
-        Previously (incorrect implementation): 100% failure.
-        Published: 5.5%
+        With workbook alignment (fee, prior-month returns, lagged CAPE):
+        ~21.4% failure.  Published: 5.5%.
         """
         strat = next(s for s in self.strategies if s.id == "static_080")
         cells = run_fixed_swr_grid(
@@ -270,9 +268,8 @@ class TestCorrectedMethodology:
         for c in cells:
             if c.strategy_id == "static_080" and c.withdrawal_rate == Decimal("0.0375"):
                 obs = to_displayed_failure_percent(c.failure_rate)
-                # Workbook fidelity result: ~19.2% failure
-                assert abs(obs - Decimal("19.2")) < Decimal("0.2"), \
-                    f"static_080 @ 3.75% 60Y: expected ~19.2%, got {obs}%"
+                assert abs(obs - Decimal("21.4")) < Decimal("0.2"), \
+                    f"static_080 @ 3.75% 60Y: expected ~21.4%, got {obs}%"
                 return
         pytest.fail("Cell not found")
 
@@ -336,6 +333,7 @@ class TestCorrectedMethodology:
                 dataset=unit_dataset,
                 horizon_months=effective,
                 final_value_target=Decimal("0"),
+                expense_ratio=PART20_EXPENSE_RATIO,
             )
 
             plan = ResearchPlan(
@@ -412,9 +410,8 @@ class TestCorrectedMethodology:
         result = results.get("static_075")
         assert result is not None
         failsafe = to_displayed_percent(result.failsafe)
-        # Should remain ~3.28% (published 3.25%) — corrected methodology
-        assert abs(failsafe - Decimal("3.28")) < Decimal("0.05"), \
-            f"Exp A static_075 failsafe: expected ~3.28%, got {failsafe}%"
+        assert abs(failsafe - Decimal("3.25")) < Decimal("0.05"), \
+            f"Exp A static_075 failsafe: expected ~3.25%, got {failsafe}%"
 
         # Experiment B: 30Y, failsafe
         results = run_percentile_search(
@@ -431,9 +428,8 @@ class TestCorrectedMethodology:
         result = results.get("static_075")
         assert result is not None
         failsafe = to_displayed_percent(result.failsafe)
-        # Should remain ~3.84% (published 3.82%)
-        assert abs(failsafe - Decimal("3.84")) < Decimal("0.05"), \
-            f"Exp B static_075 failsafe: expected ~3.84%, got {failsafe}%"
+        assert abs(failsafe - Decimal("3.82")) < Decimal("0.05"), \
+            f"Exp B static_075 failsafe: expected ~3.82%, got {failsafe}%"
 
 
 if __name__ == "__main__":

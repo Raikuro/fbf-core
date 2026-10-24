@@ -240,6 +240,7 @@ def run_percentile_search(
         for strategy in to_search
         for cohort_date in cohort_dates
     ]
+    # Snapshot count: N years = N*12 returns plus the prior-month base.
     horizon_months = horizon_years * 12 + 1
     step_counter = {"n": 0}
 
@@ -302,6 +303,7 @@ def run_fixed_swr_grid(
         raise ValueError("withdrawal_rates must be non-empty (pass the audit grid)")
     if population not in {"HIGH", "LOW", "ALL"}:
         raise ValueError(f"population must be HIGH|LOW|ALL, got {population!r}")
+    # Snapshot count: N years = N*12 returns plus the prior-month base.
     horizon_months = horizon_years * 12 + 1
     n_cohorts = len(cohort_dates)
     cells: list[FailureRateCell] = []

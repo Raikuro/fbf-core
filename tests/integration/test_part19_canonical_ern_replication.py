@@ -168,7 +168,7 @@ class TestPart19ExperimentA:
         assert swrs_seen == {Decimal("0.035")}
 
     def test_cohort_counts(self, experiment_a_cells: tuple[Part19ExperimentACell, ...]) -> None:
-        """ALL CAPE condition uses 1,739 cohorts; HIGH uses 383."""
+        """ALL CAPE condition uses 1,739 cohorts; lagged HIGH uses 415."""
         for cell in experiment_a_cells:
             if cell.cape_condition == "ALL":
                 expected = 1739
@@ -177,7 +177,7 @@ class TestPart19ExperimentA:
                     f"got {cell.total_cohorts}"
                 )
             elif cell.cape_condition == "HIGH":
-                expected = 383
+                expected = 415
                 assert cell.total_cohorts == expected, (
                     f"{cell.strategy_id}: HIGH CAPE should have {expected} cohorts, "
                     f"got {cell.total_cohorts}"
@@ -318,6 +318,7 @@ class TestPart19ExperimentA:
             if cell.final_value_target == Decimal("0") and cell.cape_condition == "HIGH"
         }
 
+        mismatches: list[str] = []
         for anchor in anchors:
             key = (
                 f"{anchor['strategy']}_{anchor['horizon_years']}Y_fv"
@@ -325,7 +326,8 @@ class TestPart19ExperimentA:
             )
             part19_cell = overlap_cells.get(key)
             if part19_cell is None:
-                pytest.skip(f"Overlap cell {key} not found in Part 19 results")
+                mismatches.append(f"{key}: no Part 19 Experiment A result cell")
+                continue
 
             # Compute Part 19 failure rate as percentage with 1 decimal place
             part19_rate_pct = part19_cell.failure_rate * Decimal("100")
@@ -337,10 +339,13 @@ class TestPart19ExperimentA:
 
             # Allow 1 ULP (0.1 percentage point) tolerance for display rounding
             diff = abs(part19_rate_display - expected)
-            assert diff <= Decimal("0.1"), (
-                f"{key}: Part19 failure rate {part19_rate_display}% != published {expected}% "
-                f"(raw: {part19_rate_pct:.4f}%)"
-            )
+            if diff > Decimal("0.1"):
+                mismatches.append(
+                    f"{key}: Part19 failure rate {part19_rate_display}% "
+                    f"!= published {expected}% (raw: {part19_rate_pct:.4f}%)"
+                )
+
+        assert not mismatches, "Published anchor mismatches:\n" + "\n".join(mismatches)
 
     # -----------------------------------------------------------------------
     # Qualitative validation (informational)
@@ -485,7 +490,7 @@ class TestPart19ExperimentA:
         print(f"Total cells: {len(experiment_a_cells)}")
         print("Strategies: 27 (3 static + 24 glidepath)")
         print(f"FV targets: {[str(fv) for fv in PART19_EXPERIMENT_A_FV_TARGETS]}")
-        print("CAPE conditions: ALL (1739), HIGH (383)")
+        print("CAPE conditions: ALL (1739), HIGH (415)")
         print(f"Horizon: {PART19_EXPERIMENT_A_HORIZON_YEARS}Y")
         print(f"SWR: {PART19_EXPERIMENT_A_SWR}")
 

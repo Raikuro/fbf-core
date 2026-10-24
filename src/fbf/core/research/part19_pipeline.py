@@ -100,7 +100,7 @@ def run_experiment_a(
 
     # Get cohort populations
     all_dates = ctx.populations.all_dates  # 1,739 cohorts (All CAPE)
-    high_dates = ctx.populations.high_dates  # 383 cohorts (CAPE > 20)
+    high_dates = ctx.populations.high_dates  # 415 cohorts (prior-month CAPE > 20)
 
     cape_populations = {
         "ALL": all_dates,
@@ -229,7 +229,7 @@ def run_experiment_b(
 
     # Get cohort populations
     all_dates = ctx.populations.all_dates  # 1,739 cohorts (All CAPE)
-    high_dates = ctx.populations.high_dates  # 383 cohorts (CAPE > 20)
+    high_dates = ctx.populations.high_dates  # 415 cohorts (prior-month CAPE > 20)
 
     cape_populations = {
         "ALL": all_dates,

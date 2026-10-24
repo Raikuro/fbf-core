@@ -179,7 +179,7 @@ class TestPart19ExperimentB:
         assert fv_targets_seen == {Decimal("0")}
 
     def test_cohort_counts(self, experiment_b_cells: tuple[Part19ExperimentBCell, ...]) -> None:
-        """ALL CAPE condition uses 1,739 cohorts; HIGH uses 383."""
+        """ALL CAPE condition uses 1,739 cohorts; lagged HIGH uses 415."""
         for cell in experiment_b_cells:
             if cell.cape_condition == "ALL":
                 expected = 1739
@@ -188,7 +188,7 @@ class TestPart19ExperimentB:
                     f"got {cell.cohort_count}"
                 )
             elif cell.cape_condition == "HIGH":
-                expected = 383
+                expected = 415
                 assert cell.cohort_count == expected, (
                     f"{cell.strategy_id}: HIGH CAPE should have {expected} cohorts, "
                     f"got {cell.cohort_count}"
@@ -530,7 +530,7 @@ class TestPart19ExperimentB:
         print(f"Total cells: {len(experiment_b_cells)}")
         print("Strategies: 45 (21 static + 24 glidepath)")
         print(f"FV target: {PART19_EXPERIMENT_B_FV_TARGET}")
-        print("CAPE conditions: ALL (1739), HIGH (383)")
+        print("CAPE conditions: ALL (1739), HIGH (415)")
         print(f"Horizon: {PART19_EXPERIMENT_B_HORIZON_YEARS}Y")
         print(f"Metrics: {[str(p) for p in PART19_EXPERIMENT_B_PERCENTILES]}")
 

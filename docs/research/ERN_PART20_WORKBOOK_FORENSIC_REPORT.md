@@ -160,13 +160,13 @@ This is NOT natively supported in the current workbook configuration.
 | Aspect | SWR Toolbox (Configured for Part 20) | FBF Canonical | Same? |
 |--------|-------------------------------------|---------------|-------|
 | **CAPE Source** | Shiller CAPE (B29=1) | `cape_shiller.csv` | ✅ |
-| **CAPE Regime** | Monthly dynamic (CAPE-based Rule) | Fixed at cohort start | ❌ |
+| **CAPE Regime** | Monthly dynamic (CAPE-based Rule) | Fixed at prior-month CAPE | ❌ |
 | **Withdrawal Rule** | Dynamic CAPE-based | Fixed SWR (percentile search) | ❌ |
 | **Historical Cutoff** | 2026-06 (workbook) | 2016-09 (FBF/ERN Part 1 §4) | ❌ |
 | **Forward Projection** | Two-phase (~3.93%→5.37% eq) | 6.6%/0%/2.6% from 2016-10 | ❌ |
 | **Return Series** | Precomputed portfolio (AF) | spx_tr_real + bond_10y_tr_real | ⚠️ |
 | **Percentile Method** | Excel PERCENTILE (interpolation) | Order statistic floor(p*n) | ❌ |
-| **CAPE for Aggregation** | Shiller CAPE with 1-month lag | Manifest CAPE (cohort start) | ❌ |
+| **CAPE for Aggregation** | Shiller CAPE with 1-month lag | Manifest CAPE with 1-month lag | ✅ |
 | **Percentile Target** | SCR distribution percentiles | Fixed-SWR failsafe percentiles | ❌ |
 
 ---
@@ -234,7 +234,7 @@ The workbook's two-phase projection (~3.93%→5.37% equity, ~2.47%→2.23% bond 
 
 ### 10.4 CAPE Source Difference
 
-Workbook defaults to ERN CAPE (Col P); FBF uses Shiller CAPE (Col O / `cape_shiller.csv`). The 105/1866 regime disagreements are real and can be tested.
+Workbook defaults to ERN CAPE (Col P); FBF uses Shiller CAPE (Col O / `cape_shiller.csv`). The 105/1866 regime disagreements are real and can be tested. The canonical CSV is not byte-identical to workbook `O` for older observations (different Shiller vintage), so the lagged canonical HIGH population is 415 cohorts versus 416 from workbook `O`. Part 20 uses the canonical CSV and the shared one-month lag; the one-cohort residual is a data-vintage difference, not a timing difference.
 
 ---
 

@@ -6,12 +6,16 @@ the Part 20 baseline audit.
 
 CAPE conditioning is applied at the research boundary: populations are
 selected from manifest metadata before units are built.  No CAPE data
-enters the engine.
+enters the engine.  Part 20 uses the prior month's Shiller CAPE
+(``CAPE_{t-1} > 20``), matching the workbook's one-month-lag convention.
 
-Per-cohort horizons are clamped to the manifest ``max_horizon_months``
-(``min(requested, max_h)``), mirroring ``materialize_part3_plan`` — the
-established convention for manifest-driven plans.  Without the clamp the
-final cohort (2015-12, max 720 months) cannot slice a 721-month horizon.
+Per-cohort horizons are clamped to the manifest ``max_horizon_months``,
+which counts *return months*.  Because the first return of a cohort is
+the cohort month itself, each sliced dataset starts at the prior month's
+snapshot and therefore contains ``effective_return_months + 1`` snapshots
+(the base snapshot plus one snapshot per return).  This mirrors the
+workbook, where the final cohort (2015-12, 720 returns) needs the
+2015-11 base snapshot.
 
 Part 19/20 shared abstraction: DEFERRED (T2.1 architecture decision).
 """
@@ -57,10 +61,21 @@ __all__ = [
     "Part20RunStats",
     "extract_successes",
     "load_part20_manifest",
+    "PART20_EXPENSE_RATIO",
     "PART20_INITIAL_WEALTH",
 ]
 
 PART20_INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
+
+# Workbook ``Parameters & Main Results!B32`` (0.05% annual, applied monthly).
+PART20_EXPENSE_RATIO = Decimal("0.0005")
+
+
+def _previous_month(value: date) -> date:
+    """Return the first day of the month preceding *value*."""
+    if value.month == 1:
+        return date(value.year - 1, 12, 1)
+    return date(value.year, value.month - 1, 1)
 
 
 def load_part20_manifest(path: Path) -> CohortManifest:
@@ -72,14 +87,14 @@ def load_part20_manifest(path: Path) -> CohortManifest:
 class Part20CohortPopulations:
     """CAPE-conditioned cohort populations for Part 20.
 
-    Populations are cohort start-date strings (ISO).  Pre-1881 cohorts
-    without CAPE are excluded from both binary regimes.
+    Populations are cohort start-date strings (ISO).  Cohorts lacking a
+    prior-month CAPE observation are excluded from both binary regimes.
     """
 
     all_dates: tuple[str, ...]
     cape_available_dates: tuple[str, ...]
-    high_dates: tuple[str, ...]  # CAPE > 20
-    low_dates: tuple[str, ...]  # CAPE <= 20
+    high_dates: tuple[str, ...]  # prior-month CAPE > 20
+    low_dates: tuple[str, ...]  # prior-month CAPE <= 20
 
     @property
     def excluded_no_cape(self) -> int:
@@ -91,23 +106,42 @@ def build_cohort_populations(manifest: CohortManifest) -> Part20CohortPopulation
 
     Filtering rules (frozen audit methodology):
     - market-available cohorts form the executable universe (1,739);
-    - CAPE conditioning uses the retirement-start CAPE value;
-    - cohorts without CAPE are excluded from both binary panels;
+    - CAPE conditioning uses the prior month's CAPE value
+      (``CAPE_{t-1}``), matching the workbook's one-month lag;
+    - cohorts without prior-month CAPE are excluded from both panels;
     - ``classify_cape_binary`` implements CAPE > 20 vs CAPE <= 20.
+
+    The earliest cohort has no prior cohort in the manifest universe, so
+    its own CAPE value is used as the documented boundary fallback.  This
+    does not affect its LOW classification, but keeps the universe intact.
     """
     all_dates = tuple(
         e.cohort_date for e in manifest.cohorts if e.market_available
     )
+    by_date = {
+        date.fromisoformat(e.cohort_date): e
+        for e in manifest.cohorts
+        if e.market_available
+    }
+    first_date = min(by_date) if by_date else None
     high: list[str] = []
     low: list[str] = []
     cape_available: list[str] = []
     for entry in manifest.cohorts:
         if not entry.market_available:
             continue
-        if entry.cape_value is None or not entry.cape_available:
+        cohort_date = date.fromisoformat(entry.cohort_date)
+        prior = by_date.get(_previous_month(cohort_date))
+        if prior is None and cohort_date == first_date:
+            prior = entry
+        if (
+            prior is None
+            or prior.cape_value is None
+            or not prior.cape_available
+        ):
             continue
         cape_available.append(entry.cohort_date)
-        regime = classify_cape_binary(entry.cape_value)
+        regime = classify_cape_binary(prior.cape_value)
         if regime is CapeBinary.HIGH:
             high.append(entry.cohort_date)
         else:
@@ -166,6 +200,7 @@ class Part20ExecutionContext:
     trajectory: Dataset
     initial_wealth: Money
     populations: Part20CohortPopulations
+    expense_ratio: Decimal = PART20_EXPENSE_RATIO
     stats: Part20RunStats = field(default_factory=Part20RunStats)
     _max_horizon: dict[str, int] = field(default_factory=dict)
     _cohort_cache: dict[str, CohortSpecification] = field(default_factory=dict)
@@ -201,17 +236,22 @@ class Part20ExecutionContext:
     # -- horizon clamping --------------------------------------------------
 
     def effective_horizon(self, cohort_date: str, requested_months: int) -> int:
-        """Clamp *requested_months* to the manifest max for *cohort_date*.
+        """Clamp a requested snapshot count to the cohort's return capacity.
 
-        Mirrors Part 3's ``cohort_aware_horizon_resolver``:
-        ``min(requested, cohort_max_horizon)``.
+        ``requested_months`` is the number of snapshots in the requested
+        horizon (``horizon_years * 12 + 1``).  The manifest limit counts
+        return months, so the clamp operates on ``requested_months - 1``.
+        The returned value is still a snapshot count and therefore includes
+        the base snapshot.
         """
-        max_h = self._max_horizon.get(cohort_date)
-        if max_h is None:
+        if requested_months < 1:
+            raise ValueError("requested_months must be positive")
+        max_returns = self._max_horizon.get(cohort_date)
+        if max_returns is None:
             raise KeyError(
                 f"cohort {cohort_date!r} missing from manifest max_horizon lookup"
             )
-        return min(requested_months, max_h)
+        return min(requested_months - 1, max_returns) + 1
 
     # -- caches ------------------------------------------------------------
 
@@ -226,12 +266,32 @@ class Part20ExecutionContext:
         return cached
 
     def dataset_for(self, cohort_date: str, horizon_months: int) -> Dataset:
+        """Return the cohort slice whose first snapshot is the prior month.
+
+        ``horizon_months`` counts snapshots, including the base snapshot.
+        The cohort month's return therefore uses the transition from the
+        base snapshot to the first cohort-month snapshot, matching the
+        workbook's return indexing.
+        """
         key = (cohort_date, horizon_months)
         cached = self._dataset_cache.get(key)
         if cached is None:
-            cached = self.trajectory.slice(
-                date.fromisoformat(cohort_date), horizon_months
-            )
+            cohort = date.fromisoformat(cohort_date)
+            start_idx: int | None = None
+            for idx, snapshot in enumerate(self.trajectory.snapshots):
+                if snapshot.date == cohort:
+                    start_idx = idx
+                    break
+            if start_idx is None:
+                raise ValueError(
+                    f"cohort {cohort_date!r} not found in trajectory"
+                )
+            if start_idx == 0:
+                raise ValueError(
+                    f"cohort {cohort_date!r} has no prior-month base snapshot"
+                )
+            base_date = self.trajectory.snapshots[start_idx - 1].date
+            cached = self.trajectory.slice(base_date, horizon_months)
             self._dataset_cache[key] = cached
         return cached
 
@@ -266,7 +326,8 @@ class Part20ExecutionContext:
         Each row is ``(strategy, cohort_date, withdrawal_rate)``.  Rows are
         ordered strategy-major by the caller.  Per-cohort horizons are
         clamped via :meth:`effective_horizon`; the ``ExperimentDefinition``
-        carries the requested (longest) horizon.
+        carries the requested (longest) horizon.  Every unit receives the
+        workbook annual expense ratio exactly once.
         """
         if not rows:
             raise ValueError("rows must be non-empty")
@@ -308,6 +369,7 @@ class Part20ExecutionContext:
                     dataset=unit_dataset,
                     horizon_months=effective,
                     final_value_target=final_value_target,
+                    expense_ratio=self.expense_ratio,
                 )
             )
             unit_strategies.append(strategy)

@@ -439,6 +439,13 @@ All 7 UNEXPLAINED DIFFERENCE results are 2–3 display ULPs (0.02–0.03 percent
 
 ## 17. Experiment C — Execution Results (T2.3)
 
+> **Correction note (2026-10-25):** The results in this section were executed on
+> 2026-09-24 and predate manifest correction commit `0a44d49`. The earlier `1,485`
+> CAPE-available / `383` CAPE > 20 cohort metadata and the FBF outputs below are
+> historical. The current manifest has 415 binary-HIGH cohorts after the
+> one-month-lag correction (`CAPE at t-1 > 20`), and current outputs differ.
+> The original execution record below is preserved unchanged.
+
 ### 17.1 Structural Validation
 
 | Metric | Expected | Actual | Status |

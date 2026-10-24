@@ -23,8 +23,8 @@ meta:
 
 structural_counts:
   total_cohorts: 1739
-  cape_available: 1485
-  cape_high: 383
+  cape_available: 1739
+  cape_high: 415
   strategy_count: 27
   static_count: 3
   glidepath_count: 24
@@ -43,13 +43,15 @@ experiment:
   cape_conditions: ["ALL", "HIGH"]
   cells: 162
 
-# Cross-validation anchors from Part 20 Experiment C (3.5% SWR, 60Y, FV=0, CAPE>20)
-# These 27 strategies overlap exactly with Part 19 Experiment A strategies at FV=0, CAPE>20
-# Part 20 Experiment C published values from ern_part20_e2e_audit.yaml
+# Published cross-validation anchors from Part 20 Experiment C
+# (3.5% SWR, 60Y, FV=0, CAPE>20), transcribed from
+# ern_part20_e2e_audit.yaml. These are a subset of the 27 Part 19
+# Experiment A cells compared computationally by the E2E test.
+# static_060 has no exact Part 20 Experiment C published value and is not
+# used as a numerical anchor. static_075 is not part of the 3-static
+# Part 19 Experiment A universe.
 cross_validation_anchors:
   # Static allocations
-  - { strategy: "static_060", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
-  - { strategy: "static_075", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
   - { strategy: "static_080", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
   - { strategy: "static_100", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "11.6", unit: "percent_1dp" }
   # Part 19 glidepaths that have Part 20 Experiment C anchors

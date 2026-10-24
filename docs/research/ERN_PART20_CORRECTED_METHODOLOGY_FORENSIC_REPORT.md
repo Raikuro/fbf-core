@@ -6,6 +6,16 @@
 1. CAPE regime classification now uses workbook Shiller CAPE semantics
 2. Historical data boundary corrected from 2016-10 to 2026-06
 
+> **Superseding alignment note (2026-10-25):** Production now also applies the
+> workbook expense ratio (`0.0005`), starts each cohort from the prior-month
+> snapshot, and classifies Part 20 CAPE using the one-month-lagged value
+> (`CAPE at t-1 > 20`). The lagged canonical population is 415 HIGH / 1,324 LOW.
+> Current key-cell values are `static_100 @ 4% 60Y = 30.4%`,
+> `gp_030_070 @ 4% 60Y = 34.9%`, `static_080 @ 3.75% 60Y = 21.4%`,
+> Experiment A `static_075 = 3.25%`, and Experiment B `static_075 = 3.82%`.
+> The tables below record the earlier correction state and are retained as
+> historical evidence; published anchors remain unchanged.
+
 ---
 
 ## Executive Summary

@@ -4,6 +4,14 @@
 **Status:** COMPLETE — CAPE regime source is a CONTRIBUTING FACTOR but NOT the sole root cause  
 **Investigation Artifacts:** `tests/forensic_cape_focused.py` (created and removed), manifest variants
 
+> **Correction note (2026-10-25):** This report predates manifest correction commit
+> `0a44d49`. Its earlier `1,485` CAPE-available / `383` HIGH-era metadata (with the
+> `384/331` HIGH variants analyzed here), together with any Part 20 FBF outputs
+> cited here, are historical. The current manifest has 1,739 CAPE-available cohorts
+> and, after the one-month-lag correction, 415 binary-HIGH cohorts
+> (`CAPE at t-1 > 20`), and current outputs differ. The original findings below
+> are retained as the historical record.
+
 ---
 
 ## 1. Executive Summary

@@ -602,6 +602,13 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 
 **Status:** EXECUTED (RUN_ERN_E2E=1, 2026-09-24)
 
+> **Correction note (2026-10-25):** These baseline results predate manifest
+> correction commit `0a44d49`. The earlier `1,485` CAPE-available / `383`
+> CAPE > 20 cohort metadata and the FBF outputs in this subsection are historical.
+> The current manifest has 415 binary-HIGH cohorts after the one-month-lag
+> correction (`CAPE at t-1 > 20`), and current outputs differ. The original
+> execution record below is preserved unchanged.
+
 **Structural validation:** All 53 strategies × 5 SWR values × 2 horizons = 530 cells validated. 383 CAPE > 20 cohorts per horizon. 10 executions, 202,990 logical units. Runtime: ~10s wall clock.
 
 **Anchor comparison (CAPE > 20, 42 published anchors):**

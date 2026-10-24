@@ -12,6 +12,16 @@ from pathlib import Path
 
 import pytest
 
+from fbf.core.domain.model.asset import AssetClass
+from fbf.core.execution import (
+    ExecutionOptions,
+    ExecutionStrategy,
+    iter_execute_study_plan,
+)
+from fbf.core.research.part3_planner import (
+    CohortManifest,
+    CohortManifestEntry,
+)
 from fbf.core.research.part20_aggregation import (
     PART20_FAILURE_PROBABILITIES,
     classify_displayed_value,
@@ -35,6 +45,8 @@ from fbf.core.research.part20_pipeline import (
     default_max_steps,
 )
 from fbf.core.research.part20_planner import (
+    PART20_EXPENSE_RATIO,
+    Part20ExecutionContext,
     build_cohort_populations,
     load_part20_manifest,
 )
@@ -44,9 +56,39 @@ from fbf.core.research.part20_strategies import (
     PART20_STRATEGY_COUNT,
     part20_strategy_universe,
 )
+from fbf.core.study.builder import BuiltStudy
 
 MANIFEST_PATH = Path("data/ern/cohort_manifest_part3.json")
 AUDIT_SPEC_PATH = Path("tests/fixtures/ern_part20_e2e_audit.yaml")
+
+
+def _entry(
+    cohort_date: str,
+    cape: Decimal | None,
+    *,
+    cape_available: bool = True,
+) -> CohortManifestEntry:
+    return CohortManifestEntry(
+        cohort_date=cohort_date,
+        market_available=True,
+        cape_available=cape_available,
+        cape_value=cape,
+        cape_regime="HIGH" if cape is not None and cape > Decimal("20") else "BELOW_15",
+        start_month_index=0,
+        max_horizon_months=720,
+    )
+
+
+def _manifest(entries: tuple[CohortManifestEntry, ...]) -> CohortManifest:
+    return CohortManifest(
+        version="test",
+        description="test",
+        market_source="test",
+        cape_source="test",
+        fee=0.0005,
+        statistics={},
+        cohorts=entries,
+    )
 
 
 class TestStrategyUniverse:
@@ -85,7 +127,7 @@ class TestAuditSpec:
         spec = load_part20_audit_spec(AUDIT_SPEC_PATH)
         assert sorted(exp.id for exp in spec.experiments) == ["A", "B", "C", "D", "E"]
         assert spec.structural_counts.total_cohorts == 1739
-        assert spec.structural_counts.cape_high == 416
+        assert spec.structural_counts.cape_high == 415
         assert spec.structural_counts.strategy_count == 53
 
     def test_anchor_counts(self) -> None:
@@ -171,24 +213,166 @@ class TestCohortPopulations:
         assert len(combined) == len(pops.high_dates) + len(pops.low_dates)
         assert combined == set(pops.cape_available_dates)
 
-    def test_effective_horizon_clamps_last_cohort(self) -> None:
-        """2015-12 has max_horizon_months=720; a 721 request must clamp."""
+    def test_cape_uses_prior_month(self) -> None:
+        """Binary populations classify CAPE at t-1, not the cohort month."""
+        manifest = _manifest(
+            (
+                _entry("1871-01-01", Decimal("25")),
+                _entry("1871-02-01", Decimal("19")),
+                _entry("1871-03-01", Decimal("25")),
+            )
+        )
+        pops = build_cohort_populations(manifest)
+        # January has no prior cohort, so its own value is the boundary fallback.
+        assert pops.high_dates == ("1871-01-01", "1871-02-01")
+        assert pops.low_dates == ("1871-03-01",)
+
+    def test_missing_prior_cape_excludes_cohort(self) -> None:
+        manifest = _manifest(
+            (
+                _entry("1871-01-01", Decimal("25")),
+                _entry("1871-03-01", Decimal("25")),
+            )
+        )
+        pops = build_cohort_populations(manifest)
+        assert pops.cape_available_dates == ("1871-01-01",)
+        assert pops.high_dates == ("1871-01-01",)
+        assert pops.low_dates == ()
+
+    def test_real_manifest_lagged_counts(self) -> None:
+        pops = build_cohort_populations(load_part20_manifest(MANIFEST_PATH))
+        assert len(pops.high_dates) == 415
+        assert len(pops.low_dates) == 1324
+        assert pops.high_dates[0] == "1898-09-01"
+
+    def test_effective_horizon_and_prior_month_base(self) -> None:
+        """A 60Y request is 721 snapshots: 720 returns plus the base."""
         from datetime import date
 
         from fbf.core.datasets import load_canonical_dataset
 
         trajectory = load_canonical_dataset(Path("data/ern"))
-        from fbf.core.research.part20_planner import Part20ExecutionContext
-
         ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)
-        assert ctx.effective_horizon("2015-12-01", 721) == 720
+
+        assert ctx.effective_horizon("2015-12-01", 721) == 721
         assert ctx.effective_horizon("2015-11-01", 721) == 721
         assert ctx.effective_horizon("1871-02-01", 721) == 721
         assert ctx.effective_horizon("2015-12-01", 361) == 361
-        # Slice with the clamped horizon must succeed.
-        dataset = ctx.dataset_for("2015-12-01", ctx.effective_horizon("2015-12-01", 721))
-        assert len(dataset.snapshots) == 720
-        assert dataset.snapshots[0].date == date(2015, 12, 1)
+
+        last = ctx.dataset_for(
+            "2015-12-01", ctx.effective_horizon("2015-12-01", 721)
+        )
+        assert len(last.snapshots) == 721
+        assert last.snapshots[0].date == date(2015, 11, 1)
+        assert last.snapshots[-1].date == date(2075, 11, 1)
+
+        first = ctx.dataset_for(
+            "1871-02-01", ctx.effective_horizon("1871-02-01", 721)
+        )
+        assert first.snapshots[0].date == date(1871, 1, 31)
+        assert first.snapshots[1].date == date(1871, 2, 1)
+
+    def test_build_units_sets_fee_and_prior_month_base(self) -> None:
+        from datetime import date
+
+        from fbf.core.datasets import load_canonical_dataset
+        from fbf.core.research.part20_strategies import part20_strategy_universe
+
+        trajectory = load_canonical_dataset(Path("data/ern"))
+        ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)
+        strategy = next(
+            s for s in part20_strategy_universe() if s.id == "static_080"
+        )
+        bundle = ctx.build_units(
+            rows=[
+                (strategy, "1871-02-01", Decimal("0.035")),
+                (strategy, "2015-12-01", Decimal("0.035")),
+            ],
+            horizon_months=721,
+            final_value_target=Decimal("0"),
+            step_label="test",
+        )
+
+        assert ctx.expense_ratio == PART20_EXPENSE_RATIO == Decimal("0.0005")
+        units = bundle.plan.units
+        assert [u.horizon_months for u in units] == [721, 721]
+        assert [u.dataset.snapshots[0].date for u in units] == [
+            date(1871, 1, 31),
+            date(2015, 11, 1),
+        ]
+        assert all(u.expense_ratio == PART20_EXPENSE_RATIO for u in units)
+
+
+class TestWorkbookAlignmentExecution:
+    def test_unit_matches_workbook_recurrence(self) -> None:
+        """Fee and prior-month indexing reproduce the workbook recurrence."""
+        from datetime import date
+
+        from fbf.core.datasets import load_canonical_dataset
+        from fbf.core.research.part20_strategies import part20_strategy_universe
+
+        trajectory = load_canonical_dataset(Path("data/ern"))
+        ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)
+        strategy = next(
+            s for s in part20_strategy_universe() if s.id == "static_080"
+        )
+        bundle = ctx.build_units(
+            rows=[(strategy, "1871-02-01", Decimal("0.035"))],
+            horizon_months=13,
+            final_value_target=Decimal("0"),
+            step_label="alignment",
+        )
+        unit = bundle.plan.units[0]
+        assert unit.dataset.snapshots[0].date == date(1871, 1, 31)
+        fee = unit.expense_ratio
+        horizon = unit.horizon_months
+        assert fee is not None
+        assert horizon is not None
+
+        built = BuiltStudy(
+            plan=bundle.plan,
+            experiment_definition=bundle.plan.experiment_definition,
+            cohorts=bundle.cohorts,
+            param_configs=bundle.param_configs,
+        )
+        options = ExecutionOptions(
+            strategy=ExecutionStrategy.AUTO,
+            summary_only=True,
+            workers=1,
+        )
+        actual: Decimal | None = None
+        for chunk in iter_execute_study_plan(built, options):
+            actual = chunk.result.results[0].statistics.final_wealth.amount
+            break
+        assert actual is not None
+
+        equity = AssetClass(id="equity", name="", description="")
+        bond = AssetClass(id="bond", name="", description="")
+        equity_weight = strategy.equity_allocation
+        assert equity_weight is not None
+        snaps = unit.dataset.snapshots
+        value = ctx.initial_wealth.amount
+        withdrawal = value * Decimal("0.035") / Decimal("12")
+        for month in range(horizon - 1):
+            eq_return = (
+                snaps[month + 1].index_levels[equity]
+                / snaps[month].index_levels[equity]
+                - 1
+            )
+            bd_return = (
+                snaps[month + 1].index_levels[bond]
+                / snaps[month].index_levels[bond]
+                - 1
+            )
+            growth = (
+                1
+                + equity_weight * eq_return
+                + (1 - equity_weight) * bd_return
+                - fee / Decimal("12")
+            )
+            value = (value - withdrawal) * growth
+
+        assert abs(actual - value) < Decimal("0.01")
 
 
 class TestPercentiles:

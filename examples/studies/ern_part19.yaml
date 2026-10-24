@@ -97,6 +97,6 @@ final_value_target: [0.0, 0.5, 1.0]
 #   allocation_policy: same 45 strategies above
 #   withdrawal_policy: FixedRealWithdrawalPolicy (percentile search, no fixed rates)
 #   final_value_target: [0.0]
-#   cohorts: ALL (1739) and HIGH (383) CAPE populations
+#   cohorts: ALL (1739) and HIGH (415) prior-month CAPE populations
 #   horizon: 60 years
 #   output metrics: failsafe, p01, p03, p05, p10, p25
