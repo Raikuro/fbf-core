@@ -213,7 +213,8 @@ def _group_key(context: SimulationContext) -> tuple[object, ...]:
     """Trajectory key for constant-allocation, fixed-real contexts.
 
     ``final_value_target`` is excluded because it is an evaluation dimension:
-    contexts that differ only in the target share one trajectory path.
+    contexts that differ only in the target share one trajectory path.  The
+    expense ratio is included because fees are embedded in the growth factors.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
@@ -221,6 +222,7 @@ def _group_key(context: SimulationContext) -> tuple[object, ...]:
     return (
         context.start_date,
         allocation_identity(allocation, asset_classes),
+        context.expense_ratio or Decimal("0"),
         withdrawal.withdrawal_rate,
         context.initial_wealth,
         context.initial_portfolio,

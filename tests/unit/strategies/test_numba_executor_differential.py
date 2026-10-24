@@ -10,6 +10,7 @@ FixedRealWithdrawalPolicy, FV=0).
 from __future__ import annotations
 
 import random
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -20,7 +21,14 @@ from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
+from fbf.core.domain.policies import (
+    ConstantAllocationPolicy,
+    ConstantWithdrawalPolicy,
+    EscalatingWithdrawalPolicy,
+    FixedRealWithdrawalPolicy,
+    WithdrawalFrequency,
+    WithdrawalPolicy,
+)
 from fbf.core.execution.pipeline.executor import SimulationExecutor
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
@@ -468,7 +476,7 @@ class TestGrowthFactorCache:
         executor.execute(defn2)
 
         assert len(executor.gf_cache) == 1
-        assert (d1, _legacy_identity(Decimal("0.5")), id(sliced)) in executor.gf_cache
+        assert (d1, _legacy_identity(Decimal("0.5")), Decimal("0"), id(sliced)) in executor.gf_cache
 
     def test_different_start_date_separate_entries(self) -> None:
         executor = NumbaSimulationExecutor()
@@ -514,8 +522,8 @@ class TestGrowthFactorCache:
         executor.execute(defn2)
 
         assert len(executor.gf_cache) == 2
-        key1 = (date(1900, 1, 1), _legacy_identity(Decimal("0.5")), id(ctx1.dataset))
-        key2 = (date(2000, 1, 1), _legacy_identity(Decimal("0.5")), id(ctx2.dataset))
+        key1 = (date(1900, 1, 1), _legacy_identity(Decimal("0.5")), Decimal("0"), id(ctx1.dataset))
+        key2 = (date(2000, 1, 1), _legacy_identity(Decimal("0.5")), Decimal("0"), id(ctx2.dataset))
         assert key1 in executor.gf_cache
         assert key2 in executor.gf_cache
 
@@ -536,8 +544,8 @@ class TestGrowthFactorCache:
         executor.execute(defn_b)
 
         assert len(executor.gf_cache) == 2
-        key_a = (ds[0].date, _legacy_identity(Decimal("0.3")), id(sliced))
-        key_b = (ds[0].date, _legacy_identity(Decimal("0.7")), id(sliced))
+        key_a = (ds[0].date, _legacy_identity(Decimal("0.3")), Decimal("0"), id(sliced))
+        key_b = (ds[0].date, _legacy_identity(Decimal("0.7")), Decimal("0"), id(sliced))
         assert key_a in executor.gf_cache
         assert key_b in executor.gf_cache
 
@@ -558,8 +566,62 @@ class TestGrowthFactorCache:
         executor.execute(defn_b)
 
         assert len(executor.gf_cache) == 1
-        key = (ds[0].date, _legacy_identity(Decimal("0.5")), id(sliced))
+        key = (ds[0].date, _legacy_identity(Decimal("0.5")), Decimal("0"), id(sliced))
         assert key in executor.gf_cache
+
+    @pytest.mark.parametrize(
+        "policy",
+        [
+            pytest.param(
+                FixedRealWithdrawalPolicy(Decimal("0.04")), id="fixed-real"
+            ),
+            pytest.param(
+                ConstantWithdrawalPolicy(Decimal("0.04")), id="constant-nominal"
+            ),
+            pytest.param(
+                EscalatingWithdrawalPolicy(
+                    Decimal("0.04"), frequency=WithdrawalFrequency.MONTHLY
+                ),
+                id="escalating",
+            ),
+        ],
+    )
+    def test_expense_ratio_is_part_of_group_and_growth_factor_keys(
+        self, policy: WithdrawalPolicy
+    ) -> None:
+        ds = _make_dataset(121)
+        sliced = ds.slice(ds[0].date, 120)
+        no_fee = replace(
+            _make_context_on_dataset(sliced, horizon=120),
+            cohort="no-fee",
+            withdrawal_policy=policy,
+            expense_ratio=None,
+        )
+        with_fee = replace(
+            no_fee,
+            cohort="with-fee",
+            expense_ratio=Decimal("0.0005"),
+        )
+
+        alone: list[Decimal] = []
+        for context in (no_fee, with_fee):
+            definition = EngineExperimentDefinition(
+                name="t", description="t", simulation_contexts=(context,)
+            )
+            result = NumbaSimulationExecutor().execute(definition).simulation_results[0]
+            alone.append(result.statistics.final_wealth.amount)
+
+        executor = NumbaSimulationExecutor()
+        definition = EngineExperimentDefinition(
+            name="t", description="t", simulation_contexts=(no_fee, with_fee)
+        )
+        run = executor.execute(definition)
+
+        assert executor.report is not None
+        assert executor.report.groups == 2
+        assert len(executor.gf_cache) == 2
+        assert [result.statistics.final_wealth.amount for result in run.simulation_results] == alone
+        assert alone[0] > alone[1]
 
     def test_cached_array_not_mutated(self) -> None:
         import numpy as np
@@ -572,7 +634,7 @@ class TestGrowthFactorCache:
         )
         executor.execute(defn)
 
-        key = (ds[0].date, _legacy_identity(Decimal("0.5")), id(ctx.dataset))
+        key = (ds[0].date, _legacy_identity(Decimal("0.5")), Decimal("0"), id(ctx.dataset))
         arr1 = executor.gf_cache[key].copy()
         executor.execute(defn)
         arr2 = executor.gf_cache[key]

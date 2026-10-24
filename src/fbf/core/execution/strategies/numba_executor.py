@@ -112,12 +112,14 @@ from fbf.core.execution.strategies.numba_kernel import (
 )
 from fbf.core.execution.strategies.trajectory import build_simulation_timeline
 
-# Growth-factor cache key (static): (start_date, allocation_identity, dataset_token).
+# Growth-factor cache key (static):
+# (start_date, allocation_identity, expense_ratio, dataset_token).
 # The allocation identity is the canonical, order-insensitive ``(asset_id, weight)``
-# tuple so that distinct allocations never collide.  The dataset token
+# tuple so that distinct allocations never collide.  The expense ratio is part
+# of the key because fees are embedded in the growth factors.  The dataset token
 # disambiguates contexts that share a start date but not a market trajectory.
 WeightIdentity = tuple[tuple[str, Decimal], ...]
-GFKey = tuple[date, WeightIdentity, int]
+GFKey = tuple[date, WeightIdentity, Decimal, int]
 
 # Glidepath trajectory-parameter key (no dataset identity):
 # (start_date, glidepath_type, start_equity, end_equity, slope, mode,
@@ -440,16 +442,19 @@ def _buy_and_hold_group_key(context: SimulationContext) -> tuple[object, ...]:
 def _gf_cache_key(context: SimulationContext) -> GFKey:
     """Minimal cache key for growth-factor identity (static strategies).
 
-    Growth factors depend only on (market trajectory, allocation weights).
-    The start_date and dataset token determine the trajectory; the canonical
-    allocation identity determines the target weights.  Withdrawal rate, initial
-    wealth, horizon, and final_value_target do not affect growth factors.
+    Growth factors depend on the market trajectory, allocation weights, and
+    the additive fee embedded in each monthly factor.  The start_date and
+    dataset token determine the trajectory; the canonical allocation identity
+    determines the target weights; the expense ratio determines the fee.
+    Withdrawal rate, initial wealth, horizon, and final_value_target do not
+    affect growth factors.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     asset_classes = tuple(h.asset_class for h in context.initial_portfolio.holdings)
     return (
         context.start_date,
         allocation_identity(allocation, asset_classes),
+        context.expense_ratio or Decimal("0"),
         _dataset_token(context),
     )
 
@@ -461,13 +466,15 @@ def _constant_nominal_group_key(context: SimulationContext) -> tuple[object, ...
     current portfolio value, not the initial wealth.  Therefore, contexts
     with different initial_wealth but same trajectory parameters can share
     the same growth-factor computation.  The FV check is applied per-target
-    after the path is evaluated.
+    after the path is evaluated.  The expense ratio is part of the key because
+    fees are embedded in the growth factors.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(ConstantWithdrawalPolicy, context.withdrawal_policy)
     return (
         context.start_date,
         allocation.equity_allocation,
+        context.expense_ratio or Decimal("0"),
         withdrawal.withdrawal_rate,
         context.initial_portfolio,
     )
@@ -482,12 +489,15 @@ def _escalating_group_key(context: SimulationContext) -> tuple[object, ...]:
     cadence, and initial portfolio therefore share one evaluated path; the FV
     check is applied per-target afterwards.  ``initial_wealth`` does not enter
     the kernel, so it is excluded (matching ``_constant_nominal_group_key``).
+    The expense ratio is included because fees are embedded in the growth
+    factors.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(EscalatingWithdrawalPolicy, context.withdrawal_policy)
     return (
         context.start_date,
         allocation.equity_allocation,
+        context.expense_ratio or Decimal("0"),
         withdrawal.withdrawal_rate,
         withdrawal.escalation_rate,
         withdrawal.frequency,
