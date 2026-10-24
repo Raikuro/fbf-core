@@ -18,6 +18,7 @@ validate only the shared recurrence against an independent Decimal model.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from typing import cast
@@ -38,7 +39,11 @@ from fbf.core.execution.pipeline.simulation import (
     SimulationResult,
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
-from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
+from fbf.core.execution.strategies.numba_executor import (
+    NumbaSimulationExecutor,
+    _initial_value_equals_wealth,
+    is_numba_context_eligible,
+)
 from fbf.core.study.builder import build_initial_portfolio
 
 _EQ = AssetClass(id="equity", name="", description="")
@@ -417,3 +422,51 @@ def test_fixed_real_glidepath_groups_by_cadence() -> None:
             abs(result.statistics.final_wealth.amount - expected_value)
             < _TOLERANCE
         )
+
+
+def test_float64_equivalent_initial_value_is_eligible() -> None:
+    """A negligible Decimal difference must not reject a float64-equivalent context."""
+    periods = 12
+    dataset = _build_dataset(
+        [Decimal("1.006")] * periods,
+        [Decimal("1.002")] * periods,
+        [False] * periods,
+    )
+    policy = GlidepathAllocationPolicy(
+        start_equity=Decimal("0.60"),
+        end_equity=Decimal("0.90"),
+        slope=Decimal("0.01"),
+        mode="passive",
+    )
+    context = _build_context(dataset, policy, Decimal("0.04"), Decimal("0"))
+    mismatched = replace(
+        context,
+        initial_wealth=Money(
+            Decimal("1000000.0000000000000000000001"), Currency.EUR
+        ),
+    )
+    snapshot = mismatched.dataset[0]
+    portfolio_value = sum(
+        (
+            holding.units * snapshot.index_levels[holding.asset_class]
+            for holding in mismatched.initial_portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+    assert portfolio_value != mismatched.initial_wealth.amount
+    assert float(portfolio_value) == float(mismatched.initial_wealth.amount)
+    assert _initial_value_equals_wealth(mismatched) is True
+    assert is_numba_context_eligible(mismatched) is True
+
+    baseline = _run(context)
+    corrected = _run(mismatched)
+    assert corrected.statistics.final_wealth == baseline.statistics.final_wealth
+    assert corrected.statistics.success is baseline.statistics.success
+    assert corrected.statistics.failure_month == baseline.statistics.failure_month
+
+    rejected = replace(
+        context,
+        initial_wealth=Money(Decimal("990000"), Currency.EUR),
+    )
+    assert _initial_value_equals_wealth(rejected) is False
+    assert is_numba_context_eligible(rejected) is False

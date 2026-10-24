@@ -138,11 +138,12 @@ def _make_priced_dataset(equity_price: Decimal, bond_price: Decimal) -> Dataset:
 def test_build_initial_portfolio_value_equals_initial_wealth_exactly(
     wealth: str, equity_price: str, bond_price: str
 ) -> None:
-    """Contract: two-asset portfolios are valued exactly at ``initial_wealth``.
+    """Representable two-asset prices value the portfolio exactly at ``initial_wealth``.
 
     Execution derives the Numba withdrawal base from the initial portfolio value
-    (``v0``) while the legacy policies use ``context.initial_wealth``.  The two
-    must agree exactly for the supported two-asset portfolios (see
+    (``v0``) while the legacy policies use ``context.initial_wealth``.  Decimal
+    division may round for arbitrary price pairs; Numba admission requires the
+    two values to agree in float64 (see
     ``numba_executor._initial_value_equals_wealth``).
     """
     initial_wealth = Money(Decimal(wealth), Money.ZERO.currency)

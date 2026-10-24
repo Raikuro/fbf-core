@@ -276,8 +276,8 @@ def materialize_research_plan(
                     cohort.start_date, horizon_months
                 )
             cohort_dataset = dataset_cache[cache_key]
-            # Build a per-cohort portfolio so that
-            # portfolio_value_at_snapshot[0] == initial_wealth for each cohort.
+            # Build a per-cohort portfolio so that the initial portfolio value
+            # and initial_wealth agree in float64 for each cohort.
             # Late import to avoid circular dependency with builder.
             from fbf.core.study.builder import build_initial_portfolio
 

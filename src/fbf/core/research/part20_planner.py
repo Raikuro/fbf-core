@@ -36,8 +36,7 @@ from fbf.core.domain.policies.concrete import FixedRealWithdrawalPolicy
 from fbf.core.execution import (
     ExecutionOptions,
     ExecutionStrategy,
-    ResearchExecutionResult,
-    execute_study_plan,
+    iter_execute_study_plan,
 )
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.strategies.numba_executor import (
@@ -344,7 +343,7 @@ class Part20ExecutionContext:
         bundle: Part20PlanBundle,
         options: ExecutionOptions,
     ) -> tuple[bool, ...]:
-        """Execute one bundle through the Numba path."""
+        """Execute one bundle through the Numba path in bounded slices."""
         effective = replace(
             options,
             strategy=ExecutionStrategy.AUTO,
@@ -357,8 +356,15 @@ class Part20ExecutionContext:
             cohorts=bundle.cohorts,
             param_configs=bundle.param_configs,
         )
-        result: ResearchExecutionResult = execute_study_plan(built, effective)
-        return extract_successes(result.results)
+        successes: list[bool] = []
+        for chunk in iter_execute_study_plan(built, effective):
+            if chunk.start_index != len(successes):
+                raise RuntimeError(
+                    "streamed execution slices are not contiguous in plan order"
+                )
+            successes.extend(extract_successes(chunk.result.results))
+            del chunk
+        return tuple(successes)
 
     def execute(
         self,

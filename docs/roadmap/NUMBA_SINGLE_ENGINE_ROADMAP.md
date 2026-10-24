@@ -1,9 +1,12 @@
 # Roadmap: Migration to a Single Numba Execution Engine
 
-**Status:** Complete. Phases A, B, C, and D are complete, including D4.3
-legacy-engine deletion; D5a and D5b are complete. Numba is the sole production
-simulation engine, `ExecutionBackend.FAST` is the only backend value, Core is
-`0.3.0`, and consumer pins are updated. The independent historical oracle
+**Status:** Implementation complete; final canonical validation pending.
+Phases A, B, C, and D are complete, including D4.3 legacy-engine deletion; D5a
+and D5b are complete. Numba is the sole production simulation engine,
+`ExecutionBackend.FAST` is the only backend value, Core is `0.3.0`, and
+consumer pins are updated. The canonical Part 19/20 E2E suites, historical
+published-ERN oracle validation, and full-grid benchmark remain pending (see
+§5.2 and §9). The independent historical oracle
 (`tools/ern/reference_oracle.py`) is preserved (see §9).
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
 **Objective:** Make Numba the sole simulation engine, delete the legacy
@@ -170,10 +173,10 @@ a private `"rebalance"` key. It has no dependency on pipeline steps.
 |-----------|----------|----------|
 | `is_constant_allocation_eligible` | `strategies/eligibility.py` | Constant allocation + monthly fixed-real withdrawal, horizon ≥ 1, dataset ≥ horizon; either exactly 2 holdings with one equity or an explicit allocation mapping covering held classes |
 | `_is_constant_nominal_eligible` | `strategies/numba_executor.py` | Constant allocation + monthly constant withdrawal, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity |
-| `_is_escalating_eligible` | `strategies/numba_executor.py` | Constant allocation + escalating withdrawal (monthly or annual), horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `v0 == initial_wealth` |
-| `_is_glidepath_escalating_eligible` | `strategies/numba_executor.py` | Glidepath + escalating withdrawal (monthly or annual), horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `v0 == initial_wealth`; uses escalating timing with the glidepath's monthly or annual cadence |
-| `_is_buy_and_hold_eligible` | `strategies/numba_executor.py` | Buy-and-hold + monthly fixed-real, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `v0 == initial_wealth`; expense ratio supported with the workbook additive convention |
-| `_is_glidepath_eligible` | `strategies/numba_executor.py` | Glidepath + monthly fixed-real, 2 holdings, one equity, `v0 == initial_wealth` |
+| `_is_escalating_eligible` | `strategies/numba_executor.py` | Constant allocation + escalating withdrawal (monthly or annual), horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `float(v0) == float(initial_wealth)` |
+| `_is_glidepath_escalating_eligible` | `strategies/numba_executor.py` | Glidepath + escalating withdrawal (monthly or annual), horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `float(v0) == float(initial_wealth)`; uses escalating timing with the glidepath's monthly or annual cadence |
+| `_is_buy_and_hold_eligible` | `strategies/numba_executor.py` | Buy-and-hold + monthly fixed-real, horizon ≥ 1, dataset ≥ horizon, 2 holdings, one equity, `float(v0) == float(initial_wealth)`; expense ratio supported with the workbook additive convention |
+| `_is_glidepath_eligible` | `strategies/numba_executor.py` | Glidepath + monthly fixed-real, 2 holdings, one equity, `float(v0) == float(initial_wealth)` |
 | `is_part52_eligible` | `strategies/part52_numba_executor.py` | Constant allocation + monthly Part 52 withdrawal, 2 holdings, one equity, interest-rate source, supported additive fee |
 | `is_part49_eligible` | `strategies/part49_numba_executor.py` | Part 49 withdrawal, 2 assets, monthly frequency, zero fee, debt/LTV fields, interest-rate source |
 | `is_part49_buy_and_hold_eligible` | `strategies/part49_buy_and_hold_numba_executor.py` | Buy-and-hold + Part 49 withdrawal, 2 assets, zero fee, debt/LTV fields, interest-rate source |
@@ -205,7 +208,7 @@ Classification key:
 | # | Capability | Current implementation (file:symbol) | Class | Delivered support | Gap | Required migration | Tests / consumers | Blockers | Acceptance criteria |
 |---|------------|--------------------------------------|:----:|-------------------|-----|--------------------|-------------------|----------|---------------------|
 | 1 | Fixed-real withdrawals (workbook SCR) | `FixedRealWithdrawalPolicy` (`domain/policies/concrete.py`) | 1 | `_process_static_group` (`numba_executor.py`) always uses the workbook recurrence, regardless of `final_value_target`; `_simulate_trajectory_workbook` and `_compute_workbook_scr` (`numba_kernel.py`) implement withdraw-before-growth and additive fee; no fallback | Monthly frequency only; annual fixed-real withdrawals are rejected. | None | `tests/unit/strategies/test_numba_executor_differential.py`, `tests/unit/execution/test_workbook_outcome_contract.py`, `tests/unit/execution/test_fast_backend_strictness.py`, `tests/integration/test_numba_e2e.py` | None | SCR and trajectory match the independent workbook recurrence; the FV target is applied only after the shared path; depletion month is trajectory-derived |
-| 2 | Constant nominal withdrawals | `ConstantWithdrawalPolicy` (`domain/policies/concrete.py`); `_simulate_trajectory_constant_nominal` (`numba_kernel.py`) | 2 | `_is_constant_nominal_eligible` / `_process_constant_nominal_group` (`numba_executor.py`); value-scaled recurrence with additive fee | Two-asset constant allocation only; monthly frequency only (annual rejected); glidepath + constant-nominal is rejected. The dedicated independent numerical recurrence was not retained after D4.3; current coverage is routing and mixed-family execution | None for `ConstantAllocationPolicy`; add dedicated independent numerical coverage if required | `tests/unit/execution/test_fast_backend_strictness.py`, `tests/unit/strategies/test_multi_asset_allocation.py` | None | Routing, eligibility, and mixed-family execution pass; dedicated independent numerical recurrence is not currently pinned |
+| 2 | Constant nominal withdrawals | `ConstantWithdrawalPolicy` (`domain/policies/concrete.py`); `_simulate_trajectory_constant_nominal` (`numba_kernel.py`) | 2 | `_is_constant_nominal_eligible` / `_process_constant_nominal_group` (`numba_executor.py`); value-scaled recurrence with additive fee | Two-asset constant allocation only; monthly frequency only (annual rejected); glidepath + constant-nominal is rejected | None | `tests/unit/strategies/test_numba_executor_differential.py`, `tests/unit/execution/test_fast_backend_strictness.py`, `tests/unit/strategies/test_multi_asset_allocation.py` | None | Routing, eligibility, mixed-family execution, and independent two-asset Decimal recurrence with and without fee pass |
 | 3 | Constant allocation weights | `ConstantAllocationPolicy` (`domain/policies/concrete.py`) | 1 | `resolve_target_weights` and `_weights_by_class` (`strategies/eligibility.py`) drive every Numba kernel; fixed-real supports the scalar two-asset form and explicit N-asset `allocations` | Other withdrawal families remain scalar two-asset (see #6) | None | `tests/unit/domain/test_multi_asset_allocation.py`, `tests/unit/strategies/test_multi_asset_allocation.py`, `tests/unit/execution/test_backend_strategy_matrix.py` | None | Scalar and explicit-allocation weight resolution is covered; unsupported forms fail closed |
 | 4 | Time-varying weights / glidepaths (ERN dynamic extension) | `GlidepathAllocationPolicy` (`domain/policies/glidepath.py`) | 2 | `_is_glidepath_eligible`, `_compute_equity_weight_sequence`, `_process_glidepath_group` (`numba_executor.py`); `compute_growth_factors_varying_weights_batch` (`numba_kernel.py`) | Shared workbook mechanics are aligned: base row, `horizon - 1` withdraw/grow periods, terminal compounding, additive fee. ERN active/passive weights and cadence are intentional extensions. Fixed-real glidepath withdrawals are monthly only; annual withdrawal frequency is rejected (allocation cadence remains monthly/annual). Canonical Part 19/20 E2E is pending | None for implementation; canonical Part 19/20 E2E validation when authorized | `tests/unit/strategies/test_numba_glidepath_workbook.py`, `tests/unit/domain/test_glidepath_annual_cadence.py`, `tests/integration/test_glidepath_trajectory.py` | Workbook defines only its fixed linear glidepath; canonical E2E not re-run | Withdraw-before-growth, terminal compounding, annual/monthly cadence, and trajectory-depletion success are covered by independent tests |
 | 5 | Two-asset portfolios | `simulation_context` holdings; `strategies/eligibility.py` | 1 | All generic and dedicated Numba kernels consume two-asset equity/bond portfolios | None | None | `tests/unit/strategies/test_numba_differential.py`, `tests/unit/execution/test_backend_strategy_matrix.py` | None | Two-asset eligibility and execution are covered across policy families |
@@ -1168,7 +1171,7 @@ pipeline, or export change. No heavyweight E2E or full-grid workload was run.
 
 | Group | Remaining work | Dependency / decision |
 |-------|----------------|-----------------------|
-| P2.1 | **Complete** — independent constant-nominal N-asset recurrence | Preserved the exact multi-asset scenario; no production engine as oracle |
+| P2.1 | **Superseded** — the D4.2 N-asset constant-nominal recurrence covered a family D4.3 now rejects; the supported two-asset recurrence is pinned in `tests/unit/strategies/test_numba_executor_differential.py` | Preserved the exact multi-asset scenario at the time; no production engine used as oracle |
 | P2.2 | **Complete** — plan-level Numba repeatability and parallel/sequential equivalence | Legacy reference-repeatability tests classified as P5 |
 | P3.1 | **Complete** — retargeted Part 49 production-path suites | Preserved aggregation, debt-timeline, LTV, zero-interest, and terminal-state coverage; custom test policy replaced by the production Part 49 policy |
 | P3.2 | **Complete** — retargeted Part 52 trajectory suites | Preserved FFR, compound-drawdown, and month-by-month trace pins using the materialized Part 52 Numba path |
@@ -1542,7 +1545,7 @@ implementation references; the current inventory is §3.
   routes all-buy-and-hold workloads to `NumbaSimulationExecutor`.
 - **Eligibility** requires `BuyAndHoldAllocationPolicy` + `FixedRealWithdrawalPolicy`,
   a two-asset equity/bond portfolio present in the dataset, and
-  `v0 == initial_wealth`. Expense ratios are supported: the kernel applies the
+  `float(v0) == float(initial_wealth)`. Expense ratios are supported: the kernel applies the
   workbook additive convention `blended_gross_return - fee_annual/12` after the
   withdrawal, while weight drift continues to use the gross blended return.
   Multi-asset portfolios (B5) and Part 49 leverage (`loan_draw_rate > 0`, C4)

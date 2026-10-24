@@ -178,16 +178,17 @@ class NumbaReport:
 
 
 def _initial_value_equals_wealth(context: SimulationContext) -> bool:
-    """Return True when the initial portfolio's value equals ``initial_wealth``.
+    """Return True when the kernel receives equal float64 initial values.
 
-    ``build_initial_portfolio`` constructs the initial holdings so that their
-    month-0 value equals ``initial_wealth``.  The Numba trajectories derive
-    their withdrawal base from that initial portfolio value (``v0``) whereas the
-    withdrawal policies derive it from ``context.initial_wealth``.  Sharing one
-    evaluated path, and omitting ``initial_wealth`` from the trajectory key,
-    therefore requires the two to agree.  The equality is exact for the
-    supported two-asset portfolios; for larger portfolios the underlying
-    Decimal divisions may round, so a mismatch is rejected here.
+    The Numba trajectories derive their withdrawal base from the initial
+    portfolio value (``v0``) whereas the withdrawal policies derive it from
+    ``context.initial_wealth``.  Sharing one evaluated path, and omitting
+    ``initial_wealth`` from the trajectory key, therefore requires the two to
+    agree at the precision used by the kernel.  Both values are converted to
+    float64 inside the kernels, so equality is checked there: Decimal division
+    in ``build_initial_portfolio`` can leave a negligible representation
+    difference even when the float64 values are identical.  Contexts whose
+    float64 values differ are still rejected.
     """
     snapshot = context.dataset[0]
     value = Decimal("0")
@@ -196,7 +197,7 @@ def _initial_value_equals_wealth(context: SimulationContext) -> bool:
         if price is None:
             return False
         value += holding.units * price
-    return value == context.initial_wealth.amount
+    return float(value) == float(context.initial_wealth.amount)
 
 
 def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
@@ -259,8 +260,8 @@ def _is_escalating_eligible(context: SimulationContext) -> bool:
     if any(h.asset_class not in context.dataset[0].index_levels for h in holdings):
         return False
     # The escalating trajectory derives its withdrawal base from ``v0`` while
-    # the legacy policy uses ``initial_wealth``; they must agree (see
-    # ``_initial_value_equals_wealth``).
+    # the legacy policy uses ``initial_wealth``; they must agree in float64
+    # (see ``_initial_value_equals_wealth``).
     return _initial_value_equals_wealth(context)
 
 
@@ -335,7 +336,7 @@ def _is_buy_and_hold_eligible(context: SimulationContext) -> bool:
 
     The withdrawal base is the value-independent initial portfolio value
     (``v0``) while the withdrawal amount is derived from ``initial_wealth``;
-    the two must agree (see ``_initial_value_equals_wealth``).
+    the two must agree in float64 (see ``_initial_value_equals_wealth``).
     """
     if not isinstance(context.allocation_policy, BuyAndHoldAllocationPolicy):
         return False

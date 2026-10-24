@@ -1,8 +1,9 @@
-"""Differential validation: Numba executor vs Workbook Oracle.
+"""Differential validation for the Numba executor.
 
 Verifies that the NumbaSimulationExecutor produces results matching the
-workbook SCR methodology for identical inputs through the real execution
-architecture. The workbook oracle implements the exact formulas from
+workbook SCR methodology for fixed-real withdrawals through the real execution
+architecture, and that constant-nominal withdrawals match an independent
+Decimal recurrence. The workbook oracle implements the exact formulas from
 SWR_Toolbox_v2.0.xlsx for static allocations (ConstantAllocationPolicy +
 FixedRealWithdrawalPolicy, FV=0).
 """
@@ -287,29 +288,6 @@ class TestNumbaExecutorVsWorkbookOracle:
             oracle = compute_workbook_oracle_result(ctx)
             _assert_matches_workbook(oracle, numba[i], f"group_{h}m")
 
-    def test_ineligible_context_falls_back(self) -> None:
-        from fbf.core.domain.policies import ConstantWithdrawalPolicy
-
-        ds = _make_context_workbook(horizon=240, w=0.5, r=0.04).dataset
-        start = ds[0].date
-        eligible = _make_context_workbook(horizon=240, w=0.5, r=0.04)
-        _ = SimulationContext(
-            experiment_name="test",
-            cohort="ineligible",
-            start_date=start,
-            horizon_months=240,
-            initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-            initial_portfolio=eligible.initial_portfolio,
-            dataset=ds,
-            allocation_policy=ConstantAllocationPolicy(Decimal("0.5")),
-            withdrawal_policy=ConstantWithdrawalPolicy(Decimal("40000")),
-        )
-        # Only test the eligible one against workbook oracle
-        oracle = compute_workbook_oracle_result(eligible)
-        numba = _run_numba([eligible])
-        _assert_matches_workbook(oracle, numba[0], "eligible_in_mixed")
-
-
 class TestNumbaExecutorRandomizedVsWorkbook:
     @pytest.mark.parametrize("seed", range(30))
     def test_random_trajectories(self, seed: int) -> None:
@@ -335,6 +313,84 @@ class TestNumbaExecutorRandomizedVsWorkbook:
             ctx = contexts[i]
             oracle = compute_workbook_oracle_result(ctx)
             _assert_matches_workbook(oracle, numba[i], f"random_group_s{seed}_h{h}")
+
+
+def _constant_nominal_recurrence(
+    context: SimulationContext,
+) -> tuple[Decimal, bool, int | None]:
+    """Independent Decimal recurrence for two-asset constant-nominal withdrawal.
+
+    Each month withdraws ``value * rate / 12`` from the current value, then
+    grows the remainder by the weighted asset return minus the additive
+    monthly fee.  The final month has no subsequent growth.
+    """
+    dataset = context.dataset
+    allocation = context.allocation_policy
+    withdrawal_policy = context.withdrawal_policy
+    assert isinstance(allocation, ConstantAllocationPolicy)
+    assert isinstance(withdrawal_policy, ConstantWithdrawalPolicy)
+
+    initial_value = sum(
+        (
+            holding.units * dataset[0].index_levels[holding.asset_class]
+            for holding in context.initial_portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+    equity_weight = allocation.equity_allocation
+    assert equity_weight is not None
+    bond_weight = Decimal("1") - equity_weight
+    fee_monthly = (context.expense_ratio or Decimal("0")) / Decimal("12")
+    rate = withdrawal_policy.withdrawal_rate
+
+    value = initial_value
+    for month in range(context.horizon_months):
+        withdrawal = value * rate / Decimal("12")
+        if withdrawal > value:
+            return Decimal("0"), False, month
+        value *= Decimal("1") - rate / Decimal("12")
+        if month < context.horizon_months - 1:
+            equity_growth = (
+                dataset[month + 1].index_levels[_EQ]
+                / dataset[month].index_levels[_EQ]
+            )
+            bond_growth = (
+                dataset[month + 1].index_levels[_BD]
+                / dataset[month].index_levels[_BD]
+            )
+            value *= (
+                equity_weight * equity_growth
+                + bond_weight * bond_growth
+                - fee_monthly
+            )
+    return value, True, None
+
+
+class TestConstantNominalIndependentRecurrence:
+    @pytest.mark.parametrize("fee", [None, Decimal("0.0005")], ids=["no-fee", "fee"])
+    @pytest.mark.parametrize("horizon", [1, 12, 120])
+    def test_matches_independent_decimal_recurrence(
+        self, fee: Decimal | None, horizon: int
+    ) -> None:
+        dataset = _make_dataset(max(horizon + 1, 241))
+        context = replace(
+            _make_context(dataset, horizon=horizon, w=0.6, r=0.04),
+            withdrawal_policy=ConstantWithdrawalPolicy(Decimal("0.04")),
+            expense_ratio=fee,
+        )
+
+        expected_value, expected_success, expected_failure_month = (
+            _constant_nominal_recurrence(context)
+        )
+        success, failure_month, final_wealth, months_simulated = _run_numba(
+            [context]
+        )[0]
+
+        assert success is expected_success
+        assert failure_month == expected_failure_month
+        assert months_simulated == horizon
+        if expected_success:
+            assert abs(final_wealth - expected_value) < WEALTH_TOLERANCE
 
 
 def _wb_ctx(

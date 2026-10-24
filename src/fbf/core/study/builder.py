@@ -252,16 +252,17 @@ def build_initial_portfolio(initial_wealth: Money, dataset: Dataset) -> Portfoli
     """Build an ``Portfolio`` representing the initial wealth.
 
     Derives asset classes from the dataset's initial snapshot and constructs
-    holdings so that the portfolio value at that snapshot equals
-    ``initial_wealth`` exactly:
+    holdings so that the portfolio value at that snapshot is intended to equal
+    ``initial_wealth``:
 
     ``units_i = (initial_wealth × weight_i) / price_i[0]``
 
     where ``weight_i = 1 / n_assets`` for each asset class.
 
-    This ensures the invariant:
-
-    ``portfolio_value_at_snapshot[0] == initial_wealth``
+    Decimal division may round for arbitrary price pairs, so the invariant is
+    not guaranteed to hold to the last Decimal digit.  The Numba admission
+    check compares the float64 representations of the portfolio value and
+    ``initial_wealth``, which is the precision used by the kernels.
 
     The month-0 allocation policy rebalances to its target split afterward.
     """
