@@ -1138,7 +1138,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
         gf_key = _gf_cache_key(sample_ctx)
         growth_factors_full = self._gf_cache[gf_key]
 
-        horizon_result_cache: dict[tuple[int, object], SimulationResult] = {}
+        horizon_result_cache: dict[tuple[int, object, object], SimulationResult] = {}
 
         for horizon, h_contexts in horizon_to_ctxs.items():
             stats["month_work"] += horizon
@@ -1186,7 +1186,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 )
 
             for ctx in h_contexts:
-                cache_key = (horizon, ctx.final_value_target)
+                cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
                 if cache_key in horizon_result_cache:
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue

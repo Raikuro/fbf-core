@@ -14,7 +14,11 @@ from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
+from fbf.core.domain.policies import (
+    ConstantAllocationPolicy,
+    ConstantWithdrawalPolicy,
+    FixedRealWithdrawalPolicy,
+)
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
     ExperimentRun,
@@ -74,6 +78,27 @@ def _make_context(
         withdrawal_policy=FixedRealWithdrawalPolicy(
             withdrawal_rate=withdrawal_rate,
         ),
+        final_value_target=final_value_target,
+    )
+
+
+def _make_constant_nominal_context(
+    initial_wealth: Money,
+    final_value_target: Decimal | None,
+    dataset: Dataset,
+    *,
+    cohort: str,
+) -> SimulationContext:
+    return SimulationContext(
+        experiment_name="test",
+        cohort=cohort,
+        start_date=dataset[0].date,
+        horizon_months=len(dataset),
+        initial_wealth=initial_wealth,
+        initial_portfolio=build_initial_portfolio(INITIAL_WEALTH, dataset),
+        dataset=dataset,
+        allocation_policy=ConstantAllocationPolicy(Decimal("0.6")),
+        withdrawal_policy=ConstantWithdrawalPolicy(Decimal("0.04")),
         final_value_target=final_value_target,
     )
 
@@ -167,3 +192,39 @@ class TestFvTargetEvaluation:
         result = run.simulation_results[0]
         assert result.statistics.success is False
         assert result.statistics.failure_month is not None
+
+
+class TestConstantNominalFvTargetEvaluation:
+    """Constant-nominal FV checks must remain per-context when wealth differs."""
+
+    def test_initial_wealth_is_an_evaluation_dimension(self) -> None:
+        source = _make_dataset()
+        dataset = source.slice(source[0].date, 240)
+        baseline = _make_constant_nominal_context(
+            INITIAL_WEALTH, None, dataset, cohort="baseline"
+        )
+        _, baseline_run = _execute((baseline,))
+        final_wealth = baseline_run.simulation_results[0].statistics.final_wealth.amount
+        target = final_wealth / (INITIAL_WEALTH.amount * Decimal("1.5"))
+
+        low = _make_constant_nominal_context(
+            INITIAL_WEALTH, target, dataset, cohort="low"
+        )
+        high = _make_constant_nominal_context(
+            Money(INITIAL_WEALTH.amount * Decimal("2"), Currency.EUR),
+            target,
+            dataset,
+            cohort="high",
+        )
+        executor, run = _execute((low, high))
+
+        assert executor.report is not None
+        assert executor.report.groups == 1
+        low_result, high_result = run.simulation_results
+        assert low_result.statistics.success is True
+        assert high_result.statistics.success is False
+        assert (
+            low_result.statistics.final_wealth.amount
+            == high_result.statistics.final_wealth.amount
+            == final_wealth
+        )
