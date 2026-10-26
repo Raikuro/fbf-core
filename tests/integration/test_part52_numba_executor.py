@@ -31,6 +31,7 @@ from fbf.core.execution.pipeline.simulation import (
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.part52_numba_executor import (
     Part52NumbaExecutor,
+    evaluate_part52_feasibility,
     is_part52_eligible,
 )
 from tests.unit.execution.debt_recurrence_reference import (
@@ -151,6 +152,56 @@ def _create_decline_inflation_dataset(
         )
         equity = equity * (Decimal("1") + equity_return)
         cpi = cpi * (Decimal("1") + monthly_inflation)
+        current = date(current.year + (current.month // 12), current.month % 12 + 1, 1)
+    return Dataset(snapshots=tuple(snapshots), frequency="monthly")
+
+
+def _create_repayment_dataset(draw_months: int) -> Dataset:
+    """Create a controlled borrow-then-repay path.
+
+    ``draw_months=2`` produces a loan below the monthly budget, so the
+    repayment month clears it fully.  ``draw_months=3`` produces a loan above
+    the budget, so the repayment month leaves an outstanding balance.
+    """
+    path: tuple[Decimal, ...]
+    if draw_months == 2:
+        path = (
+            Decimal("100"),
+            Decimal("75"),
+            Decimal("70"),
+            Decimal("110"),
+            Decimal("115"),
+            Decimal("115"),
+        )
+    elif draw_months == 3:
+        path = (
+            Decimal("100"),
+            Decimal("75"),
+            Decimal("70"),
+            Decimal("65"),
+            Decimal("100"),
+            Decimal("100"),
+            Decimal("100"),
+        )
+    else:
+        raise ValueError("draw_months must be 2 or 3")
+
+    snapshots = []
+    current = date(1965, 11, 1)
+    running_ath = path[0]
+    for price in path:
+        running_ath = max(running_ath, price)
+        snapshots.append(
+            MarketSnapshot(
+                date=current,
+                index_levels={EQUITY_ASSET: price, BOND_ASSET: Decimal("100")},
+                inflation=Decimal("0"),
+                inflation_cumulative=Decimal("0"),
+                is_ath=price >= running_ath,
+                is_underwater=price < running_ath,
+                running_ath=running_ath,
+            )
+        )
         current = date(current.year + (current.month // 12), current.month % 12 + 1, 1)
     return Dataset(snapshots=tuple(snapshots), frequency="monthly")
 
@@ -1229,12 +1280,111 @@ class TestPart52IndependentDebtReference:
         horizon = 24
         ctx = _make_context(_create_dataset(horizon), horizon)
         reference = _independent_result(ctx)
-        expected = INITIAL_WEALTH.amount - horizon * (
+        # The final valuation month is terminal: withdrawals occur in the
+        # first ``horizon - 1`` months.
+        expected = INITIAL_WEALTH.amount - (horizon - 1) * (
             INITIAL_WEALTH.amount * WITHDRAWAL_RATE / Decimal("12")
         )
         assert abs(reference.final_value - expected) < Decimal("0.000001")
         assert reference.final_loan == Decimal("0")
         self._assert_matches(ctx, _numba_result(ctx))
+
+    def test_feasibility_metrics_match_independent_reference(self) -> None:
+        horizon = 24
+        ctx = _make_context(
+            _create_decline_dataset(horizon), horizon, interest_rate_schedule=None
+        )
+        reference = _independent_result(ctx)
+        metrics = evaluate_part52_feasibility(ctx)
+
+        assert reference.min_net_worth is not None
+        assert reference.final_net_worth is not None
+        assert reference.max_loan_to_portfolio is not None
+        assert reference.withdrawal_months is not None
+        assert abs(metrics.min_net_worth - reference.min_net_worth) < _WEALTH_TOLERANCE
+        assert abs(metrics.final_net_worth - reference.final_net_worth) < _WEALTH_TOLERANCE
+        assert (
+            abs(metrics.max_loan_to_portfolio - reference.max_loan_to_portfolio)
+            < Decimal("1e-12")
+        )
+        assert metrics.withdrawal_months == reference.withdrawal_months
+        assert metrics.gross_survival is reference.success
+
+    def test_early_depletion_metrics_match_independent_reference(self) -> None:
+        """Failure metrics use beginning-of-month NW and executed withdrawals."""
+        horizon = 12
+        ctx = _make_context(
+            _create_dataset(horizon), horizon, interest_rate_schedule=None
+        )
+        ctx = replace(
+            ctx,
+            withdrawal_policy=Part52WithdrawalPolicy(
+                withdrawal_rate=Decimal("6.0"),
+                borrow_pct=BORROW_PCT,
+                drawdown_threshold=DRAWDOWN_THRESHOLD,
+            ),
+        )
+        reference = _independent_result(ctx)
+        metrics = evaluate_part52_feasibility(ctx)
+
+        assert reference.success is False
+        assert reference.failure_month is not None
+        assert reference.min_net_worth is not None
+        assert reference.final_net_worth is not None
+        assert reference.max_loan_to_portfolio is not None
+        assert reference.withdrawal_months is not None
+        assert metrics.gross_survival is False
+        assert metrics.withdrawal_months == 2
+        assert metrics.withdrawal_months == reference.withdrawal_months
+        assert abs(metrics.min_net_worth - reference.min_net_worth) < _WEALTH_TOLERANCE
+        assert abs(metrics.final_net_worth - reference.final_net_worth) < _WEALTH_TOLERANCE
+        assert (
+            abs(metrics.max_loan_to_portfolio - reference.max_loan_to_portfolio)
+            < Decimal("1e-12")
+        )
+
+    @pytest.mark.parametrize("draw_months", [2, 3])
+    def test_repayment_is_capped_by_monthly_budget(self, draw_months: int) -> None:
+        """Repayment is MIN(loan, C): full for 2 draws, partial for 3 draws."""
+        dataset = _create_repayment_dataset(draw_months)
+        horizon = len(dataset.snapshots) - 1
+        ctx = _make_context(dataset, horizon, interest_rate_schedule=None)
+        run = Part52NumbaExecutor(materialize_timeline=True).execute(
+            EngineExperimentDefinition(
+                name="repayment",
+                description="repayment",
+                simulation_contexts=(ctx,),
+            )
+        )
+        result = run.simulation_results[0]
+        months = result.timeline.monthly_results
+        repayment_month = draw_months + 1
+        prior = months[repayment_month - 1].debt_snapshot
+        assert prior is not None
+        repayment = months[repayment_month]
+        assert repayment.debt_snapshot is not None
+        assert repayment.withdrawal_decision is not None
+        assert repayment.withdrawal_decision.is_repayment is True
+
+        budget = INITIAL_WEALTH.amount * WITHDRAWAL_RATE / Decimal("12")
+        loan_after_interest = prior.loan_balance * (
+            Decimal("1") + INTEREST_RATE / Decimal("12")
+        )
+        expected_repayment = min(budget, loan_after_interest)
+        expected_loan = loan_after_interest - expected_repayment
+        assert abs(repayment.debt_snapshot.loan_balance - expected_loan) < Decimal(
+            "0.000001"
+        )
+        if draw_months == 2:
+            assert expected_loan == Decimal("0")
+        else:
+            assert expected_loan > Decimal("0")
+
+        reference = _independent_result(ctx)
+        assert abs(
+            result.statistics.final_wealth.amount - reference.final_value
+        ) < _WEALTH_TOLERANCE
+        self._assert_terminal_loan_matches(ctx, reference)
 
     def test_schedule_backed_matches_independent_reference(self) -> None:
         dataset = _create_decline_dataset(24)

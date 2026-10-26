@@ -5,9 +5,9 @@
 >
 > **Implementation relationship:** Part 52 extends the leverage analysis from Part 49 by making margin borrowing state-dependent. Instead of borrowing a fixed portion of retirement spending every month, the retiree normally funds spending from the portfolio and activates margin borrowing only when the S&P 500 has fallen sufficiently below its most recent all-time high. A second rule repays the loan when the S&P 500 reaches a fresh real all-time high.
 >
-> **Methodology status:** COMPLETE. ATH semantics (nominal, total return, inclusive >=) resolved globally. Running ATH initialization resolved. Loan repayment boundary behavior resolved (§8.2). Solver configuration extracted from workbook (§27.19–27.22).
+> **Methodology status:** CANONICAL TRAJECTORY AND FEASIBILITY SPECIFICATION ESTABLISHED. The next milestone is **fixed-parameter workbook feasibility** (Option 2): evaluate the workbook's three financial constraints at published WR/Borrow% values. Replicating the workbook Solver remains a separate future milestone. Drawdown uses the real total-return series (`Calc!AK`), not a nominal ATH. The terminal month is a valuation point with no withdrawal; the workbook executes 360 withdrawals across rows 40–399 and applies terminal growth/interest in row 400. Repayment cash flows are specified in §8.2 and §27.16.
 >
-> **E2E status:** CAN PROCEED. Full E2E validation can proceed against the complete FFR series.
+> **E2E status:** CAN PROCEED for the canonical trajectory. Fixed-parameter feasibility validation must use the corrected terminal-month and repayment semantics. Solver replication is deferred.
 
 ---
 
@@ -278,24 +278,26 @@ as alternative drawdown thresholds.
 
 ### 6.2 Drawdown Definition
 
-**Source preservation — March 2026 audit.** The drawdown trigger uses the **real (CPI-adjusted) S&P 500 Total Return Index** to compute the current drawdown. However, the **running ATH is maintained using the nominal index**. This distinction is important: the drawdown series is real, but the ATH reference is nominal.
+**Resolved — real total-return ATH (2026-10).** Both the drawdown series and the running ATH use the CPI-adjusted real S&P 500 Total Return Index. The earlier nominal-ATH interpretation is superseded by the workbook formula below; the ATH is not nominal.
 
 **Resolved rules:**
 
 * The drawdown trigger uses the real S&P 500 TR index.
-* The ATH is based on the **nominal** index value (not real).
-* The drawdown comparison is **inclusive**: `drawdown >= threshold` triggers borrowing.
+* The ATH is the running ATH of the **real** total-return index, not the nominal index. The workbook formula is `AK = MIN(0, (1+AK_prev) * G/G_prev / D/D_prev - 1)`, which is a real total-return compound drawdown. It is not a real numerator divided by a nominal ATH.
+* The drawdown comparison is **inclusive**: `AK <= -threshold` triggers borrowing (`AN = IF(AK<=B23,1,0)`).
+* Repayment is triggered when `AN=0`, a loan is outstanding, and `AK >= B24` (`AS = IF(AND(AN=0,T>0,AK>=B24),1,0)`). With `B24=0`, a fresh real ATH is the repayment trigger.
 * The ATH/drawdown state is evaluated **after the current month's market change has been applied**, at the cash-flow decision point.
 
-**Classification:** `ARTICLE / WORKBOOK — explicit methodological clarification` (ATH nominal, inclusive comparison) and `WORKBOOK — explicit / DERIVED FROM WORKBOOK` (evaluation timing).
+**Classification:** `WORKBOOK — explicit` (`Calc!AK`, `Calc!AN`, `Calc!AS`, `Calc!AP`, `Calc!AU`) and `DERIVED FROM WORKBOOK` (evaluation timing).
 
 **Remaining unresolved questions:**
 
-* exact source series and construction method;
+* exact source series and construction method beyond the workbook's `Return Data` sheet;
 * exact observation dates;
-* initialization of the running nominal ATH;
-* whether a newly established ATH immediately disables borrowing;
+* whether a newly established ATH immediately disables borrowing in the same month;
 * whether the ATH is reset after a repayment event.
+
+These are evidence questions, not blockers for fixed-parameter feasibility. The drawdown/ATH semantics above are the canonical workbook behavior.
 
 ### 6.3 20% Timing Result
 
@@ -376,7 +378,7 @@ This is explicitly different from merely stopping new borrowing.
 
 ### 8.2 Repayment Mechanism
 
-The article states that the portfolio withdrawal is doubled and the excess is used to repay the loan.
+For a full repayment under `B22=1` (`loan >= C`), the article describes the portfolio withdrawal as doubled, with the excess used to repay the loan. The workbook formula below also defines the partial-repayment case.
 
 For a normal retirement budget `B`:
 
@@ -389,18 +391,29 @@ borrowing state:
     portfolio cash flow = B × (1 - Borrow%)
     loan draw = B × Borrow%
 
-repayment state:
-    portfolio cash flow = 2B
-    loan draw = -B
+repayment state (B22=1):
+    portfolio cash flow = B + MIN(loan, B)
+    loan draw = -MIN(loan, B)
 ```
 
-The exact implementation must preserve the article's cash-flow semantics rather than merely setting the loan balance to zero.
+The exact workbook formulas are:
 
-This is the current behavioral interpretation of the article's description. The workbook must establish whether the additional B is represented as an increased portfolio withdrawal, a loan-repayment cash flow, or an equivalent accounting operation.
+```text
+X = V*B21*AP - AU*MIN(T, V*B22)     # draw (+) / repayment (-)
+W = V - X                            # portfolio withdrawal
+Z = S - W                            # portfolio after withdrawal
+Y = X + T                            # loan after draw/repayment
+```
 
-**Partial resolution — March 2026 audit.** The article text establishes the doubling rule as the repayment mechanism. However, the article does not explicitly describe what happens when the outstanding loan balance is less than `B`. In that case, the full `2B` cash flow may not be required — only enough to fully repay the loan. The exact boundary behavior (whether repayment is capped at the outstanding balance, or the full `2B` is drawn regardless) must be reconstructed from the workbook.
+Here `V` is the monthly budget `C`, `T` is the loan balance before the cash-flow action, `B21` is Borrow%, `B22` is Payback%, `AP` is the draw signal, and `AU` is the repayment signal.
 
-**Q-M1 RESOLVED.** The repayment cannot exceed the outstanding loan balance. When `loan_balance < B`, the repayment is limited to the remaining debt and the loan reaches exactly zero. The unused portion of the nominal `B` repayment capacity does not become an additional portfolio outflow. This represents the natural termination of a repayment episode rather than a separate behavioral rule. The FBF implementation already protects against a negative loan balance with `min(excess, loan_balance)`. The available base-case trajectory does not appear to depend materially on this boundary.
+Consequences:
+
+* Borrowing month: `AP=1, AU=0`, so `X=B21*C`; the portfolio pays `W=C-B21*C`, and the loan rises by `B21*C`.
+* Repayment month: `AP=0, AU=1`, so `X=-MIN(T,B22*C)`; the portfolio pays `W=C+MIN(T,B22*C)`, and the loan falls by `MIN(T,B22*C)`.
+* The repayment cap is the outstanding loan balance. When `T < B22*C`, only `T` is repaid; the unused repayment capacity is not an additional portfolio outflow.
+* The canonical base case uses `B22=1.0` (100% of consumption), so repayment is `MIN(T,C)` and total portfolio outflow is `C+MIN(T,C)`. Some stored workbook result columns use `B22=2`; `B22` is an explicit scenario input, not a universal constant.
+* The Numba implementation must deduct the repayment from the portfolio in addition to consumption. Reducing the loan without the corresponding portfolio outflow is not workbook-faithful.
 
 ### 8.3 Important Consequence
 
@@ -1437,30 +1450,31 @@ from 1M initial (≈27% real drawdown).
 
 ```text
 WORKBOOK — explicit
-The running ATH is based on the NOMINAL S&P 500 Total Return Index.
-This is distinct from the drawdown series, which uses the real (CPI-adjusted) index.
+The running ATH is based on the **real** S&P 500 Total Return Index. The workbook formula is:
 
-The ATH is updated as the nominal index reaches new highs.
-The exact initialization (first month's value?) is not established from the trajectory.
+```text
+AK(t) = MIN(0, (1+AK(t-1)) * G(t)/G(t-1) / D(t)/D(t-1) - 1)
+```
 
-Do NOT describe this as a "real ATH" — the ATH is nominal.
-The drawdown is computed using the real index relative to the nominal ATH.
+where `G` is nominal S&P 500 total return and `D` is CPI. This is a real total-return compound drawdown; the ATH is the running high of the same real series. It is not a nominal ATH.
+
+The ATH is updated as the real total-return index reaches new highs. For DD model 3 (`B25=3`), `AP=AN` and `AU=AS`; `AN` and `AS` are defined in §27.13.
 ```
 
 ### 27.13 Drawdown Detection
 
 ```text
 WORKBOOK — explicit
-The drawdown trigger uses an INCLUSIVE comparison:
-  drawdown >= threshold
+The workbook uses the real total-return compound drawdown in `Calc!AK`:
 
-Where drawdown is computed as:
-  drawdown = 1 - (real_SPX_TR(t) / nominal_ATH(t))
+```text
+AN = IF(AK <= B23, 1, 0)             # draw signal
+AS = IF(AND(AN=0, T>0, AK>=B24),1,0) # repayment signal
+AP = OFFSET(AL,0,B25-1)              # for B25=3: AP=AN
+AU = OFFSET(AQ,0,B25-1)              # for B25=3: AU=AS
+```
 
-A drawdown exactly equal to the configured threshold (e.g., 20%) DOES trigger borrowing.
-
-The evaluation timing is after the current month's market change has been applied.
-This means the drawdown uses the current month's market state.
+With `B23=-0.20`, borrowing triggers when the real total-return drawdown is at most -20%. With `B24=0`, repayment triggers at a fresh real total-return ATH while a loan is outstanding. The comparisons are inclusive. The evaluation timing is after the current month's market change has been applied.
 ```
 
 ### 27.14 Loan Activation State
@@ -1476,85 +1490,47 @@ Evidence: loan_balance remains > 0 through t=360 (end of retirement).
 ### 27.15 Fresh-ATH Detection
 
 ```text
-RESOLVED — timing
-The fresh-ATH evaluation occurs after the current month's market change
-has been applied, at the cash-flow decision point.
-
-UNRESOLVED — detection semantics
-The exact rule for detecting a "fresh ATH" is not established:
-  - Whether the current nominal index is compared with the running ATH
-    before or after updating the running ATH.
-  - Whether equality (current = ATH) counts as a fresh ATH.
-  - Whether a fresh ATH immediately disables borrowing in the same month.
+WORKBOOK — explicit
+AN = IF(AK <= B23, 1, 0)
+AS = IF(AND(AN=0, T>0, AK>=B24), 1, 0)
 ```
+
+For DD model 3 (`B25=3`), `AP=AN` and `AU=AS`. With `B24=0`, repayment triggers when the real total-return drawdown is exactly zero or positive while a loan is outstanding, and the current month is not already a draw month. The comparison is inclusive and occurs at the cash-flow decision point after the current month's market change. The workbook does not define a separate ATH-reset rule; the trigger is the real compound-drawdown state.
 
 ### 27.16 Repayment Behavior
 
 ```text
 WORKBOOK — explicit
-When repayment triggers:
-  draw_repay = -B = -3,256.93 (full consumption applied to loan)
-
-This is different from the article's "doubling" description. The trajectory shows:
-  - During borrowing: draw_repay = +B × borrow_pct = +1,337.86
-  - During repayment: draw_repay = -B = -3,256.93
-  - During idle: draw_repay = 0
-
-The portfolio withdrawal during repayment is:
-  portfolio_withdrawal = B + draw_repay = 3,256.93 + (-3,256.93) = 0
-
-This means the retiree takes NO portfolio withdrawal during repayment —
-the full consumption is funded by the loan in borrowing state, and the
-portfolio provides nothing during repayment (the loan is repaid instead).
-
-Wait — this contradicts the article. Let me re-examine.
-
-Actually, looking more carefully:
-  - During borrowing: portfolio funds (1 - borrow_pct) × B = 0.5892 × 3,256.93 = 1,918.07
-    Loan funds: borrow_pct × B = 0.4108 × 3,256.93 = 1,337.86
-  - During repayment: portfolio funds 0, loan is repaid by -B
-
-This means the retiree's consumption during repayment is NOT funded by the portfolio.
-The loan is being repaid, but the retiree still needs to consume. Where does the
-consumption come from?
-
-The trajectory shows consumption = 3,256.93 in every month, including repayment months.
-But draw_repay = -3,256.93 in repayment months, meaning the portfolio is NOT providing
-consumption. The loan is being repaid from... what?
-
-This is the key unresolved question. The trajectory data does not explicitly show
-where consumption comes from during repayment months. The mathematical relationship
-  portfolio(t) = [portfolio(t-1) - consumption + draw_repay] * (1-er) * (1+r)
-implies that during repayment:
-  portfolio(t) = [portfolio(t-1) - 3,256.93 + (-3,256.93)] * (1-er) * (1+r)
-                = [portfolio(t-1) - 6,513.86] * (1-er) * (1+r)
-
-But the trajectory shows portfolio values that are consistent with this formula.
-So the consumption IS being deducted from the portfolio, AND the loan is being
-repaid from the portfolio. The total portfolio outflow during repayment is 2B.
-
-This matches the article's "doubling" description: the portfolio provides 2B
-during repayment months (B for consumption + B for loan repayment).
+X = V*B21*AP - AU*MIN(T, V*B22)     # draw (+) / repayment (-)
+W = V - X                            # portfolio withdrawal
+Z = S - W                            # portfolio after withdrawal
+Y = X + T                            # loan after draw/repayment
 ```
+
+`V` is the constant monthly budget `C`; `T` is the loan before the action; `B21` is Borrow%; `B22` is Payback%; `AP` is the draw signal; `AU` is the repayment signal.
+
+During repayment (`AP=0, AU=1`):
+
+```text
+repayment = MIN(T, B22*C)
+X = -repayment
+W = C + repayment
+Y = T - repayment
+```
+
+The canonical base case uses `B22=1.0`, so the portfolio pays `C + MIN(T,C)` and the loan is reduced by `MIN(T,C)`. Some stored result columns use `B22=2`; `B22` is an explicit scenario input. The repayment is always capped at the outstanding loan balance. The current Numba implementation must deduct the repayment from the portfolio; reducing the loan without that outflow is not workbook-faithful.
 
 ### 27.17 Margin / Loan-to-Portfolio Constraint
 
 ```text
 WORKBOOK — explicit
-The maximum loan/portfolio ratio is 0.5 (50%).
-
-Verification from trajectory:
-  - Maximum loan_balance = ~203,000 (around t=231, 1985-01)
-  - Corresponding portfolio = ~447,000
-  - Ratio = 203,000 / 447,000 = 0.454 < 0.5
-
-The constraint appears to be evaluated as:
-  loan_balance(t) / portfolio(t) <= max_loan_portfolio
-
-The exact evaluation timing (before or after interest, before or after draw/repay)
-is not established from the trajectory. The constraint never appears to bind
-in the base case trajectory.
+AB = IF(Z>0, Y/Z, 1.01)
+B29 = MAX(AB40:AB400)
+B28 = 0.5
+constraint: B29 <= B28
 ```
+
+`Y` is the loan after draw/repayment and `Z` is the portfolio after withdrawal. The ratio is therefore **post-withdrawal loan / gross portfolio**, not loan/net worth and not loan/pre-withdrawal portfolio. `B29` includes terminal row 400. If `Z<=0`, `AB=1.01`, which fails the 50% constraint.
 
 ### 27.18 Terminal Net-Worth Calculation
 
@@ -1670,19 +1646,71 @@ supporting cohorts from 1871 through approximately 1991 (for 30-year horizons).
 | Loan draw (B × borrow_pct) | RESOLVED | Trajectory: draw_repay = +1,337.86 |
 | FFR + spread → margin_rate | RESOLVED | Formula verified to float precision |
 | Interest accrual (lagged FFR) | RESOLVED | loan_before = prev_balance × (1 + margin_rate) |
-| Repayment (2B total outflow) | RESOLVED | Trajectory: draw_repay = -B, consumption = B |
+| Repayment (C + MIN(T,B22*C) portfolio outflow) | RESOLVED | Workbook `X/W/Y` formulas; base case `B22=1.0`; capped at outstanding loan |
 | Terminal net worth = portfolio - loan | RESOLVED | Trajectory: 249,999.78 ≈ 250,000 |
-| Constraint: L/P <= 50% | RESOLVED | Max observed ≈ 0.454 |
-| Drawdown trigger: real SPX-TR | RESOLVED | Configuration: dd_model = "SPX-TR-Real" |
-| ATH basis: nominal total return | RESOLVED | Globally established: nominal + total return |
+| Constraint: L/P <= 50% | RESOLVED | `B29=MAX(AB40:AB400)`, post-withdrawal `Y/Z`, includes terminal row |
+| Drawdown trigger: real SPX-TR | RESOLVED | `Calc!AK`, real total-return compound drawdown |
+| ATH basis: real total return | RESOLVED | `Calc!AK`; running real total-return ATH, not nominal |
 | Drawdown comparison: inclusive (>=) | RESOLVED | Globally established: inclusive comparison |
 | State evaluation: after market change | RESOLVED | Globally established: return before cash-flow |
 | Fixed 4%/25% diagnostic vs Solver | RESOLVED | ARTICLE — explicit |
-| Running ATH semantics | RESOLVED | Globally established: maximum nominal TR value observed so far |
-| Fresh-ATH detection semantics | RESOLVED | Globally established: inclusive >= after return application |
+| Running ATH semantics | RESOLVED | `Calc!AK`; running real total-return high, inclusive comparison |
+| Fresh-ATH detection semantics | RESOLVED | `AS=IF(AND(AN=0,T>0,AK>=B24),1,0)`; inclusive, after return application |
 | Running ATH initialization | EVIDENCE DETAIL | Default: first value in series. Exact ERN initialization not established from trajectory — not a methodology question |
 | Solver objective / bounds | RESOLVED | WORKBOOK — explicit: maximize B12 (monthly WR), GRG Nonlinear, constraints verified (§27.19–27.22) |
-| Loan < B boundary behavior | UNRESOLVED | Edge case not observed in base trajectory |
+| Loan < repayment boundary (`loan < B22*C`) | RESOLVED | Repayment is `MIN(T,B22*C)`; unused capacity is not an extra outflow (§8.2, §27.16) |
+
+---
+
+### 27.25 Fixed-Parameter Feasibility Milestone (2026 Decision)
+
+The next milestone is **Option 2**: reproduce workbook feasibility at fixed published WR and Borrow% values. It does **not** replicate the workbook Solver.
+
+The feasibility predicate is the conjunction of:
+
+```text
+MinNW_ok   = S32 >= 1000
+FinalNW_ok = S33 >= 250000
+MaxLP_ok   = B29 <= 0.5
+Feasible   = gross_survival AND MinNW_ok AND FinalNW_ok AND MaxLP_ok
+```
+
+Definitions and timing:
+
+```text
+S32 = MIN(U40:U400), U = S - T       # beginning-of-month net worth, before withdrawal
+S33 = S400 - T400                    # terminal net worth after terminal growth/interest
+B29 = MAX(AB40:AB400), AB = Y/Z      # post-withdrawal loan / gross portfolio
+```
+
+The workbook contains 360 withdrawal decisions in rows `40:399` and a terminal valuation in row `400` with no draw, withdrawal, or repayment. Production must not execute a 361st withdrawal. `gross_survival` remains a separate metric and is not synonymous with feasibility. Depletion checks still run at the terminal valuation, and failures before the terminal month are unaffected by the terminal no-withdrawal rule.
+
+**Methodological decision:** fixed-parameter feasibility uses `B22=1`, the canonical ERN base-case payback of 100% of monthly consumption. Stored workbook result columns that use `B22=2` are separate scenario outputs and are outside this milestone. Supporting configurable `B22` is a future milestone, not an accidental limitation of the current implementation.
+
+Implementation: `evaluate_part52_feasibility(context)` in
+`fbf.core.execution.strategies.part52_numba_executor` returns
+`Part52FeasibilityMetrics`. `context.horizon_months` counts valuation months;
+the last month is terminal. `final_net_worth_target` defaults to 25% of the
+initial portfolio and may be overridden. The helper runs the production
+trajectory but not the Solver, and it reports `gross_survival` separately from
+`feasible`.
+
+`min_net_worth` is beginning-of-month net worth (`S - T`), including the
+terminal row. `withdrawal_months` counts executed withdrawals: a successful
+horizon-`H` trajectory reports `H - 1`; a non-terminal failure includes its
+failure-month withdrawal; a terminal failure reports `H - 1` because the
+terminal row has no withdrawal. The production Numba path does not call
+`Part52WithdrawalPolicy.decide()`; that policy is a parameter carrier, and its
+`decide()` accounting is legacy and unused. Canonical repayment lives in
+`_simulate_part52`.
+
+At fixed A10 parameters, after the terminal-month and repayment corrections,
+the production path reports `1739/1739` gross survival, `1686/1739` final-NW,
+`1656/1739` min-NW, `1323/1739` max-L/P, and `1323/1739` all-three. The
+independent Decimal recurrence produces the same counts. The `1929-09` unit
+itself satisfies all three financial conditions. These counts remain
+diagnostic because the FFR convention is unresolved; they are **not**
+acceptance values.
 
 ---
 
@@ -1700,18 +1728,18 @@ The March 2026 methodology audit, workbook reconstruction, and subsequent clarif
 4. **Loan draw**: B × borrow_pct when trigger fires
 5. **FFR + spread → margin_rate**: Formula verified to float precision
 6. **Interest accrual**: Lagged — uses previous month's FFR and CPI
-7. **Repayment**: 2B total portfolio outflow (B consumption + B loan repayment)
+7. **Repayment**: `C + MIN(loan, C)` portfolio outflow under `B22=1` (consumption plus capped repayment); the loan falls by `MIN(loan, C)`
 8. **Terminal net worth**: portfolio - loan = 250,000
 9. **Constraint**: L/P ≤ 50%
 10. **Drawdown trigger**: Real SPX-TR index
-11. **ATH basis**: Nominal total return (globally established)
+11. **ATH basis**: Real total return (`Calc!AK`; not nominal)
 12. **Drawdown comparison**: Inclusive >= threshold (globally established)
 13. **State evaluation timing**: After current month's market change (globally established)
 14. **Fixed 4%/25% diagnostic**: Distinct from Solver optimization
 15. **Published numerical anchors**: Established from article/workbook
-16. **Running ATH semantics**: Maximum nominal total-return value observed so far (globally established)
-17. **Fresh-ATH detection semantics**: Inclusive >= after return application (globally established)
-18. **Solver configuration**: maximize monthly WR, GRG Nonlinear, variables WR+Borrow%, constraints: min net worth >= $1k, terminal NW >= $250k, max L/P <= 50% (WORKBOOK — explicit, §27.19–27.22)
+16. **Running ATH semantics**: Running real total-return high in `Calc!AK`
+17. **Fresh-ATH detection semantics**: `AS=IF(AND(AN=0,T>0,AK>=B24),1,0)`, inclusive, after return application
+18. **Solver configuration**: maximize monthly WR, GRG Nonlinear, variables WR+Borrow%, constraints: min net worth >= $1k, terminal NW >= $250k, max L/P <= 50% (WORKBOOK — explicit, §27.19–27.22). Solver replication is **deferred**; the current milestone is fixed-parameter feasibility.
 
 ### B. Remaining unresolved rules
 

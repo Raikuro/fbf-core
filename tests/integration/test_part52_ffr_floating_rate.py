@@ -193,7 +193,7 @@ def test_ffr_schedule_zero_spread_matches_fixed_rate() -> None:
             experiment_name="test",
             cohort="1965-11",
             start_date=date(1965, 11, 1),
-            horizon_months=3,
+            horizon_months=4,
             initial_wealth=Money(INITIAL_WEALTH, Currency.EUR),
             initial_portfolio=initial_portfolio,
             dataset=dataset,
@@ -216,7 +216,7 @@ def test_ffr_schedule_zero_spread_matches_fixed_rate() -> None:
     loan_fixed = _run_simulation(interest_rate=fixed_rate, schedule=None)
 
     # FFR schedule with same rate in every month
-    ffr_schedule = (fixed_rate, fixed_rate, fixed_rate)
+    ffr_schedule = (fixed_rate, fixed_rate, fixed_rate, fixed_rate)
     loan_ffr = _run_simulation(interest_rate=None, schedule=ffr_schedule)
 
     # Loan balances should be identical
@@ -242,7 +242,7 @@ def test_no_schedule_falls_back_to_fixed_rate() -> None:
         experiment_name="test",
         cohort="1965-11",
         start_date=date(1965, 11, 1),
-        horizon_months=3,
+        horizon_months=4,
         initial_wealth=Money(INITIAL_WEALTH, Currency.EUR),
         initial_portfolio=initial_portfolio,
         dataset=dataset,

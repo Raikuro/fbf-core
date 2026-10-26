@@ -192,6 +192,14 @@ class TestCompoundDrawdownPipeline:
                 inflation_cumulative=Decimal("1"),
                 is_ath=False, is_underwater=True, running_ath=Decimal("110"),
             ),
+            # Month 6: terminal valuation row (no draw/withdrawal/repayment)
+            MarketSnapshot(
+                date=date(1966, 5, 1),
+                index_levels={EQUITY_ASSET: Decimal("80"), BOND_ASSET: Decimal("100")},
+                inflation=Decimal("0"),
+                inflation_cumulative=Decimal("1"),
+                is_ath=False, is_underwater=True, running_ath=Decimal("110"),
+            ),
         ]
         return Dataset(
             snapshots=tuple(snapshots),
@@ -208,9 +216,13 @@ class TestCompoundDrawdownPipeline:
         )
 
     def _run_simulation(
-        self, dataset: Dataset, initial_portfolio: Portfolio, horizon: int
+        self,
+        dataset: Dataset,
+        initial_portfolio: Portfolio,
+        decision_month: int,
     ) -> MonthlyResult:
-        """Run a simulation and return the final monthly result."""
+        """Run through *decision_month* plus a terminal valuation row."""
+        horizon = decision_month + 2
         from fbf.core.domain.policies.concrete import ConstantAllocationPolicy
 
         policy = ConstantAllocationPolicy(equity_allocation=Decimal("0.75"))
@@ -242,13 +254,13 @@ class TestCompoundDrawdownPipeline:
         )
         executor = Part52NumbaExecutor(materialize_timeline=True)
         result = executor.execute(definition).simulation_results[0]
-        return result.timeline.monthly_results[-1]
+        return result.timeline.monthly_results[decision_month]
 
     def test_compound_dd_at_month1_triggers_borrow(
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 1: equity 75, prev 100 → cDD = -0.25 → BORROW."""
-        result = self._run_simulation(dataset, initial_portfolio, horizon=2)
+        result = self._run_simulation(dataset, initial_portfolio, decision_month=1)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.loan_draw_amount > Decimal("0")
         assert result.withdrawal_decision.is_repayment is False
@@ -257,7 +269,7 @@ class TestCompoundDrawdownPipeline:
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 2: equity 75, prev 75 → cDD = min(0, 0.75*1.0 - 1) = -0.25 → BORROW."""
-        result = self._run_simulation(dataset, initial_portfolio, horizon=3)
+        result = self._run_simulation(dataset, initial_portfolio, decision_month=2)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.loan_draw_amount > Decimal("0")
         assert result.withdrawal_decision.is_repayment is False
@@ -266,7 +278,7 @@ class TestCompoundDrawdownPipeline:
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 3: equity 95, prev 75 → cDD = min(0, 0.75*(95/75) - 1) = -0.0625 → NORMAL."""
-        result = self._run_simulation(dataset, initial_portfolio, horizon=4)
+        result = self._run_simulation(dataset, initial_portfolio, decision_month=3)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.loan_draw_amount == Decimal("0")
         assert result.withdrawal_decision.is_repayment is False
@@ -275,7 +287,7 @@ class TestCompoundDrawdownPipeline:
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 4: compound_drawdown=0, loan>0 → REPAY."""
-        result = self._run_simulation(dataset, initial_portfolio, horizon=5)
+        result = self._run_simulation(dataset, initial_portfolio, decision_month=4)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.is_repayment is True
         assert result.withdrawal_decision.loan_draw_amount == Decimal("0")
@@ -284,7 +296,7 @@ class TestCompoundDrawdownPipeline:
         self, dataset: Dataset, initial_portfolio: Portfolio
     ) -> None:
         """Month 5: equity 80, prev 110 → cDD = min(0, 1.0*(80/110) - 1) = -0.2727 → BORROW."""
-        result = self._run_simulation(dataset, initial_portfolio, horizon=6)
+        result = self._run_simulation(dataset, initial_portfolio, decision_month=5)
         assert result.withdrawal_decision is not None
         assert result.withdrawal_decision.loan_draw_amount > Decimal("0")
         assert result.withdrawal_decision.is_repayment is False

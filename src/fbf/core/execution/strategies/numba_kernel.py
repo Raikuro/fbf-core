@@ -1458,19 +1458,24 @@ def _simulate_part52(
     out_loan: NDArray[np.float64] | None = None,
     out_repay: NDArray[np.bool_] | None = None,
     out_draw: NDArray[np.float64] | None = None,
+    out_metrics: NDArray[np.float64] | None = None,
 ) -> tuple[float, bool, int, float, int]:
     """Simulate one Part52 trajectory using the scalar recurrence.
 
-    The recurrence replicates the 15-step pipeline's behavioral semantics:
-    compound drawdown tracking, FFR-based interest accrual, loan draw/repay,
-    cash-first consumption, proportional portfolio sale, and LTV enforcement.
+    The recurrence replicates the workbook's canonical trajectory semantics:
+    compound real total-return drawdown, FFR-based interest accrual, loan
+    draw/repay, cash-first consumption, and optional LTV enforcement.
 
-    State variables (all float64):
-        V              portfolio value
-        Y              loan balance
-        cDD            compound (path-dependent) real total-return drawdown
-        d_prev         previous period's draw/repay (positive=draw, negative=repay)
-        eq_prev        previous equity index level
+    The final loop iteration is the terminal valuation point.  The workbook
+    executes withdrawals in rows ``40:399`` and uses row ``400`` only for
+    terminal growth/interest.  Therefore the kernel accrues interest and
+    records the terminal valuation at ``m == horizon - 1``, but performs no
+    draw, withdrawal, or repayment there.
+
+    Repayment follows ``Calc!X/W/Y`` with the canonical base-case payback of
+    one monthly budget (``B22=1``): the portfolio pays ``C + MIN(Y,C)`` and the
+    loan falls by ``MIN(Y,C)``.  Reducing the loan without the corresponding
+    portfolio outflow is not workbook-faithful.
 
     Parameters
     ----------
@@ -1494,7 +1499,8 @@ def _simulate_part52(
     ltv_limit:
         Loan-to-value limit (e.g. 0.50).
     horizon:
-        Number of months to simulate.
+        Number of valuation months.  Withdrawals occur in months
+        ``0..horizon-2``; the last month is terminal.
     ltv_enforcement:
         When True, enforce LTV limit with forced liquidation and fail on
         unsatisfiable margin calls.  When False, observe LTV only (ERN
@@ -1510,13 +1516,20 @@ def _simulate_part52(
     ``_PART52_MARGIN_CALL_TERMINAL`` (matching ``LTVEvaluationStep`` and the
     independent oracle).  On success, reason is ``_PART52_SUCCESS`` and
     failure_month is -1.
+
+    ``out_metrics``, when provided, receives:
+        [0] minimum beginning-of-month net worth (workbook ``S32``)
+        [1] maximum post-withdrawal loan/gross-portfolio ratio (``B29``)
+        [2] final net worth (``S33``)
+        [3] 1.0 on gross survival, 0.0 otherwise
     """
     # --- Initial state (month 0) ---
     V = initial_value
     Y = 0.0
     cDD = 0.0
-    d_prev = 0.0
     eq_prev = equity_prices[0]
+    min_nw = 1e300
+    max_lp = 0.0
 
     for m in range(horizon):
         # --- Interest accrual (step 26) ---
@@ -1525,51 +1538,58 @@ def _simulate_part52(
             interest = Y * monthly_rates[m]
             Y += interest
 
-        # --- Loan draw (step 28) ---
-        # BORROW condition: compound_dd <= -threshold
-        # REPAY condition: compound_dd == 0 and loan_balance > 0
-        # Note: cDD is computed from the PREVIOUS equity ratio, not the current.
-        # At period 0, cDD = 0 (no prior history).
+        # Workbook `U = S - T`: beginning-of-month net worth, before the
+        # cash-flow decision.  This is the quantity behind `S32`.
+        nw_pre = V - Y
+        if nw_pre < min_nw:
+            min_nw = nw_pre
+
+        # The final row is a terminal valuation, not a withdrawal month.
+        is_terminal = m == horizon - 1
         draw = 0.0
         is_repay = False
-        if cDD <= -threshold:
-            # BORROW
-            draw = withdrawal_monthly * borrow_pct
-        elif cDD == 0.0 and Y > 0.0:
-            # REPAY
-            is_repay = True
 
-        # Add draw to loan and cash balances
-        if draw > 0.0:
-            Y += draw
+        if not is_terminal:
+            # --- Loan draw (step 28) ---
+            # BORROW condition: compound_dd <= -threshold
+            # REPAY condition: compound_dd == 0 and loan_balance > 0
+            if cDD <= -threshold:
+                draw = withdrawal_monthly * borrow_pct
+            elif cDD == 0.0 and Y > 0.0:
+                is_repay = True
 
-        # --- Withdrawal execution (step 30) ---
-        # Cash-first consumption, then portfolio sale.
-        # total_spending = C (constant in all modes).
-        cash_consumed = min(draw, withdrawal_monthly)
-        portfolio_sale = withdrawal_monthly - cash_consumed
+            # Add draw to loan and cash balances
+            if draw > 0.0:
+                Y += draw
 
-        if portfolio_sale > 0.0:
-            V -= portfolio_sale
-            if V < 0.0:
-                V = 0.0
+            # --- Withdrawal execution (step 30) ---
+            # Cash-first consumption, then portfolio sale.
+            cash_consumed = min(draw, withdrawal_monthly)
+            portfolio_sale = withdrawal_monthly - cash_consumed
 
-        # --- Loan repayment (step 32) ---
-        # excess = nominal_amount - spending_budget = C - (C - D_{t-1}) = D_{t-1}
-        # repayment = min(excess, loan_balance) = min(d_prev, Y)
-        if is_repay and Y > 0.0:
-            excess = d_prev  # D_{t-1}
-            if excess < 0.0:
-                excess = 0.0  # clamp: repay only when d_prev > 0
-            repayment = excess
-            if repayment > Y:
-                repayment = Y
-            Y -= repayment
-            d_prev = -repayment
-        elif draw > 0.0:
-            d_prev = draw
-        else:
-            d_prev = 0.0
+            if portfolio_sale > 0.0:
+                V -= portfolio_sale
+                if V < 0.0:
+                    V = 0.0
+
+            # --- Loan repayment (step 32) ---
+            # Workbook base case (B22=1): repayment = MIN(Y, C).
+            # The portfolio pays C for consumption AND the repayment.
+            if is_repay and Y > 0.0:
+                repayment = withdrawal_monthly
+                if repayment > Y:
+                    repayment = Y
+                V -= repayment
+                if V < 0.0:
+                    V = 0.0
+                Y -= repayment
+
+        # Workbook `AB = IF(Z>0, Y/Z, 1.01)`: post-withdrawal loan / gross
+        # portfolio.  Record it before any optional LTV liquidation so the
+        # observed feasibility metric is not hidden by enforcement.
+        lp = Y / V if V > 0.0 else 1.01
+        if lp > max_lp:
+            max_lp = lp
 
         # --- LTV evaluation (step 66) ---
         # The pipeline evaluates LTV after MarketEvolutionStep (seq 60), which
@@ -1596,12 +1616,27 @@ def _simulate_part52(
                     # trajectory and report the post-liquidation value.
                     V -= liq
                     Y -= liq
+                    if out_metrics is not None:
+                        out_metrics[0] = min_nw
+                        out_metrics[1] = max_lp
+                        out_metrics[2] = V - Y
+                        out_metrics[3] = 0.0
                     return V, False, m, Y, _PART52_MARGIN_CALL_TERMINAL
 
         # --- Failure detection (step 75) ---
         if V <= 0.0:
+            if out_metrics is not None:
+                out_metrics[0] = min_nw
+                out_metrics[1] = max_lp
+                out_metrics[2] = V - Y
+                out_metrics[3] = 0.0
             return 0.0, False, m, Y, _PART52_DEPLETED
         if ltv_enforcement and Y > V and Y > 0.0:
+            if out_metrics is not None:
+                out_metrics[0] = min_nw
+                out_metrics[1] = max_lp
+                out_metrics[2] = V - Y
+                out_metrics[3] = 0.0
             return V, False, m, Y, _PART52_MARGIN_CALL_IMPOSSIBLE
 
         if out_values is not None:
@@ -1616,18 +1651,32 @@ def _simulate_part52(
         # --- Growth (implicit in price change) ---
         # Applied AFTER LTV evaluation.  gf[m] corresponds to the pipeline's
         # MarketEvolutionStep at period m+1 (dataset[m] → dataset[m+1]).
+        # At the terminal month there is no next period; the value is already
+        # the terminal portfolio.
         if m < horizon - 1:
             V *= growth_factors[m]
 
-        # --- Compound drawdown (step 10 for NEXT period) ---
-        # cDD = min(0, (1 + prev_cDD) * eq_curr / eq_prev - 1)
-        eq_curr = equity_prices[m + 1] if m + 1 < len(equity_prices) else eq_prev
-        if eq_prev > 0.0:
-            raw = (1.0 + cDD) * (eq_curr / eq_prev) - 1.0
-            cDD = min(0.0, raw)
-        else:
-            cDD = 0.0
-        eq_prev = eq_curr
+            # --- Compound drawdown (step 10 for NEXT period) ---
+            # cDD = min(0, (1 + prev_cDD) * eq_curr / eq_prev - 1)
+            eq_curr = equity_prices[m + 1] if m + 1 < len(equity_prices) else eq_prev
+            if eq_prev > 0.0:
+                raw = (1.0 + cDD) * (eq_curr / eq_prev) - 1.0
+                cDD = min(0.0, raw)
+            else:
+                cDD = 0.0
+            eq_prev = eq_curr
+
+    final_nw = V - Y
+    if final_nw < min_nw:
+        min_nw = final_nw
+    lp = Y / V if V > 0.0 else 1.01
+    if lp > max_lp:
+        max_lp = lp
+    if out_metrics is not None:
+        out_metrics[0] = min_nw
+        out_metrics[1] = max_lp
+        out_metrics[2] = final_nw
+        out_metrics[3] = 1.0
 
     return V, True, -1, Y, _PART52_SUCCESS
 

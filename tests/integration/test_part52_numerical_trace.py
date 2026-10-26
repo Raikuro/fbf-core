@@ -251,12 +251,9 @@ def test_complete_numerical_trace() -> None:
     # Interest accrues BEFORE repayment (seq 26 < seq 32)
     expected_interest_m3 = expected_loan_balance_m2 * INTEREST_RATE / Decimal("12")
     loan_balance_after_interest_m3 = expected_loan_balance_m2 + expected_interest_m3
-    # Loan balance reduced by repayment: excess = nominal_amount - spending_budget
-    # REPAY case: spending_budget = C - d_{t-1}, excess = d_{t-1}
-    d_prev_m3 = expected_loan_draw_m2  # previous period's draw
-    spending_budget_m3 = BUDGET - d_prev_m3
-    excess_m3 = BUDGET - spending_budget_m3  # = d_prev_m3
-    repayment_m3 = min(excess_m3, loan_balance_after_interest_m3)
+    # Workbook repayment is MIN(Y, C): the monthly budget repays the loan
+    # until it is cleared.  The loan after interest is below C here.
+    repayment_m3 = min(BUDGET, loan_balance_after_interest_m3)
     expected_loan_balance_after_repayment = loan_balance_after_interest_m3 - repayment_m3
     assert result_month3.debt_snapshot is not None
     _assert_decimal_close(
@@ -264,33 +261,31 @@ def test_complete_numerical_trace() -> None:
         expected_loan_balance_after_repayment,
     )
 
-    # Execute Month 4: NORMAL (compound_drawdown == 0, loan_balance = 0 or > 0)
+    # Month 4 is the terminal valuation row: no draw, withdrawal, or repayment.
     result_month4 = months[4]
-
-    # Verify Month 4
     assert result_month4.withdrawal_decision is not None
-    if expected_loan_balance_after_repayment <= 0:
-        # Debt cleared, back to NORMAL
-        _assert_decimal_close(
-            result_month4.withdrawal_decision.nominal_amount.amount, BUDGET
-        )
-        assert result_month4.withdrawal_decision.loan_draw_amount == Decimal("0")
-        assert result_month4.withdrawal_decision.is_repayment is False
-    else:
-        # Still has debt, REPAY again
-        # REPAY: nominal_amount = C
-        _assert_decimal_close(
-            result_month4.withdrawal_decision.nominal_amount.amount, BUDGET
-        )
-        assert result_month4.withdrawal_decision.is_repayment is True
+    _assert_decimal_close(
+        result_month4.withdrawal_decision.nominal_amount.amount, Decimal("0")
+    )
+    assert result_month4.withdrawal_decision.loan_draw_amount == Decimal("0")
+    assert result_month4.withdrawal_decision.is_repayment is False
 
 
 def test_fixed_rate_compatibility() -> None:
     """Verify that interest_rate_schedule=None produces identical behavior."""
-    # Create simple dataset
+    # Create simple dataset: month 0 withdrawal, month 1 terminal valuation
     snapshots = [
         MarketSnapshot(
             date=date(1965, 11, 1),
+            index_levels={EQUITY_ASSET: Decimal("100"), BOND_ASSET: Decimal("100")},
+            inflation=Decimal("0"),
+            inflation_cumulative=Decimal("1"),
+            is_ath=True,
+            is_underwater=False,
+            running_ath=Decimal("100"),
+        ),
+        MarketSnapshot(
+            date=date(1965, 12, 1),
             index_levels={EQUITY_ASSET: Decimal("100"), BOND_ASSET: Decimal("100")},
             inflation=Decimal("0"),
             inflation_cumulative=Decimal("1"),
@@ -324,7 +319,7 @@ def test_fixed_rate_compatibility() -> None:
         experiment_name="test",
         cohort="1965-11",
         start_date=date(1965, 11, 1),
-        horizon_months=1,
+        horizon_months=2,
         initial_wealth=Money(INITIAL_WEALTH, Currency.EUR),
         initial_portfolio=initial_portfolio,
         dataset=dataset,
@@ -336,10 +331,15 @@ def test_fixed_rate_compatibility() -> None:
         ltv_enforcement=False,
     )
 
-    month0 = _execute(sim_context_fixed)[0]
+    months = _execute(sim_context_fixed)
 
     # Verify that interest_rate_schedule=None works correctly
+    month0 = months[0]
     assert month0.debt_snapshot is not None
     assert month0.debt_snapshot.loan_balance == Decimal("0")  # No debt in normal mode
     assert month0.withdrawal_decision is not None
     _assert_decimal_close(month0.withdrawal_decision.nominal_amount.amount, BUDGET)
+
+    month1 = months[1]
+    assert month1.withdrawal_decision is not None
+    _assert_decimal_close(month1.withdrawal_decision.nominal_amount.amount, Decimal("0"))

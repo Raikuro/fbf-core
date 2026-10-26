@@ -44,6 +44,17 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
     a new loan draw is created, matching ERN's monthly-draw methodology.
     Draws accumulate on the existing loan balance rather than replacing it.
 
+    Production status
+    -----------------
+    ``Part52NumbaExecutor`` uses this object only as a parameter carrier and
+    type identity; it does not call :meth:`decide`. The canonical Part 52
+    trajectory, including ``B22=1`` repayment (``C + MIN(loan, C)``), is
+    implemented by ``_simulate_part52``.
+
+    The ``decide()`` implementation below is retained for the legacy generic
+    decision pipeline. Its ``spending_budget = C - D_{t-1}`` accounting is
+    pre-``B22=1`` and must not be treated as the canonical Part 52 contract.
+
     Parameters
     ----------
     withdrawal_rate:
@@ -123,8 +134,9 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
             nominal_amount = budget
             is_repayment = False
         elif compound_dd == Decimal("0") and loan_balance > 0:
-            # REPAY: no loan draw, repay outstanding balance
-            # nominal = C → portfolio_sale = C - D_{t-1}
+            # REPAY signal. The legacy decision path encodes the repayment
+            # through spending_budget below; canonical B22=1 cash flows are
+            # implemented by the Numba kernel, not this decision object.
             loan_draw = Decimal("0")
             nominal_amount = budget
             is_repayment = True
@@ -135,9 +147,9 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
             nominal_amount = budget
             is_repayment = False
 
-        # spending_budget = C - D_{t-1}: what's available for spending after
-        # accounting for the prior period's debt.  LoanRepaymentStep computes
-        # excess = nominal_amount - spending_budget:
+        # LEGACY: pre-B22=1 excess accounting for the unused generic decision
+        # path. Canonical Part 52 repayment is implemented by the Numba kernel.
+        # The legacy consumer derives excess = nominal_amount - spending_budget:
         #   BORROW: C - (C - D_{t-1}) = D_{t-1} (positive but is_repayment=False)
         #   REPAY:  C - (C - D_{t-1}) = D_{t-1}
         #   NORMAL: C - C = 0

@@ -481,10 +481,10 @@ class TestMonthlyLoanDrawSemantics:
         assert decision_borrow.loan_draw_amount == budget * Decimal("0.25")
         assert decision_borrow.is_repayment is False
 
-    def test_repayment_excess_computation(
+    def test_legacy_repayment_excess_for_unused_generic_path(
         self, initial_portfolio: Portfolio, dataset: Dataset
     ) -> None:
-        """In REPAY mode, nominal = C, spending_budget = C - D_{t-1}, excess = D_{t-1}."""
+        """Legacy decision accounting; canonical B22=1 is implemented in Numba."""
         mock_sim_ctx = MockSimulationContext(
             dataset=dataset,
             initial_portfolio=initial_portfolio,
@@ -507,7 +507,8 @@ class TestMonthlyLoanDrawSemantics:
         )
         decision = policy.decide(context)
         budget = Decimal("100000") * Decimal("0.0391") / Decimal("12")
-        # REPAY: nominal = C, spending_budget = C - D_{t-1}
+        # LEGACY: this decision-object accounting is retained for the unused
+        # generic path. It is not the canonical Part 52 repayment contract.
         assert decision.nominal_amount.amount == budget
         assert decision.spending_budget == budget - d_prev
         assert decision.loan_draw_amount == Decimal("0")

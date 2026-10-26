@@ -301,6 +301,135 @@ def _extract_equity_prices(
     return prices
 
 
+@dataclass(frozen=True)
+class Part52FeasibilityMetrics:
+    """Workbook-aligned fixed-parameter feasibility metrics for one Part 52 unit.
+
+    The three financial conditions mirror ``Timing-Leverage-Calc.xlsx``
+    ``Calc``:
+
+    - ``S32 = MIN(U40:U400)`` with ``U = S - T`` (beginning-of-month net worth)
+    - ``S33 = S400 - T400`` (terminal net worth)
+    - ``B29 = MAX(AB40:AB400)`` with ``AB = Y/Z`` (post-withdrawal loan / gross
+      portfolio)
+
+    ``gross_survival`` is the existing production success predicate and is
+    deliberately separate from ``feasible``.
+
+    ``withdrawal_months`` counts executed withdrawals. A successful or
+    terminal-failure trajectory reports ``horizon - 1``; a non-terminal failure
+    includes that month's executed withdrawal.
+    """
+
+    gross_survival: bool
+    final_portfolio_value: Decimal
+    final_loan_balance: Decimal
+    min_net_worth: Decimal
+    final_net_worth: Decimal
+    max_loan_to_portfolio: Decimal
+    min_net_worth_target: Decimal
+    final_net_worth_target: Decimal
+    max_loan_to_portfolio_limit: Decimal
+    min_net_worth_ok: bool
+    final_net_worth_ok: bool
+    max_loan_to_portfolio_ok: bool
+    feasible: bool
+    withdrawal_months: int
+
+
+def evaluate_part52_feasibility(
+    context: SimulationContext,
+    *,
+    min_net_worth_target: Decimal = Decimal("1000"),
+    final_net_worth_target: Decimal | None = None,
+    max_loan_to_portfolio_limit: Decimal = Decimal("0.5"),
+) -> Part52FeasibilityMetrics:
+    """Evaluate the workbook's fixed-parameter feasibility conditions.
+
+    This function runs the production Part 52 kernel for *context* and reports
+    the three workbook metrics independently.  It does **not** run the workbook
+    Solver and does **not** optimize WR or Borrow%.
+
+    ``final_net_worth_target`` defaults to 25% of the initial portfolio, the
+    workbook's ``B5*B6`` final-value target.  The caller may override it.
+    """
+    if not is_part52_eligible(context):
+        raise UnsupportedConfigurationError(
+            "evaluate_part52_feasibility requires an eligible Part 52 context"
+        )
+    if context.horizon_months is None:
+        raise ValueError("Part 52 context must declare horizon_months")
+
+    from fbf.core.execution.strategies.numba_kernel import _simulate_part52
+
+    withdrawal = cast(Part52WithdrawalPolicy, context.withdrawal_policy)
+    snapshot0 = context.dataset[0]
+    initial_value = sum(
+        (
+            holding.units * snapshot0.index_levels[holding.asset_class]
+            for holding in context.initial_portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+    horizon = context.horizon_months
+    monthly_withdrawal = float(
+        initial_value * withdrawal.withdrawal_rate / Decimal("12")
+    )
+    metrics = np.zeros(4, dtype=np.float64)
+
+    final_value, success, failure_month, final_loan, _reason = _simulate_part52(
+        _compute_growth_factors_for_part52(context, horizon),
+        np.array(
+            [float(rate) for rate in _compute_monthly_rates(context, horizon)],
+            dtype=np.float64,
+        ),
+        _extract_equity_prices(context, horizon),
+        float(initial_value),
+        monthly_withdrawal,
+        float(withdrawal.drawdown_threshold),
+        float(withdrawal.borrow_pct),
+        float(context.ltv_limit) if context.ltv_limit is not None else 0.5,
+        horizon,
+        context.ltv_enforcement,
+        out_metrics=metrics,
+    )
+
+    target = (
+        final_net_worth_target
+        if final_net_worth_target is not None
+        else initial_value * Decimal("0.25")
+    )
+    min_nw = Decimal(str(float(metrics[0])))
+    final_nw = Decimal(str(float(metrics[2])))
+    max_lp = Decimal(str(float(metrics[1])))
+    min_ok = min_nw >= min_net_worth_target
+    final_ok = final_nw >= target
+    lp_ok = max_lp <= max_loan_to_portfolio_limit
+    gross_survival = bool(success)
+    feasible = gross_survival and min_ok and final_ok and lp_ok
+    if success or failure_month == horizon - 1:
+        withdrawal_months = max(horizon - 1, 0)
+    else:
+        withdrawal_months = max(failure_month + 1, 0)
+
+    return Part52FeasibilityMetrics(
+        gross_survival=gross_survival,
+        final_portfolio_value=Decimal(str(final_value)),
+        final_loan_balance=Decimal(str(final_loan)),
+        min_net_worth=min_nw,
+        final_net_worth=final_nw,
+        max_loan_to_portfolio=max_lp,
+        min_net_worth_target=min_net_worth_target,
+        final_net_worth_target=target,
+        max_loan_to_portfolio_limit=max_loan_to_portfolio_limit,
+        min_net_worth_ok=min_ok,
+        final_net_worth_ok=final_ok,
+        max_loan_to_portfolio_ok=lp_ok,
+        feasible=feasible,
+        withdrawal_months=withdrawal_months,
+    )
+
+
 class Part52NumbaExecutor(SimulationExecutor):
     """Numba-accelerated executor for Part52 timing-leverage studies.
 
@@ -556,6 +685,16 @@ class Part52NumbaExecutor(SimulationExecutor):
                             build_simulation_timeline,
                         )
 
+                        withdrawal_amounts = [Decimal(str(c))] * months_simulated
+                        if (
+                            success
+                            and months_simulated == horizon
+                            and withdrawal_amounts
+                        ):
+                            # The workbook's final row is a terminal valuation;
+                            # it applies growth/interest but no withdrawal.
+                            withdrawal_amounts[-1] = Decimal("0")
+
                         timeline = build_simulation_timeline(
                             ctx,
                             out_values,
@@ -563,8 +702,7 @@ class Part52NumbaExecutor(SimulationExecutor):
                             withdrawal_reason=type(
                                 ctx.withdrawal_policy
                             ).__name__,
-                            withdrawal_amounts=[Decimal(str(c))]
-                            * months_simulated,
+                            withdrawal_amounts=withdrawal_amounts,
                             loan_draw_amounts=[
                                 Decimal(str(float(out_draw[m])))
                                 for m in range(months_simulated)

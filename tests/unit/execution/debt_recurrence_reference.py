@@ -31,6 +31,10 @@ class DebtReferenceResult:
     failure_state: str | None
     final_loan: Decimal
     months_simulated: int
+    min_net_worth: Decimal | None = None
+    final_net_worth: Decimal | None = None
+    max_loan_to_portfolio: Decimal | None = None
+    withdrawal_months: int | None = None
 
 
 def compute_monthly_rates(
@@ -93,6 +97,10 @@ def _apply_final_value_target(
     months_simulated: int,
     final_value_target: Decimal | None,
     initial_wealth: Decimal | None,
+    min_net_worth: Decimal | None = None,
+    final_net_worth: Decimal | None = None,
+    max_loan_to_portfolio: Decimal | None = None,
+    withdrawal_months: int | None = None,
 ) -> DebtReferenceResult:
     if success and final_value_target is not None:
         if initial_wealth is None:
@@ -105,6 +113,10 @@ def _apply_final_value_target(
         failure_state=failure_state,
         final_loan=final_loan,
         months_simulated=months_simulated,
+        min_net_worth=min_net_worth,
+        final_net_worth=final_net_worth,
+        max_loan_to_portfolio=max_loan_to_portfolio,
+        withdrawal_months=withdrawal_months,
     )
 
 
@@ -238,41 +250,51 @@ def simulate_part52_reference(
         value = initial_value
         loan = _ZERO
         compound_drawdown = _ZERO
-        previous_draw_repay = _ZERO
         previous_equity = equity_prices[0]
+        min_net_worth = value - loan
+        max_loan_to_portfolio = _ZERO
 
         for month in range(horizon):
             if loan > 0:
                 loan += loan * monthly_rates[month]
 
+            # S32 uses beginning-of-month net worth. Failure returns below
+            # must not fold in the post-withdrawal value.
+            nw_pre = value - loan
+            if nw_pre < min_net_worth:
+                min_net_worth = nw_pre
+
+            is_terminal = month == horizon - 1
             draw = _ZERO
             is_repayment = False
-            if compound_drawdown <= -drawdown_threshold:
-                draw = budget * borrow_pct
-            elif compound_drawdown == 0 and loan > 0:
-                is_repayment = True
 
-            if draw > 0:
-                loan += draw
+            if not is_terminal:
+                if compound_drawdown <= -drawdown_threshold:
+                    draw = budget * borrow_pct
+                elif compound_drawdown == 0 and loan > 0:
+                    is_repayment = True
 
-            cash_consumed = draw if draw < budget else budget
-            portfolio_sale = budget - cash_consumed
-            if portfolio_sale > 0:
-                value -= portfolio_sale
-                if value < 0:
-                    value = _ZERO
+                if draw > 0:
+                    loan += draw
 
-            if is_repayment and loan > 0:
-                excess = previous_draw_repay
-                if excess < 0:
-                    excess = _ZERO
-                repayment = excess if excess < loan else loan
-                loan -= repayment
-                previous_draw_repay = -repayment
-            elif draw > 0:
-                previous_draw_repay = draw
-            else:
-                previous_draw_repay = _ZERO
+                cash_consumed = draw if draw < budget else budget
+                portfolio_sale = budget - cash_consumed
+                if portfolio_sale > 0:
+                    value -= portfolio_sale
+                    if value < 0:
+                        value = _ZERO
+
+                if is_repayment and loan > 0:
+                    # Workbook base case (B22=1): portfolio pays C + MIN(loan,C).
+                    repayment = budget if budget < loan else loan
+                    value -= repayment
+                    if value < 0:
+                        value = _ZERO
+                    loan -= repayment
+
+            loan_to_portfolio = loan / value if value > 0 else Decimal("1.01")
+            if loan_to_portfolio > max_loan_to_portfolio:
+                max_loan_to_portfolio = loan_to_portfolio
 
             if ltv_enforcement and loan > 0 and value > 0:
                 ltv = loan / value
@@ -291,6 +313,10 @@ def simulate_part52_reference(
                             failure_state="margin_call_terminal",
                             final_loan=loan,
                             months_simulated=month,
+                            min_net_worth=min_net_worth,
+                            final_net_worth=value - loan,
+                            max_loan_to_portfolio=max_loan_to_portfolio,
+                            withdrawal_months=(horizon - 1 if month == horizon - 1 else month + 1),
                         )
 
             if value <= 0:
@@ -301,6 +327,10 @@ def simulate_part52_reference(
                     failure_state="depleted",
                     final_loan=loan,
                     months_simulated=month,
+                    min_net_worth=min_net_worth,
+                    final_net_worth=value - loan,
+                    max_loan_to_portfolio=max_loan_to_portfolio,
+                    withdrawal_months=(horizon - 1 if month == horizon - 1 else month + 1),
                 )
             if ltv_enforcement and loan > value and loan > 0:
                 return DebtReferenceResult(
@@ -310,25 +340,32 @@ def simulate_part52_reference(
                     failure_state="margin_call_impossible",
                     final_loan=loan,
                     months_simulated=month,
+                    min_net_worth=min_net_worth,
+                    final_net_worth=value - loan,
+                    max_loan_to_portfolio=max_loan_to_portfolio,
+                    withdrawal_months=(horizon - 1 if month == horizon - 1 else month + 1),
                 )
 
             if month < horizon - 1:
                 value *= growth_factors[month]
 
-            equity_curr = (
-                equity_prices[month + 1]
-                if month + 1 < len(equity_prices)
-                else previous_equity
-            )
-            if previous_equity > 0:
-                raw_drawdown = (
-                    (_ONE + compound_drawdown) * equity_curr / previous_equity - _ONE
+                equity_curr = (
+                    equity_prices[month + 1]
+                    if month + 1 < len(equity_prices)
+                    else previous_equity
                 )
-                compound_drawdown = raw_drawdown if raw_drawdown < 0 else _ZERO
-            else:
-                compound_drawdown = _ZERO
-            previous_equity = equity_curr
+                if previous_equity > 0:
+                    raw_drawdown = (
+                        (_ONE + compound_drawdown) * equity_curr / previous_equity - _ONE
+                    )
+                    compound_drawdown = raw_drawdown if raw_drawdown < 0 else _ZERO
+                else:
+                    compound_drawdown = _ZERO
+                previous_equity = equity_curr
 
+        final_net_worth = value - loan
+        if final_net_worth < min_net_worth:
+            min_net_worth = final_net_worth
         return _apply_final_value_target(
             value,
             success=True,
@@ -338,6 +375,10 @@ def simulate_part52_reference(
             months_simulated=horizon,
             final_value_target=final_value_target,
             initial_wealth=initial_wealth,
+            min_net_worth=min_net_worth,
+            final_net_worth=final_net_worth,
+            max_loan_to_portfolio=max_loan_to_portfolio,
+            withdrawal_months=horizon - 1,
         )
 
 
