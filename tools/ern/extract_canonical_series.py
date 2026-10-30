@@ -1,7 +1,8 @@
-"""Extract canonical date,value CSV files from existing sources.
+"""Extract canonical date,value CSV files from the canonical master.
 
-This script creates new canonical time-series files from existing data sources.
-All existing source files are preserved unchanged.
+This script creates runtime CSVs from ``canonical/ern_asset_returns.csv``.
+The FFR series is not extracted here; use
+``tools/ern/extract_ffr_from_workbook.py`` for the workbook-derived FFR series.
 
 Usage:
     python tools/ern/extract_canonical_series.py
@@ -64,77 +65,7 @@ def _write_provenance(
 
 
 # ---------------------------------------------------------------------------
-# 1. FFR from ffr_monthly.json
-# ---------------------------------------------------------------------------
-
-def extract_ffr() -> list[str]:
-    """Extract ffr.csv from ffr_monthly.json."""
-    src = DATA_DIR / "ffr_monthly.json"
-    dst = DATA_DIR / "ffr.csv"
-    prov = DATA_DIR / "ffr.provenance.json"
-
-    with open(src) as f:
-        data = json.load(f)
-
-    rows = []
-    for entry in data["rates"]:
-        d = date.fromisoformat(entry["date"])
-        value = entry["rate"]  # already a decimal string
-        rows.append((_date_to_yyyy_mm_dd(d), value))
-
-    rows.sort(key=lambda r: tuple(reversed(r[0].split("-"))))
-
-    _write_canonical_csv(dst, rows)
-
-    # Validation: row-by-row comparison
-    errors = []
-    with open(dst, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        canonical_rows = list(reader)
-
-    if len(canonical_rows) != len(rows):
-        errors.append(f"Row count mismatch: canonical={len(canonical_rows)} expected={len(rows)}")
-
-    for i, (expected_date, expected_value) in enumerate(rows):
-        cr = canonical_rows[i]
-        if cr["date"] != expected_date:
-            errors.append(
-                f"Row {i}: date mismatch canonical={cr['date']}"
-                f" expected={expected_date}"
-            )
-        if cr["value"] != expected_value:
-            errors.append(
-                f"Row {i}: value mismatch canonical={cr['value']}"
-                f" expected={expected_value}"
-            )
-
-    validation = "PASS" if not errors else "FAIL: " + "; ".join(errors[:5])
-
-    _write_provenance(
-        prov,
-        source_file="data/ern/ffr_monthly.json",
-        source_field="rates[].rate",
-        source_date_format="YYYY-MM-DD (ISO)",
-        source_numeric_type="string (decimal)",
-        extraction_method=(
-            "Direct mapping: date.fromisoformat() -> YYYY-MM-DD,"
-            " rate string preserved exactly"
-        ),
-        observation_count=len(rows),
-        date_range=f"{rows[0][0]} to {rows[-1][0]}",
-        validation_result=validation,
-        notes=(
-            "Monthly Federal Funds Rate / borrowing rate. Sources:"
-            " reconstructed FFR (1928-04 to 1954-06) and official"
-            " FEDFUNDS (1954-07 to present)."
-        ),
-    )
-
-    return [validation]
-
-
-# ---------------------------------------------------------------------------
-# 2. Direct extraction from canonical/ern_asset_returns.csv
+# Direct extraction from canonical/ern_asset_returns.csv
 # ---------------------------------------------------------------------------
 
 MASTER_CSV = Path(__file__).resolve().parent.parent.parent / "canonical" / "ern_asset_returns.csv"
@@ -245,19 +176,9 @@ def main() -> None:
     print("=" * 70)
     print()
 
-    all_results = []
-
-    print("--- 1. FFR (from ffr_monthly.json) ---")
-    r = extract_ffr()
-    all_results.extend(r)
-    for line in r:
-        print(f"  ffr.csv: {line}")
-    print()
-
-    print("--- 2. Direct Extraction from Master (canonical/ern_asset_returns.csv) ---")
-    r = extract_from_master()
-    all_results.extend(r)
-    for line in r:
+    print("--- Direct Extraction from Master (canonical/ern_asset_returns.csv) ---")
+    all_results = extract_from_master()
+    for line in all_results:
         print(f"  {line}")
     print()
 

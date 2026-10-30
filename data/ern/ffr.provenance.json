@@ -1,11 +1,45 @@
 {
-  "source_file": "data/ern/ffr_monthly.json",
-  "source_field": "rates[].rate",
-  "source_date_format": "YYYY-MM-DD (ISO)",
-  "source_numeric_type": "string (decimal)",
-  "extraction_method": "Direct mapping: date.fromisoformat() -> YYYY-MM-DD, rate string preserved exactly",
-  "observation_count": 1181,
-  "date_range": "1929-01-01 to 2025-12-01",
+  "artifact": "ffr.csv",
+  "artifact_sha256": "98591457d5d03867bd81992d43b57a6cabc4ce967f3ec9324676216abbf2f5f1",
+  "schema_version": "2.0",
+  "historical": {
+    "source_file": "Timing-Leverage-Calc.xlsx",
+    "source_url": "https://earlyretirementnow.com/wp-content/uploads/2022/03/Timing-Leverage-Calc.xlsx",
+    "source_sha256": "e0a0dbea11543809b2f2e8544cc84e21a19e0ca864d8ef3664135b945bbcda38",
+    "source_sheet": "Return Data",
+    "source_cells": "K4:K1815",
+    "source_formula": "=IF(ISNUMBER(M4),M4,N4)",
+    "source_date_format": "year (column A), month (column B)",
+    "source_numeric_type": "cached Excel value, rendered as Python float shortest round-trip decimal",
+    "extraction_method": "Direct cached-value extraction; the workbook XML value is parsed as Decimal and rendered with Python float shortest round-trip representation. K formulas are validated, including shared-formula masters. No formula re-evaluation or financial reconstruction.",
+    "observation_count": 1812,
+    "date_range": "1871-01-01 to 2021-12-01",
+    "fallback": {
+      "source_column": "N",
+      "header": "Short-term Yield (p.a.)",
+      "date_range": "1871-01-01 to 1954-06-01",
+      "upstream_source": "not documented in workbook",
+      "vintage": "not documented in workbook"
+    },
+    "validation_result": "PASS"
+  },
+  "observation_count": 1868,
+  "date_range": "1871-01-01 to 2026-08-01",
   "validation_result": "PASS",
-  "notes": "Monthly Federal Funds Rate / borrowing rate. Sources: reconstructed FFR (1928-04 to 1954-06) and official FEDFUNDS (1954-07 to present)."
+  "notes": "Historical segment is the workbook's spliced FFR/3M-yield series. The post-2021 extension is FRED FEDFUNDS and is not part of the original workbook.",
+  "limitations": [
+    "FRED extension acquisition metadata (download date, request URL/query, retrieval tool) is not recorded in the repository.",
+    "The workbook does not document the upstream source or vintage of column N."
+  ],
+  "extension": {
+    "source_file": "data/ern/raw/FEDFUNDS.csv",
+    "source_field": "FEDFUNDS",
+    "source_sha256": "4c3a0f601abf9db0a8298f9e972ae6627876c4232cda79b0bc43d3230aa0450d",
+    "source_units": "percent per annum",
+    "output_units": "decimal per annum",
+    "transformation": "value / 100, formatted to 4 decimal places",
+    "observation_count": 56,
+    "date_range": "2022-01-01 to 2026-08-01",
+    "validation_result": "PASS"
+  }
 }

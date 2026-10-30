@@ -234,7 +234,7 @@ The deferred architecture document is formally incorporated into the repository 
 - **User-defined research grids**: The generic parameter-axis system (S5.1) already supports arbitrary parameter sweeps. No additional phase is required.
 - **Scalability architecture** (batched execution, normalized persistence): Documented in `S5_4_R2_ARCHITECTURE.md`. Required only when workloads exceed the ~14,000-unit envelope. Tracked in TODO.md under "Deferred Scalability Architecture."
 - **Result-model cleanup** (dead MonthlyResult fields): Separate model-cleanup decision. Tracked in TODO.md under "Dead MonthlyResult fields."
-- **FFR dataset investigation**: Blocking prerequisite for Part 52 floating-rate scenarios. Tracked in TODO.md under "S6 Prerequisite: FFR Dataset Investigation."
+- **FFR data fidelity**: Open Phase 1 work for Part 52 floating-rate scenarios. Tracked in TODO.md under "S6 Part 52 — Validation State and Phase Boundary."
 
 **Do not begin S6 without explicit authorization.**
 

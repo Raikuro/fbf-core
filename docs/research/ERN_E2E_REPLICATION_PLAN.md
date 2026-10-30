@@ -107,11 +107,11 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 - **Research question:** How does drawdown-triggered leverage timing improve SWR?
 - **Methodology:** Rolling-cohort simulation with conditional leverage activation, FFR-based floating rates, repayment at fresh ATH.
-- **Dataset:** Same as Part 1 plus `ffr.csv` (Federal Funds Rate data; upstream source: `ffr_monthly.json`).
+- **Dataset:** Same as Part 1 plus `ffr.csv` (runtime spliced FFR from workbook `Return Data!K`; runtime ends 2026-08, workbook ends 2021-12; `ffr_monthly.json` is a reconstructed series, not `K`; the SWR cash total-return series is not an FFR source).
 - **Cohort definition:** 1,739 rolling monthly cohorts.
 - **Horizons:** 30 years.
-- **Policies:** Part52WithdrawalPolicy with drawdown thresholds (20%, 25%, 30%, 35%), FFR+spread rates, LTV 50% enforced, repayment at fresh ATH.
-- **Success criteria:** Maximize WR subject to 25% terminal net worth and 50% LTV constraint.
+- **Policies:** Part52WithdrawalPolicy with drawdown thresholds (20%, 25%, 30%, 35%), FFR+spread rates, LTV 50% observed but not enforced in the current study configuration, repayment at fresh ATH.
+- **Success criteria:** Article/Solver objective is to maximize WR subject to 25% terminal net worth and 50% LTV; the current oracle test measures gross survival only.
 - **Published anchors:** 11 scenarios (A1–A11) with specific WR and Borrow% values.
 
 ---
@@ -224,12 +224,12 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 #### Part 52 — NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
 
 - **Classification:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
-- **Methodology status:** COMPLETE — all methodology questions resolved. ATH semantics (nominal, total return, inclusive >=) resolved globally. Running ATH initialization resolved. Loan repayment boundary behavior resolved.
-- **FFR dataset coverage:** RESOLVED. `ffr_spliced` is the canonical FFR source covering the full 1871–present period. All 1,739 cohorts have FFR data available.
-- **E2E specification:** CAN PROCEED. Full E2E validation can proceed against the complete FFR series.
-- **Existing tests useful as:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment, LTV enforcement).
-- **Test files:** `test_part52_canonical_ern_replication.py` (runs by default, >15 min), `test_part52_numerical_trace.py`.
-- **Documentation:** `TODO.md` items S6.6B (FFR integration limitation, canonical replication deferred).
+- **Methodology status:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and canonical cohort eligibility are implemented; remaining work is FFR vintage, asset/CPI numerical equivalence, and validation semantics.
+- **FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. In the 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Canonical cohort eligibility is implemented as full workbook coverage: 1,452 canonical cohorts, an FFR-only boundary of 1,453, and an extended diagnostic default of 1,739. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; FFR vintage remains open because the workbook does not document the upstream source or vintage of the pre-1954 `N` fallback.
+- **E2E specification:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR data-fidelity and validation-semantics questions.
+- **Existing tests useful as:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment; LTV observed, not enforced).
+- **Test files:** `tests/oracle/ern/test_part52_replication.py` (11 scenarios, gated `research_validation`).
+- **Documentation:** `TODO.md` §S6 Part 52 — Validation State and Phase Boundary; `docs/research/ern_part52_replication.md` §28.
 
 ### C.3 Canonical Status Summary
 
@@ -496,19 +496,14 @@ The Part 20 forensic investigations are complete and accepted. Nine investigatio
 ### F.5 Part 52 — Timing Leverage
 
 **Status:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
-**Methodology:** COMPLETE — all methodology questions resolved. ATH semantics (nominal, total return, inclusive >=) resolved globally. Running ATH initialization resolved. Loan repayment boundary behavior resolved.
-**E2E specification:** CAN PROCEED. Full E2E validation can proceed against the complete FFR series.
-**FFR dataset coverage:** RESOLVED. `ffr_spliced` provides complete FFR series 1871–present.
-**Validation scope:** Full E2E validation can proceed.
-**Existing value:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment, LTV enforcement).
+**Methodology:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and canonical cohort eligibility are implemented; remaining work is FFR vintage, asset/CPI numerical equivalence, and validation semantics.
+**E2E specification:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR vintage/asset-CPI fidelity and validation-semantics questions.
+**FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. In the 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Canonical cohort eligibility is implemented as full workbook coverage: 1,452 canonical cohorts, an FFR-only boundary of 1,453, and an extended diagnostic default of 1,739. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; FFR vintage remains open because the workbook does not document the upstream source or vintage of the pre-1954 `N` fallback. The FRED snapshot is consistent but its acquisition path is not fully reproducible; the SWR cash series is a 3-month T-bill total-return index and is not an FFR substitute.
+**Validation scope:** Current oracle test measures gross survival, not the three-constraint feasibility result; full-universe counts are diagnostic. Euro-area reference-rate analogues are research-only and out of scope for this replication.
+**Existing value:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment; LTV observed, not enforced).
 **Test classification:** `@pytest.mark.research_validation` (gated by `RUN_ERN_E2E=1`).
-**Test files:** `test_part52_canonical_ern_replication.py` (11 scenarios, >20 min), `test_part52_deterministic_validation.py` (3 redundant scenarios, 3 min).
-**What would make it canonical:** Full E2E validation against the complete FFR series.
-**Validation scope:** Current E2E validates only the currently resolved methodology subset.
-**Existing value:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment, LTV enforcement).
-**Test classification:** `@pytest.mark.research_validation` (gated by `RUN_ERN_E2E=1`).
-**Test files:** `test_part52_canonical_ern_replication.py` (11 scenarios, >20 min), `test_part52_deterministic_validation.py` (3 redundant scenarios, 3 min).
-**What would make it canonical:** Full E2E validation against the complete FFR series.
+**Test files:** `tests/oracle/ern/test_part52_replication.py` (11 scenarios).
+**What would make it canonical:** Resolution of Phase 1 FFR data fidelity, Phase 2 validation semantics, and full intended-cohort validation.
 
 ---
 
@@ -727,7 +722,7 @@ Markers and environment variables have distinct roles:
 | ERN h600 | `ern_swr_h600.json` | Derived from h720 | Derived | 50y horizon | **DELETED** — redundant slice, removed during data-layer cleanup |
 | ERN h720 | `ern_swr_h720.json` | Derived from real returns | Primary | All E2E tests, all studies | No (primary dataset) |
 | CAPE data | `cape_shiller.csv` | Shiller ie_data.xls | Source | Part 3 research | No (canonical source) |
-| FFR data | `ffr.csv` (runtime; upstream: `ffr_monthly.json`) | Federal Reserve | Source | Part 52 FFR scenarios | No (canonical source) |
+| FFR data | `ffr.csv` (runtime spliced workbook `Return Data!K`; extends to 2026-08) | ERN workbook / Federal Reserve | Source | Part 52 FFR scenarios | No (canonical source) |
 | Oracle table | `p49_oracle_table.csv` | Reference oracle tool | Derived | Oracle validation tests | No (canonical reference) |
 | Part 3 chart data | `ern_chart_*.csv`, `ern_part3_*.csv` | ERN article extraction | Source | Part 3 validation | **DELETED** — unreferenced data artifacts, removed during data-layer cleanup |
 | Raw data | `data/ern/raw/*` | Original sources | Source | Dataset generation | No (canonical source) |
@@ -906,7 +901,7 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 | `ern_swr_h480.json` | Redundant derived artifact | Same as h360 | 40-year horizon prefix of h720. Same redundancy status as h360. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
 | `ern_swr_h600.json` | Redundant derived artifact | Same as h360 | 50-year horizon prefix of h720. Same redundancy status as h360. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
 | `ern_cape_1871_2016.json` | Canonical source | Part 3 research pipeline (`part3_planner.py`, `part3_aggregation.py`) | CAPE ratios for Part 3 regime classification. | **SUPERSEDED** by `cape_shiller.csv` — removed during data-layer cleanup; CAPE values are identical |
-| `ffr_monthly.json` | Canonical source | Part 52 evaluator | Federal Funds Rate monthly data (1928–present). | **RETAIN** — canonical source |
+| `ffr_monthly.json` | Reconstructed FFR series | Not canonical workbook `K`; exact numeric comparison yields 522 differences (306 substantive before 1954-07, 216 post-1954 floating-point artifacts) | Federal Funds Rate monthly data (1928-04..2026-08). | **RETAIN** — reconstructed source, not canonical `K` |
 | `p49_oracle_table.csv` | Canonical reference | `tests/oracle/ern/test_oracle_matrix.py`, `tests/oracle/ern/test_ern_swr_replication.py` | Independent oracle matrix for Part 49 validation. | **RETAIN** — canonical reference |
 | `cohort_manifest_part3.json` | Research metadata | `tests/unit/research/test_part3_planner.py`, `tests/unit/research/test_part20_cape.py`, `tests/infrastructure/test_dataset_cache.py` | Part 3 cohort eligibility manifest. | **RETAIN** — active test consumer |
 | `ern_chart_30Y_A.csv` through `ern_chart_60Y_D.csv` (8 files) | Unreferenced data | **ZERO** consumers in code or tests. Only mentioned once as wildcard in documentation. | ERN article chart data extracted for Part 3 validation. No code reads these files. | **DELETED** — unreferenced data artifacts, removed during data-layer cleanup |
@@ -1006,8 +1001,8 @@ None. All artifacts have been classified with complete information.
 | `bond_10y_tr_real.provenance.json` | Provenance metadata |
 | `ern_swr_h720.json` | Primary derived dataset |
 | `cape_shiller.csv` | Canonical runtime CAPE (supersedes deleted `ern_cape_1871_2016.json`) |
-| `ffr.csv` | Canonical runtime FFR (extracted from `ffr_monthly.json`) |
-| `ffr_monthly.json` | Upstream FFR source (used by `extract_canonical_series.py`) |
+| `ffr.csv` | Canonical runtime FFR (1,868 observations; spliced from workbook `Return Data!K`; matches `K` 1871-01..2021-12, extends to 2026-08) |
+| `ffr_monthly.json` | Reconstructed FFR series; not equivalent to workbook `K` before 1954-07 |
 | `p49_oracle_table.csv` | Canonical reference |
 | `cohort_manifest_part3.json` | Research metadata |
 | `cpi.csv`, `spx_tr.csv`, `bm10.csv` | Runtime canonical datasets (cumulative indices, CPI) |

@@ -149,7 +149,7 @@ repeat this mapping.
 --data-dir/
   ├── spx_tr_real.csv            → equity asset
   ├── bond_10y_tr_real.csv       → bond / fixed-income asset
-  ├── spx_tr.csv                 → nominal equity index (interest-rate inflation adjustment)
+  ├── spx_tr.csv                 → nominal equity index (auxiliary)
   ├── bm10.csv                   → nominal 10-year bond index (auxiliary)
   ├── cpi.csv                    → CPI levels (interest-rate inflation adjustment)
   └── ffr.csv                    → Federal Funds Rate (rate-only time series)
@@ -159,7 +159,7 @@ repeat this mapping.
 |---|---|---|
 | `spx_tr_real.csv` | S&P 500 total-return real returns | `fbf.core.datasets.ern` → `AssetClass(id="equity")` |
 | `bond_10y_tr_real.csv` | 10-Year Bond Market real returns | `fbf.core.datasets.ern` → `AssetClass(id="bond")` |
-| `spx_tr.csv` | S&P 500 total-return nominal index | `fbf.core.datasets.ern` (nominal equity state) |
+| `spx_tr.csv` | S&P 500 total-return nominal index | auxiliary data; not loaded by `load_ern_dataset` |
 | `bm10.csv` | 10-Year Bond Market cumulative nominal index | auxiliary data; not loaded by `load_ern_dataset` |
 | `cpi.csv` | CPI index level | `fbf.core.datasets.ern` (interest-rate inflation adjustment) |
 | `ffr.csv` | Federal Funds Rate (annual, nominal) | `fbf.core.study.builder.load_ffr_rates` → `tuple[date, Decimal]` |
@@ -171,8 +171,8 @@ floating-rate interest schedules; it does not produce `MarketSnapshot` entries.
 
 ### Workbook provenance (current production)
 
-All canonical ERN data files in `data/ern/` are generated from the authoritative
-`SWR_Toolbox_v2.0.xlsx` workbook by `tools/ern/extract_workbook_returns.py`.
+The canonical asset-return and index files in `data/ern/` are generated from
+`SWR_Toolbox_v2.0.xlsx` by `tools/ern/extract_workbook_returns.py`.
 The extractor reads the **cached values** of the workbook's `Asset Returns`
 sheet, validates contiguous monthly dates and the `Q`/`R` formulas, and writes:
 
@@ -189,6 +189,77 @@ The cached values are preserved exactly: no formula is re-evaluated and no
 rounding, normalization, or reconstruction is applied. Each output has a
 sibling `<name>.provenance.json` recording the workbook sheet, source column,
 observation count, and date range.
+
+`ffr.csv` is a separate canonical series. Its historical segment
+(`1871-01..2021-12`, 1,812 observations) is extracted from
+`Timing-Leverage-Calc.xlsx`, sheet `Return Data`, column `K`
+(`K4:K1815`), by `tools/ern/extract_ffr_from_workbook.py`. Column `K` is the
+workbook's spliced series: Federal Funds Rate where available, otherwise the
+short-term yield. The extractor validates the `K` formulas, including
+shared-formula masters, and fails if the expected
+`IF(ISNUMBER(M),M,N)` pattern is absent. The `2022-01..2026-08` extension is
+derived from
+`data/ern/raw/FEDFUNDS.csv` and is documented separately in
+`data/ern/ffr.provenance.json`. The canonical `ffr.csv` artifact is frozen by
+SHA-256
+`98591457d5d03867bd81992d43b57a6cabc4ce967f3ec9324676216abbf2f5f1`.
+`ffr_monthly.json` is a reconstructed research series, not the canonical
+workbook `K` series, and must not replace the historical segment.
+
+The FRED extension source is a local snapshot at
+`data/ern/raw/FEDFUNDS.csv` (866 monthly observations, `1954-07..2026-08`).
+It matches the embedded FRED snapshot used by
+`scripts/build_ffr_from_fred.py` for all 834 overlapping months through
+`2023-12`, and adds the `2024-01..2026-08` observations. Workbook `M` matches
+the raw series after `/100` for all 810 months `1954-07..2021-12`. The
+repository records the source hash but does not contain a reproducible
+download recipe, so the acquisition path is a documented provenance
+limitation rather than a claim of full reproducibility. The workbook also
+does not document the upstream source or vintage of column `N`, the
+pre-1954-07 short-term-yield fallback; accepting `N` is therefore a recorded
+data-fidelity limitation. Do not replace the canonical series with
+`ffr_monthly.json` or with a cash-return proxy.
+
+### SWR cash series is not an FFR source
+
+`SWR_Toolbox_v2.0.xlsx`, sheet `Asset Returns`, column `I`
+(`I6:I1871`), is a cumulative nominal 3-month US Treasury-bill
+total-return index used by ERN for cash returns. It is not a federal funds
+rate and must not be used as one. The series contains actual observations for
+`1871-01..2026-06` (1,866 months), starts at `100.0` in `1871-01`, reaches
+`47574.20198548` in `2026-06`, and is blank after the workbook's projection
+boundary.
+
+Post-1954 annualized cash returns differ from FRED `FEDFUNDS` with a mean bias
+of `-0.383` pp, mean absolute error of `0.464` pp, and correlation of `0.986`
+over 864 months. Before 1954-07 the cash series closely matches the workbook's
+short-term-yield leg (MAE `0.0095` pp over 1,001 months), which confirms it is
+the T-bill leg rather than FFR. The full comparison and implications are in
+`docs/research/ern_part52_replication.md` §3.5.
+
+### Euro-area reference rates (research only)
+
+No exact long-history euro-area equivalent of the US FFR exists. Any euro-area
+study must choose and document an explicit reference-rate role rather than
+renaming a proxy as FFR. Candidate sources are:
+
+| Role | Candidate series | Coverage | Boundary |
+|---|---|---|---|
+| Modern overnight market rate | ECB €STR `EST.B.EU000A2X2A25.WT` | `2019-10-01` onward | Primary modern market-rate analogue |
+| Pre-€STR bridge | ECB pre-€STR `MMSR.B.U2._X._Z.S12._Z.U.BO.WT.D76.MA._Z._Z.EUR._Z` | `2017-03-15..2019-09-30` | Short bridge only; not a long history |
+| Legacy overnight rate | EONIA | `1999-01-04..2021-12-29` | Stop at `2019-09-30`; later EONIA is €STR + 8.5 bp |
+| Policy rate | ECB deposit facility rate `FM.B.U2.EUR.4F.KR.DFR.LEV` | `1999-01-01` onward | Policy sensitivity, not a market borrowing rate |
+| Term market rate | 3M EURIBOR `FM.M.U2.EUR.RT.MM.EURIBOR3MD_.HSTA` | `1999-01` onward | Term borrowing sensitivity, not overnight |
+| Government yield | ECB 3M AAA spot rate `YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_3M` | `2004-09-06` onward | Continuously compounded yield; not a total-return index |
+| Inflation | Euro-area HICP `HICP.M.U2.N.000000.4D0.INX` | `1996-12` onward | Euro-area composition; not US CPI |
+
+These are research candidates only. No euro dataset, loader, or euro Part 52
+path is implemented. A future euro study must also use euro-denominated asset
+returns, preserve an explicit monthly aggregation/publication convention,
+handle negative policy rates and loan-rate floors, recalibrate any lending
+spread for the euro product, and document coverage and splice boundaries.
+Do not silently substitute a US series, a policy rate, or a government yield
+for a market overnight rate.
 
 Do not replace `spx_tr_real.csv` or `bond_10y_tr_real.csv` with a derivation
 from the nominal index and CPI files. The workbook stores the real-return

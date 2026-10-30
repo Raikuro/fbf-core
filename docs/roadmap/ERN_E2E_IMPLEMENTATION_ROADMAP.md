@@ -138,7 +138,7 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
 | 52.1 | 11 canonical scenarios (A1-A11) | 11 scenarios × 1,739 cohorts | RESEARCH REPLICATION | `PARTIALLY IMPLEMENTED` | `test_part52_canonical_ern_replication.py` — A1/A9: canonical replication (1739/1739 success); A2-A8/A10-A11: FFR scenarios with deferred A10 divergence (1665/1739 = 95.7%) | A10 execution/timing recurrence discrepancy (deferred until optimization); other FFR scenarios blocked on FFR methodology | A1/A9 validated at checkpoint `d6a2cbd`; A10 deferred — see §10 B10 |
 | 52.2 | Full cohort validation | 1,739 cohorts | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 52.1 | Implement with 52.1 |
-| 52.3 | Solver/optimization reproduction | Binary search over WR × B% | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 52.1; Part52Evaluator infeasible-search semantics | Implement after 52.1 |
+| 52.3 | Solver/optimization reproduction | Binary search over WR × B% | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 52.1 | Implement after 52.1 |
 | 52.4 | Mechanism correctness | 1 scenario × 1,739 | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_deterministic_validation.py` (mechanism assertions) | None | Retain mechanism assertions; remove redundant simulation |
 | 52.5 | Lifecycle trace | 1 synthetic scenario | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_numerical_trace.py` | None | Retain |
 | 52.6 | FFR floating-rate mechanics | 6 synthetic scenarios | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_ffr_floating_rate.py` | None | Retain |
@@ -568,7 +568,7 @@ Every material discrepancy must receive exactly one classification:
 | B5 | Part 42 published-table validation deferred | Part 42 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.2 |
 | B6 | Part 49 buy-and-hold capability gap | Part 49 | **RESOLVED** (`fc83253`) | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` |
 | B7 | Part 49 LTV enforcement currently OFF | Part 49 | RESOLVED (2026-09-29) | `ERN_E2E_REPLICATION_PLAN.md` §F.3; `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)" |
-| B8 | Part 52 Part52Evaluator infeasible-search semantics | Part 52 | OPEN | `TODO.md` S6.6B |
+| B8 | Part 52 Part52Evaluator infeasible-search semantics | Part 52 | **RESOLVED** | `Part52Evaluator.evaluate()` records `feasible_borrow_pct` and `tested_borrow_pcts`; see `tests/unit/optimization/test_part52_evaluator.py` |
 | B9 | Part 19/20 assertion/output ambiguity | Parts 19/20 | OPEN | No specific document — needs resolution during Phase 3 |
 | B10 | Part 52 A10 execution/timing recurrence discrepancy | Part 52 | DEFERRED | Production recurrence: `P_t = (P_{t-1} - C + X) * (1 + w_t - f)` (withdraw-at-start); ERN workbook: `S_t = Z_{t-1} * (1 + w_t - f)` with `Z_t = S_t - W_t` (grow-then-withdraw); creates second-order timing term `-(C-X)*(w-f)` ≈ $10-20/month; fee correction recovered only 4/74 failed cohorts; root cause is execution-level, not fee-semantics; deferred until optimization phase; oracle must remain untouched; no weakening of canonical expectations |
 

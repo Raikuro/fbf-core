@@ -1368,6 +1368,7 @@ def build_study_plan(
     *,
     withdrawal_frequency: WithdrawalFrequency = WithdrawalFrequency.MONTHLY,
     dataset: Dataset | None = None,
+    cohort_filter: Callable[[CohortSpecification], bool] | None = None,
 ) -> BuiltStudy:
     """Build the single unified ResearchPlan for a normalized study.
 
@@ -1378,6 +1379,10 @@ def build_study_plan(
     When ``dataset`` is supplied, it is used directly instead of loading CSV
     data from ``data_dir``.  ``data_dir`` is still required for auxiliary
     series (for example FFR) when the configuration requests them.
+
+    ``cohort_filter`` optionally narrows the horizon-feasible cohort universe
+    before the experiment and plan are materialized.  It is applied by the
+    caller; the default ``None`` preserves the full generated universe.
     """
     if dataset is None:
         dataset = load_canonical_dataset(Path(data_dir))
@@ -1397,6 +1402,10 @@ def build_study_plan(
             f"{config.cohort_horizon_years or _longest_horizon_years(config)}-year "
             f"({cohort_horizon_months}-observation) horizon"
         )
+    if cohort_filter is not None:
+        cohorts = tuple(cohort for cohort in cohorts if cohort_filter(cohort))
+        if not cohorts:
+            raise ValueError("cohort_filter excluded all horizon-feasible cohorts")
 
     # Load FFR rates early to filter cohorts that predate or exceed FFR
     # coverage (S6.2).  ERN lag convention: month T uses FFR from month

@@ -41,7 +41,7 @@ execute_study_plan(built_study, options)
 ### FFR Path (S6.4B.2)
 
 ```
-data/ern/ffr.csv (runtime canonical FFR; upstream source: ffr_monthly.json)
+data/ern/ffr.csv (runtime canonical FFR; 1,868 observations; matches workbook Return Data!K 1871-01..2021-12; extends to 2026-08)
          |
          v
 load_ffr_rates(data_dir)                       [IO: csv.DictReader — once per call, NOT cached]

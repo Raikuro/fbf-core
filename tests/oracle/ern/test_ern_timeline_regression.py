@@ -20,6 +20,7 @@ cohort.  The published-ERN oracle is retained as a separate comparison target.
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from fbf.core.execution.pipeline.simulation import (
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
+from fbf.core.study.builder import build_interest_rate_schedule, load_ffr_rates
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 from tools.ern.reference_oracle import (
     build_extended,
@@ -233,6 +235,60 @@ def test_plan_exposes_pre_retirement_snapshot(grid_plan: BuiltStudy) -> None:
     assert len(first.dataset) == HORIZON_MONTHS[30]  # T+1 observations
     assert first.horizon_months == HORIZON_MONTHS[30]
     assert len(by_horizon[HORIZON_MONTHS[30]]) == COHORTS_PER_CELL
+
+
+@pytest.mark.parametrize(
+    ("retirement_label", "expected_start", "expected_terminal"),
+    [
+        ((1965, 11), date(1965, 10, 1), date(1995, 10, 1)),
+        ((1929, 9), date(1929, 8, 1), date(1959, 8, 1)),
+    ],
+)
+def test_workbook_retirement_label_uses_pre_retirement_snapshot(
+    grid_plan: BuiltStudy,
+    retirement_label: tuple[int, int],
+    expected_start: date,
+    expected_terminal: date,
+) -> None:
+    """Workbook retirement label W maps to runtime start W-1.
+
+    The initial snapshot is the pre-retirement month, and the 361 observations
+    cover T=0..360 through the workbook's terminal month.
+    """
+    units = _units_by_horizon(grid_plan.plan)[HORIZON_MONTHS[30]]
+    unit = next(
+        unit
+        for unit in units
+        if (unit.cohort.start_date.year, unit.cohort.start_date.month)
+        == (expected_start.year, expected_start.month)
+    )
+
+    assert unit.cohort.start_date == expected_start
+    assert len(unit.dataset) == HORIZON_MONTHS[30]
+    assert unit.dataset[0].date == expected_start
+    assert (unit.dataset[1].date.year, unit.dataset[1].date.month) == retirement_label
+    assert unit.dataset[-1].date == expected_terminal
+    assert unit.horizon_months == HORIZON_MONTHS[30]
+
+
+def test_ffr_lag_uses_pre_retirement_snapshot() -> None:
+    """The Part 52 one-month FFR lag is unchanged by the W-1 mapping."""
+    ffr_rates = load_ffr_rates(str(DATA_DIR))
+    rate_map = dict(ffr_rates)
+    spread = Decimal("0.005")
+    schedule = build_interest_rate_schedule(
+        ffr_rates=ffr_rates,
+        spread=spread,
+        start_date=date(1965, 10, 1),
+        horizon_months=HORIZON_MONTHS[30],
+        lag_months=1,
+    )
+
+    # T=0 is an unconsumed filler; T=1 uses the pre-retirement month W-1.
+    assert schedule[0] == rate_map[date(1965, 9, 1)] + spread
+    assert schedule[1] == rate_map[date(1965, 10, 1)] + spread
+    assert schedule[2] == rate_map[date(1965, 11, 1)] + spread
+    assert schedule[1] != rate_map[date(1965, 11, 1)] + spread
 
 
 def test_boundary_cohort_306_matches_workbook_not_published_oracle(

@@ -1,45 +1,56 @@
 """S6.6B Stage 2 — Canonical ERN Part 52 Replication.
 
-Executes the 11 published ERN scenarios and validates against published results.
+Executes 11 canonical Part 52 scenarios and reports gross-survival counts.
 
-All 11 scenarios execute with actual FFR data via the production study-building
-path. Non-FFR scenarios (A1, A9) use the full cohort set. FFR scenarios (A2-A8,
-A10-A11) use the FFR dataset with lag_months=1 (ERN convention: month T uses
-FFR from month T-1).
+Scenario provenance:
+- A1, A2, A3, A9, A10 use published WR and Borrow% values.
+- A4-A8 and A11 use published WR with BF-discovered Borrow% values.
 
-KNOWN DISCREPANCY: FFR scenarios (A2-A8, A10-A11) produce different results
-from published anchors. The FFR transformation methodology (annual FFR to
-monthly borrowing cost, inflation adjustment) is not yet resolved per
-docs/research/ern_part52_replication.md §3.2. These scenarios are classified
-as "C" (known deferred discrepancy) until the methodology is resolved.
+FFR use:
+- A1 and A9 are non-FFR baselines.
+- A2-A8 and A10-A11 use the runtime FFR series with lag_months=1
+  (month T uses FFR from month T-1).
+
+This module does not yet validate the workbook's three-constraint feasibility
+result. `statistics.success` measures gross portfolio survival only; the
+final-value target is not configured here, and LTV is observed but not enforced
+(`debt_ltv_enforcement=False`). Full-universe counts are diagnostic, not
+canonical acceptance targets.
+
+The FFR conversion formula is resolved (see
+docs/research/ern_part52_replication.md §3.2 and §27.8). Open questions are
+FFR data fidelity (vintage, post-2021 handling, end-bound/cohort eligibility,
+stale provenance metadata) and validation semantics, not the conversion formula.
 
 Canonical Configuration Matrix (from ERN Part 52 primary source):
 
-Category A: Published Validation Anchors (explicitly published parameters)
+Category A: Validation scenarios (published WR; Borrow% provenance noted)
     A1: 1965-11, no threshold, no FFR, WR=3.58%, B%=0%, no repayment
     A2: 1965-11, no threshold, FFR+0.50%, WR=3.78%, B%=10.76%, no repayment
     A3: 1965-11, 20% threshold, FFR+0.50%, WR=3.91%, B%=41.08%, repayment
-    A4: 1965-11, 25% threshold, FFR+0.50%, WR=3.92%, B%=published, repayment
-    A5: 1965-11, 25% threshold, FFR+1.25%, WR=3.87%, B%=published, repayment
-    A6: 1965-11, 25% threshold, FFR+2.75%, WR=3.75%, B%=published, repayment
-    A7: 1965-11, 30% threshold, FFR+0.50%, WR=3.94%, B%=published, repayment
-    A8: 1965-11, 35% threshold, FFR+0.50%, WR=3.83%, B%=published, repayment
+    A4: 1965-11, 25% threshold, FFR+0.50%, WR=3.92%, B%=BF-discovered (10%), repayment
+    A5: 1965-11, 25% threshold, FFR+1.25%, WR=3.87%, B%=BF-discovered (5%), repayment
+    A6: 1965-11, 25% threshold, FFR+2.75%, WR=3.75%, B%=BF-discovered (0%), repayment
+    A7: 1965-11, 30% threshold, FFR+0.50%, WR=3.94%, B%=BF-discovered (10%), repayment
+    A8: 1965-11, 35% threshold, FFR+0.50%, WR=3.83%, B%=BF-discovered (0%), repayment
     A9: 1929-09, no threshold, no FFR, WR=3.61%, B%=0%, no repayment
     A10: 1929-09, no threshold, FFR+0.50%, WR=4.39%, B%=31.86%, no repayment
-    A11: 1929-09, 35% threshold, FFR+0.50%, WR=4.93%, B%=published, repayment
+    A11: 1929-09, 35% threshold, FFR+0.50%, WR=4.93%, B%=BF-discovered (50%), repayment
 
 Classification key:
-    A — Exact match (published B%, 100% success)
-    B — Match with optimizer-discovered B% (100% success)
-    C — Known deferred discrepancy (FFR methodology not resolved)
+    A — Published Borrow%; gross survival 100% in this test
+    B — BF-discovered Borrow%; gross survival 100% in this test
+    C — Gross survival <100%; not a feasibility classification
     D — Explainable methodology/data difference
 
 Parameters:
     Horizon: 30 years (360 months)
     Allocation: 75/25 stocks/bonds
     Initial portfolio: $1,000,000
-    LTV limit: 50% (enforced)
-    Final value target: $250,000 (0.25 × initial_wealth)
+    Cohorts: 1,739 units from the full dataset; not filtered to FFR coverage
+    LTV limit: 50% (observed; enforcement disabled in this test)
+    Final value target: $250,000 (documented; not configured in this test)
+    Success metric: statistics.success = gross survival
 """
 
 from __future__ import annotations
@@ -212,14 +223,14 @@ def _build_study_config(
 ) -> StudyConfiguration:
     """Build a StudyConfiguration for one canonical scenario.
 
-    For FFR scenarios: use actual FFR+spread via ffr_spread.
-    The framework filters cohorts to those with FFR data coverage (post-1928).
-    This matches ERN's behavior: FFR is used for all cohorts with data.
+    For FFR scenarios: use the runtime FFR series plus spread via ffr_spread.
+    The current builder does not filter cohorts to FFR coverage; full-universe
+    cohort eligibility remains open.
 
     For non-FFR scenarios: use the full cohort set with no FFR.
     """
     if scenario.ffr_spread is not None:
-        # Use actual FFR + spread — cohorts are filtered to FFR coverage
+        # Use runtime FFR + spread; no cohort filtering by FFR coverage.
         return StudyConfiguration(
             name=f"ERN_Part52_{scenario.scenario_id}",
             description=f"S6.6B canonical ERN replication: {scenario.scenario_id}",
@@ -325,14 +336,14 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
     success_rate = Decimal(str(successful)) / Decimal(str(total)) if total > 0 else Decimal("0")
 
     # Classify result
-    # A: Exact match (published B%, 100% success)
-    # B: Match with BF-discovered B% (100% success)
-    # C: Known deferred discrepancy (FFR methodology)
+    # A: Published Borrow%; gross survival 100% in this test
+    # B: BF-discovered Borrow%; gross survival 100% in this test
+    # C: Gross survival <100%; not a feasibility classification
     # D: Explainable methodology/data difference
     if success_rate == Decimal("1"):
         classification = "A" if scenario.borrow_provenance == "published" else "B"
     else:
-        classification = "C"  # Known deferred discrepancy (FFR methodology)
+        classification = "C"  # Gross survival <100%; not a feasibility classification
 
     return ExecutionResult(
         scenario=scenario,
@@ -385,7 +396,11 @@ class TestCanonicalERNReplication:
         )
 
     def test_a2_no_timing_leverage_reproduces(self, all_results: list[ExecutionResult]) -> None:
-        """A2: 1965 no timing, WR=3.78%, B%=10.76% → all cohorts succeed."""
+        """A2: 1965 no timing, WR=3.78%, B%=10.76% → 100% gross survival.
+
+        This is not the three-constraint feasibility result. The full-universe
+        count is diagnostic, not a canonical acceptance target.
+        """
         r = next(x for x in all_results if x.scenario.scenario_id == "A2")
         assert r.success_rate == Decimal("1"), (
             f"A2 REPLICATION DISCREPANCY: WR={r.scenario.published_wr}, "
@@ -394,10 +409,12 @@ class TestCanonicalERNReplication:
         )
 
     def test_a3_threshold_20_reproduces(self, all_results: list[ExecutionResult]) -> None:
-        """A3: 1965 20% threshold, WR=3.91%, B%=41.08% → all cohorts succeed.
+        """A3: 1965 20% threshold, WR=3.91%, B%=41.08% → 100% gross survival.
 
         The monthly-draw fix (removing the loan_balance == 0 guard) resolved
-        the 6-cohort discrepancy.  A3 now reproduces ERN's 1739/1739 anchor.
+        the 6-cohort discrepancy. A3 now reproduces the gross-survival anchor.
+        This does not establish three-constraint feasibility; full-universe
+        counts are diagnostic.
         """
         r = next(x for x in all_results if x.scenario.scenario_id == "A3")
         assert r.success_rate == Decimal("1"), (
@@ -413,7 +430,12 @@ class TestCanonicalERNReplication:
         )
 
     def test_a10_1929_no_timing_reproduces(self, all_results: list[ExecutionResult]) -> None:
-        """A10: 1929 no timing, WR=4.39%, B%=31.86% → all cohorts succeed."""
+        """A10: 1929 no timing, WR=4.39%, B%=31.86% → 100% gross survival.
+
+        This is gross survival only. At fixed A10 parameters the diagnostic
+        all-three count is 1323/1739; full-universe counts are not canonical
+        acceptance targets.
+        """
         r = next(x for x in all_results if x.scenario.scenario_id == "A10")
         assert r.success_rate == Decimal("1"), (
             f"A10 REPLICATION DISCREPANCY: WR={r.scenario.published_wr}, "
@@ -424,7 +446,7 @@ class TestCanonicalERNReplication:
     def test_bf_discovered_scenarios_produce_results(
         self, all_results: list[ExecutionResult]
     ) -> None:
-        """All BF-discovered Borrow% scenarios must produce valid results."""
+        """Guard for scenarios without a recorded Borrow%; none currently exist."""
         bf_scenarios = [r for r in all_results if r.scenario.published_borrow_pct is None]
         for r in bf_scenarios:
             assert r.success_rate >= Decimal("0"), (
@@ -464,7 +486,7 @@ def generate_report(results: list[ExecutionResult]) -> str:
         "EXECUTION MATRIX",
         "-" * 80,
         f"{'ID':<4} {'Cohort':<10} {'Threshold':<10} {'FFR':<8} {'WR':<8} "
-        f"{'B%':<8} {'Repay':<6} {'Success':<12} {'Class':<6} {'Time':<8}",
+        f"{'B%':<8} {'Repay':<6} {'Gross':<12} {'Class':<6} {'Time':<8}",
         "-" * 80,
     ]
 
@@ -490,7 +512,9 @@ def generate_report(results: list[ExecutionResult]) -> str:
         lines.append(f"\n{s.scenario_id}: {s.cohort_year} cohort, threshold={s.threshold}")
         lines.append(f"  Published WR: {s.published_wr*100:.2f}% ({s.wr_provenance})")
         lines.append(f"  Borrow% used: {r.borrow_pct_used*100:.2f}% ({s.borrow_provenance})")
-        lines.append(f"  Success: {r.successful_units}/{r.total_units} ({r.success_rate})")
+        lines.append(
+            f"  Gross survival: {r.successful_units}/{r.total_units} ({r.success_rate})"
+        )
         lines.append(f"  Max LTV: {r.max_ltv*100:.2f}%")
         lines.append(f"  Classification: {r.classification}")
 

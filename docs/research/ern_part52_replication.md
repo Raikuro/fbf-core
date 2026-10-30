@@ -5,9 +5,13 @@
 >
 > **Implementation relationship:** Part 52 extends the leverage analysis from Part 49 by making margin borrowing state-dependent. Instead of borrowing a fixed portion of retirement spending every month, the retiree normally funds spending from the portfolio and activates margin borrowing only when the S&P 500 has fallen sufficiently below its most recent all-time high. A second rule repays the loan when the S&P 500 reaches a fresh real all-time high.
 >
-> **Methodology status:** CANONICAL TRAJECTORY AND FEASIBILITY SPECIFICATION ESTABLISHED. The next milestone is **fixed-parameter workbook feasibility** (Option 2): evaluate the workbook's three financial constraints at published WR/Borrow% values. Replicating the workbook Solver remains a separate future milestone. Drawdown uses the real total-return series (`Calc!AK`), not a nominal ATH. The terminal month is a valuation point with no withdrawal; the workbook executes 360 withdrawals across rows 40–399 and applies terminal growth/interest in row 400. Repayment cash flows are specified in §8.2 and §27.16.
+> **Methodology status:** SIMULATION MECHANICS AND FIXED-PARAMETER FEASIBILITY IMPLEMENTED. The FFR conversion formula is resolved (§3.2, §27.8). Asset/CPI numerical equivalence with the Timing workbook remains an unresolved data-fidelity item. **Phase 2 validation semantics** (gross survival versus the three-constraint feasibility result, diagnostic counts, and oracle assertions) remains open. Replicating the workbook Solver remains a separate future milestone. Drawdown uses the real total-return series (`Calc!AK`), not a nominal ATH. The terminal month is a valuation point with no withdrawal; the workbook executes 360 withdrawals across rows 40–399 and applies terminal growth/interest in row 400. Repayment cash flows are specified in §8.2 and §27.16.
 >
-> **E2E status:** CAN PROCEED for the canonical trajectory. Fixed-parameter feasibility validation must use the corrected terminal-month and repayment semantics. Solver replication is deferred.
+> **Phase 1 FFR data fidelity policy:** implemented. The canonical cohort universe is explicitly filtered to 1,452 workbook-backed cohorts, the extended diagnostic universe remains 1,739 cohorts, post-2021 FFR uses actual FRED observations through 2026-08 followed by a documented hold-last policy, and the FFR artifact is frozen with provenance hashes.
+>
+> **E2E status:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR data-fidelity and validation-semantics questions. Solver replication is deferred.
+>
+> **Data boundary:** `SWR_Toolbox_v2.0.xlsx` `Asset Returns!I` is a 3-month T-bill total-return index, not FFR. Euro-area reference-rate analogues are research-only and are not part of this replication.
 
 ---
 
@@ -109,12 +113,11 @@ The article compares:
 
 The article explicitly states that the FFR-based model materially worsens the 1965–1995 results because real short-term rates were high during the 1970s and early 1980s, while the opposite occurs for the 1929 cohort because realized real short-term rates were comparatively low during the Great Depression.
 
-**Partial resolution — March 2026 audit.** The conceptual model `FFR + spread` is established from the article. The mathematical transformation from an annual FFR to a monthly borrowing cost is **not resolved**. The following are open:
+**Resolved — 2026 audit.** The annual-to-monthly transformation is established in §27.8: the annual FFR plus spread is divided by 12, multiplied by `CPI_{t-1}/CPI_t`, with a one-month FFR lag. The alternatives (`(1 + FFR)^(1/12) - 1`, spread added after conversion, end-of-month interest, or the inverse CPI ratio `CPI_t/CPI_{t-1}`) are rejected by the workbook trajectory. The margin-rate formula is verified to floating-point precision against workbook `Calc!M` when the same FFR month and CPI ratio are supplied. The timeline/FFR alignment is resolved (§27.23); full-trajectory equivalence still depends on the separate equity-return data-fidelity issue.
 
-* whether the annual FFR is converted to a monthly rate via `FFR / 12`, `(1 + FFR)^(1/12) - 1`, or another method;
-* whether the spread is added before or after the monthly conversion;
-* whether interest is applied to the outstanding loan balance at the beginning or end of the month;
-* whether the interest calculation uses a simple or compound method within the month.
+The remaining questions are data fidelity and validation semantics, not the conversion formula: asset/CPI numerical equivalence, the undocumented vintage of the pre-1954 `N` fallback, and whether oracle assertions measure gross survival or the three-constraint feasibility result.
+
+FFR temporal coverage, post-2021 handling, and canonical cohort eligibility are now defined explicitly.
 
 ### 3.3 Data Requirement
 
@@ -147,13 +150,62 @@ Do not allow a future implementation to pass the first check and assume the seco
 
 This is particularly important because the 1965 and 1929 conclusions are highly sensitive to the borrowing-rate model. The article explicitly explains that high real short-term rates hurt 1965 while low real short-term rates help 1929.
 
-### 3.4 Critical Data-Fidelity Issue
+### 3.4 FFR Data Series and Fidelity Boundary
 
-The canonical FBF repository already contains an FFR dataset, but Part 52 must establish whether that dataset matches the **specific FFR environment used by the ERN workbook**.
+The workbook's canonical FFR input is the spliced series in `Return Data!K`:
 
-In particular, do not substitute `ffr.csv` merely because it exists.
+```text
+K = IF(ISNUMBER(M), M, N)
+```
 
-If the ERN workbook uses a spliced or differently constructed FFR series, that distinction must be preserved.
+`M` is the Federal Funds Rate from 1954-07 through 2021-12; `N` is the short-term yield from 1871-01. The runtime `data/ern/ffr.csv` contains 1,868 monthly observations from 1871-01 through 2026-08. It matches `K` exactly over all 1,812 common months through 2021-12. Values from 2022-01 through 2026-08 are actual FRED `FEDFUNDS` observations, not synthetic or forward-filled values. Runtime forward-fill begins after 2026-08. The frozen artifact SHA-256 is `98591457d5d03867bd81992d43b57a6cabc4ce967f3ec9324676216abbf2f5f1`.
+
+`data/ern/ffr_monthly.json` is a reconstructed FFR series, not the workbook `K` series. It covers 1928-04..2026-08. Exact numeric comparison with `K` yields 522 differences: 306 substantive differences before 1954-07, reflecting the reconstructed-FFR versus 3M-yield distinction, plus 216 post-1954 floating-point serialization differences with a maximum absolute difference of approximately `2.78e-17`. A tolerance of `1e-15` yields 306 differences. For example, 1929-09 is 3.16% in `K` and 6.07% in the JSON. Do not treat the JSON reconstruction as a substitute for the workbook series without reconciliation.
+
+The CPI and real asset-return series end at 2026-06; the canonical dataset's forward projection begins at 2026-07 and extends to 2075-11. The FFR runtime series ends at 2026-08. The canonical universe is defined by full workbook coverage, not by FFR coverage alone: a cohort is canonical only when its terminal asset/CPI snapshot is on or before 2021-12. This yields 1,452 cohorts (1871-01..1991-12). An FFR-only boundary yields 1,453 because the 1992-01 cohort consumes FFR through 2021-12 but its terminal asset/CPI snapshot is 2022-01. The 1,739-cohort universe remains the extended diagnostic default; 287 cohorts are outside the canonical boundary.
+
+Post-2021 policy is explicit: extended diagnostics use actual FRED FFR through 2026-08 and hold the last observed rate (`3.63%`) constant thereafter. In the full 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months from 2026-09 onward. The no-forward-fill variant contains 1,509 cohorts. The policy defines temporal coverage; it does not establish numerical equivalence with the Timing workbook.
+
+`data/ern/ffr.provenance.json` records the workbook-derived historical segment and the separate FRED extension. The historical segment is extracted directly from `Return Data!K4:K1815` by `tools/ern/extract_ffr_from_workbook.py`; the extension is derived from `data/ern/raw/FEDFUNDS.csv`. The artifact has 1,868 observations from 1871-01 through 2026-08 and is pinned by SHA-256 in the provenance file. The provenance file also records that the FRED acquisition recipe is not present in the repository and that the workbook does not document the upstream source or vintage of column `N`.
+
+The FRED extension source is a local snapshot with 866 monthly observations from 1954-07 through 2026-08. It matches the embedded FRED snapshot used by `scripts/build_ffr_from_fred.py` for all 834 overlapping months through 2023-12, and adds 2024-01..2026-08. Workbook `M` matches the raw series after `/100` for all 810 months 1954-07..2021-12; the maximum measured absolute difference is `3e-17`, and all 810 months are within `1e-15`. Naive exact equality is not expected because cached Excel floats and decimal serialization differ. The repository records the source hash but not a reproducible download recipe; the acquisition path is therefore a provenance limitation, not evidence of full reproducibility. Do not replace the canonical series with `ffr_monthly.json` or with a cash-return proxy.
+
+Before 1954-07, 1,002 canonical cohorts consume at least one `N` observation, 643 consume only `N`, and 359 consume both `N` and `M`; 296,100 of 522,720 consumed FFR observations come from `N`. The A10/A11 loan-rate schedules use `N` for 299 of 360 retirement months. Accepting `N` is a documented data-fidelity limitation, not a claim that its upstream source or vintage is known. The 1,452-cohort boundary establishes temporal coverage only; it does not establish exact asset/CPI equivalence with the Timing workbook. Runtime asset/CPI comes from SWR Toolbox v2.0, and CPI differences up to `0.653` index points and a 2008-12 return anomaly remain unresolved.
+
+### 3.5 SWR Cash Is Not an FFR Substitute
+
+The ERN SWR toolbox's `Asset Returns!I6:I1871` series is a cumulative nominal 3-month US Treasury-bill total-return index, not the federal funds rate. It covers actual observations from 1871-01 through 2026-06 (1,866 months), starts at `100.0` in 1871-01, reaches `47574.20198548` in 2026-06, and is blank after the workbook's projection boundary.
+
+Comparing annualized monthly cash returns with FRED `FEDFUNDS` over the 864 months from 1954-07 through 2026-06 gives:
+
+| Statistic | Value |
+|---|---|
+| Mean bias | `-0.383` pp |
+| Mean absolute error | `0.464` pp |
+| Median absolute error | `0.230` pp |
+| RMSE | `0.824` pp |
+| Maximum absolute error | `5.17` pp |
+| Within 50 bp | `71.6%` |
+| Within 100 bp | `87.3%` |
+| Correlation | `0.986` |
+
+The largest misses are 1980-12 (`-5.17` pp), 1974-07 (`-5.02` pp), and 1981-05 (`-4.83` pp). Before 1954-07 the cash series closely matches the workbook's short-term-yield leg: MAE `0.0095` pp over 1,001 months, maximum absolute error `0.42` pp, correlation `0.99984`. That agreement is evidence that both series represent short-term T-bill yields, not evidence that the cash series is FFR. The cash series and Timing `J` are also essentially the same after 1934; early rounding and revisions compound to roughly `-200` index points by 2021-12.
+
+The cash series is a total-return index with reinvestment and workbook rounding. Using it as an FFR would change both the rate level and the timing of interest accrual. It must not be used as a pre-1928 FFR proxy, a post-2021 extension, or a general substitute for `data/ern/ffr.csv`.
+
+### 3.6 Euro-Area Analogue (Research Only)
+
+No exact long-history euro-area equivalent of the US FFR exists. A euro-area study must choose and document an explicit reference-rate role rather than renaming a proxy as FFR. The candidate data mapping and coverage are recorded in `DATASETS.md`; the key distinctions are:
+
+* **€STR** is the primary modern overnight market-rate analogue, starting 2019-10-01.
+* **EONIA** is a legacy overnight bridge. It must stop at 2019-09-30 because later EONIA is defined as €STR + 8.5 bp; it must not be extended as an independent series.
+* **Pre-€STR** is only a short bridge from 2017-03-15, not a long history.
+* **ECB deposit facility rate** is a policy-rate sensitivity, not a market borrowing rate.
+* **3M EURIBOR** is a term-market borrowing sensitivity, not an overnight rate.
+* **ECB 3M AAA spot yield** is a government-yield proxy, continuously compounded; it is neither FFR nor a total-return index.
+* **Euro-area HICP** starts in 1996-12 and has changing composition; it is not interchangeable with US CPI.
+
+A future euro model must use euro-denominated asset returns and euro-area HICP, preserve the one-month lag unless separately approved, define monthly aggregation and publication timing, handle negative policy rates and contractual loan floors, and recalibrate the lending spread for the euro product. Coverage and splice boundaries must remain explicit, and no silent fallback may conceal missing data. This is a design boundary, not an implemented Part 52 path.
 
 ---
 
@@ -346,16 +398,7 @@ The implementation must not silently reuse the Part 49 75% constraint.
 
 ### 7.2 Constraint Semantics
 
-The exact sequence remains unresolved:
-
-* whether the constraint is evaluated before or after interest;
-* before or after loan activation;
-* before or after portfolio withdrawals;
-* before or after portfolio returns;
-* before or after rebalancing;
-* whether the threshold is inclusive;
-* whether reaching exactly 50% is permitted;
-* how forced liquidation is represented.
+**Resolved — see §27.17.** The workbook evaluates `L/P` after portfolio returns, interest, and the withdrawal/draw/repay decision, using the post-withdrawal `Y/Z` ratio. The 50% comparison is inclusive and includes the terminal row. If `Z<=0`, the ratio is `1.01`, which fails the constraint. The earlier list of candidate orderings is retained only as audit history.
 
 ### 7.3 Diagnostic Interpretation
 
@@ -716,7 +759,7 @@ The return series and the trigger index can be mathematically related while stil
 * rounding;
 * total-return construction.
 
-A one-month market-return alignment issue has already been identified in the current FBF implementation. This must be resolved against the canonical monthly sequence before Part 52 replication can be trusted.
+The one-month timeline alignment has been reconciled: the runtime cohort whose pre-retirement start is `W - 1` matches workbook row 40, and its `T=0..360` observations match rows 40–400. Equity-return value fidelity remains a separate data issue; date alignment does not establish source equivalence.
 
 ### 15.5 Critical Requirement
 
@@ -728,24 +771,9 @@ Do not synthesize an equivalent index merely because the canonical return series
 
 ## 16. Monthly Simulation Semantics
 
-The exact operation order remains unresolved.
+**Resolved — see §27.17 and §28.A.** The workbook and production path establish the monthly sequence: market return, interest on the prior loan balance, ATH/drawdown evaluation, cash-flow decision, withdrawal/draw/repayment, then LTV and depletion evaluation. Portfolio rebalancing is monthly 75/25. The earlier checklist is retained only as audit history.
 
-The implementation must reconstruct the monthly sequence involving at least:
-
-1. market return;
-2. portfolio rebalancing;
-3. withdrawal;
-4. loan draw;
-5. interest accrual;
-6. margin evaluation;
-7. possible repayment;
-8. ATH/drawdown trigger state update.
-
-The article does not provide enough textual detail to establish the complete ordering unambiguously.
-
-The ERN workbook must therefore be treated as a key reconstruction source.
-
-Do not assume that the Part 49 ordering is automatically correct for Part 52.
+The ERN workbook remains the primary reconstruction source. Do not assume that the Part 49 ordering applies to Part 52 without checking the workbook.
 
 ---
 
@@ -954,7 +982,7 @@ The article explicitly warns that monthly simulation can understate real-world i
 
 ## 22. Risks and Fidelity Blockers
 
-The following are first-class replication risks:
+The list below records the original risk inventory. Items resolved by §27 are retained as audit history; the current open items are FFR data fidelity and validation semantics (§28).
 
 1. **FFR data equivalence**
 2. **S&P 500 Total Return trigger-series equivalence**
@@ -970,7 +998,7 @@ The following are first-class replication risks:
 12. **Excel Solver objective and constraints**
 13. **exact cohort/date semantics**
 14. **difference between diagnostic chart values and executable oracles**
-15. **one-month market-return alignment** (see §22.1)
+15. **timeline alignment** (resolved; see §27.23)
 16. **canonical ATH representation** (see §22.1)
 17. **FFR end-bound filtering** (see §22.1)
 
@@ -980,23 +1008,31 @@ The FFR change is especially important because Part 52 explicitly demonstrates t
 
 ## 22.1 Known Repository-Level Fidelity Findings
 
-The following are concrete implementation-fidelity issues already identified during the Part 49/52 investigation. These are not generic open questions — they are specific findings that must be resolved before Part 52 replication can be trusted.
+The following are concrete implementation-fidelity findings identified during the Part 49/52 investigation. Resolved items are retained for audit context; unresolved items must be resolved before Part 52 replication can be trusted.
 
-1. **One-month market-return alignment discrepancy**
+1. **One-month timeline alignment — resolved**
 
-   A one-month market-return alignment discrepancy has been observed in the current implementation and must be reconciled against the canonical monthly sequence before Part 52 replication can be trusted.
+   The runtime cohort start is the pre-retirement snapshot `W - 1`. Workbook row 40 maps to `T=0`, row 41 to `T=1`, and row 400 to `T=360`. Regression coverage is in `tests/oracle/ern/test_ern_timeline_regression.py`. Equity-return value fidelity remains a separate data issue.
 
 2. **ATH representation**
 
    Any stored ATH indicator must be validated against the resolved real-index definition and must not itself define the methodology. Whether it remains stored, becomes derived state, or is calculated dynamically is an implementation concern and should remain open.
 
-3. **FFR cohort/date filtering**
+3. **FFR cohort/date filtering — policy implemented**
 
-   The current FFR filtering has exhibited an end-bound/date-selection discrepancy. The canonical Part 52 cohort/range semantics must be used rather than an incidental FFR dataset boundary.
+   Canonical Part 52 coverage is defined by full workbook coverage, not by an incidental FFR dataset boundary: the terminal asset/CPI snapshot must be on or before 2021-12. The resulting canonical universe is 1,452 cohorts; the FFR-only boundary is 1,453 because the 1992-01 cohort has a 2022-01 terminal snapshot. The filter is explicit at the Part 52 caller, and the extended diagnostic default remains 1,739 cohorts.
 
 4. **Full cohort validation**
 
    The relevant canonical validation must ultimately cover the full intended cohort universe, where that universe is established by the resolved methodology. Do not accept a handful of successful cohorts as evidence that the date/trigger/FFR alignment is correct globally.
+
+5. **Post-2021 FFR and projection-boundary interaction**
+
+   Runtime `ffr.csv` uses actual FRED observations through 2026-08 and holds the last observed rate thereafter. In the full 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months from 2026-09 onward. The policy is defined and implemented; the remaining question is the separate asset/CPI numerical equivalence with the Timing workbook, not whether post-2021 FFR is available.
+
+6. **Validation semantics**
+
+   The current oracle measures gross survival. At fixed A10 parameters the production path reports `1739/1739` gross survival but `1323/1739` for all three constraints. Gross survival is not the three-constraint feasibility result, and the A2/A3/A10 full-universe assertions must not be treated as canonical acceptance targets until asset/CPI equivalence and the feasibility metric wiring are resolved.
 
 ---
 
@@ -1387,7 +1423,7 @@ The loan balance increases by this amount.
 
 ```text
 WORKBOOK — explicit
-Formula (from historical `canonical_market_data.json` — one-off extraction subsequently removed during data-layer cleanup):
+Formula (workbook `Calc!M41`):
   margin_rate = (1 + FFR_prev/12 + Spread/12) * (CPI_prev / CPI_curr) - 1
 
 Where:
@@ -1398,6 +1434,10 @@ Where:
 The FFR is the spliced series from "Return Data" sheet column K:
   =IF(ISNUMBER(M4), M4, N4)
   (FFR when available, otherwise Short-term Yield before 1954-07)
+
+Runtime `ffr.csv` matches this workbook series over the common 1871-01..2021-12
+range; `ffr_monthly.json` is a reconstructed series and is not equivalent before
+1954-07 (see §3.4).
 
 Verification: margin_rate matches implied loan growth rate to full floating-point precision.
 Example at t=70: loan_before(70) / loan_balance(69) - 1 = 0.00237277 = margin_rate(70).
@@ -1413,8 +1453,11 @@ Loan interest accrues at the start of each month:
 Then the draw/repay occurs:
   loan_balance(t) = loan_before(t) + draw_repay(t)
 
-The margin_rate is computed using the previous month's FFR and CPI, not the current month's.
-This means interest accrual uses a one-month lagged rate.
+The FFR is lagged one month: month `t` uses `FFR_{t-1}`. The CPI adjustment is
+not a lagged level: it uses the ratio `CPI_{t-1}/CPI_t`, so the previous month's
+CPI appears in the numerator and the current month's CPI in the denominator.
+Interest accrues on the prior loan balance before the current month's
+draw/repayment.
 ```
 
 ### 27.10 Loan Balance Evolution
@@ -1628,12 +1671,35 @@ Variable bounds:
 ```text
 WORKBOOK — explicit
 The base case trajectory uses:
-  - Cohort: November 1965 (t=0 = 1965-10, t=1 = 1965-11)
-  - Horizon: 360 months (30 years)
-  - End: October 1995 (t=360)
+  - Cohort: November 1965 (t=0 = 1965-10 initialization; t=1 = 1965-11)
+  - Horizon: 360 monthly decisions (rows 40–399, t=0..359)
+  - Terminal valuation: row 400 (t=360, 1995-10), no withdrawal, draw, or repayment
 
-The canonical market data covers 1871-01 to 2021-12 (1,812 months),
-supporting cohorts from 1871 through approximately 1991 (for 30-year horizons).
+Workbook date mapping is fixed: row 40 = T=0 = W-1; row 41 = T=1 = W;
+row 400 = T=360 = W+359. The runtime cohort start is the pre-retirement
+snapshot W-1, not the retirement label W.
+
+| Workbook retirement label | Runtime cohort start | Meaning |
+|---|---|---|
+| 1965-11 | 1965-10-01 | Initial pre-retirement snapshot |
+| 1929-09 | 1929-08-01 | Initial pre-retirement snapshot |
+
+For the canonical 1965-11 case, runtime observations T=0..360 cover
+1965-10..1995-10, matching workbook rows 40–400. For 1929-09, they cover
+1929-08..1959-08. The runtime cohort whose start is 1965-11-01 represents
+retirement label 1965-12. The one-month FFR lag is unchanged: T=1 uses the
+FFR observed at the pre-retirement start W-1.
+
+The workbook `Return Data!K` FFR series covers 1871-01..2021-12 (1,812 months).
+The runtime `ffr.csv` has 1,868 observations from 1871-01..2026-08 and matches
+that series over the common range. The canonical cohort filter is explicit at
+the Part 52 caller: a cohort is selected only when its terminal asset/CPI
+snapshot is on or before 2021-12, yielding 1,452 cohorts with a 60-year cohort
+horizon and a 30-year simulation horizon. The filter is not applied globally;
+the existing research-validation oracle continues to use the extended
+1,739-cohort universe. An FFR-only boundary yields 1,453 cohorts because the
+1992-01 cohort consumes FFR through 2021-12 but its terminal asset/CPI snapshot
+is 2022-01.
 ```
 
 ### 27.24 Summary of Resolved vs. Unresolved Rules
@@ -1707,18 +1773,24 @@ terminal row has no withdrawal. The production Numba path does not call
 At fixed A10 parameters, after the terminal-month and repayment corrections,
 the production path reports `1739/1739` gross survival, `1686/1739` final-NW,
 `1656/1739` min-NW, `1323/1739` max-L/P, and `1323/1739` all-three. The
-independent Decimal recurrence produces the same counts. The `1929-09` unit
+Decimal recurrence produces the same counts; that is evidence of implementation
+consistency, not independent methodological confirmation. The `1929-09` unit
 itself satisfies all three financial conditions. These counts remain
-diagnostic because the FFR convention is unresolved; they are **not**
-acceptance values.
+diagnostic because asset/CPI numerical equivalence, the undocumented `N`
+vintage, and validation semantics remain unresolved. They are **not**
+acceptance values. In particular, gross survival is not the three-constraint
+feasibility result.
+
+FFR temporal coverage, post-2021 handling, and canonical cohort eligibility are
+implemented.
 
 ---
 
 ## 28. Decision (Final)
 
-**AUDIT COMPLETE — METHODOLOGY SUBSTANTIALLY RESOLVED**
+**SIMULATION MECHANICS RESOLVED — DATA-FIDELITY AND VALIDATION WORK REMAINS**
 
-The March 2026 methodology audit, workbook reconstruction, and subsequent clarifications have established the following status:
+The 2026 methodology audit, workbook reconstruction, and subsequent clarifications have established the following status:
 
 ### A. Resolved rules (18 total)
 
@@ -1727,7 +1799,7 @@ The March 2026 methodology audit, workbook reconstruction, and subsequent clarif
 3. **Consumption**: Constant real B = 3,256.93/month
 4. **Loan draw**: B × borrow_pct when trigger fires
 5. **FFR + spread → margin_rate**: Formula verified to float precision
-6. **Interest accrual**: Lagged — uses previous month's FFR and CPI
+6. **Interest accrual**: Lagged — uses `FFR_{t-1}` and the CPI ratio `CPI_{t-1}/CPI_t`
 7. **Repayment**: `C + MIN(loan, C)` portfolio outflow under `B22=1` (consumption plus capped repayment); the loan falls by `MIN(loan, C)`
 8. **Terminal net worth**: portfolio - loan = 250,000
 9. **Constraint**: L/P ≤ 50%
@@ -1739,34 +1811,47 @@ The March 2026 methodology audit, workbook reconstruction, and subsequent clarif
 15. **Published numerical anchors**: Established from article/workbook
 16. **Running ATH semantics**: Running real total-return high in `Calc!AK`
 17. **Fresh-ATH detection semantics**: `AS=IF(AND(AN=0,T>0,AK>=B24),1,0)`, inclusive, after return application
-18. **Solver configuration**: maximize monthly WR, GRG Nonlinear, variables WR+Borrow%, constraints: min net worth >= $1k, terminal NW >= $250k, max L/P <= 50% (WORKBOOK — explicit, §27.19–27.22). Solver replication is **deferred**; the current milestone is fixed-parameter feasibility.
+18. **Solver configuration**: maximize monthly WR, GRG Nonlinear, variables WR+Borrow%, constraints: min net worth >= $1k, terminal NW >= $250k, max L/P <= 50% (WORKBOOK — explicit, §27.19–27.22). Solver replication is **deferred**; the fixed-parameter feasibility helper is implemented.
 
-### B. Remaining unresolved rules
+### B. Remaining unresolved simulation rules
 
-NONE — all methodology questions resolved.
+NONE — simulation mechanics are resolved.
 
 ### B.1 Evidence details (not methodology)
 
-NONE — all evidence details resolved.
+1. Exact workbook running-ATH initialization (retained as an evidence detail, not a methodology question).
 
-### C. Data-fidelity blockers
+### C. Data-fidelity items
 
-NONE — FFR dataset coverage resolved. `ffr_spliced` is the canonical FFR source.
+1. Asset/CPI numerical equivalence with the Timing workbook remains unresolved. Runtime asset/CPI comes from SWR Toolbox v2.0; observed CPI differences reach `0.653` index points and a 2008-12 return anomaly remains.
+2. The 1871–1954 `N` splice is accepted as the workbook's documented fallback, but the upstream source and vintage of `N` are not documented. This is a recorded limitation, not a resolved provenance claim.
+3. Canonical cohort eligibility is resolved as full workbook coverage: 1,452 cohorts, with an FFR-only boundary of 1,453 and an extended diagnostic universe of 1,739. The filter is explicit at the Part 52 caller.
+4. Post-2021 FFR handling is defined: actual FRED through 2026-08, then hold the last observed rate; 230 cohorts consume forward-filled months in the full universe, and the no-forward-fill variant has 1,509 cohorts.
+5. `ffr_monthly.json` is a reconstructed series, not workbook `K`; exact numeric comparison yields 522 differences (306 substantive before 1954-07, 216 post-1954 floating-point artifacts).
+6. The SWR cash total-return series is not an FFR source and must not be substituted for the canonical FFR series (§3.5).
 
 ### D. Existing FBF fidelity findings
 
-1. one-month market-return alignment discrepancy;
+1. timeline alignment (resolved; see §27.23);
 2. canonical ATH representation;
-3. canonical FFR end-bound filtering.
+3. canonical FFR end-bound filtering (policy implemented; see §22.1).
 
 ### E. Validation requirements
 
-1. full intended-cohort validation.
+1. Full intended-cohort validation with an explicit eligibility rule.
+2. Oracle assertions must distinguish gross survival from the three-constraint feasibility result.
+3. Full-universe counts are diagnostic, not canonical acceptance targets.
 
-All methodology questions are resolved. Solver configuration is an evidence detail, not a methodology question. The loan repayment boundary is resolved: repayment is capped at the outstanding loan balance, representing natural termination of a repayment episode.
+### F. Currency and proxy boundaries
+
+1. Part 52 is a US-dollar study using US FFR, US CPI, and US asset returns.
+2. The SWR cash series is a 3-month T-bill total-return index, not FFR; it is not a fallback for missing FFR data.
+3. A euro-area analogue is research-only. It requires an explicit reference-rate role, euro-denominated assets and HICP, negative-rate handling, and a separately authorized model design. It must not reuse the US FFR path by renaming a proxy.
+
+All simulation-mechanics questions are resolved. Solver configuration is an evidence detail, not a methodology question. The loan repayment boundary is resolved: repayment is capped at the outstanding loan balance, representing natural termination of a repayment episode.
 
 Part 52 is substantially more dependent on the ERN workbook than Part 49. The workbook should be treated as a **primary methodological reconstruction source**, not merely as a convenient numerical oracle.
 
 The **architecture should remain deliberately unspecified** at this stage. The important requirement is behavioral equivalence to the ERN workbook/article, followed by the smallest implementation change necessary to express that behavior in FBF.
 
-No production code, tests, YAML, or canonical data should be changed until these blockers have been resolved.
+Production code, test assertions, YAML, and canonical data must not be changed as part of documentation reconciliation; Phase 2 requires separate authorization.

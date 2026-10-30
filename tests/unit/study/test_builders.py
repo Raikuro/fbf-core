@@ -1096,3 +1096,108 @@ class TestExplicitAllocationsConfiguration:
             ("bond", Decimal("0.5")),
             ("equity", Decimal("0.5")),
         )
+
+
+def _make_monthly_dataset(num_months: int = 120) -> Dataset:
+    snapshots = []
+    year = 2000
+    month = 1
+    for _ in range(num_months):
+        snapshots.append(
+            MarketSnapshot(
+                date=date(year, month, 1),
+                index_levels={
+                    _loader_asset("equity"): Decimal("100"),
+                    _loader_asset("bond"): Decimal("100"),
+                },
+                inflation=Decimal("0"),
+                inflation_cumulative=Decimal("0"),
+                is_ath=True,
+                is_underwater=False,
+                running_ath=Decimal("100"),
+            )
+        )
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return Dataset(snapshots=tuple(snapshots), frequency="monthly")
+
+
+def _make_filter_config() -> StudyConfiguration:
+    return StudyConfiguration(
+        name="cohort-filter-test",
+        description="",
+        version="1.0",
+        allocation_policy_type="ConstantAllocationPolicy",
+        allocation_policy_values=(Decimal("0.5"),),
+        withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        withdrawal_policy_values=(Decimal("0.04"),),
+        horizon_years=(5,),
+        cohort_horizon_years=5,
+    )
+
+
+class TestCohortFilter:
+    def test_filter_selects_subset_before_plan_materialization(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        dataset = _make_monthly_dataset()
+        built = build_study_plan(
+            _make_filter_config(),
+            "data/ern",
+            Money(Decimal("1000000"), Currency.EUR),
+            dataset=dataset,
+            cohort_filter=lambda cohort: cohort.start_date.year == 2000,
+        )
+
+        assert len(built.cohorts) == 12
+        assert len(built.plan.units) == 12
+        assert built.experiment_definition.cohorts == built.cohorts
+        assert all(cohort.start_date.year == 2000 for cohort in built.cohorts)
+
+    def test_default_filter_preserves_generator_universe(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+        from fbf.core.study.internal.cohort.generator import CohortGenerator
+
+        dataset = _make_monthly_dataset()
+        expected = CohortGenerator.generate_rolling_monthly(dataset, 61)
+        built = build_study_plan(
+            _make_filter_config(),
+            "data/ern",
+            Money(Decimal("1000000"), Currency.EUR),
+            dataset=dataset,
+        )
+
+        assert built.cohorts == expected
+        assert len(built.cohorts) == 60
+        assert len(built.plan.units) == 60
+
+    def test_filter_excluding_every_cohort_raises(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        with pytest.raises(ValueError, match="cohort_filter excluded all"):
+            build_study_plan(
+                _make_filter_config(),
+                "data/ern",
+                Money(Decimal("1000000"), Currency.EUR),
+                dataset=_make_monthly_dataset(),
+                cohort_filter=lambda _: False,
+            )
+
+    def test_run_study_propagates_cohort_filter(self) -> None:
+        from fbf.core.application import run_study
+        from fbf.core.domain.model.money import Currency, Money
+
+        result = run_study(
+            _make_filter_config(),
+            "data/ern",
+            Money(Decimal("1000000"), Currency.EUR),
+            dataset=_make_monthly_dataset(),
+            cohort_filter=lambda cohort: cohort.start_date.year == 2000,
+        )
+
+        assert len(result.experiment_result.simulation_results) == 12
