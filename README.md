@@ -19,7 +19,7 @@ persistence layer.
 
 | Feature | Description |
 |---------|-------------|
-| **Deterministic Decimal arithmetic** | All monetary calculations use `decimal.Decimal`. No floating-point drift. |
+| **Decimal domain, float64 kernel** | Domain monetary values use `decimal.Decimal`; the Numba engine executes on `float64` and reconstructs reported `Money` values as `Decimal`. Derived metrics use `float`. |
 | **Single Numba engine** | Dedicated Part 52/49 and generic policy-family kernels. Unsupported configurations fail explicitly; there is no fallback engine. |
 | **Workbook-aligned semantics** | Withdraw-before-growth ordering and additive fee handling for workbook-defined workloads. |
 | **Multi-horizon execution** | Deterministic trajectory-prefix derivation for multi-horizon grids. |
@@ -41,6 +41,17 @@ pip install "fbf-core[numba]"
 * Python ≥ 3.13
 * Numba is optional for the package, but required to execute studies
 * The domain, planning, and persistence layers have no required third-party runtime dependencies
+
+### Numerical model
+
+Domain inputs (`Money`, portfolios, market snapshots, policies) and reported
+monetary values use `decimal.Decimal`. The Numba simulation kernel converts
+inputs to `float64` for execution, so trajectory computation is floating-point;
+reported monetary values are reconstructed from kernel output as `Decimal`,
+while derived metrics such as maximum drawdown remain `float`. Correctness is
+validated against independent `Decimal` or hand-calculated oracles rather than
+by using the kernel to generate expected values. See
+[`ARCHITECTURE.md` §10](./ARCHITECTURE.md#10-key-invariants).
 
 ---
 

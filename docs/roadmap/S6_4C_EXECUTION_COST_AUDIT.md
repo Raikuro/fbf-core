@@ -1,5 +1,11 @@
 # S6.4C — Data/IO & Execution Cost Audit (Corrected)
 
+> **Historical (pre-migration).** This audit documents the retired FastPath /
+> Decimal execution architecture. Current production uses the single Numba
+> engine (`ExecutionBackend.FAST`); see `NUMBA_SINGLE_ENGINE_ROADMAP.md`.
+> The measurements below are preserved as historical evidence and are not
+> current performance figures or regression thresholds.
+
 ## A. Data/IO Call Graph
 
 ### Complete Runtime Path

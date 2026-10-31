@@ -375,7 +375,7 @@ Use `ern_part20_e2e_audit.md` as the specification.
   - Dependencies: T2.1
   - Complete at: `fbf-core` T2.2 implementation (Experiment B baseline execution)
   - Deliverables: `tests/integration/test_part20_e2e_audit.py` Experiment B anchors test passed; `docs/research/ern_part20_e2e_audit.md` updated with Experiment B results; `docs/research/ern_part20_replication.md` updated with Experiment B discrepancy classifications
-  - Results: 4 EXPLAINED DIFFERENCE, 7 UNEXPLAINED DIFFERENCE (2–3 ULP), 0 REPRODUCED, 0 CAPABILITY GAP; 1,023,165 units executed in ~51s
+  - Results: 4 EXPLAINED DIFFERENCE, 7 UNEXPLAINED DIFFERENCE (2–3 ULP), 0 REPRODUCED, 0 CAPABILITY GAP; 1,023,165 units executed in ~51s (distinct historical Part 20 Experiment B measurement; not the 313,020-unit SWR full grid)
 
 - [x] **T2.4** Part 20 Experiment C — Fixed SWR failure rates
   - Target: 53 × 5 SWR × 2H = 530 cells
@@ -548,12 +548,23 @@ Every material discrepancy must receive exactly one classification:
 
 | Test | Units | Approximate Runtime | Executor |
 |------|-------|--------------------|---------- SWR smoke | 2,099 | ~14s | CLI |
-| SWR full grid | 313,020 | ~51s | CLI |
+| SWR full grid | 313,020 | ~51s (historical pre-migration CLI subprocess; not directly comparable to the post-migration Numba baseline) | CLI |
 | Part 20 grid | 556,480 | Unknown (not benchmarked) | CLI |
 | Part 49 non-canonical | 10,434 | ~7.5m | Python API |
 | Part 42 structural | 93,915 | ~67s | Python API |
 | Part 52 scenarios | 19,129 | >15m | Python API |
 | Part 52 deterministic | 1,739 | ~5m | Python API |
+
+**Runtime provenance.** The ~51s SWR full-grid figure is a historical
+pre-migration measurement taken through the CLI subprocess, so it includes
+CLI startup and dataset-loading overhead. The post-migration Numba baseline in
+`NUMBA_SINGLE_ENGINE_ROADMAP.md` §5.4 reports 17.72s for the same 180-cell /
+313,020-unit grid, but CLI-versus-in-process execution and
+startup/dataset-loading parity have not been established. The two figures are
+not directly comparable, and this document does not claim a performance
+improvement. The separate ~51s figure for 1,023,165 Part 20 Experiment B units
+(T2.3) is a different historical workload and must not be conflated with the
+SWR full-grid measurement.
 
 ---
 

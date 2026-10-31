@@ -1,13 +1,16 @@
 # Roadmap: Migration to a Single Numba Execution Engine
 
-**Status:** Implementation complete; final canonical validation pending.
+**Status:** Implementation complete; authorized validation complete;
+memory-benchmark disposition recorded.
 Phases A, B, C, and D are complete, including D4.3 legacy-engine deletion; D5a
 and D5b are complete. Numba is the sole production simulation engine,
 `ExecutionBackend.FAST` is the only backend value, Core is `0.3.0`, and
-consumer pins are updated. The canonical Part 19/20 E2E suites, historical
-published-ERN oracle validation, and full-grid benchmark remain pending (see
-§5.2 and §9). The independent historical oracle
-(`tools/ern/reference_oracle.py`) is preserved (see §9).
+consumer pins are updated. The complete canonical Part 19/20 E2E suites,
+historical published-ERN oracle validation, and full-grid validation were
+executed and passed under the authorized validation scope, after the authorized
+test corrections. The manual memory-bounded benchmark remains opt-in; its
+repeated result was inconclusive (see Known Limitations). The independent
+historical oracle (`tools/ern/reference_oracle.py`) is preserved (see §9).
 **Scope:** FBF Core execution layer (`src/fbf/core/execution/`).
 **Objective:** Make Numba the sole simulation engine, delete the legacy
 Reference execution stack, and preserve `tools/ern/reference_oracle.py` as the
@@ -210,7 +213,7 @@ Classification key:
 | 1 | Fixed-real withdrawals (workbook SCR) | `FixedRealWithdrawalPolicy` (`domain/policies/concrete.py`) | 1 | `_process_static_group` (`numba_executor.py`) always uses the workbook recurrence, regardless of `final_value_target`; `_simulate_trajectory_workbook` and `_compute_workbook_scr` (`numba_kernel.py`) implement withdraw-before-growth and additive fee; no fallback | Monthly frequency only; annual fixed-real withdrawals are rejected. | None | `tests/unit/strategies/test_numba_executor_differential.py`, `tests/unit/execution/test_workbook_outcome_contract.py`, `tests/unit/execution/test_fast_backend_strictness.py`, `tests/integration/test_numba_e2e.py` | None | SCR and trajectory match the independent workbook recurrence; the FV target is applied only after the shared path; depletion month is trajectory-derived |
 | 2 | Constant nominal withdrawals | `ConstantWithdrawalPolicy` (`domain/policies/concrete.py`); `_simulate_trajectory_constant_nominal` (`numba_kernel.py`) | 2 | `_is_constant_nominal_eligible` / `_process_constant_nominal_group` (`numba_executor.py`); value-scaled recurrence with additive fee | Two-asset constant allocation only; monthly frequency only (annual rejected); glidepath + constant-nominal is rejected | None | `tests/unit/strategies/test_numba_executor_differential.py`, `tests/unit/execution/test_fast_backend_strictness.py`, `tests/unit/strategies/test_multi_asset_allocation.py` | None | Routing, eligibility, mixed-family execution, and independent two-asset Decimal recurrence with and without fee pass |
 | 3 | Constant allocation weights | `ConstantAllocationPolicy` (`domain/policies/concrete.py`) | 1 | `resolve_target_weights` and `_weights_by_class` (`strategies/eligibility.py`) drive every Numba kernel; fixed-real supports the scalar two-asset form and explicit N-asset `allocations` | Other withdrawal families remain scalar two-asset (see #6) | None | `tests/unit/domain/test_multi_asset_allocation.py`, `tests/unit/strategies/test_multi_asset_allocation.py`, `tests/unit/execution/test_backend_strategy_matrix.py` | None | Scalar and explicit-allocation weight resolution is covered; unsupported forms fail closed |
-| 4 | Time-varying weights / glidepaths (ERN dynamic extension) | `GlidepathAllocationPolicy` (`domain/policies/glidepath.py`) | 2 | `_is_glidepath_eligible`, `_compute_equity_weight_sequence`, `_process_glidepath_group` (`numba_executor.py`); `compute_growth_factors_varying_weights_batch` (`numba_kernel.py`) | Shared workbook mechanics are aligned: base row, `horizon - 1` withdraw/grow periods, terminal compounding, additive fee. ERN active/passive weights and cadence are intentional extensions. Fixed-real glidepath withdrawals are monthly only; annual withdrawal frequency is rejected (allocation cadence remains monthly/annual). Canonical Part 19/20 E2E is pending | None for implementation; canonical Part 19/20 E2E validation when authorized | `tests/unit/strategies/test_numba_glidepath_workbook.py`, `tests/unit/domain/test_glidepath_annual_cadence.py`, `tests/integration/test_glidepath_trajectory.py` | Workbook defines only its fixed linear glidepath; canonical E2E not re-run | Withdraw-before-growth, terminal compounding, annual/monthly cadence, and trajectory-depletion success are covered by independent tests |
+| 4 | Time-varying weights / glidepaths (ERN dynamic extension) | `GlidepathAllocationPolicy` (`domain/policies/glidepath.py`) | 2 | `_is_glidepath_eligible`, `_compute_equity_weight_sequence`, `_process_glidepath_group` (`numba_executor.py`); `compute_growth_factors_varying_weights_batch` (`numba_kernel.py`) | Shared workbook mechanics are aligned: base row, `horizon - 1` withdraw/grow periods, terminal compounding, additive fee. ERN active/passive weights and cadence are intentional extensions. Fixed-real glidepath withdrawals are monthly only; annual withdrawal frequency is rejected (allocation cadence remains monthly/annual). Canonical Part 19/20 E2E passed after authorized test corrections; Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3). | None for implementation; authorized canonical Part 19/20 E2E validation complete | `tests/unit/strategies/test_numba_glidepath_workbook.py`, `tests/unit/domain/test_glidepath_annual_cadence.py`, `tests/integration/test_glidepath_trajectory.py` | Workbook defines only its fixed linear glidepath; canonical E2E passed after authorized corrections; Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3). | Withdraw-before-growth, terminal compounding, annual/monthly cadence, and trajectory-depletion success are covered by independent tests |
 | 5 | Two-asset portfolios | `simulation_context` holdings; `strategies/eligibility.py` | 1 | All generic and dedicated Numba kernels consume two-asset equity/bond portfolios | None | None | `tests/unit/strategies/test_numba_differential.py`, `tests/unit/execution/test_backend_strategy_matrix.py` | None | Two-asset eligibility and execution are covered across policy families |
 | 6 | Multi-asset portfolios (3+) | `ConstantAllocationPolicy.allocations`; `resolve_target_weights`; `_weights_by_class` | 2 | Explicit N-asset fixed-real support; growth factors are N-asset; no legacy form | Nominal, escalating, Part 49 debt, and Part 52 remain two-asset and reject explicit allocations with `UnsupportedConfigurationError` | None; expand only if a consumer requires N-asset in another family | `tests/unit/domain/test_multi_asset_allocation.py`, `tests/unit/strategies/test_multi_asset_allocation.py` | Policy-dependent scope | Independent N-asset Decimal oracle and differential tests pass for fixed-real; other families reject explicit N-asset |
 | 7 | Expense ratios / fee application (workbook additive) | `_compute_growth_factors_numpy` and `compute_growth_factors_varying_weights_batch` (`numba_kernel.py`) | 2 | Additive fee (`weighted_return - fee/12`) is embedded in generic fixed-real, constant-nominal, escalating (including combined glidepath + escalating), buy-and-hold, glidepath, and Part 52 growth factors | Part 49 debt and Part 49 buy-and-hold support zero fee only and reject non-zero fees; the deleted legacy fee model is not reproduced | None; retain zero-fee scope for Part 49 unless a consumer requires legacy fee semantics | `tests/unit/strategies/test_numba_executor_differential.py`, `tests/unit/strategies/test_numba_glidepath_workbook.py`, `tests/unit/strategies/test_numba_glidepath_escalating.py`, `tests/unit/strategies/test_numba_buy_and_hold.py`, `tests/unit/strategies/test_part52_growth_factor_fee.py`, `tests/integration/test_part49_numba_executor.py` | Study-specific fee scope | Workbook additive fee is validated for supported paths; unsupported Part 49 non-zero fees are rejected explicitly |
@@ -226,9 +229,9 @@ Classification key:
 | 17 | Result persistence | `persistence/studies/sqlite/codecs.py`, `schema.py`, `sqlite_repository.py` | 1 | Schema v4 incremental writer with per-slice transactions, attempt tokens, explicit status, completion verification, and completed-result filtering | Recovery is explicit by design; there is no automatic age-based recovery | None | `tests/infrastructure/test_streaming_persistence.py`, `tests/infrastructure/test_sqlite_persistence.py`, `tests/infrastructure/test_schema_migration.py` | None | Round-trip preserves statistics and timelines; interrupted attempts remain invisible until explicitly completed |
 | 18 | Memory-bounded large grids | `execution/slicing.py`; `execution/__init__.py`; `tests/benchmarks/test_memory_bounded_execution.py` | 1 | Streaming API bounds residency by slice target; D2 full-grid streaming validation is recorded in §9 | Slice target is not a hard bound; release slices before advancing | None | `tests/benchmarks/test_memory_bounded_execution.py`, `tests/oracle/ern/test_streaming_aggregate.py` | None | D2 full-grid streaming validation is recorded; the manual memory benchmark remains opt-in |
 | 19 | Buy-and-hold allocation | `BuyAndHoldAllocationPolicy` (`domain/policies/concrete.py`); `_simulate_trajectory_buy_and_hold` (`numba_kernel.py`); `_is_buy_and_hold_eligible` (`numba_executor.py`) | 1 | Generic two-asset unit-tracking kernel with endogenous drift and workbook additive fee; Part 49 leveraged buy-and-hold uses `Part49BuyAndHoldNumbaExecutor` | Generic buy-and-hold is two-asset and monthly-frequency only (annual rejected); Part 49 leveraged buy-and-hold remains zero-fee and monthly-only; no canonical ERN buy-and-hold oracle | None | `tests/unit/strategies/test_numba_buy_and_hold.py`, `tests/integration/test_part49_buy_and_hold_numba_executor.py` | Part 49 zero-fee scope; no canonical buy-and-hold oracle | Zero- and non-zero-fee generic differentials pass; Part 49 supported scope passes |
-| 20 | Escalating withdrawal | `EscalatingWithdrawalPolicy` (`domain/policies/escalating_withdrawal.py`) | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`); `_process_escalating_group` and `_process_glidepath_escalating_group` (`numba_executor.py`); deterministic Experiment E remains separate | General path supports constant allocation and combined glidepath + escalating; canonical Part 20 E2E is pending | None for implementation; canonical Part 20 E2E validation when authorized | `tests/unit/strategies/test_numba_escalating.py`, `tests/unit/strategies/test_numba_glidepath_escalating.py`, `tests/unit/execution/test_deterministic_kernel.py` | Deterministic annual contract remains separate; combined cadence is monthly/annual | Combined path matches independent Decimal recurrence for both cadences and withdrawal frequencies; deterministic Experiment E matches its own contract; canonical E2E pending |
+| 20 | Escalating withdrawal | `EscalatingWithdrawalPolicy` (`domain/policies/escalating_withdrawal.py`) | 2 | `_simulate_trajectory_escalating` (`numba_kernel.py`); `_process_escalating_group` and `_process_glidepath_escalating_group` (`numba_executor.py`); deterministic Experiment E remains separate | General path supports constant allocation and combined glidepath + escalating; canonical Part 20 E2E passed after authorized test corrections; Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3). | None for implementation; authorized canonical Part 20 E2E validation complete | `tests/unit/strategies/test_numba_escalating.py`, `tests/unit/strategies/test_numba_glidepath_escalating.py`, `tests/unit/execution/test_deterministic_kernel.py` | Deterministic annual contract remains separate; combined cadence is monthly/annual | Combined path matches independent Decimal recurrence for both cadences and withdrawal frequencies; deterministic Experiment E matches its own contract; canonical E2E passed after authorized corrections; Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3). |
 | 21 | Supplemental cash flow | Not implemented | 3 | No production implementation | Additional external cash flow | Add only if a real consumer activates it | None | No active consumer | Not applicable until a consumer exists |
-| 22 | CAPE-regime aggregation | `research/cape_aggregation.py`; `research/part20_aggregation.py`; `domain/policies/cape_regime.py` | 4 | Post-processing layer over Numba results; no simulation-kernel involvement | Canonical Part 20 E2E is pending | None | `tests/unit/research/test_part20_*`, `tests/unit/research/test_cape_classification.py`, `tests/integration/test_part20_e2e_audit.py` | Aggregation, not simulation | CAPE classification and aggregation tests pass; canonical Part 20 E2E pending |
+| 22 | CAPE-regime aggregation | `research/cape_aggregation.py`; `research/part20_aggregation.py`; `domain/policies/cape_regime.py` | 4 | Post-processing layer over Numba results; no simulation-kernel involvement | Canonical Part 20 E2E passed after authorized test corrections; Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3). | None | `tests/unit/research/test_part20_*`, `tests/unit/research/test_cape_classification.py`, `tests/integration/test_part20_e2e_audit.py` | Aggregation, not simulation | CAPE classification and aggregation tests pass; canonical Part 20 E2E passed after authorized corrections; Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3). |
 | 23 | `ReferenceSimulationExecutor` wrapper | Removed in D4.3 | 5 | Obsolete; Numba executors own derivation and execution | None | None | No current references | None | No production references; boundary tests pass |
 | 24 | `execute_reference()` public API | Removed in D4.3 | 5 | Obsolete; no replacement API | None | None | No current references | None | No production references; public facade tests pass |
 | 25 | `ExpenseDeductionStep` | Removed in D4.3 | 5 | Obsolete; additive fee lives in Numba growth factors; Part 49 retains zero-fee scope | None | None | No current references | None | No references remain; fee contracts are documented in §§1.4 and 5.2 |
@@ -742,9 +745,14 @@ Phase D gate (Final Deletion Gate):
   through explicit FAST with no selectable legacy/FastPath mode, and has no
   silent fallback.
 - Production ERN grids match the workbook-derived oracle; the historical
-  published-ERN oracle remains a separate target; all E2E tests pass.
-  **Note:** the Part 19/20 canonical E2E suites have not been re-run after the
-  glidepath recurrence correction; that re-validation is pending (see §5.2).
+  published-ERN oracle remains a separate target. The complete authorized
+  Part 19/20 canonical E2E suites, full-grid validation, and historical oracle
+  validation pass.
+  **Note:** the Part 19/20 suites were re-run after the glidepath recurrence
+  correction and the authorized test corrections. Part 20 audit §10
+  difference-attribution variants (A/B/C) remain open; this is distinct from
+  the completed CAPE/projection forensic variants (V1/V2/V3). This is not
+  claimed by this migration closure.
 - Phase C closure gates satisfied: C3 10,434-unit Numba-path validation with
   executor-selection proof; C4 approved Option B supported-scope closure.
 - D2 full-grid streaming memory, streaming-equivalence, and production
@@ -823,20 +831,24 @@ Each specialized workload preserves its own semantics:
      `m // 12`, no growth after the final withdrawal) while glidepath weights
      advance at the configured monthly or annual cadence. The deterministic
      Experiment E adapter remains a separate annual workbook contract.
-  4. **Canonical E2E validation (pending).** The heavyweight Part 19/20
-     canonical E2E suites have not been re-run after the recurrence correction.
-     They remain explicitly pending: the independent Decimal differential and
-     controlled-trajectory tests validate the shared mechanics and the
-     extension, but they do not establish canonical Part 19/20 grid
-     equivalence. Historical oracle data and pinned published-ERN expectations
-     are unchanged and are not used to validate the new recurrence.
+  4. **Canonical E2E validation (completed within documented scope).** The
+     complete heavyweight Part 19/20 canonical E2E suites were re-run after the
+     glidepath recurrence correction and the authorized test corrections. Part
+     19 Experiment A has no exact published numerical anchors; the former
+     cross-validation-anchor test was removed, and the fixture is now validated
+     structurally. Part 20 assertions follow the documented Part 20 audit §10
+     difference-attribution variant status and bisection-step semantics. Part 20
+     audit §10 difference-attribution variants (A/B/C) remain open; this is
+     distinct from the completed CAPE/projection forensic variants (V1/V2/V3).
+     This is not claimed here. Historical oracle data and pinned published-ERN
+     expectations are unchanged.
 
   | Layer | Evidence | Status |
   |-------|----------|--------|
   | Shared workbook mechanics | Workbook formula trace; `test_numba_glidepath_workbook.py` Decimal recurrence | Confirmed |
   | ERN dynamic extension | `test_glidepath_trajectory.py`; S0-F1 timing decision | Specified and unit/integration tested |
   | Combined glidepath + escalating | `test_numba_glidepath_escalating.py` Decimal recurrence | Unit tested |
-  | Canonical Part 19/20 E2E | `RUN_ERN_E2E=1` grid suites | **Pending** (not run) |
+  | Canonical Part 19/20 E2E | `RUN_ERN_E2E=1` grid suites after authorized corrections | **Passed** (Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3).) |
 
   CAPE aggregation is unchanged.
 - **Buy-and-hold** — no periodic rebalancing.
@@ -860,6 +872,37 @@ independent of production code and must not be imported by it.
 | Determinism | Repeated runs identical; parallel == sequential | Keep |
 | Routing | AUTO selects the expected Numba executor; backend × strategy matrix | Keep; naming reflects §1.3 |
 | Obsolete implementation equivalence | `FAST == legacy Reference` where methodologies differ | **DELETED** in Phase A (§7.3) |
+
+### 5.4 Initial post-migration performance baseline
+
+This is a one-time, environment-specific record of the migration validation.
+It is not a regression threshold or a portable performance guarantee.
+
+Host: AMD Ryzen 7 5800X3D, 15 GiB RAM, Linux 7.3.0-4-cachyos,
+Python 3.14.8, NumPy 2.5.2, Numba 0.67.0.
+
+| Workload | Measurement |
+|---|---|
+| translate + execute, 2 / 4 / 8 units | `0.000029s / 0.000036s / 0.000053s` median |
+| dispatch, sequential / parallel, 4 units | `0.000038s / 0.000296s` median |
+| parallel workers = 2 / 4 | `0.000330s / 0.000426s` median |
+| execute + persist, 2 units | `0.002032s` median |
+| Numba single / group / batch cost | `~0.0ms / ~0.1ms / ~0.7ms`, `0.77ms` total |
+| Part 52 single evaluation | `21.17s` |
+| Part 52 workers = 1 / 2 / 4 | `20.95s / 20.60s / 20.83s` |
+| Full 180-cell grid, 313,020 units | `17.72s` (post-migration, host-specific; CLI vs in-process and startup/dataset-loading parity not established) |
+| Historical Part 42/49 oracle | `10.38s` |
+
+The sub-millisecond timings are dominated by measurement overhead at this
+scale and should not be interpreted as absolute lower bounds. The Part 52
+worker results show no meaningful speedup from process-level parallelism,
+consistent with the documented rejection of `ExecutionStrategy.PARALLEL`.
+
+The 17.72s full-grid figure is a post-migration Numba measurement on the
+stated host. It is not directly comparable to the historical ~51s CLI
+subprocess measurement in `ERN_E2E_IMPLEMENTATION_ROADMAP.md` §9: CLI versus
+in-process execution and startup/dataset-loading parity have not been
+established, and no performance improvement is claimed.
 
 ---
 
@@ -1353,8 +1396,8 @@ implementation references; the current inventory is §3.
 | E1: Strict Numba FAST execution | ✅ Complete (enabler) | `test_fast_backend_strictness.py`; explicit FAST rejects ineligible contexts; AUTO unchanged | f28f571 (fbf-core) | Hardens §2.1/§2.2; not a roadmap phase completion |
 | E2: Public Part 3 research facade | ✅ Complete (enabler) | `fbf.core.research` Tier 2; `tests/contract/test_research_public_api.py` | d44213c (fbf-core) | Prerequisite for D5a; CLI still imports Tier 3 until D5a |
 | B1: Expense ratios (additive fee) | ✅ Complete (audited & fixed) | `numba_kernel.py`, `part52_numba_executor.py`, `test_numba_executor_differential.py`, `test_numba_glidepath_workbook.py`, `test_numba_buy_and_hold.py`, `test_part52_growth_factor_fee.py` | 8dfbf24 (audited) | Static, constant-nominal, escalating (including combined glidepath + escalating), buy-and-hold, glidepath, and Part 52 use the additive fee; Part 49 debt/buy-and-hold remain zero-fee; **Critical cache key + fee pass-through bug fixed** |
-| Capability #4: Glidepath shared mechanics | ✅ Complete (E2E pending) | `numba_executor.py` `_process_glidepath_group`; `test_numba_glidepath_workbook.py`; `test_glidepath_trajectory.py` | See git history | Workbook recurrence applied (base row, `horizon - 1` periods, terminal compounding, additive fee); ERN active/passive weight sequence retained and specified in §5.2; canonical Part 19/20 E2E not re-run |
-| Capability #20: Glidepath + escalating | ✅ Complete (canonical E2E pending) | `numba_executor.py` `_process_glidepath_escalating_group`; `test_numba_glidepath_escalating.py` | See git history | General Numba combined path uses escalating timing and glidepath cadence; fixed-real workbook timing and the deterministic Experiment E contract are unchanged; canonical Part 20 E2E not re-run |
+| Capability #4: Glidepath shared mechanics | ✅ Complete | `numba_executor.py` `_process_glidepath_group`; `test_numba_glidepath_workbook.py`; `test_glidepath_trajectory.py`; `test_part19_canonical_ern_replication.py`; `test_part20_e2e_audit.py` | See git history | Workbook recurrence applied (base row, `horizon - 1` periods, terminal compounding, additive fee); ERN active/passive weight sequence retained and specified in §5.2; complete canonical Part 19/20 E2E passed after authorized test corrections; Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3). |
+| Capability #20: Glidepath + escalating | ✅ Complete | `numba_executor.py` `_process_glidepath_escalating_group`; `test_numba_glidepath_escalating.py`; `test_part20_e2e_audit.py` | See git history | General Numba combined path uses escalating timing and glidepath cadence; fixed-real workbook timing and the deterministic Experiment E contract are unchanged; complete canonical Part 20 E2E passed after authorized test corrections; Part 20 audit §10 difference-attribution variants (A/B/C) remain open; this is distinct from the completed CAPE/projection forensic variants (V1/V2/V3). |
 | B2: Constant nominal withdrawal | ✅ Complete (implementation; validation gap documented in §3) | `numba_kernel.py`, `numba_executor.py`, `test_fast_backend_strictness.py` | 00b5770 | Recurrence `V_{m+1}=V_m*(1-rate/12)*g_m` implemented with the additive fee; current coverage is routing and mixed-family execution; the dedicated independent numerical differential was removed with the legacy engine |
 | Numba cache/dataset identity fix | ✅ Complete | `test_numba_executor_differential.py`, `test_part52_numba_executor.py` | 99aa5a4 | Dataset-identity tokens + identity-prefix clustering in both Numba executors |
 | B2 audit: Part 52 derivation key | ✅ Complete | `test_part52_numba_executor.py` | a00c0ec | Monthly-rate prefix guard added; per-context FV dims (`initial_wealth`, `final_value_target`) decoupled from grouping |
@@ -1572,13 +1615,16 @@ implementation references; the current inventory is §3.
    multiplicative fee + beginning-of-month withdrawals (matches published
    Table 1); `workbook_oracle.py` uses additive fee + beginning-of-month
    withdrawals (matches workbook formulas). Documented in §1.4.
-3. **Part 19/20 canonical E2E validation pending** — the glidepath recurrence
-   correction is validated by independent Decimal differential and
-   controlled-trajectory tests, but the heavyweight canonical Part 19/20 E2E
-   suites have not been re-run. Do not treat them as passed until
-   `RUN_ERN_E2E=1` validation is performed. See §5.2 for the layer split
-   between workbook-confirmed mechanics, the ERN extension, and pending E2E
-   validation.
+3. **Validation limits are explicit** — the complete authorized Part 19/20
+   canonical E2E suites pass after the authorized test corrections, but Part 20
+   audit §10 difference-attribution variants (A/B/C) remain open; this is
+   distinct from the completed CAPE/projection forensic variants (V1/V2/V3).
+   The manual memory-bounded benchmark is classified as **inconclusive**: repeated isolated
+   runs produced both passes and failures within a `383–385 MiB` peak-delta
+   range against a `384.32 MiB` allowance, while the independent growth
+   assertion passed. These results are compatible with measurement variability
+   but do not prove that measurement variability caused the inconsistent
+   outcomes. No threshold change is authorized.
 4. **Multi-asset support is policy-dependent** — explicit N-asset allocations
    are supported for fixed-real only. Nominal, escalating, Part 49 debt, and
    Part 52 retain the two-asset form; explicit multi-asset configurations are

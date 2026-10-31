@@ -688,7 +688,7 @@ Markers and environment variables have distinct roles:
 | Test | Current runtime | Simulation units | Independent partitions | Shared computation | Split recommended? |
 |------|----------------|------------------|----------------------|-------------------|-------------------|
 | `test_ern_swr_replication.py::test_smoke_grid_matches_oracle` | ~14s | 2,099 | 1 cell | None | No (already minimal) |
-| `test_ern_swr_replication.py::test_full_grid_matches_oracle` | ~51s (measured in test_oracle_matrix) | 313,020 | 180 cells (independent) | CLI subprocess, dataset loading | No (single CLI subprocess) |
+| `test_ern_swr_replication.py::test_full_grid_matches_oracle` | ~51s (historical pre-migration CLI subprocess; includes startup/dataset loading; not directly comparable to the post-migration Numba baseline) | 313,020 | 180 cells (independent) | CLI subprocess, dataset loading | No (single CLI subprocess) |
 | `test_part49_replication.py::test_part49_canonical_replication` | ~7.5m | 10,434 | 6 cells (2E × 3I) | Python API, dataset loading | No (single Python API call) |
 | `test_part42_replication.py::test_part42_canonical_replication` | ~67s | 93,915 | 45 cells (5E × 9S) | Python API, dataset loading, accumulation | No (single Python API call) |
 | `test_part49_canonical_execution.py` | ~1s (reduced fixture) | 18 | 6 cells (2E × 3I) | Dataset loading, pipeline construction | No (integration test, not research-scale) |
