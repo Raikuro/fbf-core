@@ -39,6 +39,10 @@ from tests.unit.execution.debt_recurrence_reference import (
     compute_monthly_rates,
     simulate_part52_reference,
 )
+from tests.unit.execution.workbook_scr_reference import (
+    compute_workbook_growth_factors,
+    compute_workbook_scr,
+)
 
 _InterestRateSchedule = tuple[Decimal, ...] | None | EllipsisType
 
@@ -1067,14 +1071,10 @@ class TestPart52ExpenseRatioIndependentValidation:
     def test_fee_model_matches_additive_formula(self) -> None:
         """Validate that fee is applied additively in growth factors: g' = g - fee/12.
 
-        This test uses the workbook_scr module (independent implementation) to verify
-        the fee model matches the workbook methodology: weighted_return - fee/12.
+        This test uses the workbook SCR reference module (independent implementation)
+        to verify the fee model matches the workbook methodology:
+        weighted_return - fee/12.
         """
-        from fbf.core.execution.strategies.workbook_scr import (
-            compute_workbook_growth_factors,
-            compute_workbook_scr,
-        )
-
         # Create a dataset with 0.5% equity return, 0.2% bond return
         # 75/25 allocation (matching the _make_context default), 12 months, 0.05% fee
         dataset = _create_growth_dataset(
@@ -1084,7 +1084,7 @@ class TestPart52ExpenseRatioIndependentValidation:
         )
         ctx = _make_context(dataset, 12, expense_ratio=Decimal("0.0005"))
 
-        # Compute growth factors using workbook_scr (independent implementation)
+        # Compute growth factors using the independent workbook SCR reference
         P, initial_value = compute_workbook_growth_factors(ctx, 12)
 
         # Verify fee is embedded in growth factors
@@ -1110,11 +1110,6 @@ class TestPart52ExpenseRatioIndependentValidation:
 
     def test_expense_ratio_reduces_scr(self) -> None:
         """Higher expense ratio should reduce SCR (independent validation)."""
-        from fbf.core.execution.strategies.workbook_scr import (
-            compute_workbook_growth_factors,
-            compute_workbook_scr,
-        )
-
         dataset = _create_growth_dataset(
             13,
             equity_return=Decimal("0.005"),

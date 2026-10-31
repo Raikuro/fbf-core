@@ -1,6 +1,8 @@
-"""Workbook SCR (Safe Consumption Rate) computation for workbook fidelity.
+"""Independent Decimal reference for workbook SCR calculations.
 
-This module implements the exact SCR formula from the SWR Toolbox v2.0.xlsx workbook.
+Test-only oracle.  This module computes the workbook SCR methodology with exact
+Decimal arithmetic and deliberately does not import the production Numba engine.
+It must not be used as a production execution path.
 
 Workbook Methodology (SWR_Toolbox_v2.0.xlsx):
 - Monthly portfolio returns have fee EMBEDDED: AF_t = w_eq*eq_ret + w_bd*bd_ret - fee/12
