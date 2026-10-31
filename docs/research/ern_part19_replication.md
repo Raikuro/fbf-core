@@ -189,7 +189,13 @@ The article contains two distinct experiments with different outputs:
 
 **ATH / underwater semantics — RESOLVED GLOBALLY:**
 
-The ATH is always **Nominal + Total Return**. The established rule:
+> **Correction (2026-10-25):** The original nominal conclusion below was
+> superseded. The Part 19 author states the all-time high is total return
+> adjusted for CPI inflation (real), and the workbook's `Asset Returns!AK`
+> drawdown series is real. See `ern_part20_e2e_audit.md` §19.7. FBF now uses
+> the real total-return index for both historical and projected ATH state.
+
+The ATH is always **CPI-adjusted Total Return (real)**. The established rule:
 
 For each month (e.g., February):
 1. February value = January value × (1 + January→February return)
@@ -198,13 +204,13 @@ For each month (e.g., February):
 
 **Comparison:** inclusive (`>=`). Being exactly at the ATH is **not underwater**.
 
-**Running ATH:** maximum nominal total-return value observed so far.
+**Running ATH:** maximum real total-return value observed so far.
 
 **Fresh ATH:** current value reaches or exceeds the running ATH being tracked.
 
 **FBF implementation:** `GlidepathAllocationPolicy(mode="active")` — `src/fbf/core/domain/policies/glidepath.py:86-89`
 
-**FBF — implementation alignment pending:** The FBF implementation uses the equity total return index level from the dataset and computes `is_underwater = eq_level < running_ath`. The semantic is equivalent once the FBF execution order is aligned to the established sequencing rule (returns applied before cash-flow decisions).
+**FBF:** The loader computes `is_underwater = real_eq_level < real_running_ath` for both historical and projected snapshots. Execution order alignment remains a separate issue (returns applied before cash-flow decisions).
 
 ### 3.3 Allocation Application Order
 
@@ -270,7 +276,7 @@ The FBF runtime operates on pre-adjusted real return series. A separate CPI runt
 - First data point: 1871-02-01 (index 1)
 - Historical data loop: 1871-03 through 2016-09 (applying monthly returns)
 - Forward projection: 2016-10 through 2075-11 (constant-return forecasts)
-- Monthly fee: 0.05% annual / 12
+- Fee: 0.05% p.a. is applied by the execution layer as an additive monthly charge (`fee_annual/12`) inside the Numba growth factors; the dataset loader stores raw returns without fee embedding.
 
 ### 4.3 Data Sufficiency
 
@@ -348,12 +354,14 @@ The same cohort universe is used for all allocation strategies. Each cohort runs
 
 ### 6.1 Monthly Simulation Steps
 
-**FBF — verified implementation** (pipeline order):
+**Historical FBF pipeline (pre-migration; retained as audit history):**
+
+The legacy pipeline below and `ExpenseDeductionStep` were removed in the Numba migration. Current production applies the expense ratio additively inside the Numba growth factors (`numba_kernel.py`: `weighted_return - fee_annual/12`); there is no standalone expense-deduction step.
 
 | Step | Order | Description |
 |------|-------|-------------|
 | InitializeAllocation | 0 | Seed initial allocation |
-| ExpenseDeduction | 5 | ERN expense ratio (0.05%/12) |
+| ExpenseDeduction | 5 | Removed; fee now embedded in Numba growth factors |
 | BuildDecisionContext | 10 | Build context for policies |
 | WithdrawalDecision | 20 | Compute withdrawal amount |
 | InterestAccrual | 26 | Accrue interest |
@@ -455,7 +463,7 @@ The glidepath does not advance before the first monthly observation.
 | YAML configuration for glidepaths | **Implemented** | `ern_part20.yaml` (contains Part 19 definitions) |
 | SWR optimizer (binary search) | **Implemented** | `optimization/swr_optimizer.py` |
 | Research aggregation by dimensions | **Implemented** | `part3_aggregation.py`, `cape_aggregation.py` |
-| Expense ratio (ERN convention) | **Implemented** | `ExpenseDeductionStep` |
+| Expense ratio (ERN convention) | **Implemented** | Numba growth factors (`numba_kernel.py`; additive `weighted_return - fee_annual/12`) |
 
 ### 7.2 Part 20 Configuration (Contains Part 19 Glidepath Definitions)
 
@@ -484,7 +492,7 @@ The existing infrastructure appears capable of expressing:
 That is different from proving that the existing implementation is methodologically equivalent to ERN Part 19. The following have been resolved but require E2E quantification:
 - Data coverage gap (2016-09 vs July 2017) — forward projection established;
 - Forward projection equivalence — canonical values from Part 1 §4;
-- ATH/underwater semantics — ERN uses nominal total-return index; FBF uses real;
+- ATH/underwater semantics — both use the CPI-adjusted real total-return index (audit §19.7);
 - Simulation ordering — ERN: returns → withdrawal → rebalance; FBF differs;
 - First-month semantics — month 0 uses starting allocation unchanged.
 
@@ -498,7 +506,7 @@ That is different from proving that the existing implementation is methodologica
 |-----|-------------|----------------|
 | Forward projection constants | ~~FBF used legacy h720.json values (6.5467%/2.5487%/121mo)~~ Now corrected to ERN Part 1 §4 canonical values (6.6%/2.6%/120mo) | **RESOLVED** |
 | First-forward-month bug | ~~Oct 2016 reused Sep 2016 return~~ Now fixed: Oct 2016 uses forward projection | **RESOLVED** |
-| ATH semantics | FBF uses real total-return index; ERN uses nominal total-return index — potential difference must be quantified in E2E | **RESOLVED** — semantics defined; real vs nominal difference identified |
+| ATH semantics | ~~FBF uses real total-return index; ERN uses nominal total-return index~~ Both use the CPI-adjusted real total-return index; see audit §19.7 | **RESOLVED** — nominal ATH conclusion superseded |
 | Simulation ordering | FBF: withdrawal → allocation → rebalance → returns; ERN: returns → withdrawal → rebalance | **RESOLVED** — material difference identified (see §6.2) |
 | First-month semantics | FBF: glidepath starts at period 0; ERN: month 0 uses starting allocation unchanged | **RESOLVED** — FBF matches ERN (see §6.3) |
 
@@ -506,7 +514,7 @@ That is different from proving that the existing implementation is methodologica
 
 The following are implementation prerequisites, contingent on the E2E audit completing successfully:
 
-1. **E2E audit (next step):** Quantify the impact of the known ordering difference (FBF: withdrawal→rebalancing→returns vs ERN: returns→withdrawal→rebalancing) and compare against ERN's published Part 19 results. Determine whether the real vs nominal ATH difference materially affects results.
+1. **E2E audit (next step):** Quantify the impact of the known ordering difference (FBF: withdrawal→rebalancing→returns vs ERN: returns→withdrawal→rebalancing) and compare against ERN's published Part 19 results. The ATH index-type question is resolved as real (audit §19.7).
 2. **Part 19 YAML configuration:** Create `ern_part19.yaml` as a subset of `ern_part20.yaml` with only the 24 Part 19 glidepaths.
 3. **Aggregation module:** Implement failure-rate aggregation across cohorts for the 3.5% SWR analysis.
 4. **Failsafe computation:** Use `SWROptimizer` or dense grid scanning to compute failsafe SWRs.
@@ -661,7 +669,7 @@ The existing Part 20 configuration contains the 24 Part 19 glidepath definitions
 Before implementation can begin, the following must be resolved:
 
 1. ~~**Data coverage — methodological identity:** Determine what exact monthly observations ERN used from October 2016 through July 2017, and whether those observations are recoverable. If not, determine the exact extrapolation methodology ERN applied and whether the FBF forward series is mathematically equivalent.~~ **RESOLVED** — Forward projection uses constant returns from Part 1 §4 (6.6% equity, 0% bond for 120 months, 2.6% bond after).
-2. ~~**ATH semantics clarification:** Determine whether ERN uses price index, total return index, nominal, or real for the all-time-high comparison.~~ **RESOLVED** — ERN uses nominal total-return index. FBF uses real total-return index. This potential difference must be quantified in the E2E audit.
+2. ~~**ATH semantics clarification:** Determine whether ERN uses price index, total return index, nominal, or real for the all-time-high comparison.~~ **RESOLVED** — ERN uses the CPI-adjusted real total-return index; FBF now matches (audit §19.7).
 3. ~~**Simulation ordering:** Establish whether FBF's ordering (withdrawal → allocation → rebalance → returns) matches ERN's methodology.~~ **RESOLVED** — ERN uses returns → withdrawal → rebalance (Part 1 §3). FBF uses the opposite ordering. This is a material difference documented in §6.2.
 4. ~~**Glidepath month-0 indexing:** Establish whether the first month uses the starting allocation or advances the glidepath.~~ **RESOLVED** — Month 0 uses the starting allocation unchanged. FBF matches ERN.
 
@@ -669,7 +677,7 @@ Before implementation can begin, the following must be resolved:
 
 The following are implementation prerequisites, contingent on the E2E audit completing successfully:
 
-1. **E2E audit (next step):** Quantify the impact of the known ordering difference (FBF: withdrawal→rebalancing→returns vs ERN: returns→withdrawal→rebalancing) and compare against ERN's published Part 19 results. Determine whether the real vs nominal ATH difference materially affects results.
+1. **E2E audit (next step):** Quantify the impact of the known ordering difference (FBF: withdrawal→rebalancing→returns vs ERN: returns→withdrawal→rebalancing) and compare against ERN's published Part 19 results. The ATH index-type question is resolved as real (audit §19.7).
 2. **Part 19 YAML configuration:** Create `ern_part19.yaml` as a subset of `ern_part20.yaml` with only the 24 Part 19 glidepaths.
 3. **Aggregation module:** Implement failure-rate aggregation across cohorts for the 3.5% SWR analysis.
 4. **Failsafe computation:** Use `SWROptimizer` or dense grid scanning to compute failsafe SWRs.
@@ -684,7 +692,7 @@ The following are implementation prerequisites, contingent on the E2E audit comp
 
 Before any implementation work begins:
 - [x] Data coverage — methodological identity established (Part 1 §4: 6.6% equity, 0% bond for 120mo, 2.6% bond after)
-- [x] ATH/underwater semantics clarified (ERN: nominal total-return index; FBF: real total-return index — difference identified, must be quantified in E2E)
+- [x] ATH/underwater semantics clarified (both use the CPI-adjusted real total-return index — audit §19.7)
 - [x] Simulation ordering resolved (Part 1 §3: ERN returns → withdrawal → rebalance; FBF differs — see §6.2)
 - [x] Glidepath month-0 indexing resolved (month 0 uses starting allocation unchanged — FBF matches ERN)
 
@@ -773,14 +781,16 @@ The E2E audit must explicitly isolate two known differences between ERN's method
 | Sequence | Returns → Withdrawal → Rebalancing | Withdrawal → Rebalancing → Returns |
 | Source | Part 1 §3 | `default_pipeline.py` steps 20-60 |
 
-**Difference 2 — ATH / underwater index type:**
+**Difference 2 — ATH / underwater index type (resolved):**
 
 | | ERN | FBF |
 |---|-----|-----|
-| Index | S&P 500 total-return, **nominal** | S&P 500 total-return, **real** |
-| Source | First-party evidence | `datasets/ern.py` loads real returns |
+| Index | S&P 500 total-return, **CPI-adjusted real** | S&P 500 total-return, **CPI-adjusted real** |
+| Source | Part 19 author clarification; workbook `Asset Returns!AK` | `datasets/ern.py` real index |
 
-These differences must not be silently "fixed" before the E2E. The purpose of the audit is precisely to determine their numerical impact.
+The ATH index-type question is resolved as real (audit §19.7). The sequencing
+difference must not be silently "fixed" before the E2E; the audit determines
+its numerical impact.
 
 ### 15.3 Experiment Structure
 
@@ -870,7 +880,7 @@ Quantify the impact of each known difference independently:
 
 1. **Ordering impact:** Run a modified simulation with ERN's ordering (Returns → Withdrawal → Rebalancing) and compare against the baseline. The difference isolates the ordering effect.
 
-2. **ATH index impact:** Run a modified simulation with nominal total-return index for underwater computation and compare against the baseline. The difference isolates the ATH index effect.
+2. **ATH index impact (resolved):** Both ERN and FBF use the real total-return index for underwater computation (audit §19.7). The former nominal historical comparison was an implementation defect, not a methodological variant, so no nominal isolation run is required.
 
 #### Phase 3 — Attribution
 

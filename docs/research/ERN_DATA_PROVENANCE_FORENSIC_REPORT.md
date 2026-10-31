@@ -4,15 +4,28 @@
 **Status:** COMPLETE — Current implementation complies with canonical data policy  
 **Investigation Scope:** Full repository audit of data sources for Part 20 A–D experiments
 
+> **Correction note (2026-10-25):** This report records the 2026-10-03
+> provenance audit. The ATH/underwater state is now computed from the
+> CPI-adjusted real total-return index (`spx_tr_real.csv`), not the nominal
+> index. `spx_tr.csv` is auxiliary and is not loaded by `load_ern_dataset()`.
+> See `docs/research/ern_part20_e2e_audit.md` §19.7. Forward-projection
+> constants and the historical data boundary have also changed since this
+> audit; see `DATASETS.md` and `src/fbf/core/datasets/ern.py` for current
+> values.
+
 ---
 
 ## 1. Canonical Data Policy (Reaffirmed)
+
+> **Historical policy (2026-10-03).** This section records the audit-time
+> policy. Current canonical policy is in `DATASETS.md`; in particular,
+> `spx_tr.csv` is auxiliary and is not loaded by `load_ern_dataset()`.
 
 Per the task directive, the canonical data policy for FBF is:
 
 | Data Type | Canonical Source | Policy |
 |-----------|-----------------|--------|
-| S&P 500 Total-Return (nominal) | `data/ern/spx_tr.csv` | Sole source; do not truncate arbitrarily |
+| S&P 500 Total-Return (nominal) | `data/ern/spx_tr.csv` | Historical audit source; auxiliary since 2026-10-25 — not loaded by `load_ern_dataset()` |
 | S&P 500 Total-Return (real) | `data/ern/spx_tr_real.csv` | Sole source; do not truncate arbitrarily |
 | 10-Year Bond Real Returns | `data/ern/bond_10y_tr_real.csv` | Sole source |
 | CPI | `data/ern/cpi.csv` | Sole source |
@@ -28,13 +41,13 @@ Per the task directive, the canonical data policy for FBF is:
 | Component | Source | Loader | Verification |
 |-----------|--------|--------|--------------|
 | S&P 500 real returns | `spx_tr_real.csv` | `load_ern_dataset()` → `_load_csv()` | ✅ Canonical |
-| S&P 500 nominal index | `spx_tr.csv` | `load_ern_dataset()` → `_load_csv()` | ✅ Canonical |
+| S&P 500 nominal index | `spx_tr.csv` | Not loaded by `load_ern_dataset()` | Auxiliary — retained for forensic comparison |
 | Bond real returns | `bond_10y_tr_real.csv` | `load_ern_dataset()` → `_load_csv()` | ✅ Canonical |
 | CPI levels | `cpi.csv` | `load_ern_dataset()` → `_load_csv()` | ✅ Canonical |
-| ATH/underwater state | Computed from `spx_tr.csv` nominal index | Inside `load_ern_dataset()` | ✅ Canonical |
+| ATH/underwater state | Computed from `spx_tr_real.csv` real total-return index | Inside `load_ern_dataset()` | ✅ Canonical |
 
 **Runtime Path:**  
-`Part20ExecutionContext.create(manifest, trajectory)` → `trajectory = load_canonical_dataset(DATA_DIR)` → `load_ern_dataset()` → reads 4 CSVs → builds `Dataset` of `MarketSnapshot[]`
+`Part20ExecutionContext.create(manifest, trajectory)` → `trajectory = load_canonical_dataset(DATA_DIR)` → `load_ern_dataset()` → reads 3 CSVs → builds `Dataset` of `MarketSnapshot[]`
 
 **No alternative data sources are used in production code (`src/`).**
 
@@ -165,7 +178,7 @@ ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)  # ← Manifest +
 **No alternative data sources used.**
 
 **Result:** Part 20 baseline uses exactly the intended canonical sources:
-- Equity: `spx_tr.csv` (nominal) + `spx_tr_real.csv` (real)
+- Equity: `spx_tr_real.csv` (real; nominal `spx_tr.csv` is auxiliary)
 - Bonds: `bond_10y_tr_real.csv`
 - CPI: `cpi.csv`
 - CAPE: `cape_shiller.csv` (via manifest)
@@ -188,7 +201,7 @@ ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)  # ← Manifest +
 
 | Change | File | Priority | Rationale |
 |--------|------|----------|-----------|
-| Update manifest `market_source` | `data/ern/cohort_manifest_part3.json` | LOW | Change `"ern_swr_h720.json"` → `"spx_tr.csv, spx_tr_real.csv, bond_10y_tr_real.csv, cpi.csv (via load_ern_dataset)"` |
+| Update manifest `market_source` | `data/ern/cohort_manifest_part3.json` | LOW | Change `"ern_swr_h720.json"` → `"spx_tr_real.csv, bond_10y_tr_real.csv, cpi.csv (via load_ern_dataset)"` (historical recommendation; `spx_tr.csv` is no longer a runtime source) |
 | Update unit test builders | `tests/unit/study/test_builders.py` | LOW | Replace `"ern_swr_h720"` identifier with canonical loader call |
 | Update debt flow tests | `tests/unit/execution/test_research_layer_debt_flow.py` | LOW | Same as above |
 | Add provenance comment to `ern_swr_h720.json` | `data/ern/ern_swr_h720.json` | LOW | Clarify it's a derived artifact, not canonical source |
@@ -199,8 +212,12 @@ ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)  # ← Manifest +
 
 ## 9. Answers to Required Questions
 
+> **Historical answers (2026-10-03).** These answers describe the audit-time
+> implementation. See `DATASETS.md` and the correction note above for current
+> runtime provenance.
+
 ### 1. Is `spx_tr.csv` the sole runtime source of S&P 500 data?
-**YES.** `spx_tr.csv` (nominal index) and `spx_tr_real.csv` (real returns) are the sole sources. Loaded via `load_ern_dataset()` → `load_canonical_dataset()`. The 2016-09 historical cutoff is the documented ERN Part 1 §4 methodology, not arbitrary truncation.
+**YES at audit time.** `spx_tr.csv` (nominal index) and `spx_tr_real.csv` (real returns) were the sole sources, loaded via `load_ern_dataset()` → `load_canonical_dataset()`. The 2016-09 historical cutoff is the documented ERN Part 1 §4 methodology, not arbitrary truncation. **Current status:** `spx_tr.csv` is auxiliary and is not loaded; current runtime sources are `spx_tr_real.csv`, `bond_10y_tr_real.csv`, and `cpi.csv`.
 
 ### 2. Is `cape_shiller.csv` the sole runtime CAPE source?
 **YES.** `cape_shiller.csv` is the sole CAPE source. Manifest `cape_source: "cape_shiller.csv"`. CAPE values in manifest come from this file. No ERN CAPE or workbook CAPE used in production.
@@ -209,7 +226,7 @@ ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)  # ← Manifest +
 **NO.** It is a legacy derived artifact. Production code (`src/`) has zero references to it. Part 20 E2E tests use `load_canonical_dataset()` from CSVs. Manifest `market_source` field is metadata only.
 
 ### 4. Is `spx_tr.csv` being artificially truncated?
-**NO.** The 2016-09 historical cutoff in `load_ern_dataset()` is the documented ERN Part 1 §4 methodology ("extrapolate past the current history and append equity and bond returns after September 2016"). The full CSV data through 2026-06 is loaded into maps but intentionally not used for historical period — this is correct ERN methodology.
+**NO at audit time.** The 2016-09 historical cutoff in `load_ern_dataset()` is the documented ERN Part 1 §4 methodology ("extrapolate past the current history and append equity and bond returns after September 2016"). The full CSV data through 2026-06 was loaded into maps but intentionally not used for the historical period — this is correct ERN methodology. **Current status:** `spx_tr.csv` is auxiliary and the loader does not read it.
 
 ### 5. Does the current Part 20 baseline use exactly the intended canonical sources?
 **YES.** Verified through code audit:

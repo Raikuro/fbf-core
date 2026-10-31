@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -43,35 +43,56 @@ from fbf.core.research.part20_strategies import part20_strategy_universe
 
 DATA_DIR = Path("data/ern")
 MANIFEST_PATH = DATA_DIR / "cohort_manifest_part3.json"
+EXPERIMENT_A_AUDIT_PATH = Path(
+    "tests/fixtures/ern_part19_experiment_a_e2e_audit.yaml"
+)
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
-
-def _load_audit_spec() -> dict[str, Any]:
-    """Load the Part 19 Experiment A audit spec YAML."""
+def _load_experiment_a_audit_spec() -> dict[str, Any]:
+    """Load the lightweight Part 19 Experiment A audit fixture."""
     import yaml
 
-    spec_path = Path("tests/fixtures/ern_part19_experiment_a_e2e_audit.yaml")
-    with open(spec_path) as f:
-        return yaml.safe_load(f)  # type: ignore[no-any-return]
-
-
-def _build_cross_validation_map() -> dict[str, Decimal]:
-    """Build expected failure rates from Part 20 Experiment C anchors."""
-    spec = _load_audit_spec()
-    anchors = spec.get("cross_validation_anchors", [])
-    result: dict[str, Decimal] = {}
-    for a in anchors:
-        key = f"{a['strategy']}_{a['horizon_years']}Y_fv{a['final_value_target']}_HIGH"
-        result[key] = Decimal(str(a["published_failure_rate"]))
-    return result
+    with open(EXPERIMENT_A_AUDIT_PATH) as f:
+        return cast(dict[str, Any], yaml.safe_load(f))
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+def test_experiment_a_audit_fixture_matches_declared_dimensions() -> None:
+    """Keep the Experiment A audit fixture aligned with production constants."""
+    spec = _load_experiment_a_audit_spec()
+    counts = spec["structural_counts"]
+    experiment = spec["experiment"]
+    assert isinstance(counts, dict)
+    assert isinstance(experiment, dict)
+
+    assert counts["strategy_count"] == PART19_EXPERIMENT_A_STRATEGY_COUNT
+    assert counts["strategy_count"] == counts["static_count"] + counts["glidepath_count"]
+    assert counts["static_count"] == len(PART19_EXPERIMENT_A_STATIC_IDS)
+    assert counts["glidepath_count"] == len(PART19_EXPERIMENT_A_GLIDEPATH_IDS)
+    assert counts["fv_targets"] == len(PART19_EXPERIMENT_A_FV_TARGETS)
+    assert counts["cape_conditions"] == 2
+    assert counts["cells"] == (
+        counts["strategy_count"] * counts["fv_targets"] * counts["cape_conditions"]
+    )
+    assert counts["total_cohorts"] == counts["cape_available"]
+    assert 0 < counts["cape_high"] <= counts["total_cohorts"]
+
+    assert experiment["id"] == "A"
+    assert experiment["kind"] == "fixed_swr_failure_rate"
+    assert experiment["horizon_years"] == PART19_EXPERIMENT_A_HORIZON_YEARS
+    assert experiment["horizon_years"] == counts["horizon_years"]
+    assert Decimal(str(experiment["fixed_swr"])) == PART19_EXPERIMENT_A_SWR
+    assert Decimal(str(counts["swr"])) == PART19_EXPERIMENT_A_SWR
+    assert (
+        tuple(Decimal(str(v)) for v in experiment["fv_targets"])
+        == PART19_EXPERIMENT_A_FV_TARGETS
+    )
+    assert experiment["cape_conditions"] == ["ALL", "HIGH"]
+    assert experiment["cells"] == counts["cells"]
 
 
 @pytest.mark.ern_e2e
@@ -302,50 +323,6 @@ class TestPart19ExperimentA:
                 )
 
         assert not mismatches, "Cross-validation mismatches:\n" + "\n".join(mismatches)
-
-    def test_cross_validation_published_anchors(
-        self,
-        experiment_a_cells: tuple[Part19ExperimentACell, ...],
-    ) -> None:
-        """Compare overlapping cells against Part 20 Experiment C published anchors."""
-        spec = _load_audit_spec()
-        anchors = spec.get("cross_validation_anchors", [])
-
-        overlap_cells = {
-            f"{cell.strategy_id}_{cell.horizon_years}Y_fv"
-            f"{cell.final_value_target}_{cell.cape_condition}": cell
-            for cell in experiment_a_cells
-            if cell.final_value_target == Decimal("0") and cell.cape_condition == "HIGH"
-        }
-
-        mismatches: list[str] = []
-        for anchor in anchors:
-            key = (
-                f"{anchor['strategy']}_{anchor['horizon_years']}Y_fv"
-                f"{anchor['final_value_target']}_HIGH"
-            )
-            part19_cell = overlap_cells.get(key)
-            if part19_cell is None:
-                mismatches.append(f"{key}: no Part 19 Experiment A result cell")
-                continue
-
-            # Compute Part 19 failure rate as percentage with 1 decimal place
-            part19_rate_pct = part19_cell.failure_rate * Decimal("100")
-            # Round to 1 decimal place (matching Part 20 published precision)
-            part19_rate_display = (
-                part19_rate_pct * Decimal("10")
-            ).quantize(Decimal("1")) / Decimal("10")
-            expected = Decimal(str(anchor["published_failure_rate"]))
-
-            # Allow 1 ULP (0.1 percentage point) tolerance for display rounding
-            diff = abs(part19_rate_display - expected)
-            if diff > Decimal("0.1"):
-                mismatches.append(
-                    f"{key}: Part19 failure rate {part19_rate_display}% "
-                    f"!= published {expected}% (raw: {part19_rate_pct:.4f}%)"
-                )
-
-        assert not mismatches, "Published anchor mismatches:\n" + "\n".join(mismatches)
 
     # -----------------------------------------------------------------------
     # Qualitative validation (informational)

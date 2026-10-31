@@ -26,8 +26,7 @@ def load_canonical_dataset(data_dir: Path) -> Dataset:
     ----------
     data_dir:
         Directory containing the canonical CSV files
-        (``spx_tr_real.csv``, ``bond_10y_tr_real.csv``, ``spx_tr.csv``,
-        ``cpi.csv``).
+        (``spx_tr_real.csv``, ``bond_10y_tr_real.csv``, ``cpi.csv``).
 
     Returns
     -------

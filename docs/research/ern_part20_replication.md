@@ -6,7 +6,9 @@
 >
 > **Implementation relationship:** Part 20 extends Part 19 with 8 additional passive-only glidepaths, 30-year horizons, CAPE ≤20 conditioning, fixed-SWR failure-rate analysis, and final-value-target experiments. A deterministic 10-year mechanical case study is presented separately from the historical simulations.
 >
-> **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established. FBF implementation execution order not yet aligned to established rule.
+> **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established. The ATH is the CPI-adjusted real total-return ATH, not nominal; see `ern_part20_e2e_audit.md` §19.7. FBF implementation execution order not yet aligned to established rule.
+>
+> **Correction note (2026-10-25):** Anchor values in the historical results tables below predate the real-ATH correction. Current active-anchor values and the recalculated residual inventory are in `ern_part20_e2e_audit.md` §19.7.
 >
 > **E2E status:** NOT YET VALIDATED as canonical ERN replication. Implementation alignment pending.
 >
@@ -382,7 +384,7 @@ The FBF implementation establishes what FBF does, not what ERN necessarily did.
 - First data point: 1871-02-01 (index 1)
 - Historical data loop: 1871-03 through 2016-09 (applying monthly returns)
 - Forward projection: 2016-10 through 2075-11 (constant-return forecasts)
-- Monthly fee: 0.05% annual / 12
+- Fee: 0.05% p.a. is applied by the execution layer as an additive monthly charge (`fee_annual/12`) inside the Numba growth factors; the dataset loader stores raw returns without fee embedding.
 
 ### 6.3 Data Sufficiency
 
@@ -430,7 +432,9 @@ This applies to both the 60-year and 30-year analyses. The article does not defi
 
 ### 8.1 Monthly Simulation Steps
 
-**FBF — verified implementation** (pipeline order): InitializeAllocation → ExpenseDeduction → BuildDecisionContext → WithdrawalDecision → InterestAccrual → WithdrawalExecution → AllocationDecision → PortfolioRebalance → MarketEvolution → LTVEvaluation → MonthlyResultBuilder → FailureDetection → SimulationStateUpdate.
+**Historical FBF pipeline (pre-migration; retained as audit history):** InitializeAllocation → ExpenseDeduction → BuildDecisionContext → WithdrawalDecision → InterestAccrual → WithdrawalExecution → AllocationDecision → PortfolioRebalance → MarketEvolution → LTVEvaluation → MonthlyResultBuilder → FailureDetection → SimulationStateUpdate.
+
+The legacy pipeline and `ExpenseDeductionStep` were removed in the Numba migration. Current production applies the expense ratio additively inside the Numba growth factors (`numba_kernel.py`: `weighted_return - fee_annual/12`); there is no standalone expense-deduction step.
 
 ### 8.2 Simulation Ordering — Resolved
 
@@ -476,7 +480,7 @@ Month 0 uses the starting allocation unchanged. The glidepath does not advance b
 | 0/50/100 final-value targets | **Implemented** | `builder.py:485`, `statistics_builder.py:53-63` | Structural capability — yes; replication equivalence unresolved |
 | 10-year mechanical case study | **Not implemented** | No annual-frequency simulation path | No — FBF uses monthly frequency; annual rebalancing/withdrawal not directly supported |
 | 30-year and 60-year horizons | **Implemented** | `ern_part20.yaml` line 24: `horizon_years: [30, 60]` | Yes — both horizons configured |
-| Expense ratio (ERN convention) | **Implemented** | `ExpenseDeductionStep` | Structural capability — yes; ERN application semantics remain inherited from Part 19 and are unresolved pending verification of ordering and fee application semantics |
+| Expense ratio (ERN convention) | **Implemented** | Numba growth factors (`numba_kernel.py`; additive `weighted_return - fee_annual/12`) | Structural capability — yes; fee application is embedded in the Numba growth factors. |
 
 ### 9.2 Part 20 Configuration
 
@@ -498,7 +502,7 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 |-----|----------------|
 | Simulation ordering (FBF: withdrawal → allocation → rebalance → returns) | RESOLVED — ERN: returns → withdrawal → rebalancing (inherited from Part 19) |
 | First-month semantics (FBF: glidepath starts at period 0) | RESOLVED — glidepath month-0 uses starting allocation unchanged (inherited from Part 19) |
-| ATH semantics (FBF: real total-return index) | RESOLVED — ERN uses nominal total-return index; FBF uses real (known difference, inherited from Part 19) |
+| ATH semantics (FBF: real total-return index) | RESOLVED — ERN also uses the CPI-adjusted real total-return index; both match (audit §19.7) |
 | Annual case study frequency (article: annual; FBF: monthly) | RESOLVED — linear 70% → 90% at 2pp/year; FBF uses monthly frequency (framework convention) |
 | 60Y cohort universe (FBF: 1,739 vs ERN's 1,740) | RESOLVED — FBF snapshot convention begins at 1871-02; ERN uses Jan 1871–Dec 2015 |
 | 30Y cohort universe (FBF: 2,099 vs article's stated range) | RESOLVED — article does not define separate 30Y universe; ERN uses Jan 1871–Dec 2015 for both |
@@ -574,17 +578,17 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 
 | Strategy | Published | FBF | Δ (pp) | Classification | Evidence |
 |----------|-----------|-----|--------|----------------|----------|
-| static_075 | 3.82% | 3.84% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH variant isolation pending |
+| static_075 | 3.82% | 3.84% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
 | static_080 | 3.65% | 3.66% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort (1739 vs 1740), ordering, fee, rounding |
-| gp_060_100_0.003_passive | 3.91% | 3.93% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee variant isolation pending |
+| gp_060_100_0.003_passive | 3.91% | 3.93% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
 | gp_060_100_0.004_passive | 3.86% | 3.87% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, ordering, fee, rounding |
 | gp_060_100_0.003_active | 3.96% | 3.97% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, ordering, fee, rounding, ATH |
-| gp_060_100_0.004_active | 3.94% | 3.91% | -0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH variant isolation pending |
+| gp_060_100_0.004_active | 3.94% | 3.91% | -0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
 | gp_040_100_0.004_passive | 3.95% | 3.96% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, ordering, fee, rounding |
-| gp_040_100_0.004_active | 3.97% | 3.99% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH variant isolation pending |
-| gp_040_100_0.005_passive | 3.90% | 3.92% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee variant isolation pending |
-| static_100 | 2.85% | 2.87% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee variant isolation pending |
-| gp_030_070_0.00111_passive | 3.56% | 3.58% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee variant isolation pending |
+| gp_040_100_0.004_active | 3.97% | 3.99% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| gp_040_100_0.005_passive | 3.90% | 3.92% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| static_100 | 2.85% | 2.87% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| gp_030_070_0.00111_passive | 3.56% | 3.58% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
 
 **Classification summary:**
 - REPRODUCED: 0
@@ -592,7 +596,7 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 - UNEXPLAINED DIFFERENCE: 7
 - CAPABILITY GAP: 0
 
-**Notes:** All UNEXPLAINED DIFFERENCE results exceed the 1-ULP display-precision threshold. Per the audit protocol (ern_part20_e2e_audit.md §9), these are recorded with full identifying context. No implementation changes are made at this stage. Variant isolation (§10) is pending follow-up investigation.
+**Notes:** All UNEXPLAINED DIFFERENCE results exceed the 1-ULP display-precision threshold. Per the audit protocol (ern_part20_e2e_audit.md §9), these are recorded with full identifying context. No implementation changes are made at this stage. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10 of `ern_part20_e2e_audit.md`.
 
 ### 11.5 Fixed SWR Failure Rates (Table 04, CAPE > 20)
 
@@ -666,7 +670,7 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 
 **Notes:** Experiment C shows significant discrepancies between FBF and published ERN failure rates. The 25 UNEXPLAINED DIFFERENCE results span 2–180 display ULPs (0.1% quantum). The largest discrepancies occur at higher SWR values (3.50%, 3.75%, 4.00%) where FBF's later data endpoint and methodological differences (ordering, ATH, cohort convention) compound. The 16 REPRODUCED results are all at 0.0% published failure rates where FBF also finds 0 failures. The single EXPLAINED DIFFERENCE (3 ULP) is at the boundary of the classification threshold. No capability gaps were encountered — the fixed-SWR failure-rate aggregation was fully executed using existing FBF infrastructure.
 
-**Data-vintage interpretation (not formal classification):** The published ERN Part 20 results originate from an older data period (pre-2016). FBF's canonical dataset extends further. This data-vintage difference is a plausible contributor to the observed discrepancies, particularly at higher SWR values where small return differences compound over 60-year horizons. However, per the audit protocol (§9), these are formally classified as UNEXPLAINED DIFFERENCE because the data-vintage effect has not been isolated and quantified via variant runs (§10). Variant isolation is pending follow-up investigation.
+**Data-vintage interpretation (not formal classification):** The published ERN Part 20 results originate from an older data period (pre-2016). FBF's canonical dataset extends further. This data-vintage difference is a plausible contributor to the observed discrepancies, particularly at higher SWR values where small return differences compound over 60-year horizons. However, per the audit protocol (§9), these are formally classified as UNEXPLAINED DIFFERENCE because the data-vintage effect has not been isolated and quantified via variant runs (§10). Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10 of `ern_part20_e2e_audit.md`.
 
 **60-year horizon, selected cells:**
 
@@ -735,7 +739,7 @@ Strongest candidate future replication gates: 60Y failsafe (10 selected anchors)
 **Published-value comparison rule:** Exact published values must match after article's displayed precision. Published ranges must contain result after same rounding. Do not invent tolerances.
 
 **Known differences (all RESOLVED):**
-- FBF uses real total-return index for ATH/underwater; ERN uses nominal (known difference, inherited from Part 19)
+- ~~FBF uses real total-return index for ATH/underwater; ERN uses nominal~~ Both use the CPI-adjusted real total-return index (audit §19.7)
 - FBF uses withdrawal → rebalancing → returns; ERN uses returns → withdrawal → rebalancing (known difference, inherited from Part 19)
 - FBF uses 1,739 cohorts; ERN uses 1,740 (snapshot convention difference)
 - FBF uses monthly frequency; ERN case study uses annual (framework convention)
@@ -810,7 +814,7 @@ Do not use the E2E as proof that Part 20 has been independently replicated.
 
 **All items RESOLVED:**
 1. ~~Simulation ordering~~ — ERN: returns → withdrawal → rebalancing; FBF differs (known difference)
-2. ~~ATH semantics~~ — ERN: nominal total-return index; FBF: real (known difference)
+2. ~~ATH semantics~~ — both use the CPI-adjusted real total-return index (audit §19.7)
 3. ~~First-month semantics~~ — glidepath month-0 uses starting allocation unchanged
 4. ~~Forward-return methodology~~ — Part 1 §4: equity 6.6%, bond 0% for 120 months then 2.6%
 5. ~~CAPE temporal alignment~~ — evaluated at start of retirement
@@ -835,7 +839,7 @@ Do not use the E2E as proof that Part 20 has been independently replicated.
 
 **All methodology questions RESOLVED:**
 - [x] Simulation ordering equivalence established — ERN: returns → withdrawal → rebalancing; FBF differs (known difference)
-- [x] ATH/underwater semantics clarified — ERN: nominal total-return index; FBF: real (known difference)
+- [x] ATH/underwater semantics clarified — both use the CPI-adjusted real total-return index (audit §19.7)
 - [x] First-month semantics established — glidepath month-0 uses starting allocation unchanged
 - [x] Forward-return methodology established — Part 1 §4: equity 6.6%, bond 0% for 120 months then 2.6%
 - [x] CAPE temporal alignment established — evaluated at start of retirement
@@ -966,12 +970,12 @@ Not automated pass/fail rules. Article-consistency observations only:
 
 | Strategy | FV Target | Published | FBF | Δ (pp) | Classification | Evidence |
 |----------|-----------|-----------|-----|--------|----------------|----------|
-| static_075 | 0% | 3.25% | 3.28% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH variant isolation pending |
-| static_075 | 50% | 3.15% | 3.18% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee variant isolation pending |
-| static_075 | 100% | 3.05% | 3.08% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee variant isolation pending |
-| gp_060_100_0.004_active | 0% | 3.47% | 3.49% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH variant isolation pending |
-| gp_060_100_0.004_active | 50% | 3.42% | 3.45% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH variant isolation pending |
-| gp_060_100_0.004_active | 100% | 3.34% | 3.36% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH variant isolation pending |
+| static_075 | 0% | 3.25% | 3.28% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| static_075 | 50% | 3.15% | 3.18% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| static_075 | 100% | 3.05% | 3.08% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| gp_060_100_0.004_active | 0% | 3.47% | 3.49% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| gp_060_100_0.004_active | 50% | 3.42% | 3.45% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| gp_060_100_0.004_active | 100% | 3.34% | 3.36% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
 
 **Classification summary:**
 - REPRODUCED: 1 (gp_060_100_0.004_active FV=0 — matches Experiment A)
@@ -979,7 +983,7 @@ Not automated pass/fail rules. Article-consistency observations only:
 - UNEXPLAINED DIFFERENCE: 4 (2–3 ULP)
 - CAPABILITY GAP: 0
 
-**Notes:** Experiment D shows 4 UNEXPLAINED DIFFERENCE results (2–3 ULP = 0.02–0.03 pp). The FV=0 results reuse Experiment A's search (cache verified), so the discrepancies at FV=0 match Experiment A's results. The FV=50% and FV=100% results show similar discrepancy magnitudes. No capability gaps were encountered — the FV target search was fully executed using existing FBF infrastructure. Variant isolation (§10) is pending follow-up investigation.
+**Notes:** Experiment D shows 4 UNEXPLAINED DIFFERENCE results (2–3 ULP = 0.02–0.03 pp). The FV=0 results reuse Experiment A's search (cache verified), so the discrepancies at FV=0 match Experiment A's results. The FV=50% and FV=100% results show similar discrepancy magnitudes. No capability gaps were encountered — the FV target search was fully executed using existing FBF infrastructure. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10 of `ern_part20_e2e_audit.md`.
 
 ---
 

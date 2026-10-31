@@ -313,97 +313,127 @@ class TestDatasetStructure:
 
 
 # ---------------------------------------------------------------------------
-# Nominal ATH/Underwater regression (nominal running ATH reset bug)
+# Real ATH/Underwater regression (ERN active-glidepath methodology)
 # ---------------------------------------------------------------------------
 
 
-class TestNominalAthRegression:
-    """Regression test for the nominal running ATH reset bug.
-
-    The bug: nominal_running_ath was reset to Decimal("0") inside the monthly
-    loop, making is_underwater always False for the nominal index.
-
-    This test verifies that the nominal running ATH persists across months
-    and that underwater state is correctly computed.
-    """
+class TestRealAthRegression:
+    """ATH/underwater must use the CPI-adjusted real total-return index."""
 
     @pytest.fixture(scope="class")
     def dataset(self) -> Dataset:
         return load_ern_dataset(_DATA_DIR)
 
-    def _snapshot_by_date(self, dataset: Dataset, year: int, month: int) -> MarketSnapshot:
-        for s in dataset.snapshots:
-            if s.date.year == year and s.date.month == month:
-                return s
-        raise AssertionError(f"No snapshot for {year}-{month:02d}")
+    def _eq_level(self, snapshot: MarketSnapshot) -> Decimal:
+        return next(
+            level
+            for asset, level in snapshot.index_levels.items()
+            if asset.id == "equity"
+        )
 
-    def test_nominal_running_ath_persists_across_months(self, dataset: Dataset) -> None:
-        """Nominal running ATH must not reset each month.
+    def test_running_ath_tracks_real_equity(self, dataset: Dataset) -> None:
+        """Running ATH is the maximum real equity level observed so far."""
+        expected_ath = self._eq_level(dataset.snapshots[1])
+        for snapshot in dataset.snapshots[1:]:
+            expected_ath = max(expected_ath, self._eq_level(snapshot))
+            assert snapshot.running_ath == expected_ath
 
-        The running ATH should be the maximum nominal TR level observed so far.
-        """
-        # Find a period where nominal index rises then falls
-        # We check a known historical sequence: 1929 peak, then 1930s decline
-        snap_1929_08 = self._snapshot_by_date(dataset, 1929, 8)
-        snap_1929_09 = self._snapshot_by_date(dataset, 1929, 9)
-        snap_1930_01 = self._snapshot_by_date(dataset, 1930, 1)
+    def test_underwater_state_at_known_real_drawdowns(self, dataset: Dataset) -> None:
+        """Known real drawdowns are underwater, including 2007-10."""
+        snapshots = {
+            (s.date.year, s.date.month): s for s in dataset.snapshots
+        }
 
-        # All three should have running_ath >= current nominal level
-        for snap in (snap_1929_08, snap_1929_09, snap_1930_01):
-            # running_ath stored in snapshot is the NOMINAL running ATH (after fix)
-            assert snap.running_ath >= Decimal("0")
-
-    def test_underwater_state_changes_correctly(self, dataset: Dataset) -> None:
-        """Underwater state must correctly reflect nominal index below running ATH.
-
-        After a market peak, subsequent months with lower nominal levels
-        should be marked as underwater.
-        """
-        # 1929-09 was a market peak before the Great Depression
-        # 1930-01 should be underwater
-        snap_1929_09 = self._snapshot_by_date(dataset, 1929, 9)
-        snap_1930_01 = self._snapshot_by_date(dataset, 1930, 1)
-
-        # The running ATH should be at least the 1929-09 level
-        assert snap_1929_09.running_ath >= Decimal("0")
-        assert snap_1930_01.running_ath >= snap_1929_09.running_ath
-
-        # 1929-09 is at or near ATH
-        # 1930-01 should be underwater (below the running ATH)
-        # Note: is_underwater is True when current < running_ath
-        # We don't assert exact values since nominal data varies,
-        # but we verify the mechanism works: running_ath persists
+        assert snapshots[(2000, 8)].is_underwater is False
+        assert snapshots[(2002, 9)].is_underwater is True
+        assert snapshots[(2007, 10)].is_underwater is True
+        assert snapshots[(2009, 2)].is_underwater is True
 
     def test_is_underwater_not_always_false(self, dataset: Dataset) -> None:
-        """is_underwater must not be always False (the bug symptom).
-
-        The old bug made is_underwater always False because
-        nominal_running_ath was reset each month.
-        """
-        # Check that there are months where is_underwater is True
+        """is_underwater must reflect historical drawdowns."""
         underwater_count = sum(1 for s in dataset.snapshots if s.is_underwater)
-        # There should be many underwater months in 170+ years of data
-        assert underwater_count > 100, (
-            f"Expected many underwater months, got {underwater_count}. "
-            "This indicates the nominal running ATH reset bug is present."
+
+        assert underwater_count > 1000, (
+            f"Expected many underwater months, got {underwater_count}."
         )
 
     def test_running_ath_monotonic(self, dataset: Dataset) -> None:
-        """Running ATH must be monotonically non-decreasing after the first data point.
-
-        The base snapshot (1871-01-31) is a special pre-market snapshot with
-        a different initial value (the raw February-implied level). The first
-        actual data point (1871-02-01) starts at 100 with running_ath=100.
-        This is pre-existing behavior. We check monotonicity from the first
-        data point onward.
-        """
-        # Start from the first data point (index 1), not the base snapshot (index 0)
+        """Running ATH must be monotonically non-decreasing after the first data point."""
         prev_ath = dataset.snapshots[1].running_ath
         for snap in dataset.snapshots[1:]:
             assert snap.running_ath >= prev_ath, (
                 f"Running ATH decreased at {snap.date}: {prev_ath} -> {snap.running_ath}"
             )
             prev_ath = snap.running_ath
+
+
+class TestProjectedAthUnits:
+    """Projected real equity must be compared with the real ATH."""
+
+    @pytest.fixture(scope="class")
+    def dataset(self) -> Dataset:
+        return load_ern_dataset(_DATA_DIR)
+
+    def _projected(self, dataset: Dataset) -> list[MarketSnapshot]:
+        return [
+            s
+            for s in dataset.snapshots
+            if (s.date.year, s.date.month) >= (2026, 7)
+        ]
+
+    def _eq_level(self, snapshot: MarketSnapshot) -> Decimal:
+        return next(
+            level
+            for asset, level in snapshot.index_levels.items()
+            if asset.id == "equity"
+        )
+
+    def test_boundary_preserves_real_units(self, dataset: Dataset) -> None:
+        """Historical/projection boundary flags use real levels and real ATH."""
+        snapshots = {
+            (s.date.year, s.date.month): s for s in dataset.snapshots
+        }
+
+        for key in ((2026, 6), (2026, 7), (2026, 8)):
+            snapshot = snapshots[key]
+            eq = self._eq_level(snapshot)
+            assert snapshot.is_underwater is (eq < snapshot.running_ath)
+            assert snapshot.is_ath is (eq >= snapshot.running_ath)
+
+    def test_projection_is_not_permanently_underwater(self, dataset: Dataset) -> None:
+        """The all-underwater projection bug must not return."""
+        projected = self._projected(dataset)
+        underwater = [s for s in projected if s.is_underwater]
+
+        assert underwater
+        assert len(underwater) < len(projected)
+
+    def test_projected_underwater_is_a_prefix(self, dataset: Dataset) -> None:
+        """Once projection reaches a new real high it cannot be underwater again."""
+        projected = self._projected(dataset)
+        flags = [s.is_underwater for s in projected]
+
+        first_false = flags.index(False)
+        assert not any(flags[first_false:])
+
+    def test_projected_is_ath_resumes_after_historical_drawdown(
+        self, dataset: Dataset
+    ) -> None:
+        """Projection must eventually establish a new real ATH."""
+        projected = self._projected(dataset)
+
+        assert any(s.is_ath for s in projected)
+
+    def test_historical_underwater_state_is_unchanged_at_boundary(
+        self, dataset: Dataset
+    ) -> None:
+        """The historical boundary flags remain real-drawdown based."""
+        snapshots = {
+            (s.date.year, s.date.month): s for s in dataset.snapshots
+        }
+
+        assert snapshots[(2026, 5)].is_underwater is False
+        assert snapshots[(2026, 6)].is_underwater is True
 
 
 # ---------------------------------------------------------------------------

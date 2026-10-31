@@ -471,7 +471,9 @@ def _expected_execution_counts(state: T21AuditState) -> tuple[int, int]:
     # Population sizes come from the live context (manifest-derived).
     high_n = len(state.ctx.populations.high_dates)
     low_n = len(state.ctx.populations.low_dates)
-    steps = default_max_steps()
+    # Bisection terminates on bracket convergence; default_max_steps() adds two
+    # safety steps above the convergence bound.
+    steps = default_max_steps() - 2
 
     exp_a = state.spec.experiment("A")
     exp_b = state.spec.experiment("B")
@@ -604,13 +606,19 @@ class TestPart20T21BaselineAudit:
     ) -> None:
         assert exp_a_results
         assert exp_a_anchors
-        # All A anchors classified; non-exact recorded with context
+        # All A anchors classified; non-exact recorded with context.
+        # These are historical T2.1 audit-contract evidence strings. The
+        # documentation now calls the same §10 scope "difference-attribution
+        # variants (A/B/C)"; "variant isolation" is the legacy runtime term.
         for c in exp_a_anchors:
             assert c.calculation_path
-            if c.classification.kind != "REPRODUCED":
-                assert "variant isolation not run" in c.classification.evidence or (
-                    c.classification.kind == "CAPABILITY GAP"
-                )
+            kind = c.classification.kind
+            if kind == "EXPLAINED DIFFERENCE":
+                assert "variant isolation pending" in c.classification.evidence
+            elif kind == "UNEXPLAINED DIFFERENCE":
+                assert "variant isolation not run" in c.classification.evidence
+            elif kind not in ("REPRODUCED", "CAPABILITY GAP"):
+                raise AssertionError(f"unexpected classification: {kind}")
         assert len(exp_a_anchors) == self._spec_anchors("A")
         _checkpoint(audit_state, "A")
 

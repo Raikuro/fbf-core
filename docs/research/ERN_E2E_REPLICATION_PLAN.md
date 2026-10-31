@@ -164,16 +164,16 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **Grid:** Part of `ern_part20.yaml` (24 glidepaths from Part 19, combined with Part 20).
 - **Dataset:** `ern_swr_h720.json`
 - **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established.
-- **Implementation status:** **IMPLEMENTED & CROSS-VALIDATED** — ATH fix (`3e47550`) resolved the nominal running ATH accumulation bug; `nominal_running_ath` is now initialized once before the monthly loop and accumulated across all months. Active glidepath discrepancies resolved.
+- **Implementation status:** **IMPLEMENTED & CROSS-VALIDATED** — ATH/underwater state now uses the CPI-adjusted real total-return index and real running ATH (`ern_part20_e2e_audit.md` §19.7). The earlier nominal running-ATH fix (`3e47550`) is historical and superseded by the real-ATH correction.
 - **E2E status:** **IMPLEMENTED & CROSS-VALIDATED** — `test_part19_canonical_ern_replication.py` (Exp A) and `test_part19_experiment_b_e2e.py` (Exp B) both implemented and gated `ern_e2e`. Cross-validated against Part 20 Exp C and Exp A respectively.
 - **Note:** Part 20 ⊃ Part 19 for glidepath definitions (see Section D). Part 19 Experiment A remains an independent E2E target — Part 20 does not reproduce it as a complete experiment (see Section D.2).
 
-#### Part 20 — CANONICAL METHODOLOGY — AUDIT COMPLETE, VARIANT ISOLATION COMPLETE
+#### Part 20 — CANONICAL METHODOLOGY — AUDIT COMPLETE, CAPE/PROJECTION FORENSIC VARIANTS (V1/V2/V3) COMPLETE
 
 - **Grid:** `ern_part20.yaml` (32 glidepaths × 5 SWR × 2 horizons = 320 cells)
 - **Dataset:** `ern_swr_h720.json`
 - **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established.
-- **Implementation status:** **ALIGNMENT RESOLVED** — ATH fix (`3e47550`) resolved the nominal running ATH accumulation bug; `nominal_running_ath` is now initialized once before the monthly loop and accumulated across all months. Active glidepath discrepancies resolved.
+- **Implementation status:** **ALIGNMENT RESOLVED** — ATH/underwater state now uses the CPI-adjusted real total-return index and real running ATH (`ern_part20_e2e_audit.md` §19.7). The earlier nominal running-ATH fix (`3e47550`) is historical and superseded; remaining active-anchor residuals are recorded in §19.7.
 - **E2E status:** **AUDIT COMPLETE, FORENSIC INVESTIGATION COMPLETE** — `test_part20_e2e_audit.py` (13 gated E2E tests) executed all 5 Experiments (A–E). Experiments A–D classified (43 UNEXPLAINED DIFF total, 2–180 ULP). Experiment E implemented and forensically validated (8 UNEXPLAINED DIFF — source ambiguity documented).
 - **Forensic investigations completed:**
   1. **Execution order (V1)** — ELIMINATED. V1 pipeline (MarketEvolution → WithdrawalExecution → PortfolioRebalance) produces bitwise-identical results to baseline for all 46 residual anchor cells. Report: `docs/research/ERN_PART20_V1_FORENSIC_REPORT.md`.
@@ -192,7 +192,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
      - `static_080 @ 3.75% 60Y` improves to **19.0%** (from 23.5%).
      - All four production-change conditions satisfied for correcting the projection boundary and CAPE source.
      - Report: `docs/research/ERN_PART20_CORRECTED_METHODOLOGY_FORENSIC_REPORT.md`.
-- **Variant isolation:** COMPLETE. Production changes now justified for projection boundary and CAPE source correction.
+- **CAPE/projection forensic variants (V1/V2/V3):** COMPLETE. Production changes are justified for projection boundary and CAPE source correction. **Part 20 audit §10 difference-attribution variants (A/B/C): OPEN** — see §F.4.1 and `ern_part20_e2e_audit.md` §10.
 - **Forensic investigations:** COMPLETE — all 9 planned investigations executed and documented.
 
 #### Part 42 — E2E/IMPLEMENTATION VALIDATION DEFERRED
@@ -427,9 +427,9 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 ### F.4 Part 19/20 — Equity Glidepaths
 
 **Status:** PART 19 IMPLEMENTED & CROSS-VALIDATED; PART 20 AUDIT COMPLETE, FORENSIC INVESTIGATION COMPLETE
-**Reason:** ATH fix (`3e47550`) resolved the nominal running ATH accumulation bug. The `nominal_running_ath` is now initialized once before the monthly loop and accumulated across all months, matching ERN methodology.
+**Reason:** ATH/underwater state now uses the CPI-adjusted real total-return index and real running ATH (`ern_part20_e2e_audit.md` §19.7). The earlier nominal running-ATH fix (`3e47550`) is historical and superseded by the real-ATH correction.
 **Methodology:** COMPLETE (global sequencing and ATH rules resolved).
-**Implementation status:** **ALIGNMENT RESOLVED** — ATH fix (`3e47550`) resolved the nominal running ATH accumulation bug; `nominal_running_ath` is now initialized once before the monthly loop and accumulated across all months.
+**Implementation status:** **ALIGNMENT RESOLVED** — ATH/underwater state now uses the CPI-adjusted real total-return index and real running ATH (`ern_part20_e2e_audit.md` §19.7). The earlier nominal running-ATH fix (`3e47550`) is historical and superseded; remaining active-anchor residuals are recorded in §19.7.
 **Part 19 E2E status:** **IMPLEMENTED & CROSS-VALIDATED** — `test_part19_canonical_ern_replication.py` (Exp A, 162 cells) and `test_part19_experiment_b_e2e.py` (Exp B, 90 cells) both implemented, gated `ern_e2e`, cross-validated with Part 20 Exp C and Exp A respectively.
 **Part 20 E2E status:** **AUDIT COMPLETE, FORENSIC INVESTIGATION COMPLETE, CORRECTED METHODOLOGY IDENTIFIED** — `test_part20_e2e_audit.py` executed all 5 Experiments (A–E). Experiments A–D classified (43 UNEXPLAINED DIFF total, 2–180 ULP). Experiment E implemented and forensically validated (8 UNEXPLAINED DIFF — source ambiguity documented). **Critical finding: FBF's projection boundary (2016-10) and CAPE source do not match the authoritative SWR Toolbox workbook (historical data through 2026-06, Shiller CAPE from workbook Column 15).** This foundational discrepancy explains the majority of residuals and supersedes previous interaction-based explanations.
 
@@ -487,7 +487,7 @@ The Part 20 forensic investigations are complete and accepted. Nine investigatio
 
 **Next forensic hypothesis:** None — all planned investigations complete.
 
-**Variant isolation:** COMPLETE. **Production changes NOW JUSTIFIED** for projection boundary (2016→2026) and CAPE source (FBF Shiller → Workbook Shiller) — all four production-change conditions satisfied.
+**CAPE/projection forensic variants (V1/V2/V3):** COMPLETE. **Production changes NOW JUSTIFIED** for projection boundary (2016→2026) and CAPE source (FBF Shiller → Workbook Shiller) — all four production-change conditions satisfied. **Part 20 audit §10 difference-attribution variants (A/B/C): OPEN** — see `ern_part20_e2e_audit.md` §10.
 
 **Do not reopen the Part 20 forensic investigations unless new evidence contradicts these validated conclusions.** In particular, do not create new tasks to investigate execution order, CAPE timing, or forward-projection parameters merely because FBF's precise binary-searched failsafe differs from a published ERN percentage. Published ERN percentages must be interpreted according to the documented search/grid and success-rate conventions.
 
@@ -1005,7 +1005,7 @@ None. All artifacts have been classified with complete information.
 | `ffr_monthly.json` | Reconstructed FFR series; not equivalent to workbook `K` before 1954-07 |
 | `p49_oracle_table.csv` | Canonical reference |
 | `cohort_manifest_part3.json` | Research metadata |
-| `cpi.csv`, `spx_tr.csv`, `bm10.csv` | Runtime canonical datasets (cumulative indices, CPI) |
+| `cpi.csv` | Runtime canonical CPI dataset; `spx_tr.csv` and `bm10.csv` are auxiliary nominal indices and are not loaded by `load_ern_dataset` |
 
 **Nested canonical raw files:** 7 files
 

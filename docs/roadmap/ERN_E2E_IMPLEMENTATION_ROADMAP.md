@@ -100,10 +100,10 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 20.1 | Experiment A: 60Y failsafe/percentile | 53 strategies × 2 CAPE = 106 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (106 cells, 13 tests, gated `ern_e2e`) | Baseline audit complete (`fbf-core` T2.1) | Variant isolation (V1/V2/V3 per `ern_part20_e2e_audit.md` §10) |
-| 20.2 | Experiment B: 30Y failsafe/percentile | 53 strategies × 2 CAPE = 106 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (106 cells) | Baseline audit complete | Variant isolation (V1/V2/V3) |
-| 20.3 | Experiment C: Fixed SWR failure rates | 53 × 5 SWR × 2H = 530 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (530 cells) | Baseline audit complete | Variant isolation (V1/V2/V3) |
-| 20.4 | Experiment D: FV targets | 53 × 3 FV = 159 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (159 cells) | Baseline audit complete | Variant isolation (V1/V2/V3) |
+| 20.1 | Experiment A: 60Y failsafe/percentile | 53 strategies × 2 CAPE = 106 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (106 cells, 13 tests, gated `ern_e2e`) | Baseline audit complete (`fbf-core` T2.1) | Part 20 audit §10 difference-attribution variants (A/B/C); remains open |
+| 20.2 | Experiment B: 30Y failsafe/percentile | 53 strategies × 2 CAPE = 106 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (106 cells) | Baseline audit complete | Part 20 audit §10 difference-attribution variants (A/B/C); remains open |
+| 20.3 | Experiment C: Fixed SWR failure rates | 53 × 5 SWR × 2H = 530 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (530 cells) | Baseline audit complete | Part 20 audit §10 difference-attribution variants (A/B/C); remains open |
+| 20.4 | Experiment D: FV targets | 53 × 3 FV = 159 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (159 cells) | Baseline audit complete | Part 20 audit §10 difference-attribution variants (A/B/C); remains open |
 | 20.5 | Experiment E: Deterministic case study | 4 cases | RESEARCH REPLICATION | `IMPLEMENTED — FORENSICALLY VALIDATED` | `test_part20_e2e_audit.py` (4 cases) | T2.1 | Document source ambiguity; no prod change |
 | 20.6 | Existing 320-cell grid (regression) | 32 GP × 5 SWR × 2H = 320 cells × 1,739 | REGRESSION COVERAGE | `IMPLEMENTED` | `test_part20_replication.py` | None | Retain — NOT replication evidence |
 
@@ -569,7 +569,7 @@ Every material discrepancy must receive exactly one classification:
 | B6 | Part 49 buy-and-hold capability gap | Part 49 | **RESOLVED** (`fc83253`) | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` |
 | B7 | Part 49 LTV enforcement currently OFF | Part 49 | RESOLVED (2026-09-29) | `ERN_E2E_REPLICATION_PLAN.md` §F.3; `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)" |
 | B8 | Part 52 Part52Evaluator infeasible-search semantics | Part 52 | **RESOLVED** | `Part52Evaluator.evaluate()` records `feasible_borrow_pct` and `tested_borrow_pcts`; see `tests/unit/optimization/test_part52_evaluator.py` |
-| B9 | Part 19/20 assertion/output ambiguity | Parts 19/20 | OPEN | No specific document — needs resolution during Phase 3 |
+| B9 | Part 19/20 assertion/output ambiguity | Parts 19/20 | **RESOLVED** (test corrections) | Experiment A has no exact published numerical anchors; fixture is documentation validated structurally. Part 20 assertions follow documented Part 20 audit §10 difference-attribution variant (A/B/C) status and bisection-step semantics. See `test_part19_canonical_ern_replication.py`, `test_part20_e2e_audit.py`. |
 | B10 | Part 52 A10 execution/timing recurrence discrepancy | Part 52 | DEFERRED | Production recurrence: `P_t = (P_{t-1} - C + X) * (1 + w_t - f)` (withdraw-at-start); ERN workbook: `S_t = Z_{t-1} * (1 + w_t - f)` with `Z_t = S_t - W_t` (grow-then-withdraw); creates second-order timing term `-(C-X)*(w-f)` ≈ $10-20/month; fee correction recovered only 4/74 failed cohorts; root cause is execution-level, not fee-semantics; deferred until optimization phase; oracle must remain untouched; no weakening of canonical expectations |
 
 ---

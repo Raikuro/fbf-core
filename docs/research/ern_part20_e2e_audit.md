@@ -220,7 +220,7 @@ Known candidates include:
 
 - ERN 1,740 cohorts vs FBF 1,739 executable cohorts;
 - ERN return → withdrawal → rebalance ordering vs current FBF ordering;
-- ERN nominal S&P 500 total-return ATH detection vs FBF's current real total-return underwater calculation;
+- Historical nominal S&P 500 total-return ATH premise vs FBF's real total-return calculation — superseded by the real-ATH correction in §19.7; retained only as the historical Variant B specification;
 - CAPE availability constraints;
 - other explicitly documented data-representation differences.
 
@@ -237,6 +237,16 @@ The experiment cannot be reproduced using existing FBF capabilities without intr
 This must be distinguished from a numerical mismatch.
 
 ## 10. Difference Attribution
+
+> **Terminology and status (2026-10-30).** The variants below are the
+> **Part 20 audit §10 difference-attribution variants (A/B/C)**. They remain
+> open. They are distinct from the completed **CAPE/projection forensic
+> variants (V1/V2/V3)** documented in `ERN_E2E_REPLICATION_PLAN.md`. The
+> separate forensic elimination of the execution-order hypothesis in
+> `ERN_PART20_V1_FORENSIC_REPORT.md` does not close this broader audit
+> investigation. T2.1 baseline evidence strings retain the historical term
+> "variant isolation"; these refer to the same §10 difference-attribution
+> variants (A/B/C) and are not a separate audit concept.
 
 Where possible, the audit should isolate known differences individually.
 
@@ -255,6 +265,10 @@ Change only monthly execution ordering to:
 ### Variant B
 
 Change only the underwater/ATH calculation to use the ERN-specified nominal S&P 500 total-return index.
+
+> **Note on Variant B.** The nominal-ATH premise predates the ATH correction in
+> §19.7, which establishes the CPI-adjusted real total-return ATH. Variant B is
+> retained as the historical audit specification; its open status is unchanged.
 
 ### Variant C
 
@@ -433,7 +447,7 @@ The next action is therefore straightforward:
 
 ### 16.5 Notes
 
-All 7 UNEXPLAINED DIFFERENCE results are 2–3 display ULPs (0.02–0.03 percentage points) relative to the published 2-decimal values. Per the audit protocol (§9), these exceed the 1-ULP threshold for EXPLAINED DIFFERENCE and are recorded with full identifying context. No implementation changes are made at this stage. Variant isolation (§10) is pending follow-up investigation.
+All 7 UNEXPLAINED DIFFERENCE results are 2–3 display ULPs (0.02–0.03 percentage points) relative to the published 2-decimal values. Per the audit protocol (§9), these exceed the 1-ULP threshold for EXPLAINED DIFFERENCE and are recorded with full identifying context. No implementation changes are made at this stage. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10.
 
 ---
 
@@ -531,7 +545,7 @@ All 7 UNEXPLAINED DIFFERENCE results are 2–3 display ULPs (0.02–0.03 percent
 
 ### 17.5 Notes
 
-Experiment C shows significant discrepancies between FBF and published ERN failure rates. The 25 UNEXPLAINED DIFFERENCE results span 2–180 display ULPs (0.1% quantum). The largest discrepancies occur at higher SWR values (3.50%, 3.75%, 4.00%) where FBF's later data endpoint and methodological differences (ordering, ATH, cohort convention) compound. The 16 REPRODUCED results are all at 0.0% published failure rates where FBF also finds 0 failures. The single EXPLAINED DIFFERENCE (3 ULP) is at the boundary of the classification threshold. No capability gaps were encountered — the fixed-SWR failure-rate aggregation was fully executed using existing FBF infrastructure. Variant isolation (§10) is pending follow-up investigation.
+Experiment C shows significant discrepancies between FBF and published ERN failure rates. The 25 UNEXPLAINED DIFFERENCE results span 2–180 display ULPs (0.1% quantum). The largest discrepancies occur at higher SWR values (3.50%, 3.75%, 4.00%) where FBF's later data endpoint and methodological differences (ordering, ATH, cohort convention) compound. The 16 REPRODUCED results are all at 0.0% published failure rates where FBF also finds 0 failures. The single EXPLAINED DIFFERENCE (3 ULP) is at the boundary of the classification threshold. No capability gaps were encountered — the fixed-SWR failure-rate aggregation was fully executed using existing FBF infrastructure. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10.
 
 ### 17.6 Causal Validation Closure (T2.3 Forensic Follow-Up)
 
@@ -597,7 +611,7 @@ A controlled population-sensitivity experiment was performed to test the hypothe
 
 ### 18.5 Notes
 
-Experiment D shows 4 UNEXPLAINED DIFFERENCE results (2–3 ULP), 1 EXPLAINED DIFFERENCE (3 ULP), and 1 REPRODUCED. All discrepancies are small (2–3 display ULPs = 0.02–0.03 pp). The FV=0 results reuse Experiment A's search (cache verified), so the discrepancies at FV=0 match Experiment A's results. The FV=50% and FV=100% results show similar discrepancy magnitudes. No capability gaps were encountered — the FV target search was fully executed using existing FBF infrastructure. Variant isolation (§10) is pending follow-up investigation.
+Experiment D shows 4 UNEXPLAINED DIFFERENCE results (2–3 ULP), 1 EXPLAINED DIFFERENCE (3 ULP), and 1 REPRODUCED. All discrepancies are small (2–3 display ULPs = 0.02–0.03 pp). The FV=0 results reuse Experiment A's search (cache verified), so the discrepancies at FV=0 match Experiment A's results. The FV=50% and FV=100% results show similar discrepancy magnitudes. No capability gaps were encountered — the FV target search was fully executed using existing FBF infrastructure. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10.
 
 ---
 
@@ -686,8 +700,18 @@ The `Case Study` sheet in `SWR_Toolbox_v2.0.xlsx` implements a **different** com
 
 **Implementing Experiment E would require production/core changes** (pipeline, domain policy, execution layer, data layer) — not justified for a 4-case experiment with 8 anchors. The 8 Experiment E anchors remain formally `CAPABILITY GAP`.
 
-### 19.6 Formal Classification Status (Pre-Implementation)
- 
+> **Correction note (2026-10-25):** The classification table below is a
+> historical execution record and is not reproducible from the current
+> canonical dataset. The `A (60Y)` row sums to 11 anchors (`4 + 7`) although
+> Experiment A has 10 anchors. The pre-alignment commit `43d4f8d` produced
+> **49** unexplained results (`A=10`, `B=8`, `C=25`, `D=6`), not 43. The
+> prior baseline, cross-validated against the production path before the
+> real-ATH correction in §19.7, was `A=4 U / 2 E / 4 R`,
+> `B=0 U / 4 E / 7 R`, `C=22 U / 0 E / 20 R`, and `D=1 U / 1 E / 4 R`
+> (35 reproduced, 7 explained, 27 unexplained). The 43-to-27 change is
+> therefore not a uniquely identified 16-cell resolution inventory. The
+> original table is preserved unchanged below.
+
 | Experiment | REPRODUCED | EXPLAINED DIFFERENCE | UNEXPLAINED DIFFERENCE | CAPABILITY GAP |
 |------------|------------|---------------------|----------------------|----------------|
 | A (60Y) | 0 | 4 | 7 | 0 |
@@ -697,7 +721,64 @@ The `Case Study` sheet in `SWR_Toolbox_v2.0.xlsx` implements a **different** com
 | E (Case Study) | 0 | 0 | 0 | **8** |
  
 Experiment E remains explicitly `CAPABILITY GAP` — no production implementation was performed.
- 
+
+### 19.7 ATH/Underwater Methodology Correction (2026-10-25)
+
+**Source evidence.** Part 19 defines active glidepaths as increasing equity
+only when the S&P 500 is below its all-time high. The article's author
+clarified the index in a 2025-01-10 comment on Part 19: "the all-time high is
+the total return, adjusted for CPI inflation. Last closing date of the
+month." The same CPI-adjusted drawdown convention is restated in the Part 58
+methodology ("I adjust the equity index with CPI inflation to determine the
+real drawdowns"). The workbook is consistent: `Asset Returns!AK5` is
+"Equity Drawdown (Real!)", and `AK7 = min((1+AK6)*(1+Q7)-1,0)` uses the real
+S&P 500 return in column `Q`. The workbook uses that series only for
+drawdown-conditional spending (`SCR time series`, `Parameters & Main Results`
+T20:T26, and `Case Study` AL/AV); it does not implement active glidepaths.
+The glidepath definition therefore comes from the article, not from the
+spending-conditioning series.
+
+**Defect and fix.** Before this correction, the loader compared the nominal
+index (`spx_tr.csv`) with a nominal ATH during history, but compared the
+projected real equity level directly with that nominal ATH during projection.
+The latter compared incompatible units and marked all 593 projected months
+(2026-07 through 2075-11) as underwater. `running_ath` was already the running
+maximum of the real total-return equity index. The loader now uses that real
+level and real running ATH for `is_ath` and `is_underwater` in both the
+historical and projected segments. No inflation conversion is applied at the
+boundary, so there is no discontinuity and no double count. Under the
+workbook's positive real projection, 2026-07 remains underwater (a real
+drawdown carried from 2026-06), 2026-08 establishes a new real ATH, and no
+later projected month is underwater.
+
+**Impact.** The underlying historical equity index levels and raw return
+series are unchanged; only the `is_ath`/`is_underwater` flags change.
+Because active glidepaths use those flags, active-strategy allocation
+decisions and results change; passive and static strategies are unaffected.
+The current dataset has 1,441 underwater historical snapshots and one
+projected underwater snapshot (2026-07).
+
+The active-glidepath anchors affected by the corrected condition are:
+
+| Experiment | Strategy | FV | Published | Prior FBF | Current FBF | Classification |
+|------------|----------|----|-----------|-----------|-------------|----------------|
+| A | gp_060_100_0.003_active | 0% | 3.28% | 3.42% | 3.42% | UNEXPLAINED DIFFERENCE |
+| A | gp_060_100_0.004_active | 0% | 3.34% | 3.47% | 3.47% | UNEXPLAINED DIFFERENCE |
+| B | gp_060_100_0.003_active | 0% | 3.96% | 3.96% | 3.93% | UNEXPLAINED DIFFERENCE |
+| B | gp_060_100_0.004_active | 0% | 3.94% | 3.93% | 3.89% | UNEXPLAINED DIFFERENCE |
+| B | gp_040_100_0.004_active | 0% | 3.97% | 3.97% | 3.97% | REPRODUCED |
+| D | gp_060_100_0.004_active | 0% | 3.47% | 3.47% | 3.47% | REPRODUCED |
+| D | gp_060_100_0.004_active | 50% | 3.42% | 3.43% | 3.42% | REPRODUCED |
+| D | gp_060_100_0.004_active | 100% | 3.34% | 3.38% | 3.38% | UNEXPLAINED DIFFERENCE |
+
+Passive and static strategies do not read `is_underwater`; Experiment C
+contains no active strategy. The recalculated residual inventory is
+`A=4 U / 2 E / 4 R`, `B=2 U / 3 E / 6 R`, `C=22 U / 0 E / 20 R`, and
+`D=1 U / 0 E / 5 R` (35 reproduced, 5 explained, 29 unexplained). This
+replaces the prior 27-unexplained baseline; the two additional unexplained
+residuals are the two B active anchors above. The published anchors are stale
+and are not numerical acceptance criteria.
+
 ---
  
 ## 20. Experiment E — Forensic Validation Results (T2.6 Phase 5)

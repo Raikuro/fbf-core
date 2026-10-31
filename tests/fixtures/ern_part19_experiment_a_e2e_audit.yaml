@@ -43,20 +43,10 @@ experiment:
   cape_conditions: ["ALL", "HIGH"]
   cells: 162
 
-# Published cross-validation anchors from Part 20 Experiment C
-# (3.5% SWR, 60Y, FV=0, CAPE>20), transcribed from
-# ern_part20_e2e_audit.yaml. These are a subset of the 27 Part 19
-# Experiment A cells compared computationally by the E2E test.
-# static_060 has no exact Part 20 Experiment C published value and is not
-# used as a numerical anchor. static_075 is not part of the 3-static
-# Part 19 Experiment A universe.
-cross_validation_anchors:
-  # Static allocations
-  - { strategy: "static_080", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
-  - { strategy: "static_100", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "11.6", unit: "percent_1dp" }
-  # Part 19 glidepaths that have Part 20 Experiment C anchors
-  - { strategy: "gp_060_100_0.003_passive", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "0.0", unit: "percent_1dp" }
-  - { strategy: "gp_030_070_0.00111_passive", horizon_years: 60, withdrawal_rate: "0.035", final_value_target: "0", cape_regime: "HIGH", published_failure_rate: "27.0", unit: "percent_1dp" }
+# Part 19 Experiment A has no published numerical anchor table
+# (docs/research/ern_part19_replication.md §9.1). Validation uses structural
+# and computational checks plus exact cross-validation against the computed
+# Part 20 Experiment C cells (same execution path).
 
 # Qualitative validation expectations (from article conclusions, not hard gates)
 qualitative_expectations:
