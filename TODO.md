@@ -218,6 +218,12 @@ limitation, and S6.6B canonical-replication-deferred entries.
   that verifies helper/oracle gross survival for every unit and reports the
   coverage-layer feasibility table. Its counts are current-vintage diagnostics,
   not canonical acceptance constants.
+- Coverage-layer semantics are machine-checked in
+  `tests/integration/test_part52_coverage_layer_semantics.py`: the legacy
+  (1,452) and workbook-FFR (1,453) layers are fully historical; the
+  historical-market layer (1,506) adds 53 cohorts using the FRED FFR extension;
+  the distribution layer (1,739) adds 233 projection-dependent cohorts. The
+  eligibility decision among these layers remains open.
 - Acceptance policy, coverage-layer filtering, and solver reproduction remain
   open.
 
