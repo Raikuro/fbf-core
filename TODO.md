@@ -213,9 +213,13 @@ limitation, and S6.6B canonical-replication-deferred entries.
   study used by the oracle execution. It asserts gross survival separately from
   each workbook feasibility condition and asserts all three conditions hold
   together.
-- Full-universe feasibility, coverage-layer filtering, and solver reproduction
-  remain open. The A10 metric values are diagnostics tied to the current
-  canonical dataset vintage, not canonical acceptance constants.
+- Full-universe feasibility accounting is now exercised by a gated A10
+  diagnostic (`tests/integration/test_part52_full_universe_feasibility.py`)
+  that verifies helper/oracle gross survival for every unit and reports the
+  coverage-layer feasibility table. Its counts are current-vintage diagnostics,
+  not canonical acceptance constants.
+- Acceptance policy, coverage-layer filtering, and solver reproduction remain
+  open.
 
 ### FFR data equivalence (bounded)
 
