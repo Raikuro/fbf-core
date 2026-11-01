@@ -206,6 +206,17 @@ limitation, and S6.6B canonical-replication-deferred entries.
   asset/CPI numerical-equivalence item; this establishes implementation
   consistency, not independent methodological confirmation.
 
+### Phase 2 anchor feasibility (bounded implementation)
+
+- The A10 `1929-09` anchor in `tests/oracle/ern/test_part52_replication.py` now
+  calls `evaluate_part52_feasibility()` for the same planned unit and built
+  study used by the oracle execution. It asserts gross survival separately from
+  each workbook feasibility condition and asserts all three conditions hold
+  together.
+- Full-universe feasibility, coverage-layer filtering, and solver reproduction
+  remain open. The A10 metric values are diagnostics tied to the current
+  canonical dataset vintage, not canonical acceptance constants.
+
 ### FFR data equivalence (bounded)
 
 - Workbook `Return Data!K` is the spliced FFR series `IF(ISNUMBER(M), M, N)`;

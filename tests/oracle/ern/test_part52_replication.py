@@ -11,9 +11,12 @@ FFR use:
 - A2-A8 and A10-A11 use the runtime FFR series with lag_months=1
   (month T uses FFR from month T-1).
 
-This module does not yet validate the workbook's three-constraint feasibility
-result. `statistics.success` measures gross portfolio survival only; the
-final-value target is not configured here, and LTV is observed but not enforced
+The A10 1929-09 anchor now also evaluates the workbook's three-constraint
+feasibility result through `evaluate_part52_feasibility()`, using the same
+built plan and the production Part 52 kernel. `statistics.success` remains
+gross portfolio survival; the A10 anchor asserts each feasibility condition
+independently and records the diagnostic metrics. Full-universe feasibility,
+LTV enforcement, and the final-value target are not applied to every scenario
 (`debt_ltv_enforcement=False`). Full-universe counts are diagnostic, not
 canonical acceptance targets.
 
@@ -48,28 +51,42 @@ Parameters:
     Allocation: 75/25 stocks/bonds
     Initial portfolio: $1,000,000
     Cohorts: 1,739 units from the full dataset; not filtered to FFR coverage
-    LTV limit: 50% (observed; enforcement disabled in this test)
-    Final value target: $250,000 (documented; not configured in this test)
+    LTV limit: 50% (observed by the feasibility helper; enforcement disabled)
+    Final value target: $250,000 (feasibility helper default; not configured in the study)
     Success metric: statistics.success = gross survival
+    Feasibility metric: A10 1929-09 anchor only, via evaluate_part52_feasibility()
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from fbf.core.application import run_study
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import (
     ExecutionOptions,
     ExecutionStrategy,
+    _extract_simulation_contexts,
+    execute_study_plan,
 )
-from fbf.core.study import StudyConfiguration
+from fbf.core.execution.pipeline.simulation_context import SimulationContext
+from fbf.core.execution.strategies.part52_numba_executor import (
+    Part52FeasibilityMetrics,
+    evaluate_part52_feasibility,
+)
+from fbf.core.study import (
+    BuiltStudy,
+    PlannedSimulationUnit,
+    ResearchPlan,
+    StudyConfiguration,
+    build_study_plan,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -83,6 +100,10 @@ HORIZON_YEARS = 30
 COHORT_HORIZON_YEARS = 60
 EXPECTED_UNITS = 1739
 FFR_DATASET = "ffr"
+FEASIBILITY_ANCHOR_SCENARIO = "A10"
+FEASIBILITY_ANCHOR_COHORT_START = date(1929, 9, 1)
+MIN_NET_WORTH_TARGET = Decimal("1000")
+FINAL_NET_WORTH_TARGET = Decimal("250000")
 
 # ---------------------------------------------------------------------------
 # Canonical ERN Configuration Matrix
@@ -211,6 +232,8 @@ class ExecutionResult:
     terminal_net_worth_median: Decimal | None
     execution_time_s: float
     classification: str  # A, B, C, D, or E
+    anchor_feasibility: Part52FeasibilityMetrics | None = None
+    anchor_gross_survival: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -270,20 +293,45 @@ def _build_study_config(
 # Execution helpers
 # ---------------------------------------------------------------------------
 
-def _execute_study(config: StudyConfiguration) -> tuple[Any, float]:
-    """Execute a study and return (result, wall_time_seconds)."""
+def _execute_study(config: StudyConfiguration) -> tuple[Any, float, BuiltStudy]:
+    """Execute a study and return (result, wall_time_seconds, built_plan)."""
     t_start = time.perf_counter()
-    result = run_study(
-        config,
-        data_dir=str(DATA_DIR),
-        initial_wealth=INITIAL_WEALTH,
+    built = build_study_plan(config, str(DATA_DIR), INITIAL_WEALTH)
+    result = execute_study_plan(
+        built,
         options=ExecutionOptions(
             strategy=ExecutionStrategy.AUTO,
             workers=None,  # Auto-detect
         ),
     )
     t_end = time.perf_counter()
-    return result, t_end - t_start
+    return result, t_end - t_start, built
+
+
+def _anchor_unit_index(built: BuiltStudy) -> int:
+    """Return the plan index of the A10 feasibility anchor cohort."""
+    for index, unit in enumerate(built.plan.units):
+        if unit.cohort.start_date == FEASIBILITY_ANCHOR_COHORT_START:
+            return index
+    raise AssertionError(
+        f"Feasibility anchor cohort {FEASIBILITY_ANCHOR_COHORT_START} "
+        f"not found in {FEASIBILITY_ANCHOR_SCENARIO}"
+    )
+
+
+def _context_for_unit(
+    built: BuiltStudy,
+    unit: PlannedSimulationUnit,
+) -> SimulationContext:
+    """Build the production SimulationContext for one planned unit."""
+    contexts = _extract_simulation_contexts(
+        ResearchPlan(
+            experiment_definition=built.plan.experiment_definition,
+            units=(unit,),
+        )
+    )
+    assert len(contexts) == 1
+    return contexts[0]
 
 
 def _extract_metrics(result: Any) -> tuple[int, int, Decimal, Decimal | None]:
@@ -331,9 +379,19 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
 
     # Build and execute study
     config = _build_study_config(scenario, borrow_pct)
-    result, t_elapsed = _execute_study(config)
+    result, t_elapsed, built = _execute_study(config)
     successful, total, max_ltv, median_nw = _extract_metrics(result)
     success_rate = Decimal(str(successful)) / Decimal(str(total)) if total > 0 else Decimal("0")
+
+    anchor_feasibility: Part52FeasibilityMetrics | None = None
+    anchor_gross_survival: bool | None = None
+    if scenario.scenario_id == FEASIBILITY_ANCHOR_SCENARIO:
+        index = _anchor_unit_index(built)
+        context = _context_for_unit(built, built.plan.units[index])
+        anchor_feasibility = evaluate_part52_feasibility(context)
+        anchor_gross_survival = (
+            result.experiment_result.simulation_results[index].statistics.success
+        )
 
     # Classify result
     # A: Published Borrow%; gross survival 100% in this test
@@ -355,6 +413,8 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
         terminal_net_worth_median=median_nw,
         execution_time_s=t_elapsed,
         classification=classification,
+        anchor_feasibility=anchor_feasibility,
+        anchor_gross_survival=anchor_gross_survival,
     )
 
 
@@ -442,6 +502,50 @@ class TestCanonicalERNReplication:
             f"B%={r.borrow_pct_used}, expected 1739/1739, "
             f"got {r.successful_units}/{r.total_units}"
         )
+
+    def test_a10_anchor_feasibility_reproduces(
+        self, all_results: list[ExecutionResult]
+    ) -> None:
+        """A10 1929-09: gross survival and all three feasibility conditions hold.
+
+        The feasibility helper re-runs the production Part 52 kernel for this
+        single anchor unit. Its reported `gross_survival` must match the
+        oracle's own execution for the same plan unit. Metric values are
+        diagnostics tied to the current canonical dataset vintage; they are not
+        canonical acceptance constants.
+        """
+        r = next(x for x in all_results if x.scenario.scenario_id == "A10")
+        metrics = r.anchor_feasibility
+        assert metrics is not None, "A10 feasibility anchor was not evaluated"
+        assert r.anchor_gross_survival is not None
+        assert metrics.gross_survival is r.anchor_gross_survival, (
+            "A10 feasibility helper and oracle disagree on gross survival: "
+            f"helper={metrics.gross_survival}, oracle={r.anchor_gross_survival}"
+        )
+        assert metrics.gross_survival is True, (
+            f"A10 anchor gross survival failed: {metrics}"
+        )
+        assert metrics.min_net_worth_ok is True, (
+            f"A10 min net worth {metrics.min_net_worth} "
+            f"is below {metrics.min_net_worth_target}"
+        )
+        assert metrics.final_net_worth_ok is True, (
+            f"A10 final net worth {metrics.final_net_worth} "
+            f"is below {metrics.final_net_worth_target}"
+        )
+        assert metrics.max_loan_to_portfolio_ok is True, (
+            f"A10 max loan-to-portfolio {metrics.max_loan_to_portfolio} "
+            f"exceeds {metrics.max_loan_to_portfolio_limit}"
+        )
+        assert metrics.feasible == (
+            metrics.min_net_worth_ok
+            and metrics.final_net_worth_ok
+            and metrics.max_loan_to_portfolio_ok
+        )
+        assert metrics.feasible is True, f"A10 three-constraint feasibility failed: {metrics}"
+        assert metrics.min_net_worth_target == MIN_NET_WORTH_TARGET
+        assert metrics.final_net_worth_target == FINAL_NET_WORTH_TARGET
+        assert metrics.max_loan_to_portfolio_limit == LTV_LIMIT
 
     def test_bf_discovered_scenarios_produce_results(
         self, all_results: list[ExecutionResult]

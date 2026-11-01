@@ -37,6 +37,15 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 > Exercising the same production code is NOT by itself sufficient reason to consider two tests redundant. Two tests with different validation purposes, different assertion surfaces, or different parameter spaces are distinct validations even if they happen to call the same pipeline.
 
+### Part 52 Phase 2 progress (bounded)
+
+`tests/oracle/ern/test_part52_replication.py` now asserts the A10 `1929-09`
+anchor's gross survival and all three workbook feasibility conditions through
+`evaluate_part52_feasibility()`, using the same built study and planned unit.
+Full-universe feasibility, coverage-layer filtering, solver reproduction, and
+asset/CPI equivalence remain open. The broader Part 52 target state remains
+tracked in `TODO.md` and `docs/research/ern_part52_replication.md`.
+
 ---
 
 ## 2. Status Model
