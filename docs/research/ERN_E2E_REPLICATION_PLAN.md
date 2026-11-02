@@ -134,15 +134,15 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **Grid:** `ern_grid.yaml` (5W × 9R × 4H = 180 cells)
 - **Dataset:** `ern_swr_h720.json`
 - **Status:** Fully implemented and validated against oracle table (`p49_oracle_table.csv`).
-- **E2E test:** `test_ern_swr_replication.py` (smoke and full grid).
-- **Note:** Redundant with Part 2 (see Section D).
+- **E2E test:** `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` (full grid) and `::test_smoke_cell_matches_workbook_oracle` (smoke).
+- **Note:** Redundant with Part 2 (see Section D). The current test file replaces the historical `test_ern_swr_replication.py` name referenced in earlier revisions of this plan.
 
 #### Part 2 — CANONICAL: YES
 
 - **Grid:** `ern_grid.yaml` (same as Part 1, with terminal value target dimension)
 - **Dataset:** `ern_swr_h720.json`
 - **Status:** Fully implemented. The `final_value_target: [0.0]` in `ern_grid.yaml` covers the depletion case; terminal value variants can be expressed by modifying the FV target.
-- **E2E test:** `test_ern_swr_replication.py` (same test as Part 1).
+- **E2E test:** `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` (same test as Part 1).
 - **Note:** Strict superset of Part 1 (see Section D).
 
 #### Part 3 — CANONICAL: NO
@@ -195,38 +195,41 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **CAPE/projection forensic variants (V1/V2/V3):** COMPLETE on available data. Production changes are justified for projection boundary and CAPE source correction. **Part 20 audit §10 difference-attribution variants (A/B/C): CLOSED AS FORENSIC ASSESSMENT ON AVAILABLE DATA** — A eliminated provisionally, B superseded, C withdrawn provisionally; this is not a definitive canonical-data validation. See §F.4.1 and `ern_part20_e2e_audit.md` §10. Revalidation is the final task in `TODO.md`.
 - **Forensic investigations:** COMPLETE — all 9 planned investigations executed and documented.
 
-#### Part 42 — E2E/IMPLEMENTATION VALIDATION DEFERRED
+#### Part 42 — HISTORICALLY VALIDATED; CURRENT VALIDATION SURFACE REMOVED
 
-- **Classification:** E2E/IMPLEMENTATION VALIDATION DEFERRED
+- **Classification:** HISTORICAL PUBLISHED-TABLE VALIDATION — PORT-VS-RETIRE UNRESOLVED
 - **Methodology status:** COMPLETE / FROZEN (see `ern_part42_replication.md` §17).
-- **E2E specification:** INCOMPLETE — no per-cell ERN oracle table; directional-only validation. OMY contribution sequencing resolved (Q4): contributions are cash-flow operations within the established global monthly sequence.
+- **Historical validation:** a 319-cell published-table audit was performed at `95b1b50`; the 554-line `tests/integration/test_part42_e2e_audit.py` was deleted at `2c43e68`.
+- **Current committed validation surface:** None for published-table replication. Remaining coverage is structural/oracle only: `test_part42_replication.py`, `test_part42_oracle.py`, and `test_part42.py`. It does not reproduce Tables 01–05.
+- **E2E specification:** INCOMPLETE in the current tree — no per-cell ERN oracle table; directional-only validation. OMY contribution sequencing resolved (Q4): contributions are cash-flow operations within the established global monthly sequence.
 - **Implementation status:** OMY accumulation phase implemented. OMY contribution sequencing resolved (Q4): contributions are cash-flow operations within the established global monthly sequence.
 - **What exists:** Grid structure constants validated. OMY accumulation phase implemented (`run_accumulation_phase`). Integration tests pass (`test_part42.py`) with synthetic data. Oracle validation tests pass (`test_part42_oracle.py`) and validate accumulation semantics against independent implementation.
-- **What is deferred:** Full E2E replication validation, per-cell oracle creation, Tables 01–05 transcription.
+- **What is deferred:** Porting the historical audit to the Numba path or formally retiring it; current per-cell oracle creation; current Tables 01–05 replication.
 - **Existing tests useful as:** Non-canonical validation of OMY mechanics and accumulation semantics.
+- **Historical record:** `docs/research/ern_part42_replication_discrepancies.md` documents the past run; its reproduction command is historical and no longer valid.
 - **YAML file:** `ern_part42.yaml` (retained; study configuration is complete).
 - **Documentation:** `docs/roadmap/MULTI_STUDY_REPLICATION_ROADMAP.md` §A.3.
 
-#### Part 49 — VALIDATED WITH DOCUMENTED LIMITATIONS
+#### Part 49 — NON-CANONICAL SUBSET; CANONICAL B–F NOT IMPLEMENTED
 
-- **Grid:** `ern_part49.yaml` (2E × 9R × 3I = 54 cells) and canonical 6-cell grid.
+- **Grid:** `ern_part49.yaml` (2E × 3I = 6 cells in the committed test; the YAML file does not exercise the canonical B–F experiment matrices).
 - **Dataset:** `ern_swr_h720.json`
-- **Methodology status:** COMPLETE (see `ern_part49_replication.md` §24).
-- **Implementation status:** **IMPLEMENTED & VALIDATED** — All canonical deviations resolved:
+- **Methodology status:** COMPLETE / FROZEN (see `ern_part49_replication.md` §24).
+- **Implementation status:** **CAPABILITIES IMPLEMENTED; CANONICAL E2E NOT DELIVERED**
   1. **Buy-and-hold capability: IMPLEMENTED** — `BuyAndHoldAllocationPolicy` + `create_buy_and_hold_pipeline()` (`fc83253`).
-  2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True` for Experiments B, C, F; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
+  2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True`; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
   3. **Real-rate debt handling: IMPLEMENTED** — `debt_interest_rate_is_real` flag on `SimulationContext` + `InterestAccrualStep` bypasses CPI deflation (`bf42fe5`, GAP-2).
-- **E2E status:** **VALIDATED WITH DOCUMENTED LIMITATIONS** — Experiments B–F validated with buy-and-hold, LTV enforcement, real-rate debt. Experiments B–F executed via `tests/oracle/ern/test_part49_replication_app.py` (rewritten, gated `ern_e2e`). Chart 02 (margin-call window), Chart 03 (1929 trajectory), Chart 04 (L/P ratios), Charts 05/06 (max LTV) match published values. Experiment F: 4752 units (792 cohorts × 6 cells), 0 failures.
-- **Non-leverage oracle:** Matches independent `p49_oracle_table.csv` within cohort-population tolerance.
-- **E2E test:** `tests/oracle/ern/test_part49_replication_app.py` (rewritten, gated `ern_e2e`, 5 experiments, Tier A/D/E validation).
-- **Supporting tests:** `test_part49_buy_and_hold.py` (10 passed), `test_part49_canonical_execution.py` (10 passed), `test_debt_oracle.py` (24 passed).
+- **E2E status:** **NON-CANONICAL SUBSET ONLY — B–F NOT IMPLEMENTED.** The committed test is one 6-cell replication (2E × 3I = 10,434 units) with `ltv_enforcement: false` and `ConstantAllocationPolicy`. It does not exercise Experiments B–F. The Chart 02–06 match claims, the 4,752-unit Experiment F run, and the reported per-experiment results are historical/planned diagnostics, not current committed validation.
+- **Non-leverage oracle:** The non-leverage cells are compared with the pinned historical `p49_oracle_table.csv` within cohort-population tolerance; this is not canonical B–F validation.
+- **E2E test:** `tests/oracle/ern/test_part49_replication_app.py::test_part49_canonical_replication` (one test, 6 cells, gated `ern_e2e`).
+- **Supporting tests:** `tests/integration/test_part49_buy_and_hold_numba_executor.py` (current Numba buy-and-hold coverage), `tests/integration/test_part49_canonical_execution.py`, `tests/oracle/ern/test_debt_oracle.py`. The legacy `tests/integration/test_part49_buy_and_hold.py` was deleted at `2c43e68`.
 
 #### Part 52 — NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
 
 - **Classification:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
-- **Methodology status:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and the 2021-12 terminal-snapshot subset are implemented; remaining work is FFR vintage, asset/CPI numerical equivalence, and validation semantics.
-- **FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. The 1,739-row `Distribution of Final Value` is stale at 2015-12. SWR Toolbox historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The 1,452-cohort 2021-12 terminal-snapshot subset is a legacy one-month-stricter filter, not full data coverage. In the 1,739-cohort distribution, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; FFR vintage remains open because the workbook does not document the upstream source or vintage of the pre-1954 `N` fallback.
-- **E2E specification:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR data-fidelity and validation-semantics questions.
+- **Methodology status:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and the 2021-12 terminal-snapshot subset are implemented. Asset/CPI differences are reconciled as source-vintage differences, and the A2/A3/A10 published-anchor acceptance surface is implemented; eligibility/full-universe policy and Solver reproduction remain open.
+- **FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. The 1,739-row `Distribution of Final Value` is stale at 2015-12. SWR Toolbox historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The 1,452-cohort 2021-12 terminal-snapshot subset is a legacy one-month-stricter filter, not full data coverage. In the 1,739-cohort distribution, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; the pre-1954 `N` upstream source/vintage remains a documented provenance limitation.
+- **E2E specification:** CAN PROCEED for mechanics validation. The A2/A3/A10 published-anchor acceptance surface is implemented; full-universe counts are diagnostics. Eligibility/full-universe policy and Solver reproduction remain open.
 - **Existing tests useful as:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment; LTV observed, not enforced).
 - **Test files:** `tests/oracle/ern/test_part52_replication.py` (11 scenarios, gated `research_validation`).
 - **Documentation:** `TODO.md` §S6 Part 52 — Validation State and Phase Boundary; `docs/research/ern_part52_replication.md` §28.
@@ -240,9 +243,9 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 | Part 3 | YES (methodology) | Forensic complete — gap external | None |
 | Part 19 | YES | Implemented & cross-validated | Resolved (ATH fix `3e47550`) |
 | Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Resolved (ATH fix `3e47550`) |
-| Part 42 | YES | Canonically validated | None |
-| Part 49 | YES | Validated with documented limitations | None (buy-and-hold, LTV, real-rate implemented) |
-| Part 52 | PARTIAL | A1/A9 canonical; A2–A8/A10–A11 research validation | A10 execution/timing (B10); FFR methodology |
+| Part 42 | NO (historical) | Historically validated; current test deleted | Port-to-Numba vs retire unresolved |
+| Part 49 | PARTIAL | Capabilities implemented; only non-canonical 6-cell subset | Canonical B–F E2E not implemented |
+| Part 52 | PARTIAL | A2/A3/A10 published-anchor feasibility; A1/A9 diagnostics; other scenarios research validation | Eligibility/full-universe policy; Solver reproduction deferred |
 
 ---
 
@@ -344,10 +347,10 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 | E2E ID | ERN Article(s) | YAML | Test file | Units | Status |
 |--------|----------------|------|-----------|-------|--------|
-| E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | 313,020 | **CANONICAL — VALIDATED** |
-| E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_replication.py::test_part20_full_grid_structure` | 556,480 | **CANONICAL METHODOLOGY — IMPLEMENTATION ALIGNMENT PENDING** |
-| E2E-Part49 | Part 49 | (Python API) | `test_part49_replication_app.py::test_part49_canonical_replication` | 10,434 | **SUBSET — TWO DEVIATIONS** |
-| E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **E2E/IMPLEMENTATION VALIDATION DEFERRED** |
+| E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | 313,020 | **CANONICAL — VALIDATED** |
+| E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_grid.py::test_part20_full_grid_replication` | 556,480 | **REGRESSION COVERAGE — NOT REPLICATION** |
+| E2E-Part49 | Part 49 | (Python API) | `test_part49_replication_app.py::test_part49_canonical_replication` | 10,434 | **NON-CANONICAL SUBSET — LTV OFF; B–F NOT IMPLEMENTED** |
+| E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **HISTORICAL AUDIT TEST DELETED; CURRENT COVERAGE STRUCTURAL ONLY** |
 | E2E-Part52 | Part 52 | (Python API) | `test_part52_replication.py` | 19,129 | **NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED** |
 
 ### E.2 Canonical E2E Grids Not Yet Validated
@@ -364,8 +367,8 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | Part 3 (CAPE) | Methodology complete — E2E spec pending | None (methodology complete) |
 | Part 19 (Glidepaths) | Canonical methodology — implementation & cross-validated | Resolved (ATH fix `3e47550`) |
 | Part 20 (Glidepaths) | Audit complete on available data — canonical-data revalidation pending | Resolved (ATH fix `3e47550`) |
-| Part 42 (OMY) | E2E/implementation validation deferred | Deferred to implementation work |
-| Part 49 (Leverage) | Subset — two deviations | (1) LTV OFF, (2) no buy-and-hold |
+| Part 42 (OMY) | Historical audit test deleted; port-vs-retire unresolved | No current published-table validation surface |
+| Part 49 (Leverage) | Non-canonical 6-cell subset — LTV OFF; B–F not implemented | Canonical B–F E2E not delivered |
 | Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | FFR resolved; full E2E validation pending |
 
 ### E.4 Strict-Superset Relationships
@@ -376,10 +379,11 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | Part 20 (32 glidepaths) | Part 19 (24 glidepaths) | Partially — glidepath definitions are subset; Experiment A is independent | Part 19 Experiment A remains independent E2E target |
 
 **Total canonical E2E tests: 2** (Parts 1/2 SWR grid only)
-**Total canonical methodology — implementation alignment pending: 2** (Parts 19/20)
-**Total deferred: 1** (Part 42)
-**Total subset with deviations: 1** (Part 49)
-**Total non-canonical: 2** (Parts 3, 52)
+**Total canonical methodology implemented: 1** (Part 19)
+**Total audit complete with canonical-data revalidation pending: 1** (Part 20)
+**Total historical validation with current surface removed: 1** (Part 42)
+**Total non-canonical subset: 1** (Part 49)
+**Total non-canonical/partial: 2** (Parts 3, 52)
 
 ---
 
@@ -397,32 +401,32 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.2 Part 42 — One More Year Syndrome
 
-**Status:** E2E/IMPLEMENTATION VALIDATION DEFERRED
-**Reason:** Methodology is COMPLETE / FROZEN. E2E replication validation and implementation sequencing verification are deferred to be addressed together with actual implementation work.
+**Status:** HISTORICALLY VALIDATED; CURRENT VALIDATION SURFACE REMOVED
+**Reason:** A 319-cell published-table audit was performed at `95b1b50`; the 554-line `tests/integration/test_part42_e2e_audit.py` was deleted at `2c43e68`. Port-to-Numba vs retire remains unresolved.
 **Methodology:** COMPLETE / FROZEN (see `ern_part42_replication.md` §17).
 **Existing implementation:** OMY accumulation phase implemented. Integration tests pass. Oracle validation tests validate accumulation semantics.
-**What is deferred:** Full E2E replication, per-cell oracle creation, Tables 01–05 transcription.
-**Test classification:** Structural/oracle tests (retain). Integration tests (retain).
+**What is deferred:** Porting the historical audit to the Numba path or formally retiring it; current per-cell oracle creation; current Tables 01–05 replication.
+**Test classification:** Current coverage is structural/oracle only (retain); it is not published-table replication.
 
 ### F.3 Part 49 — Using Leverage in Retirement
 
-**Status:** VALIDATED WITH DOCUMENTED LIMITATIONS
-**Reason:** All canonical deviations resolved:
+**Status:** NON-CANONICAL SUBSET; CANONICAL B–F NOT IMPLEMENTED
+**Reason:** Capabilities are implemented, but the canonical experiment validation is not:
 1. **Buy-and-hold capability: IMPLEMENTED** — `BuyAndHoldAllocationPolicy` + `create_buy_and_hold_pipeline()` (`fc83253`).
-2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True` for Experiments B, C, F; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
+2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True`; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
 3. **Real-rate debt handling: IMPLEMENTED** — `debt_interest_rate_is_real` flag on `SimulationContext` + `InterestAccrualStep` bypasses CPI deflation (`bf42fe5`, GAP-2).
 
 **Methodology:** COMPLETE (see `ern_part49_replication.md` §24).
 
-**Implementation status:** **IMPLEMENTED & VALIDATED** — All canonical deviations resolved. Experiments B–F executed via `tests/oracle/ern/test_part49_replication_app.py` (rewritten, gated `ern_e2e`).
+**Implementation status:** **CAPABILITIES IMPLEMENTED; CANONICAL E2E NOT DELIVERED.** The T6.2 document is a plan. The only committed replication test is one 6-cell test (2E × 3I = 10,434 units) with `ltv_enforcement: false` and `ConstantAllocationPolicy`.
 
-**E2E status:** **VALIDATED WITH DOCUMENTED LIMITATIONS** — Experiments B–F validated with buy-and-hold, LTV enforcement, real-rate debt. Chart 02 (margin-call window), Chart 03 (1929 trajectory), Chart 04 (L/P ratios), Charts 05/06 (max LTV) match published values. Experiment F: 4752 units (792 cohorts × 6 cells), 0 failures.
+**E2E status:** **NON-CANONICAL SUBSET ONLY.** Experiments B–F are not implemented as committed tests. The Chart 02–06 matches, the 4,752-unit Experiment F run, and the reported per-experiment results are historical/planned diagnostics, not current validation.
 
-**Non-leverage oracle:** Matches independent `p49_oracle_table.csv` within cohort-population tolerance.
+**Non-leverage oracle:** The non-leverage cells are compared with the pinned historical `p49_oracle_table.csv`; this is not canonical B–F validation.
 
-**E2E test:** `tests/oracle/ern/test_part49_replication_app.py` (rewritten, gated `ern_e2e`, 5 experiments, Tier A/D/E validation).
+**E2E test:** `tests/oracle/ern/test_part49_replication_app.py::test_part49_canonical_replication` (one test, 6 cells, gated `ern_e2e`).
 
-**Supporting tests:** `test_part49_buy_and_hold.py` (10 passed), `test_part49_canonical_execution.py` (10 passed), `test_debt_oracle.py` (24 passed).
+**Supporting tests:** `tests/integration/test_part49_buy_and_hold_numba_executor.py`, `tests/integration/test_part49_canonical_execution.py`, `tests/oracle/ern/test_debt_oracle.py`. The legacy `tests/integration/test_part49_buy_and_hold.py` was deleted at `2c43e68`.
 
 ### F.4 Part 19/20 — Equity Glidepaths
 
@@ -555,9 +559,9 @@ without belonging in the default developer test suite.
 | `tests/oracle/ern/test_part42_oracle.py` | Oracle | Oracle | No | Yes |
 | `tests/oracle/ern/test_oracle_matrix.py` | Oracle | Oracle | No | Yes |
 | `tests/oracle/ern/test_ern_timeline_regression.py` | Oracle | Regression/Oracle | No | Yes |
-| `tests/oracle/ern/test_ern_swr_replication.py` (full grid) | E2E | **Canonical Research E2E** | Yes (313K units) | **No** |
-| `tests/oracle/ern/test_part20_replication.py` | E2E | **Canonical Research E2E** | Yes (556K units) | **No** |
-| `tests/oracle/ern/test_ern_swr_replication.py` (smoke) | Smoke | Smoke | No | Yes |
+| `tests/oracle/ern/test_full_swr_grid.py` (full grid) | E2E | **Canonical Research E2E** | Yes (313K units) | **No** |
+| `tests/oracle/ern/test_part20_grid.py` | E2E (regression) | **Regression coverage** | Yes (556K units) | **No** |
+| `tests/oracle/ern/test_full_swr_grid.py` (smoke) | Smoke | Smoke | No | Yes |
 | `tests/oracle/ern/test_part42_replication.py` | Structural | Integration | No | Yes |
 | `tests/integration/test_part49_smoke_execution.py` | Integration | Smoke | No | Yes |
 | `tests/integration/test_part49_canonical_execution.py` | Integration | Integration | No (reduced to 18 units) | Yes |
@@ -609,8 +613,8 @@ There is exactly one shared research execution gate. No second "full" gate exist
 | Variable | Where checked | Purpose | Gating model |
 |----------|--------------|---------|-------------|
 | `RUN_ERN_E2E` | `tests/conftest.py` (centralized hook) | Gates all canonical E2E tests AND heavyweight research validations | Must be `"1"` |
-| `ERN_E2E_FAST_PATH` | `test_ern_swr_replication.py` | Enables fast-path equivalence check | Must be `"1"` |
-| `ERN_E2E_WORKERS` | `constants.py`, `test_ern_swr_replication.py` | Worker count override | Optional |
+| `ERN_E2E_FAST_PATH` | No current code consumer | Historical fast-path equivalence flag; not used by the current Numba path | N/A |
+| `ERN_E2E_WORKERS` | `constants.py` | Worker count override (current tests auto-detect) | Optional |
 | `SIM_RETIRE_BIN` | `cli_harness.py` | CLI binary location | Optional |
 
 ### H.3 Central Gating Mechanism
@@ -653,17 +657,22 @@ Markers and environment variables have distinct roles:
 - `RUN_ERN_E2E` controls whether all heavyweight ERN research workloads execute;
 - `slow` describes runtime characteristics for test selection.
 
-### H.5 Tests Gated by `ern_e2e` (Canonical Research E2E)
+### H.5 Tests Gated by `ern_e2e`
 
 | Test | File | What it does |
 |------|------|-------------|
-| `test_full_grid_matches_oracle` | `test_ern_swr_replication.py` | Full 180-cell grid (313K units) via CLI |
-| `test_part20_full_grid_replication` | `test_part20_replication.py` | Full 320-cell Part 20 grid (556K units) via CLI, three-level validation |
-| `test_part20_determinism` | `test_part20_replication.py` | Single-cell determinism check (two independent CLI invocations) |
-| `test_part49_canonical_replication` | `test_part49_replication_app.py` | Full 6-cell Part 49 grid (10K units) via Python API, three-level validation |
-| `test_part42_canonical_replication` | `test_part42_replication.py` | Full 45-cell Part 42 grid (94K units) via Python API, three-level validation |
+| `test_full_grid_matches_workbook_oracle` | `test_full_swr_grid.py` | Full 180-cell grid (313K units) via the public application boundary |
+| `test_part20_full_grid_replication` | `test_part20_grid.py` | Full 320-cell Part 20 grid (556K units); regression coverage, not replication |
+| `test_part20_determinism` | `test_part20_grid.py` | Determinism check across two independent executions |
+| `test_part49_canonical_replication` | `test_part49_replication_app.py` | Non-canonical 6-cell Part 49 subset (10K units); does not exercise B–F |
+| `test_part42_canonical_replication` | `test_part42_replication.py` | 45-cell Part 42 structural validation (94K units); not published-table replication |
 
 **Total: 5 tests**
+
+The gate identifies heavyweight tests, not canonical status. Only the full SWR
+grid is canonical replication. Part 20 is regression coverage, Part 49 is a
+non-canonical 6-cell subset, and Part 42 is structural validation; the
+historical Part 42 published-table audit test was deleted.
 
 ### H.6 Tests Gated by `research_validation` (Non-Canonical Research Validation)
 
@@ -677,7 +686,7 @@ Markers and environment variables have distinct roles:
 
 | Category | Examples | Why not gated |
 |----------|----------|---------------|
-| SWR smoke | `test_smoke_grid_matches_oracle` | Diagnostic smoke test, not research replication |
+| SWR smoke | `test_smoke_cell_matches_workbook_oracle` | Diagnostic smoke test, not research replication |
 | Unit/oracle tests | `test_per_cell_parser.py`, `test_worker_selection.py`, `test_oracle_matrix.py` | Lightweight, no CLI dependency |
 | Part 42 structural | `test_part42_replication.py` | Constant validation only, no E2E execution |
 | Part 49 integration | `test_part49_canonical_execution.py`, `test_part49_aggregation.py` | Reduced fixtures (18 units), not research-scale |
@@ -695,8 +704,8 @@ Markers and environment variables have distinct roles:
 
 | Test | Current runtime | Simulation units | Independent partitions | Shared computation | Split recommended? |
 |------|----------------|------------------|----------------------|-------------------|-------------------|
-| `test_ern_swr_replication.py::test_smoke_grid_matches_oracle` | ~14s | 2,099 | 1 cell | None | No (already minimal) |
-| `test_ern_swr_replication.py::test_full_grid_matches_oracle` | ~51s (historical pre-migration CLI subprocess; includes startup/dataset loading; not directly comparable to the post-migration Numba baseline) | 313,020 | 180 cells (independent) | CLI subprocess, dataset loading | No (single CLI subprocess) |
+| `test_full_swr_grid.py::test_smoke_cell_matches_workbook_oracle` | ~14s | 2,099 | 1 cell | None | No (already minimal) |
+| `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | ~51s (historical pre-migration CLI subprocess; includes startup/dataset loading; not directly comparable to the post-migration Numba baseline) | 313,020 | 180 cells (independent) | CLI subprocess, dataset loading | No (single CLI subprocess) |
 | `test_part49_replication_app.py::test_part49_canonical_replication` | ~7.5m | 10,434 | 6 cells (2E × 3I) | Python API, dataset loading | No (single Python API call) |
 | `test_part42_replication.py::test_part42_canonical_replication` | ~67s | 93,915 | 45 cells (5E × 9S) | Python API, dataset loading, accumulation | No (single Python API call) |
 | `test_part49_canonical_execution.py` | ~1s (reduced fixture) | 18 | 6 cells (2E × 3I) | Dataset loading, pipeline construction | No (integration test, not research-scale) |
@@ -757,12 +766,12 @@ The `ern_swr_h720.json` dataset contains 2,459 monthly snapshots (1871-01 to 207
 
 | YAML file | Purpose | Used by | Status |
 |-----------|---------|---------|--------|
-| `ern_grid.yaml` | Full ERN SWR grid (5×9×4) | `test_ern_swr_replication.py` | RETAINED (canonical E2E config) |
+| `ern_grid.yaml` | Full ERN SWR grid (5×9×4) | `test_full_swr_grid.py` | RETAINED (canonical E2E config) |
 | `ern_part3_replication.yaml` | Part 3 combined experiments | Part 3 research pipeline | RETAINED (canonical Part 3 config) |
 | `ern_part20.yaml` | Part 19+20 glidepaths (320 cells) | Glidepath tests | RETAINED (canonical E2E config) |
 | `ern_part42.yaml` | Part 42 OMY (45 cells) | `test_part42_replication.py` | RETAINED (canonical E2E config) |
 | `ern_part49.yaml` | Part 49 leverage (1 cell) | Part 49 tests | RETAINED (canonical E2E config) |
-| `ern_smoke.yaml` | Minimal ERN smoke (1 cell) | `test_ern_swr_replication.py` | RETAINED (smoke test config) |
+| `ern_smoke.yaml` | Minimal ERN smoke (1 cell) | `test_full_swr_grid.py` | RETAINED (smoke test config) |
 
 ### K.2 YAML Decisions
 
@@ -783,7 +792,7 @@ The `ern_swr_h720.json` dataset contains 2,459 monthly snapshots (1871-01 to 207
 |----------|----------|-----------|
 | `RUN_ERN_E2E` | RETAIN (single gate) | Controls all canonical E2E tests AND heavyweight research validations via centralized hook in `tests/conftest.py`. |
 | `RUN_ERN_E2E_FULL` | REMOVED | No second tier. All heavyweight ERN research workloads enabled by the same gate. |
-| `ERN_E2E_FAST_PATH` | RETAIN | Separate concern (optimization equivalence, not canonical replication). |
+| `ERN_E2E_FAST_PATH` | HISTORICAL | No current code consumer; the pre-migration CLI test used it for optimization-equivalence checks. |
 | `ERN_E2E_WORKERS` | RETAIN | Configuration, not gating. |
 | `SIM_RETIRE_BIN` | RETAIN | CLI binary location. |
 
@@ -816,7 +825,7 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 |------|--------|-----------|
 | `pyproject.toml` | Added `research_validation` marker | Identifies non-canonical research validation tests |
 | `tests/conftest.py` | UPDATED: centralized skip hook for both `ern_e2e` and `research_validation` markers | Single gate for all heavyweight ERN research workloads |
-| `tests/oracle/ern/test_ern_swr_replication.py` | Only `test_full_grid_matches_oracle` has `@pytest.mark.ern_e2e`; smoke test runs in normal suite | Canonical E2E = full grid only |
+| `tests/oracle/ern/test_full_swr_grid.py` | Only `test_full_grid_matches_workbook_oracle` has `@pytest.mark.ern_e2e`; smoke test runs in normal suite | Canonical E2E = full grid only |
 | `tests/integration/test_part49_canonical_execution.py` | REDUCED fixture from 10,434 to 18 units; docstrings updated | Integration test, not research-scale |
 | `tests/integration/test_part49_aggregation.py` | REDUCED fixture from 10,434 to 18 units; docstrings updated | Integration test, not research-scale |
 | `tests/oracle/ern/test_part52_replication.py` | Added `@pytest.mark.research_validation` to `TestCanonicalERNReplication` | Non-canonical research validation (10 tests) |
@@ -903,15 +912,15 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 |---------|---------------|-----------|-------------------|-------------|
 | `spx_tr_real.csv` | Canonical source | `tools/ern/prepend_base_snapshot.py`, `tools/ern/reference_oracle.py`, `tests/oracle/ern/constants.py`, `tests/oracle/ern/test_ern_timeline_regression.py`, `tests/unit/research/test_shiller_parser.py` | Monthly real equity returns (1871–present). Upstream for all derived SWR datasets. | **RETAIN** — canonical source |
 | `bond_10y_tr_real.csv` | Canonical source | Same consumers as `spx_tr_real.csv` | Monthly real bond returns (1871–present). Upstream for all derived SWR datasets. | **RETAIN** — canonical source |
-| `ern_real_returns_1871_2016.provenance.json` | Provenance metadata | `tests/infrastructure/test_dataset_cache.py` (asserted excluded from loading) | Documents derivation chain for the source CSV. | **DELETED** — removed during data-layer cleanup; no code consumers remained |
-| `ern_swr_h720.json` | Primary derived dataset | All E2E tests, all YAML study configs, `tests/infrastructure/test_dataset_cache.py` | 60-year horizon SWR dataset. Contains all data needed for any shorter horizon via `Dataset.slice()`. | **RETAIN** — primary derived dataset |
-| `ern_swr_h360.json` | Redundant derived artifact | `tools/ern/prepend_base_snapshot.py` (processes all 4), `tests/infrastructure/test_dataset_cache.py` (proves derivability) | 30-year horizon prefix of h720. Provenance explicitly labels it "Prefix of h720 (redundant)". No YAML study config uses it. No production code uses it. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
+| `ern_real_returns_1871_2016.provenance.json` | Provenance metadata | `tests/infrastructure/test_dataset_cache.py` (historical; not present in current tree) (asserted excluded from loading) | Documents derivation chain for the source CSV. | **DELETED** — removed during data-layer cleanup; no code consumers remained |
+| `ern_swr_h720.json` | Primary derived dataset | All E2E tests, all YAML study configs, `tests/infrastructure/test_dataset_cache.py` (historical; not present in current tree) | 60-year horizon SWR dataset. Contains all data needed for any shorter horizon via `Dataset.slice()`. | **RETAIN** — primary derived dataset |
+| `ern_swr_h360.json` | Redundant derived artifact | `tools/ern/prepend_base_snapshot.py` (processes all 4), `tests/infrastructure/test_dataset_cache.py` (historical; not present in current tree) (proves derivability) | 30-year horizon prefix of h720. Provenance explicitly labels it "Prefix of h720 (redundant)". No YAML study config uses it. No production code uses it. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
 | `ern_swr_h480.json` | Redundant derived artifact | Same as h360 | 40-year horizon prefix of h720. Same redundancy status as h360. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
 | `ern_swr_h600.json` | Redundant derived artifact | Same as h360 | 50-year horizon prefix of h720. Same redundancy status as h360. | **DELETED** — redundant derived artifact, removed during data-layer cleanup |
 | `ern_cape_1871_2016.json` | Canonical source | Part 3 research pipeline (`part3_planner.py`, `part3_aggregation.py`) | CAPE ratios for Part 3 regime classification. | **SUPERSEDED** by `cape_shiller.csv` — removed during data-layer cleanup; CAPE values are identical |
 | `ffr_monthly.json` | Reconstructed FFR series | Not canonical workbook `K`; exact numeric comparison yields 522 differences (306 substantive before 1954-07, 216 post-1954 floating-point artifacts) | Federal Funds Rate monthly data (1928-04..2026-08). | **RETAIN** — reconstructed source, not canonical `K` |
-| `p49_oracle_table.csv` | Canonical reference | `tests/oracle/ern/test_oracle_matrix.py`, `tests/oracle/ern/test_ern_swr_replication.py` | Independent oracle matrix for Part 49 validation. | **RETAIN** — canonical reference |
-| `cohort_manifest_part3.json` | Research metadata | `tests/unit/research/test_part3_planner.py`, `tests/unit/research/test_part20_cape.py`, `tests/infrastructure/test_dataset_cache.py` | Part 3 cohort eligibility manifest. | **RETAIN** — active test consumer |
+| `p49_oracle_table.csv` | Canonical reference | `tests/oracle/ern/test_oracle_matrix.py`, `tests/oracle/ern/test_part49_replication_app.py` | Independent oracle matrix for Part 49 validation. | **RETAIN** — canonical reference |
+| `cohort_manifest_part3.json` | Research metadata | `tests/unit/research/test_part3_planner.py`, `tests/unit/research/test_part20_cape.py`, `tests/infrastructure/test_dataset_cache.py` (historical; not present in current tree) | Part 3 cohort eligibility manifest. | **RETAIN** — active test consumer |
 | `ern_chart_30Y_A.csv` through `ern_chart_60Y_D.csv` (8 files) | Unreferenced data | **ZERO** consumers in code or tests. Only mentioned once as wildcard in documentation. | ERN article chart data extracted for Part 3 validation. No code reads these files. | **DELETED** — unreferenced data artifacts, removed during data-layer cleanup |
 | `ern_part3_30Y_A.csv` through `ern_part3_60Y_D.csv` (8 files) | Unreferenced data | **ZERO** consumers in code or tests. Only mentioned once as wildcard in documentation. | ERN article data extracted for Part 3 validation. No code reads these files. | **DELETED** — unreferenced data artifacts, removed during data-layer cleanup |
 | `data/ern/raw/*` (7 files) | Canonical raw sources | `tools/ern/prepend_base_snapshot.py` (ie_data.csv), provenance chains | Original source data (Shiller, Fed Funds, etc.). | **RETAIN** — canonical raw sources |
@@ -947,19 +956,19 @@ Deletion is correct. No independent information was lost.
 
 | YAML | Classification | Consumers | Independent Purpose | Disposition |
 |------|---------------|-----------|-------------------|-------------|
-| `ern_grid.yaml` | Canonical E2E config | `test_ern_swr_replication.py` (full grid E2E), 4 tools in `tools/ern/`, `test_builders.py` | Full 180-cell ERN SWR grid. Used by the canonical Research E2E. | **RETAIN** — canonical E2E configuration |
+| `ern_grid.yaml` | Canonical E2E config | `test_full_swr_grid.py` (full grid E2E), 4 tools in `tools/ern/`, `test_builders.py` | Full 180-cell ERN SWR grid. Used by the canonical Research E2E. | **RETAIN** — canonical E2E configuration |
 | `ern_part20.yaml` | Research config | `test_part20_regression.py` (2 tests), `test_part42_config.py`, `test_part20_grid.py` | Part 19+20 glidepath study (320 cells). Used by regression and config tests. | **RETAIN** — research configuration with active test consumers |
 | `ern_part3_replication.yaml` | Research config | `test_builders.py` (2 tests) | Part 3 combined experiments. Used by YAML loading tests. | **RETAIN** — research configuration with active test consumers |
 | `ern_part42.yaml` | Research config | `test_part42_config.py` | Part 42 OMY study (45 cells). Used by config validation test. | **RETAIN** — research configuration with active test consumers |
 | `ern_part49.yaml` | Study configuration | **ZERO** code/test consumers (documentation only) | Part 49 leverage study (1 cell). Valid `sim-retire` input. | **RETAIN** — valid CLI study configuration (user-facing) |
-| `ern_smoke.yaml` | Test fixture | `test_ern_swr_replication.py` (smoke test) | Minimal smoke grid (1 cell). Test-specific fixture. | **RETAIN** — test fixture |
+| `ern_smoke.yaml` | Test fixture | `test_full_swr_grid.py` (smoke test) | Minimal smoke grid (1 cell). Test-specific fixture. | **RETAIN** — test fixture |
 
 ### P.5 Tests — Complete Disposition
 
 | Test | Previously Considered Redundant? | Independent Responsibility | Disposition |
 |------|--------------------------------|---------------------------|-------------|
-| `test_smoke_grid_matches_oracle` | Yes (vs full grid) | Smoke/oracle validation — minimal CLI path verification, fast feedback | **RETAIN** — different responsibility (diagnostic vs full replication) |
-| `test_full_grid_matches_oracle` | No (canonical E2E) | Full 180-cell ERN SWR replication | **RETAIN** — canonical Research E2E |
+| `test_smoke_cell_matches_workbook_oracle` | Yes (vs full grid) | Smoke/oracle validation — minimal CLI path verification, fast feedback | **RETAIN** — different responsibility (diagnostic vs full replication) |
+| `test_full_grid_matches_workbook_oracle` | No (canonical E2E) | Full 180-cell ERN SWR replication | **RETAIN** — canonical Research E2E |
 | `test_ern_timeline_regression.py` | No | Unit-level timeline regression (P1.12R remediation) | **RETAIN** — independent regression test with specific oracle |
 | `test_oracle_matrix.py` | No | Oracle matrix structural validation | **RETAIN** — independent oracle validation |
 | `test_per_cell_parser.py` | No | CLI output parser unit tests | **RETAIN** — independent parser validation |
@@ -979,8 +988,8 @@ Deletion is correct. No independent information was lost.
 | `test_part52_deterministic_validation.py` | No | Part 52 deterministic mechanism validation | **RETAIN** — independent mechanism validation |
 | `test_part52_ffr_floating_rate.py` | No | Part 52 FFR floating rate tests | **RETAIN** — independent FFR behavior validation |
 | `test_glidepath_trajectory.py` | No | Glidepath trajectory integration tests | **RETAIN** — independent trajectory validation |
-| `test_dataset_cache.py::TestErnPrefixIdentity` | N/A | Proves h360 is derivable from h720 | **DELETE** — tests derivability of h360 (being deleted) |
-| `test_dataset_cache.py::TestErnArtifactBoundary` | N/A | Validates ERN data directory boundary | **UPDATE** — remove h360/h480/h600 from `known_datasets` |
+| `tests/infrastructure/test_dataset_cache.py::TestErnPrefixIdentity` (historical; not present in current tree) | N/A | Proves h360 is derivable from h720 | **DELETE** — tests derivability of h360 (being deleted) |
+| `tests/infrastructure/test_dataset_cache.py::TestErnArtifactBoundary` (historical; not present in current tree) | N/A | Validates ERN data directory boundary | **UPDATE** — remove h360/h480/h600 from `known_datasets` |
 
 No tests are genuinely redundant. Each tests an independent responsibility, provides better failure localization than the E2E, or validates a boundary/invariant not otherwise tested.
 
@@ -989,7 +998,7 @@ No tests are genuinely redundant. Each tests an independent responsibility, prov
 | Variable | Status | Purpose |
 |----------|--------|---------|
 | `RUN_ERN_E2E` | RETAINED | Single gate for all canonical E2E tests |
-| `ERN_E2E_FAST_PATH` | RETAINED | Optimization equivalence check (separate concern) |
+| `ERN_E2E_FAST_PATH` | HISTORICAL | No current code consumer; former optimization-equivalence check |
 | `ERN_E2E_WORKERS` | RETAINED | Worker count configuration |
 | `SIM_RETIRE_BIN` | RETAIN | CLI binary location |
 
@@ -1036,7 +1045,7 @@ The following files required updates when h360/h480/h600 and chart/part3 CSVs we
 | File | Change |
 |------|--------|
 | `tools/ern/prepend_base_snapshot.py` | Removed h360/h480/h600 from DATASETS tuple |
-| `tests/infrastructure/test_dataset_cache.py` | Deleted `TestErnPrefixIdentity` class; updated `TestErnArtifactBoundary` to remove h360/h480/h600 from `known_datasets`; deleted `test_ern_h360_resolves_after_boundary_fix`; updated docstring |
+| `tests/infrastructure/test_dataset_cache.py` (historical; not present in current tree) | Deleted `TestErnPrefixIdentity` class; updated `TestErnArtifactBoundary` to remove h360/h480/h600 from `known_datasets`; deleted `test_ern_h360_resolves_after_boundary_fix`; updated docstring |
 | `tests/oracle/ern/constants.py` | Updated docstring to remove h360/h480/h600 mention |
 | `data/ern/ern_real_returns_1871_2016.provenance.json` | Removed h360/h480/h600 from downstream section; subsequently deleted during data-layer cleanup |
 | `AGENTS.md` | Updated invocation hierarchy and code block to remove `RUN_ERN_E2E_FULL` references |

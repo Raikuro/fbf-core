@@ -1,9 +1,19 @@
 # ERN Part 42 Replication Discrepancies
 
-**Status:** Documented as of T5.1 implementation completion  
-**Source Article:** Early Retirement Now Part 42 — "The Effect of 'One More Year'" (2021-01-13)  
-**Canonical Data Vintage:** Current workbook extraction (`SWR_Toolbox_v2.0.xlsx`)  
+**Status:** Historical T5.1 discrepancy record — current validation surface removed
+
+**Source Article:** Early Retirement Now Part 42 — "The Effect of 'One More Year'" (2021-01-13)
+
+**Canonical Data Vintage:** Current workbook extraction (`SWR_Toolbox_v2.0.xlsx`)
+
 **Article Data Boundary:** Historical data through 2015-12; forward extrapolation from 2026-07
+
+> **Historical context:** The 319-cell audit described below was performed at
+> `95b1b50`. The 554-line `tests/integration/test_part42_e2e_audit.py` was deleted
+> at `2c43e68` during the Numba single-engine migration. The current
+> tree has no equivalent committed published-table validation surface. The
+> port-to-Numba vs retire decision remains unresolved. The counts and
+> classifications below describe the historical run, not the current tree.
 
 ---
 
@@ -151,13 +161,16 @@ Note: "0" failures in many 50Y scenarios produce exact matches (0.0% failure rat
 
 ## Reproduction Verification
 
-All E2E tests pass with `RUN_ERN_E2E=1`:
+The following command applied at `95b1b50` and is preserved for historical
+traceability only. It does not run in the current tree because
+`tests/integration/test_part42_e2e_audit.py` was deleted at `2c43e68`.
 
 ```
-RUN_ERN_E2E=1 pytest tests/integration/test_part42_e2e_audit.py -v
-# All 18 tests pass including:
+# Historical command — not valid in the current tree:
+RUN_ERN_E2E=1 pytest tests/integration/test_part42_e2e_audit.py -v  # historical; test deleted at 2c43e68
+# All 18 tests passed in the historical run, including:
 # - test_table01_aggregation (100 cells)
-# - test_table02_aggregation (10 cells)  
+# - test_table02_aggregation (10 cells)
 # - test_table03_aggregation (33 cells)
 # - test_table04_aggregation (66 cells)
 # - test_table05_aggregation (110 cells)
@@ -167,5 +180,6 @@ RUN_ERN_E2E=1 pytest tests/integration/test_part42_e2e_audit.py -v
 
 ---
 
-**Document Classification:** T5.1 Replication Discrepancy Record — Authoritative as of T5.1 completion  
-**Next Review:** Required if canonical dataset, extrapolation methodology, or cohort boundaries change.
+**Document Classification:** Historical T5.1 Replication Discrepancy Record — current published-table validation surface removed
+
+**Next Review:** Required if the historical audit is ported to the current Numba path or if canonical dataset, extrapolation methodology, or cohort boundaries change.

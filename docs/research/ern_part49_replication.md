@@ -1,17 +1,15 @@
 # ERN Part 49 — Using Leverage in Retirement
 
-> **Status:** SUBSET — ONE DEVIATION
+> **Status:** NON-CANONICAL SUBSET — CANONICAL B–F NOT IMPLEMENTED
 > **Article:** [Using Leverage in Retirement – SWR Series Part 49](https://earlyretirementnow.com/2021/11/16/leverage-in-retirement-swr-series-part-49/)
 >
 > **Implementation relationship:** Part 49 investigates whether margin loans can hedge sequence-of-returns risk by replacing part of the portfolio withdrawal with borrowing against the portfolio. The article finds that excessive leverage exacerbates sequence risk, but a modest supplemental loan (approximately 1% of portfolio) can improve outcomes.
 >
 > **Methodology status:** COMPLETE / FROZEN.
 >
-> **Implementation status:** PARTIALLY PRESENT — one deviation from ERN methodology:
-> 1. ~~LTV enforcement currently OFF — implementation limitation.~~ (RESOLVED: LTV enforcement is REQUIRED ON for canonical Part 49 replication. See `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)".)
-> 2. Monthly rebalancing instead of buy-and-hold — capability gap (§14.2).
+> **Implementation status:** CAPABILITIES IMPLEMENTED — buy-and-hold (`fc83253`), LTV enforcement, real-rate debt handling, and terminal margin-call semantics (`bf42fe5`) exist. The only committed replication test is a 6-cell non-canonical subset (2 equity × 3 interest = 10,434 units) with LTV enforcement OFF and `ConstantAllocationPolicy`; it does not exercise Experiments B–F.
 >
-> **E2E status:** NOT VALIDATED as canonical ERN replication.
+> **E2E status:** NOT VALIDATED as canonical ERN replication. Experiments B–F remain planned; `docs/research/ern_part49_t6.2_e2e_plan.md` is an implementation/validation plan, not a delivered test.
 
 ---
 
@@ -507,7 +505,7 @@ The article evaluates both 75/25 and 100/0 allocations in the case studies.
 
 ### 11.3 FBF Implementation
 
-FBF has monthly rebalancing (`PortfolioRebalanceStep`) but no buy-and-hold capability. **Buy-and-hold is a Part 49 replication requirement.** Whether that requires a new policy, a no-rebalance configuration, or another existing mechanism is an implementation question and should not be decided in the documentation phase.
+FBF supports both monthly rebalancing (`PortfolioRebalanceStep`, `ConstantAllocationPolicy`) and buy-and-hold (`BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()`; implemented at `fc83253`). **Buy-and-hold is a Part 49 replication requirement.** The committed 6-cell replication test still uses `ConstantAllocationPolicy`; buy-and-hold capability exists but is not exercised by that test.
 
 ---
 
@@ -886,12 +884,14 @@ Do not multiply a provisional cohort count by the number of scenarios and call t
 ### 21.4 Diagnostic Reproduction Checks
 
 All chart-derived observations have been transcribed (§15.2). These are
-diagnostic reproduction checks, not hard numerical oracles.
+historical diagnostic observations, not hard numerical oracles. The current
+committed Part 49 test is a 6-cell non-canonical subset; no committed B–F test
+reproduces these chart-derived claims.
 
-* [x] 1965 case: margin-call failure occurs approximately in the published window (months 180–200) — Chart 02 confirms
-* [x] 1929 case: trajectory reaches approximately the published month/value (month ≈238, portfolio ≈ $1.185M, loan ≈ $1.085M) — Chart 03 confirms
-* [x] $20k/$20k at month 201: loan/portfolio ratios match published values (93.11% / 84.45% / 71.60%) — Chart 04 confirms
-* [x] $30k/$10k: max utilization matches published observations (70.25% at 3% RR, 57.68% at 1.5% RR for 1965) — Charts 05/06 confirm
+* [ ] 1965 case: margin-call failure was observed in the approximate published window (months 180–200) in historical diagnostics — Chart 02; not reproducible from a committed B–F test
+* [ ] 1929 case: the trajectory was observed near the published month/value (month ≈238, portfolio ≈ $1.185M, loan ≈ $1.085M) in historical diagnostics — Chart 03; not reproducible from a committed B–F test
+* [ ] $20k/$20k at month 201: L/P ratios were recorded as 93.11% / 84.45% / 71.60% in historical diagnostics — Chart 04; not reproducible from a committed B–F test
+* [ ] $30k/$10k: max utilization was recorded as 70.25% at 3% RR and 57.68% at 1.5% RR for 1965 in historical diagnostics — Charts 05/06; not reproducible from a committed B–F test
 
 ### 21.5 Hard Replication Anchors
 
@@ -1049,4 +1049,4 @@ monthly execution
 
 Those are now resolved inputs to the replication.
 
-The next phase is the **Part 49 E2E audit definition**, with the exact published chart cells treated as the comparison oracle.
+The next phase is implementation of the **canonical B–F E2E** per `docs/research/ern_part49_t6.2_e2e_plan.md`, with the exact published chart cells treated as the comparison oracle. The current committed test remains only the non-canonical 6-cell diagnostic.

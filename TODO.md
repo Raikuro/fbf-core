@@ -190,7 +190,7 @@ implement without profiling evidence.
 
 ## S6 Part 52 — Validation State and Phase Boundary
 
-**Classification:** simulation mechanics resolved; FFR data-fidelity policy implemented; asset/CPI equivalence and validation-semantic assertions open
+**Classification:** simulation mechanics resolved; FFR data-fidelity policy implemented; asset/CPI differences reconciled as source-vintage; A2/A3/A10 published-anchor acceptance surface implemented. Eligibility and Solver reproduction remain open.
 
 This section supersedes the former S6.P FFR prerequisite, S6.6B FFR integration
 limitation, and S6.6B canonical-replication-deferred entries.
@@ -203,9 +203,11 @@ limitation, and S6.6B canonical-replication-deferred entries.
 - Terminal-month, repayment, and fixed-parameter feasibility semantics are
   implemented in the production Part 52 path.
 - A controlled production-path probe matches the workbook margin-rate formula at
-  machine precision. Full-trajectory equivalence remains subject to the separate
-  asset/CPI numerical-equivalence item; this establishes implementation
-  consistency, not independent methodological confirmation.
+  machine precision. Full-trajectory equivalence is qualified by the documented
+  asset/CPI source-vintage difference; exact numerical equivalence with the 2022
+  Timing workbook is not an acceptance criterion (see
+  `docs/research/ern_part52_replication.md` §3.4.1). This establishes
+  implementation consistency, not independent methodological confirmation.
 
 ### Phase 2 anchor feasibility (bounded implementation)
 
@@ -225,8 +227,9 @@ limitation, and S6.6B canonical-replication-deferred entries.
   historical-market layer (1,506) adds 53 cohorts using the FRED FFR extension;
   the distribution layer (1,739) adds 233 projection-dependent cohorts. The
   eligibility decision among these layers remains open.
-- Acceptance policy, coverage-layer filtering, and solver reproduction remain
-  open.
+- Coverage-layer filtering (eligibility) and solver reproduction remain open.
+  The A2/A3/A10 published-anchor acceptance surface is implemented; full-universe
+  counts are diagnostics, not canonical acceptance.
 
 ### FFR data equivalence (bounded)
 
@@ -271,7 +274,7 @@ limitation, and S6.6B canonical-replication-deferred entries.
 - In the full 1,739-cohort distribution universe, 286 cohorts consume
   post-2021 FFR and 230 consume forward-filled months from 2026-09 onward.
 
-### Phase 1 — FFR data fidelity (policy implemented; asset/CPI equivalence open)
+### Phase 1 — FFR data fidelity (policy implemented; asset/CPI vintage reconciled)
 
 1. The 2021-12 cutoff is not a SWR Toolbox data boundary. It comes from the
    separate FFR workbook `Timing-Leverage-Calc.xlsx` `Return Data!K`, which ends
@@ -294,10 +297,13 @@ limitation, and S6.6B canonical-replication-deferred entries.
 4. The canonical `ffr.csv` artifact is frozen by SHA-256. FRED acquisition
    metadata remains a documented provenance limitation; do not invent a
    download recipe or silently replace the artifact.
-5. Remaining Phase 1 data-fidelity item: asset/CPI numerical equivalence with
-   the Timing workbook. Runtime asset/CPI comes from SWR Toolbox v2.0; observed
-   CPI differences reach `0.653` index points and a 2008-12 return anomaly
-   remains. This is separate from FFR temporal coverage.
+5. Asset/CPI differences are reconciled as source-vintage differences, not an
+   open runtime defect. Runtime asset/CPI comes from SWR Toolbox v2.0; observed
+   CPI differences reach `0.653` index points, and the 2008-12 return anomaly is
+   explained by faulty Timing `Return Data!E` levels. Exact numerical
+   equivalence with the 2022 Timing workbook is not a valid acceptance test
+   (see `docs/research/ern_part52_replication.md` §3.4.1). This remains separate
+   from FFR temporal coverage.
 6. Do not introduce a pre-1928 proxy or fixed-rate fallback without explicit
    authorization; no silent fallback should conceal missing data.
 7. Do not substitute the SWR cash total-return series for FFR. Its post-1954
@@ -308,10 +314,12 @@ limitation, and S6.6B canonical-replication-deferred entries.
    post-2021 extension: same H.15 effective-rate measure, monthly, with a
    verified `1954-07..2021-12` overlap against workbook `M`. Source selection
    is no longer open. The remaining decision is eligibility: whether to replace
-   the legacy `1,452` terminal filter with the `1,506` historical-market layer
-   after asset/CPI equivalence and validation semantics are resolved. Do not
-   change production eligibility or refresh the frozen FFR artifact as part of
-   this audit. See `docs/research/ern_part52_replication.md` §3.4.
+   the legacy `1,452` terminal filter with the `1,506` historical-market layer.
+   The A2/A3/A10 acceptance surface is implemented and asset/CPI differences are
+   reconciled as source-vintage; the `1,453`/`1,506` choice still requires an
+   explicit rule for post-2021 external FFR observations. Do not change
+   production eligibility or refresh the frozen FFR artifact as part of this
+   audit. See `docs/research/ern_part52_replication.md` §3.4.
 ### Phase 2 — validation semantics and oracle assertions (acceptance surface implemented; diagnostics and Solver open)
 
 The canonical oracle test now documents scenario provenance, LTV/final-target

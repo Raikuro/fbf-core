@@ -104,7 +104,7 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
 | 19.1 | Experiment A: Fixed 3.5% SWR failure rates | 27 strategies × 3 FV × 2 CAPE = 162 cells × 1,739 cohorts | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part19_canonical_ern_replication.py` (162 cells, 12 tests, gated `ern_e2e`) | ATH fix resolved at `3e47550` | Retain; cross-validated with Part 20 Exp C |
 | 19.2 | Experiment B: Failsafe/percentile SWR | 45 strategies × 2 CAPE = 90 cells × 1,739 cohorts | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part19_experiment_b_e2e.py` (90 cells, 12 tests, gated `ern_e2e`) | ATH fix resolved at `3e47550` | Retain; cross-validated with Part 20 Exp A |
-| 19.3 | 24 glidepath definitions in Part 20 YAML | 24 glidepaths | REGRESSION COVERAGE | `PARTIALLY IMPLEMENTED` | `test_part20_replication.py` runs 320 cells (NOT Experiment A or B assertions) | None | Retain as regression coverage; NOT replication evidence |
+| 19.3 | 24 glidepath definitions in Part 20 YAML | 24 glidepaths | REGRESSION COVERAGE | `PARTIALLY IMPLEMENTED` | `test_part20_grid.py::test_part20_full_grid_replication` runs 320 cells (NOT Experiment A or B assertions) | None | Retain as regression coverage; NOT replication evidence |
 
 ### Part 20 — More Thoughts on Equity Glidepaths
 
@@ -115,14 +115,14 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 | 20.3 | Experiment C: Fixed SWR failure rates | 53 × 5 SWR × 2H = 530 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (530 cells) | Baseline audit complete | Part 20 audit §10 A/B/C assessment closed on available data (A eliminated provisionally; B superseded; C withdrawn provisionally); canonical-data revalidation pending (B11) |
 | 20.4 | Experiment D: FV targets | 53 × 3 FV = 159 cells | RESEARCH REPLICATION | `AUDIT COMPLETE` | `test_part20_e2e_audit.py` (159 cells) | Baseline audit complete | Part 20 audit §10 A/B/C assessment closed on available data (A eliminated provisionally; B superseded; C withdrawn provisionally); canonical-data revalidation pending (B11) |
 | 20.5 | Experiment E: Deterministic case study | 4 cases | RESEARCH REPLICATION | `IMPLEMENTED — FORENSICALLY VALIDATED` | `test_part20_e2e_audit.py` (4 cases) | T2.1 | Document source ambiguity; no prod change |
-| 20.6 | Existing 320-cell grid (regression) | 32 GP × 5 SWR × 2H = 320 cells × 1,739 | REGRESSION COVERAGE | `IMPLEMENTED` | `test_part20_replication.py` | None | Retain — NOT replication evidence |
+| 20.6 | Existing 320-cell grid (regression) | 32 GP × 5 SWR × 2H = 320 cells × 1,739 | REGRESSION COVERAGE | `IMPLEMENTED` | `test_part20_grid.py::test_part20_full_grid_replication` | None | Retain — NOT replication evidence |
 
 ### Part 42 — One More Year Syndrome
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 42.1 | Tables 02-05: Failsafe amounts | 7 scenario types × decade cohorts | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | None | Methodology frozen; E2E validation deferred | Deferred to implementation work |
-| 42.2 | Table 01: Fixed-4% failure probabilities | 10 rows × 11 columns | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | None | Same as 42.1 | Deferred |
+| 42.1 | Tables 02-05: Failsafe amounts | 7 scenario types × decade cohorts | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | Historical: `tests/integration/test_part42_e2e_audit.py` (deleted at `2c43e68`); current: none | Historical 319-cell audit exists in `ern_part42_replication_discrepancies.md`; port-to-Numba vs retire unresolved | Preserve historical record; decide port vs retire before new validation |
+| 42.2 | Table 01: Fixed-4% failure probabilities | 10 rows × 11 columns | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | Same historical audit; current: none | Same as 42.1 | Deferred |
 | 42.3 | Grid structure (45 cells) | 5W × 9SWR × 1H | REGRESSION COVERAGE | `IMPLEMENTED` | `test_part42_replication.py::test_part42_canonical_replication` (93,915 units) | None | Retain — structural validation only |
 | 42.4 | Accumulation/mechanics oracle | OMY accumulation semantics | ORACLE / REFERENCE | `IMPLEMENTED` | `test_part42_oracle.py` | None | Retain — independent oracle |
 
@@ -130,13 +130,13 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 49.1 | Experiment A: Preliminary leverage | Analytical check | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Buy-and-hold implemented | Implement after T6.2 |
-| 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` (Experiments B–F) | Buy-and-hold + LTV enforcement + real-rate implemented (`fc83253`, `bf42fe5`) | Retain; Charts 02–06 validated |
-| 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` | Buy-and-hold + LTV enforcement + real-rate implemented | Retain; Charts 03 validated |
-| 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` | Buy-and-hold + real-rate implemented | Retain; Chart 04 validated |
-| 49.5 | Experiment E: $30k/$10k preferred | Scenario | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` | Buy-and-hold + real-rate implemented | Retain; Charts 05/06 validated |
-| 49.6 | Experiment F: Historical 4% conclusion | 1925-1990 universe | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` | Buy-and-hold + LTV enforcement + real-rate implemented | Retain; 4752 units, 0 failures |
-| 49.7 | Non-canonical 6-cell E2E | 2E × 3I × 1,739 = 10,434 | NON-CANONICAL RESEARCH | `IMPLEMENTED` | `test_part49_replication_app.py` | None | Retain — validates leverage mechanics |
+| 49.1 | Experiment A: Preliminary leverage | Analytical check | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Buy-and-hold implemented; no analytical test | Implement the analytical check; canonical B–F E2E remains planned |
+| 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Canonical B–F test not delivered; `ern_part49_t6.2_e2e_plan.md` is a plan | Implement canonical B–F E2E per T6.2; do not cite chart matches as current validation |
+| 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Same as 49.2 | Implement canonical B–F E2E per T6.2; do not cite chart matches as current validation |
+| 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Same as 49.2 | Implement canonical B–F E2E per T6.2; do not cite chart matches as current validation |
+| 49.5 | Experiment E: $30k/$10k preferred | Scenario | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Same as 49.2 | Implement canonical B–F E2E per T6.2; do not cite chart matches as current validation |
+| 49.6 | Experiment F: Historical 4% conclusion | 1925-1990 universe | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Same as 49.2; no committed 4,752-unit run | Implement canonical B–F E2E per T6.2; do not cite 4,752 units as current evidence |
+| 49.7 | Non-canonical 6-cell E2E | 2E × 3I × 1,739 = 10,434 | NON-CANONICAL RESEARCH | `IMPLEMENTED` | `test_part49_replication_app.py::test_part49_canonical_replication` (LTV enforcement OFF; ConstantAllocationPolicy) | None | Retain as leverage-mechanics diagnostic; NOT canonical ERN replication |
 | 49.8 | Integration tests (18 units) | 2E × 3I × 3 cohorts | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part49_canonical_execution.py` | None | Retain — execution correctness |
 | 49.9 | Buy-and-hold capability | N/A | N/A | `IMPLEMENTED` | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` (`fc83253`) | None | Complete |
 | 49.10 | LTV enforcement | N/A | N/A | `IMPLEMENTED` | `LTVEvaluationStep` with `ltv_enforcement=True` (`bf42fe5`) | None | Complete |
@@ -161,9 +161,9 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 |------------------------|---------|-----------------|-------------------|------------|------------------------|-----------|---------------------|
 | `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | Parts 1+2 | 313,020 | FAST production engine | Production | SWR success rates against the workbook-derived oracle (FV=0 only) | Yes | Production conformance for the foundational SWR grid |
 | `test_full_swr_grid.py::test_smoke_cell_matches_workbook_oracle` | Part 1 | 1,739 | FAST production engine | Production | Single-cell workbook-oracle anchor | Yes | Diagnostic smoke, different responsibility |
-| `test_part20_replication.py::test_part20_full_grid_replication` | Part 20 | 556,480 | CLI reference | Regression only | Grid structure, computational execution, traceable anchors — NOT replication | Yes | Regression coverage, NOT replication evidence |
-| `test_part49_replication_app.py::test_part49_canonical_replication` | Part 49 | 10,434 | Python API (`ResearchExecutor`) | Non-canonical | Leverage mechanics with deviations (LTV OFF, no buy-and-hold) | Yes | Validates leverage mechanics, NOT canonical replication |
-| `test_part42_replication.py::test_part42_canonical_replication` | Part 42 | 93,915 | Python API (`FastPathSimulationExecutor`) | Structural only | Grid structure, directional invariants — NOT ERN anchor validation | Yes | Structural validation, NOT published-table replication |
+| `test_part20_grid.py::test_part20_full_grid_replication` | Part 20 | 556,480 | Python API (`run_study`) | Regression only | Grid structure, computational execution, traceable anchors — NOT replication | Yes | Regression coverage, NOT replication evidence |
+| `test_part49_replication_app.py::test_part49_canonical_replication` | Part 49 | 10,434 | Python API (`run_study`) | Non-canonical | Leverage mechanics only (LTV OFF; ConstantAllocationPolicy, not buy-and-hold); does not exercise B–F | Yes | Validates leverage mechanics, NOT canonical replication |
+| `test_part42_replication.py::test_part42_canonical_replication` | Part 42 | 93,915 | Python API (`run_study`) | Structural only | Grid structure, directional invariants — NOT ERN anchor validation | Yes | Structural validation, NOT published-table replication; historical 319-cell audit test was deleted at `2c43e68` |
 | `TestCanonicalERNReplication` (`test_part52_replication.py`) | Part 52 | 19,129 | Python API (`run_study`) | Diagnostic only — 1,739 distribution units; 1,506 historical-market coverage, 1,453 workbook-FFR coverage, and feasibility not applied | Gross-survival assertions for A1/A2/A3/A9/A10; A10 all-three diagnostic is 1323/1739; not canonical acceptance | Yes | Diagnostic research validation; not full canonical replication |
 | `test_part52_deterministic_validation.py` | Part 52 | 1,739 (baseline) | Python API | Integration | Mechanism correctness (policy registration, config construction) | Yes | Mechanism assertions distinct from simulation |
 | `test_part52_numerical_trace.py` | Part 52 | 1 (synthetic) | Python API | Integration | Lifecycle trace validation | Yes | Independent numerical validation |
@@ -178,7 +178,7 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 
 - **Part 20's 320-cell test** is NOT equivalent to documented Part 20 Experiments A-E. It is regression coverage, not replication.
 - **Part 42's 45-cell test** is NOT equivalent to published-table replication. It is structural validation only.
-- **Part 49's 6-cell test** is NOT canonical Part 49 replication. It is a modified FBF interpretation with documented deviations.
+- **Part 49's 6-cell test** is NOT canonical Part 49 replication. It is a 6-cell non-canonical subset with LTV enforcement OFF and ConstantAllocationPolicy; it does not exercise Experiments B–F.
 - **Part 52's current 11 scenarios**: execute the runtime FFR path, but assert only 1,739-unit gross survival on the full distribution diagnostic; historical-market coverage (1,506), workbook-FFR coverage (1,453), the legacy 1,452 subset, and three-constraint feasibility are not applied. NOT full canonical replication.
 - **Part 1's current E2E** remains valuable until Part 2's superset validation actually exists and independently validates the required outputs.
 
@@ -374,11 +374,12 @@ Use `ern_part20_e2e_audit.md` as the specification.
   - Deliverables: `tests/integration/test_part20_e2e_audit.py` (13 gated E2E tests); `docs/research/ern_part20_e2e_audit.md` updated with experimental results; `docs/research/ern_part20_replication.md` updated with discrepancy classifications
   - Final performance: ~243s / 4.1 min for full Experiment A; ~4,200 units/sec; 1,023,165 total units
 
-- [ ] **T2.2** Part 20 Experiment A — 60Y failsafe/percentile
+- [x] **T2.2** Part 20 Experiment A — 60Y failsafe/percentile
   - Target: 53 strategies × 2 CAPE = 106 cells
   - Reference: ERN Part 20 Table 02
   - Acceptance criteria: FBF output compared against published results; complete per-cohort result set retained
   - Dependencies: T2.1
+  - Status: **COMPLETE** — covered by `tests/integration/test_part20_e2e_audit.py` Experiment A (106 cells, 13 gated tests; see 20.1)
 
 - [x] **T2.3** Part 20 Experiment B — 30Y failsafe/percentile
   - Target: 53 strategies × 2 CAPE = 106 cells
@@ -460,45 +461,41 @@ All Part 19 experiments are implemented and cross-validated with Part 20 audit r
 
 ### Phase 5 — Part 42
 
-Keep existing structural/invariant coverage while separately implementing published-table validation.
+Keep existing structural/invariant coverage. The published-table audit is historical; the current tree has no equivalent committed validation surface.
 
-- [x] **T5.1** Part 42 published-table replication — **COMPLETE**
+- [x] **T5.1** Part 42 published-table replication — **HISTORICALLY VALIDATED; CURRENT VALIDATION SURFACE REMOVED**
   - Target: Tables 01-05 with decade-by-decade failsafe values
   - Prerequisite: Methodology frozen; per-cell ERN oracle table needed
   - Expected test location: New or extended E2E test
-  - Canonical: Yes
+  - Canonical: Yes, in the historical validation run
   - Acceptance criteria: Published anchors validated; discrepancies classified
   - Known blocker: No per-cell ERN oracle table exists; directional-only validation currently
   - Dependencies: None (independent of other phases)
-  - Complete: 319-cell published-table oracle fully accounted for
-  - Discrepancy documentation: `docs/research/ern_part42_replication_discrepancies.md` — documented data-vintage differences persisted
-  - Implementation and quality gates: Completed successfully
-  - Committed as single final commit
+  - Historical validation: the 319-cell published-table oracle was fully accounted for at `95b1b50`; the 554-line `tests/integration/test_part42_e2e_audit.py` was deleted at `2c43e68`
+  - Current status: no equivalent committed published-table validation exists; port-to-Numba vs retire remains unresolved, consistent with the Part 42 P5/deferred classification in `docs/roadmap/NUMBA_SINGLE_ENGINE_ROADMAP.md`
+  - Discrepancy documentation: `docs/research/ern_part42_replication_discrepancies.md` is a historical record, not a current reproduction command
+  - Historical implementation and quality gates: completed successfully at `95b1b50`
 
-### Phase 6 — Part 49 (COMPLETE — buy-and-hold + LTV enforcement + real-rate implemented)
+### Phase 6 — Part 49 (CAPABILITIES IMPLEMENTED; CANONICAL B–F E2E NOT DELIVERED)
 
-All Part 49 canonical experiments (B–F) are implemented and validated with buy-and-hold mechanics, LTV enforcement, real-rate debt handling, and terminal margin-call semantics.
+Buy-and-hold mechanics, LTV enforcement, real-rate debt handling, and terminal margin-call semantics are implemented. The canonical Experiments B–F E2E is not implemented as committed tests; the only committed replication test is a 6-cell non-canonical diagnostic.
 
 - [x] **T6.1** Part 49 buy-and-hold capability — **COMPLETE**
   - Target: Implement buy-and-hold portfolio mechanics in FBF
   - Status: **COMPLETE** — `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` implemented at `fc83253`
-  - Acceptance criteria: Buy-and-hold mechanics validated; Part 49 E2E built against it
+  - Acceptance criteria: Buy-and-hold mechanics validated; canonical Part 49 B–F E2E remains planned
   - Dependencies: None
 
-- [x] **T6.2** Part 49 canonical E2E (Experiments B–F) — **COMPLETE**
+- [ ] **T6.2** Part 49 canonical E2E (Experiments B–F) — **PLANNED / NOT IMPLEMENTED**
   - Target: Experiments B–F with buy-and-hold mechanics, LTV enforcement, real-rate debt
-  - Status: **COMPLETE** — `bf42fe5` implemented GAP-1 (withdrawal semantics), GAP-2 (real-rate flag), GAP-3 (terminal margin-call)
-  - Experiments validated:
-    - B: Nov 1965 aggressive — 4 terminal margin calls (months 188, 192, 196, 200) — Chart 02 ✅
-    - C: Sep 1929 aggressive — 4 terminal margin calls (months 224, 228, 232, 236) — Chart 03 ✅
-    - D: $20k/$20k — LTV at month 201 ≈ 71.60% / 84.45% / 93.11% — Chart 04 ✅
-    - E: $30k/$10k — Max LTV 70.25%@348 (3%), 57.68%@201 (1.5%) — Charts 05/06 ✅
-    - F: Historical 4% — 4752 units (792 cohorts × 6 cells), 0 failures — "never failed" ✅
-  - Non-leverage historical comparison: Matches pinned `p49_oracle_table.csv` ✅
+  - Status: **CAPABILITIES IMPLEMENTED; CANONICAL E2E NOT DELIVERED** — `bf42fe5` implemented GAP-1 (withdrawal semantics), GAP-2 (real-rate flag), GAP-3 (terminal margin-call); these are capability fixes, not B–F validation
+  - Plan: `docs/research/ern_part49_t6.2_e2e_plan.md` is an implementation/validation plan, not a delivered test
+  - Current committed test: `tests/oracle/ern/test_part49_replication_app.py` has one 6-cell test (2E × 3I = 10,434 units) with `ltv_enforcement: false` and `ConstantAllocationPolicy`; it does not exercise Experiments B–F
+  - Unsupported in the current tree: the Chart 02–06 match claims, the 4,752-unit Experiment F run, and the reported per-experiment results; these are historical/planned diagnostics until a committed B–F test exists
   - Prerequisite: T6.1 (complete)
   - Dependencies: T6.1
 
-**Status:** The Part 49 replication test is committed as `tests/oracle/ern/test_part49_replication_app.py`. Its existence does not implement or complete Experiment A, which remains `PLANNED — NOT IMPLEMENTED` (49.1).
+**Status:** The only committed Part 49 replication test is the non-canonical 6-cell test in `tests/oracle/ern/test_part49_replication_app.py`. Experiment A remains `PLANNED — NOT IMPLEMENTED` (49.1), and Experiments B–F remain planned under T6.2.
 
 ---
 
@@ -526,8 +523,8 @@ A test that merely runs all cells is NOT automatically considered replication-co
 | Part 3 | 4 experiment configurations validated; 6 published anchors matched |
 | Part 19 | Experiment A failure rates validated; Experiment B failsafe/percentiles validated |
 | Part 20 | All 5 experiments (A-E) executed; every discrepancy classified per §9 of audit definition |
-| Part 42 | Published Tables 01-05 validated; OMY improvement quantified |
-| Part 49 | All 6 experiments validated with buy-and-hold; LTV enforcement active |
+| Part 42 | Historical 319-cell published-table audit; current audit test deleted (port vs retire unresolved) |
+| Part 49 | Experiment A planned; Experiments B–F planned (only a 6-cell non-canonical diagnostic exists) |
 | Part 52 | 11 scenarios execute with runtime FFR; gross-survival diagnostic recorded; historical-market (1,506) / workbook-FFR (1,453) coverage, legacy 1,452 subset feasibility, and solver reproduction remain open |
 
 ### Discrepancy Classification (Part 20)
