@@ -82,8 +82,9 @@ recorded in `docs/research/ERN_E2E_REPLICATION_PLAN.md` §F.4.1.
 
 ### Validated findings (summary)
 
-1. **Cohort universe** — CLOSED. FBF and ERN use identical monthly cohorts
-   (Feb 1871–Dec 2015, 1,739 cohorts, 383 with CAPE > 20).
+1. **Cohort universe** — CLOSED. ERN's workbook retirement labels span
+   Feb 1871–Dec 2015 (1,739 cohorts, 383 with CAPE > 20); FBF represents the
+   same cohorts as runtime starts Jan 1871–Nov 2015.
 
 2. **CAPE cohort selection** — CLOSED. No divergence found.
 
@@ -484,5 +485,49 @@ If a consumer requires annual withdrawals in a monthly-only family, implement
 the annual withdrawal boundary (`period_index % 12 == 0`) in the corresponding
 kernel and add an independent Decimal recurrence test for annual timing.
 Otherwise retain the explicit rejection. Do not silently map annual to monthly.
+
+---
+
+## Final Validation: Regenerate the Relevant ERN Research Datasets and Validation Results Using the Canonical Excel Workbook
+
+**Classification:** future final validation task — deferred until all other
+work currently registered in this document and the project roadmaps is
+complete; not current implementation work
+
+### Problem
+
+The historical Part 19/20 investigations, including the Part 20 audit §10 A/B/C
+closure, used research datasets and derived artifacts whose provenance and
+vintage relative to the current canonical Excel workbook have not been
+re-established. Those inputs may be obsolete.
+
+The existing numerical evidence must therefore not be treated as reliable,
+representative, or definitive validation against the current canonical
+workbook. Historical findings remain valid only as findings on the data actually
+used, not as final canonical-data conclusions.
+
+### Required resolution
+
+This is the final validation task in the current TODO register and must remain
+its last outstanding item. This does not preclude new work being added later.
+Start it only after all other work currently registered is complete. Then:
+
+1. Re-extract the required source data directly from the canonical Excel
+   workbook.
+2. Regenerate the affected datasets and derived research artifacts.
+3. Re-run the relevant Part 19/20 comparisons and validation.
+4. Reassess the A/B/C conclusions using the regenerated data.
+5. Update the forensic reports, audit results, and roadmap statuses accordingly.
+
+Do not regenerate datasets, rerun investigations, or alter historical evidence
+as part of the current documentation-only work. Until this task supersedes
+them, preserve the historical forensic and audit evidence with its
+data-provenance qualification.
+
+### Sequencing
+
+After completion of all other work currently registered in `TODO.md` and the
+project roadmaps. This task may revise the current A/B/C statuses only if the
+regenerated canonical-data evidence requires it.
 
 ---

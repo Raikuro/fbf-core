@@ -1,9 +1,17 @@
 # Part 20 A–D V1 Execution-Order Isolation — Forensic Report
 
 **Date:** 2026-10-03  
-**Status:** COMPLETE — Execution order ELIMINATED as cause of remaining discrepancies  
+**Status:** COMPLETE — Execution order provisionally ELIMINATED as cause of remaining discrepancies on the datasets used
 **Test Artifact:** `tests/forensic_v1_targeted.py`  
 **Execution:** `RUN_ERN_E2E=1 python tests/forensic_v1_targeted.py`
+
+> **Data-provenance qualification (2026-10-31):** This isolation used the
+> research dataset then available. Its provenance and vintage relative to the
+> current canonical Excel workbook have not been re-established, and it may be
+> obsolete. The zero-change result is historical evidence for the tested cells
+> under that dataset, not a definitive canonical-data validation. The final
+> canonical-data regeneration and reassessment task is recorded as the last item
+> in `TODO.md`.
 
 ---
 
@@ -127,13 +135,13 @@ The targeted V1 isolation test completed successfully against **46 explicit anch
 
 ## 4. Root-Cause Conclusion
 
-### Execution Order ELIMINATED
+### Execution Order Provisionally ELIMINATED on the Datasets Used
 
 The V1 execution-order variant (ERN ordering: **MarketEvolution → WithdrawalExecution → PortfolioRebalance**) produces **bitwise-identical results** to the baseline ordering (**WithdrawalExecution → PortfolioRebalance → MarketEvolution**) across all 46 explicitly documented unexplained anchor cells in Experiments A–D.
 
-**Therefore: Execution order is formally eliminated as a causal factor for the 43 (46 anchor) remaining Part 20 A–D unexplained discrepancies.**
+**Therefore: Execution order is provisionally eliminated as a causal factor for the 43 (46 anchor) remaining Part 20 A–D unexplained discrepancies on the datasets used.**
 
-This confirms the earlier finding from the V1 isolation test on active-glidepath discrepancies (which showed 0 pp effect) and extends it to the full unexplained set.
+This confirms the earlier finding from the V1 isolation test on active-glidepath discrepancies (which showed 0 pp effect) and extends it to the full unexplained set. The elimination must be reassessed after canonical-data regeneration.
 
 ---
 

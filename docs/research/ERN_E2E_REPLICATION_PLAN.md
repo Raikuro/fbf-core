@@ -168,18 +168,18 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **E2E status:** **IMPLEMENTED & CROSS-VALIDATED** — `test_part19_canonical_ern_replication.py` (Exp A) and `test_part19_experiment_b_e2e.py` (Exp B) both implemented and gated `ern_e2e`. Cross-validated against Part 20 Exp C and Exp A respectively.
 - **Note:** Part 20 ⊃ Part 19 for glidepath definitions (see Section D). Part 19 Experiment A remains an independent E2E target — Part 20 does not reproduce it as a complete experiment (see Section D.2).
 
-#### Part 20 — CANONICAL METHODOLOGY — AUDIT COMPLETE, CAPE/PROJECTION FORENSIC VARIANTS (V1/V2/V3) COMPLETE
+#### Part 20 — CANONICAL METHODOLOGY — AUDIT COMPLETE ON AVAILABLE DATA, CANONICAL-DATA REVALIDATION PENDING
 
 - **Grid:** `ern_part20.yaml` (32 glidepaths × 5 SWR × 2 horizons = 320 cells)
 - **Dataset:** `ern_swr_h720.json`
 - **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established.
 - **Implementation status:** **ALIGNMENT RESOLVED** — ATH/underwater state now uses the CPI-adjusted real total-return index and real running ATH (`ern_part20_e2e_audit.md` §19.7). The earlier nominal running-ATH fix (`3e47550`) is historical and superseded; remaining active-anchor residuals are recorded in §19.7.
-- **E2E status:** **AUDIT COMPLETE, FORENSIC INVESTIGATION COMPLETE** — `test_part20_e2e_audit.py` (13 gated E2E tests) executed all 5 Experiments (A–E). Experiments A–D classified (43 UNEXPLAINED DIFF total, 2–180 ULP). Experiment E implemented and forensically validated (8 UNEXPLAINED DIFF — source ambiguity documented).
+- **E2E status:** **AUDIT COMPLETE ON AVAILABLE DATA, FORENSIC INVESTIGATION COMPLETE, CANONICAL-DATA REVALIDATION PENDING** — `test_part20_e2e_audit.py` (13 gated E2E tests) executed all 5 Experiments (A–E). Experiments A–D classified (43 UNEXPLAINED DIFF total, 2–180 ULP). Experiment E implemented and forensically validated (8 UNEXPLAINED DIFF — source ambiguity documented). The datasets used may be obsolete and have not been re-established against the current canonical workbook; numerical conclusions and the A/C statuses are historical and data-dependent, while B is methodology-supported. All remain subject to reassessment pending the final task in `TODO.md`.
 - **Forensic investigations completed:**
-  1. **Execution order (V1)** — ELIMINATED. V1 pipeline (MarketEvolution → WithdrawalExecution → PortfolioRebalance) produces bitwise-identical results to baseline for all 46 residual anchor cells. Report: `docs/research/ERN_PART20_V1_FORENSIC_REPORT.md`.
+  1. **Execution order (V1)** — ELIMINATED (provisional). V1 pipeline (MarketEvolution → WithdrawalExecution → PortfolioRebalance) produces bitwise-identical results to baseline for all 46 residual anchor cells under the datasets used. Report: `docs/research/ERN_PART20_V1_FORENSIC_REPORT.md`.
   2. **CAPE regime definition/timing** — CONTRIBUTING FACTOR (based on 2016 projection boundary). 105/1866 CAPE regime disagreements reproduced. Switching to ERN CAPE (from workbook) changes 23/25 Experiment C cells but not A/B/D; mixed directional impact. CAPE timing (±1 month) produces zero regime changes. Report: `docs/research/ERN_PART20_CAPE_FORENSIC_REPORT.md`.
   3. **Forward-projection methodology** — CONTRIBUTING FACTOR (based on 2016 projection boundary). Projection start date (2016-10 vs 2026-07) is the dominant factor, reducing Experiment C failure rates by 1.5–4.4 pp. Equity return assumption (6.6% vs 7.0%) also material. Workbook projection parameters (3.93% equity, 2.47% bond, 2026-07 start) produce largest improvements but leave large ULP gaps and worsen one cell. Report: `docs/research/ERN_PART20_FORWARD_PROJECTION_FORENSIC_REPORT.md`.
-  4. **Data-vintage / source-difference** — **RULED OUT**. Current FBF loader already truncates historical data at 2016-09 per ERN Part 1 §4; the extra CSV data through 2026-06 is loaded but never used in the historical period. ERN-era vintage test produces bitwise-identical results. Report: `docs/research/ERN_PART20_DATA_VINTAGE_FORENSIC_REPORT.md`.
+  4. **Data-vintage / source-difference** — **RULED OUT**. Current FBF loader already truncates historical data at 2016-09 per ERN Part 1 §4; the extra CSV data through 2026-06 is loaded but never used in the historical period. ERN-era vintage test produces bitwise-identical results. This is a historical finding on the datasets then used, subject to the data-provenance qualification in §F.4.1, and is not a guarantee for regenerated or current canonical data. Report: `docs/research/ERN_PART20_DATA_VINTAGE_FORENSIC_REPORT.md`.
   5. **Percentile interpolation** — **ELIMINATED**. FBF's `floor(p*n)` order statistic vs Excel's linear `PERCENTILE` interpolation tested on all 46 residual anchor cells. Raw differences of 0.0004–0.0079 displayed pp are below the 0.01 pp display quantum. Zero cells changed. Report: `docs/research/ERN_PART20_PERCENTILE_FORENSIC_REPORT.md`.
   6. **CAPE × Forward Projection Interaction** — CONTRIBUTING FACTOR (based on 2016 projection boundary). 4-way factorial test (Shiller/ERN CAPE × FBF/Workbook projection) on 46 residual cells. One cell REPRODUCED only in combined variant (`static_100 @ 4% 60Y`). Interaction effects mostly sub-additive (max -2.4 pp). Mixed directional effects; not sufficient as primary explanation. Report: `docs/research/ERN_PART20_CAPE_PROJECTION_INTERACTION_FORENSIC_REPORT.md`.
   7. **Expense ratio / fee treatment** — **ELIMINATED**. FBF's current implementation uses 0% expense ratio; ERN Part 1 §4 and SWR Toolbox v2.0 workbook specify 0.05% p.a. Testing 0.05% and 0.10% annual expense ratios on all 46 residual anchor cells produced **zero changes** across all experiments. The fee mechanism applies proportionally, preserving order statistics, so displayed results are unchanged. Report: `docs/research/ERN_PART20_EXPENSE_RATIO_FORENSIC_REPORT.md`.
@@ -192,7 +192,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
      - `static_080 @ 3.75% 60Y` improves to **19.0%** (from 23.5%).
      - All four production-change conditions satisfied for correcting the projection boundary and CAPE source.
      - Report: `docs/research/ERN_PART20_CORRECTED_METHODOLOGY_FORENSIC_REPORT.md`.
-- **CAPE/projection forensic variants (V1/V2/V3):** COMPLETE. Production changes are justified for projection boundary and CAPE source correction. **Part 20 audit §10 difference-attribution variants (A/B/C): OPEN** — see §F.4.1 and `ern_part20_e2e_audit.md` §10.
+- **CAPE/projection forensic variants (V1/V2/V3):** COMPLETE on available data. Production changes are justified for projection boundary and CAPE source correction. **Part 20 audit §10 difference-attribution variants (A/B/C): CLOSED AS FORENSIC ASSESSMENT ON AVAILABLE DATA** — A eliminated provisionally, B superseded, C withdrawn provisionally; this is not a definitive canonical-data validation. See §F.4.1 and `ern_part20_e2e_audit.md` §10. Revalidation is the final task in `TODO.md`.
 - **Forensic investigations:** COMPLETE — all 9 planned investigations executed and documented.
 
 #### Part 42 — E2E/IMPLEMENTATION VALIDATION DEFERRED
@@ -239,7 +239,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 | Part 2 | YES | Canonical (FV=0) | FV>0 cells not implemented |
 | Part 3 | YES (methodology) | Forensic complete — gap external | None |
 | Part 19 | YES | Implemented & cross-validated | Resolved (ATH fix `3e47550`) |
-| Part 20 | YES | Audit complete — forensic investigation complete | Resolved (ATH fix `3e47550`) |
+| Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Resolved (ATH fix `3e47550`) |
 | Part 42 | YES | Canonically validated | None |
 | Part 49 | YES | Validated with documented limitations | None (buy-and-hold, LTV, real-rate implemented) |
 | Part 52 | PARTIAL | A1/A9 canonical; A2–A8/A10–A11 research validation | A10 execution/timing (B10); FFR methodology |
@@ -363,7 +363,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 |---------|---------------|-------------------|
 | Part 3 (CAPE) | Methodology complete — E2E spec pending | None (methodology complete) |
 | Part 19 (Glidepaths) | Canonical methodology — implementation & cross-validated | Resolved (ATH fix `3e47550`) |
-| Part 20 (Glidepaths) | Audit complete — forensic investigation complete | Resolved (ATH fix `3e47550`) |
+| Part 20 (Glidepaths) | Audit complete on available data — canonical-data revalidation pending | Resolved (ATH fix `3e47550`) |
 | Part 42 (OMY) | E2E/implementation validation deferred | Deferred to implementation work |
 | Part 49 (Leverage) | Subset — two deviations | (1) LTV OFF, (2) no buy-and-hold |
 | Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | FFR resolved; full E2E validation pending |
@@ -434,10 +434,10 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 **Part 20 E2E status:** **AUDIT COMPLETE, FORENSIC INVESTIGATION COMPLETE, CORRECTED METHODOLOGY IDENTIFIED** — `test_part20_e2e_audit.py` executed all 5 Experiments (A–E). Experiments A–D classified (43 UNEXPLAINED DIFF total, 2–180 ULP). Experiment E implemented and forensically validated (8 UNEXPLAINED DIFF — source ambiguity documented). **Critical finding: FBF's projection boundary (2016-10) and CAPE source do not match the authoritative SWR Toolbox workbook (historical data through 2026-06, Shiller CAPE from workbook Column 15).** This foundational discrepancy explains the majority of residuals and supersedes previous interaction-based explanations.
 
 **Forensic investigations completed for Part 20:**
-  1. **Execution order (V1)** — ELIMINATED. V1 pipeline produces bitwise-identical results to baseline for all 46 residual anchor cells. Report: `docs/research/ERN_PART20_V1_FORENSIC_REPORT.md`.
+  1. **Execution order (V1)** — ELIMINATED (provisional). V1 pipeline produces bitwise-identical results to baseline for all 46 residual anchor cells under the datasets used. Report: `docs/research/ERN_PART20_V1_FORENSIC_REPORT.md`.
   2. **CAPE regime definition/timing** — CONTRIBUTING FACTOR (based on 2016 projection boundary). 105/1866 CAPE regime disagreements reproduced. Switching to ERN CAPE (from workbook) changes 23/25 Experiment C cells but not A/B/D; mixed directional impact. CAPE timing (±1 month) produces zero regime changes. Report: `docs/research/ERN_PART20_CAPE_FORENSIC_REPORT.md`.
   3. **Forward-projection methodology** — CONTRIBUTING FACTOR (based on 2016 projection boundary). Projection start date (2016-10 vs 2026-07) is the dominant factor, reducing Experiment C failure rates by 1.5–4.4 pp. Equity return assumption (6.6% vs 7.0%) also material. Workbook projection parameters (3.93% equity, 2.47% bond, 2026-07 start) produce largest improvements but leave large ULP gaps and worsen one cell. Report: `docs/research/ERN_PART20_FORWARD_PROJECTION_FORENSIC_REPORT.md`.
-  4. **Data-vintage / source-difference** — **RULED OUT**. Current FBF loader already truncates historical data at 2016-09 per ERN Part 1 §4; the extra CSV data through 2026-06 is loaded but never used in the historical period. ERN-era vintage test produces bitwise-identical results. Report: `docs/research/ERN_PART20_DATA_VINTAGE_FORENSIC_REPORT.md`.
+  4. **Data-vintage / source-difference** — **RULED OUT**. Current FBF loader already truncates historical data at 2016-09 per ERN Part 1 §4; the extra CSV data through 2026-06 is loaded but never used in the historical period. ERN-era vintage test produces bitwise-identical results. This is a historical finding on the datasets then used, subject to the data-provenance qualification in §F.4.1, and is not a guarantee for regenerated or current canonical data. Report: `docs/research/ERN_PART20_DATA_VINTAGE_FORENSIC_REPORT.md`.
   5. **Percentile interpolation** — **ELIMINATED**. FBF's `floor(p*n)` order statistic vs Excel's linear `PERCENTILE` interpolation tested on all 46 residual anchor cells. Raw differences of 0.0004–0.0079 displayed pp are below the 0.01 pp display quantum. Zero cells changed. Report: `docs/research/ERN_PART20_PERCENTILE_FORENSIC_REPORT.md`.
   6. **CAPE × Forward Projection Interaction** — CONTRIBUTING FACTOR (based on 2016 projection boundary). 4-way factorial test (Shiller/ERN CAPE × FBF/Workbook projection) on 46 residual cells. One cell REPRODUCED only in combined variant (`static_100 @ 4% 60Y`). Interaction effects mostly sub-additive (max -2.4 pp). Mixed directional effects; not sufficient as primary explanation. Report: `docs/research/ERN_PART20_CAPE_PROJECTION_INTERACTON_FORENSIC_REPORT.md`.
   7. **Expense ratio / fee treatment** — **ELIMINATED**. 0.05% and 0.10% annual expense ratios tested on 46 residual cells produced zero changes across all experiments. The fee mechanism applies proportionally, preserving order statistics. Report: `docs/research/ERN_PART20_EXPENSE_RATIO_FORENSIC_REPORT.md`.
@@ -454,19 +454,27 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 **Resolved:** Part 20 does not reproduce Part 19 Experiment A (fixed 3.5% SWR failure-rate analysis). Part 19 Experiment A remains an independent E2E validation target.
 **Test classification:** Integration tests with small fixtures (retain).
 
-#### F.4.1 Part 20 Forensic Investigations — COMPLETE
+#### F.4.1 Part 20 Forensic Investigations — COMPLETE ON AVAILABLE DATA
 
-**Status:** COMPLETE — ALL PLANNED INVESTIGATIONS EXECUTED (9 investigations)
+**Status:** COMPLETE ON AVAILABLE DATA — ALL PLANNED INVESTIGATIONS EXECUTED (9 investigations); CANONICAL-DATA REVALIDATION PENDING
 
-The Part 20 forensic investigations are complete and accepted. Nine investigations were executed:
+> **Data-provenance qualification (2026-10-31):** These investigations used
+> research datasets and derived artifacts whose provenance and vintage relative
+> to the current canonical Excel workbook have not been re-established. Those
+> inputs may be obsolete, so the numerical findings in this section and its
+> supporting forensic reports are historical and data-dependent. They are not a
+> definitive canonical-data validation. The final regeneration and reassessment
+> task is recorded as the last item in `TODO.md`.
 
-1. **Execution order (V1)** — **ELIMINATED**. V1 pipeline (`MarketEvolution → WithdrawalExecution → PortfolioRebalance`) produces bitwise-identical results to baseline (`WithdrawalExecution → PortfolioRebalance → MarketEvolution`) for all 46 residual anchor cells. Report: `docs/research/ERN_PART20_V1_FORENSIC_REPORT.md`.
+The Part 20 forensic investigations are complete on the available data and accepted as historical findings. Nine investigations were executed:
+
+1. **Execution order (V1)** — **ELIMINATED (provisional)**. V1 pipeline (`MarketEvolution → WithdrawalExecution → PortfolioRebalance`) produces bitwise-identical results to baseline (`WithdrawalExecution → PortfolioRebalance → MarketEvolution`) for all 46 residual anchor cells under the datasets used. Report: `docs/research/ERN_PART20_V1_FORENSIC_REPORT.md`.
 
 2. **CAPE regime definition/timing** — **CONTRIBUTING FACTOR (based on 2016 projection boundary)**. 105/1866 CAPE regime disagreements reproduced. Switching to ERN CAPE (from workbook) changes 23/25 Experiment C cells but not A/B/D; mixed directional impact. CAPE timing (±1 month) produces zero regime changes. Report: `docs/research/ERN_PART20_CAPE_FORENSIC_REPORT.md`.
 
 3. **Forward-projection methodology** — **CONTRIBUTING FACTOR (based on 2016 projection boundary)**. Projection start date (2016-10 vs 2026-07) is the dominant factor, reducing Experiment C failure rates by 1.5–4.4 pp. Equity return assumption (6.6% vs 7.0%) also material. Workbook projection parameters (3.93% equity, 2.47% bond, 2026-07 start) produce largest improvements but leave large ULP gaps and worsen one cell. Report: `docs/research/ERN_PART20_FORWARD_PROJECTION_FORENSIC_REPORT.md`.
 
-4. **Data-vintage / source-difference** — **RULED OUT**. Current FBF loader already truncates historical data at 2016-09 per ERN Part 1 §4; the extra CSV data through 2026-06 is loaded but never used in the historical period. ERN-era vintage test produces bitwise-identical results. Report: `docs/research/ERN_PART20_DATA_VINTAGE_FORENSIC_REPORT.md`.
+4. **Data-vintage / source-difference** — **RULED OUT**. Current FBF loader already truncates historical data at 2016-09 per ERN Part 1 §4; the extra CSV data through 2026-06 is loaded but never used in the historical period. ERN-era vintage test produces bitwise-identical results. This is a historical finding on the datasets then used, subject to the data-provenance qualification in §F.4.1, and is not a guarantee for regenerated or current canonical data. Report: `docs/research/ERN_PART20_DATA_VINTAGE_FORENSIC_REPORT.md`.
 
 5. **Percentile interpolation** — **ELIMINATED**. FBF's `floor(p*n)` order statistic vs Excel's linear `PERCENTILE` interpolation tested on all 46 residual anchor cells. Raw differences of 0.0004–0.0079 displayed pp are below the 0.01 pp display quantum. Zero cells changed. Report: `docs/research/ERN_PART20_PERCENTILE_FORENSIC_REPORT.md`.
 
@@ -487,7 +495,7 @@ The Part 20 forensic investigations are complete and accepted. Nine investigatio
 
 **Next forensic hypothesis:** None — all planned investigations complete.
 
-**CAPE/projection forensic variants (V1/V2/V3):** COMPLETE. **Production changes NOW JUSTIFIED** for projection boundary (2016→2026) and CAPE source (FBF Shiller → Workbook Shiller) — all four production-change conditions satisfied. **Part 20 audit §10 difference-attribution variants (A/B/C): OPEN** — see `ern_part20_e2e_audit.md` §10.
+**CAPE/projection forensic variants (V1/V2/V3):** COMPLETE on available data. **Production changes NOW JUSTIFIED** for projection boundary (2016→2026) and CAPE source (FBF Shiller → Workbook Shiller) — all four production-change conditions satisfied. **Part 20 audit §10 difference-attribution variants (A/B/C): CLOSED AS FORENSIC ASSESSMENT ON AVAILABLE DATA** — A eliminated provisionally, B superseded, C withdrawn provisionally; not a definitive canonical-data validation. See `ern_part20_e2e_audit.md` §10 and the final canonical-data revalidation task in `TODO.md`.
 
 **Do not reopen the Part 20 forensic investigations unless new evidence contradicts these validated conclusions.** In particular, do not create new tasks to investigate execution order, CAPE timing, or forward-projection parameters merely because FBF's precise binary-searched failsafe differs from a published ERN percentage. Published ERN percentages must be interpreted according to the documented search/grid and success-rate conventions.
 

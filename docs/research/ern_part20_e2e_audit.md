@@ -3,6 +3,16 @@
 **Status:** METHODOLOGY COMPLETE — E2E AUDIT READY
 **Implementation changes:** NONE at this stage
 
+> **Data-provenance limitation (2026-10-31).** The numerical evidence in this
+> audit was produced from research datasets and derived artifacts whose
+> provenance and vintage relative to the current canonical Excel workbook have
+> not been re-established. Those inputs may be obsolete. The results are
+> historical evidence on the data actually used, not a definitive numerical
+> validation against the current canonical workbook. Methodology-based findings
+> remain useful, but data-dependent conclusions are provisional and must be
+> reassessed by the final canonical-data revalidation task recorded in
+> `TODO.md`.
+
 Part 20 is now methodologically closed. All previously open methodology questions have been resolved and the documentation has been updated accordingly. The next phase is an evidence-driven end-to-end audit against the ERN publication.
 
 ---
@@ -219,8 +229,8 @@ A discrepancy exists, but it is attributable to a methodology or framework diffe
 Known candidates include:
 
 - ERN 1,740 cohorts vs FBF 1,739 executable cohorts;
-- ERN return → withdrawal → rebalance ordering vs current FBF ordering;
-- Historical nominal S&P 500 total-return ATH premise vs FBF's real total-return calculation — superseded by the real-ATH correction in §19.7; retained only as the historical Variant B specification;
+- ERN return → withdrawal → rebalance ordering vs current FBF ordering — examined by Variant A and eliminated in `ERN_PART20_V1_FORENSIC_REPORT.md`; not an explanatory basis for residual differences;
+- Historical nominal S&P 500 total-return ATH premise vs FBF's real total-return calculation — superseded by the real-ATH correction in §19.7; not an explanatory basis; retained only as the historical Variant B specification;
 - CAPE availability constraints;
 - other explicitly documented data-representation differences.
 
@@ -238,19 +248,51 @@ This must be distinguished from a numerical mismatch.
 
 ## 10. Difference Attribution
 
-> **Terminology and status (2026-10-30).** The variants below are the
-> **Part 20 audit §10 difference-attribution variants (A/B/C)**. They remain
-> open. They are distinct from the completed **CAPE/projection forensic
-> variants (V1/V2/V3)** documented in `ERN_E2E_REPLICATION_PLAN.md`. The
-> separate forensic elimination of the execution-order hypothesis in
-> `ERN_PART20_V1_FORENSIC_REPORT.md` does not close this broader audit
-> investigation. T2.1 baseline evidence strings retain the historical term
-> "variant isolation"; these refer to the same §10 difference-attribution
-> variants (A/B/C) and are not a separate audit concept.
+> **Terminology, closure status, and data qualification (2026-10-31).** The
+> variants below are the **Part 20 audit §10 difference-attribution variants
+> (A/B/C)**. This investigation is closed only as a forensic assessment on the
+> datasets then available; it is not a definitive canonical-data validation.
+> Those datasets may be obsolete and have not been re-established against the
+> current canonical Excel workbook, so both the zero-change result and the
+> remaining discrepancies are data-dependent. The variants are distinct from
+> the completed **CAPE/projection forensic variants (V1/V2/V3)** documented in
+> `ERN_E2E_REPLICATION_PLAN.md`. T2.1 baseline evidence strings retain
+> pre-closure wording such as "variant isolation pending", "§10 variant
+> isolation not run", and ordering/nominal-ATH candidate labels. They describe
+> the baseline execution, are not current status or causal claims, and do not
+> indicate pending A/B/C work under the existing-data closure. They also do not
+> represent the final canonical-data revalidation task. This documentation-only
+> closure does not rewrite those runtime strings; the tables below reflect the
+> closure.
 
-Where possible, the audit should isolate known differences individually.
+**Closure status on the datasets used:**
 
-For example:
+| Variant | Forensic status | Basis | Data dependence |
+|---------|-----------------|-------|-----------------|
+| A — execution ordering | **ELIMINATED (provisional)** | `ERN_PART20_V1_FORENSIC_REPORT.md` tested the ERN ordering across all 46 documented A–D anchor cells and observed zero change under the datasets used. | The numerical elimination is data-dependent and must be reassessed after canonical-data regeneration. |
+| B — nominal ATH | **SUPERSEDED (methodology-supported)** | Audit §19.7 establishes the CPI-adjusted real total-return ATH. The nominal premise is historical and is not a valid current specification. | The conclusion is specification-based, not a numerical validation of the current workbook. |
+| C — A plus B | **WITHDRAWN (provisional)** | It combines an eliminated hypothesis with a superseded specification and has no independent hypothesis or validation requirement. | It inherits the data dependence of A and B and must be reassessed after regeneration. |
+
+These statuses close the A/B/C hypotheses as an investigation; they do not
+establish numerical equivalence or validate any residual difference as a
+canonical-data result. The audit acceptance criteria in §12 require every
+publication comparison to be classified; they do not require these variants to
+be executed.
+
+**Scope:** Variant A's elimination is established for the Experiments A–D
+publication comparisons covered by the V1 forensic test, under the datasets
+available to that investigation. The deterministic Experiment E
+allocation-anchor investigation is a separate source/reference ambiguity; its
+untested ordering hypothesis remains documented in
+`ern_part20_replication.md` §14/§16.5 and is not part of this A/B/C closure.
+
+No A/B/C rerun is required using the existing datasets or as part of the current
+work. The final canonical-data validation task recorded as the last item in
+`TODO.md` must regenerate the affected data, re-run the relevant Part 19/20
+comparisons, and reassess these statuses.
+
+The variant definitions below are retained as the historical audit
+specification.
 
 ### Baseline
 
@@ -262,25 +304,34 @@ Change only monthly execution ordering to:
 
 **return → withdrawal → rebalance**
 
+**Status: ELIMINATED (provisional).** See `ERN_PART20_V1_FORENSIC_REPORT.md`.
+This result is data-dependent and does not establish canonical-data equivalence.
+
 ### Variant B
 
 Change only the underwater/ATH calculation to use the ERN-specified nominal S&P 500 total-return index.
 
-> **Note on Variant B.** The nominal-ATH premise predates the ATH correction in
-> §19.7, which establishes the CPI-adjusted real total-return ATH. Variant B is
-> retained as the historical audit specification; its open status is unchanged.
+**Status: SUPERSEDED.** The nominal-ATH premise predates the ATH correction in
+§19.7, which establishes the CPI-adjusted real total-return ATH. This variant is
+retained only as historical audit context and must not be rerun as a current
+hypothesis. This is a specification conclusion, not a numerical validation of
+the current workbook.
 
 ### Variant C
 
 Apply both changes.
 
-This allows the audit to determine whether discrepancies are:
+**Status: WITHDRAWN (provisional).** Because A is eliminated and B is superseded,
+C has no independent hypothesis or remaining validation requirement. Its status
+inherits the data dependence of A and B and must be reassessed after canonical
+data regeneration.
 
-- independently explained;
-- interacting effects;
-- or still unexplained.
-
-No permanent architectural change should be made merely to perform such an audit variant.
+**Remaining validation requirement:** None for A/B/C using the existing
+datasets. The residual Part 20 differences remain classified under §9; this
+closure does not change any REPRODUCED, EXPLAINED DIFFERENCE, UNEXPLAINED
+DIFFERENCE, or CAPABILITY GAP classification. Final canonical-data revalidation
+is the outstanding task recorded as the last item in `TODO.md`. A future causal
+investigation must be recorded as a new hypothesis with its own evidence.
 
 ## 11. Published Results Are Validation Anchors, Not Complete Oracles
 
@@ -447,7 +498,7 @@ The next action is therefore straightforward:
 
 ### 16.5 Notes
 
-All 7 UNEXPLAINED DIFFERENCE results are 2–3 display ULPs (0.02–0.03 percentage points) relative to the published 2-decimal values. Per the audit protocol (§9), these exceed the 1-ULP threshold for EXPLAINED DIFFERENCE and are recorded with full identifying context. No implementation changes are made at this stage. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10.
+All 7 UNEXPLAINED DIFFERENCE results are 2–3 display ULPs (0.02–0.03 percentage points) relative to the published 2-decimal values. Per the audit protocol (§9), these exceed the 1-ULP threshold for EXPLAINED DIFFERENCE and are recorded with full identifying context. No implementation changes are made at this stage. The Part 20 audit §10 A/B/C assessment is closed on the datasets used (A eliminated provisionally; B superseded; C withdrawn provisionally); canonical-data revalidation is deferred to the final task in `TODO.md`. See §10.
 
 ---
 
@@ -545,7 +596,7 @@ All 7 UNEXPLAINED DIFFERENCE results are 2–3 display ULPs (0.02–0.03 percent
 
 ### 17.5 Notes
 
-Experiment C shows significant discrepancies between FBF and published ERN failure rates. The 25 UNEXPLAINED DIFFERENCE results span 2–180 display ULPs (0.1% quantum). The largest discrepancies occur at higher SWR values (3.50%, 3.75%, 4.00%) where FBF's later data endpoint and methodological differences (ordering, ATH, cohort convention) compound. The 16 REPRODUCED results are all at 0.0% published failure rates where FBF also finds 0 failures. The single EXPLAINED DIFFERENCE (3 ULP) is at the boundary of the classification threshold. No capability gaps were encountered — the fixed-SWR failure-rate aggregation was fully executed using existing FBF infrastructure. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10.
+Experiment C shows significant discrepancies between FBF and published ERN failure rates. The 25 UNEXPLAINED DIFFERENCE results span 2–180 display ULPs (0.1% quantum). The largest discrepancies occur at higher SWR values (3.50%, 3.75%, 4.00%) where FBF's later data endpoint and cohort-convention differences, alongside unisolated factors, may compound. The 16 REPRODUCED results are all at 0.0% published failure rates where FBF also finds 0 failures. The single EXPLAINED DIFFERENCE (3 ULP) is at the boundary of the classification threshold. No capability gaps were encountered — the fixed-SWR failure-rate aggregation was fully executed using existing FBF infrastructure. The Part 20 audit §10 A/B/C assessment is closed on the datasets used (A eliminated provisionally; B superseded; C withdrawn provisionally); canonical-data revalidation is deferred to the final task in `TODO.md`. See §10.
 
 ### 17.6 Causal Validation Closure (T2.3 Forensic Follow-Up)
 
@@ -611,7 +662,7 @@ A controlled population-sensitivity experiment was performed to test the hypothe
 
 ### 18.5 Notes
 
-Experiment D shows 4 UNEXPLAINED DIFFERENCE results (2–3 ULP), 1 EXPLAINED DIFFERENCE (3 ULP), and 1 REPRODUCED. All discrepancies are small (2–3 display ULPs = 0.02–0.03 pp). The FV=0 results reuse Experiment A's search (cache verified), so the discrepancies at FV=0 match Experiment A's results. The FV=50% and FV=100% results show similar discrepancy magnitudes. No capability gaps were encountered — the FV target search was fully executed using existing FBF infrastructure. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10.
+Experiment D shows 4 UNEXPLAINED DIFFERENCE results (2–3 ULP), 1 EXPLAINED DIFFERENCE (3 ULP), and 1 REPRODUCED. All discrepancies are small (2–3 display ULPs = 0.02–0.03 pp). The FV=0 results reuse Experiment A's search (cache verified), so the discrepancies at FV=0 match Experiment A's results. The FV=50% and FV=100% results show similar discrepancy magnitudes. No capability gaps were encountered — the FV target search was fully executed using existing FBF infrastructure. The Part 20 audit §10 A/B/C assessment is closed on the datasets used (A eliminated provisionally; B superseded; C withdrawn provisionally); canonical-data revalidation is deferred to the final task in `TODO.md`. See §10.
 
 ---
 
@@ -701,8 +752,8 @@ The `Case Study` sheet in `SWR_Toolbox_v2.0.xlsx` implements a **different** com
 **Implementing Experiment E would require production/core changes** (pipeline, domain policy, execution layer, data layer) — not justified for a 4-case experiment with 8 anchors. The 8 Experiment E anchors remain formally `CAPABILITY GAP`.
 
 > **Correction note (2026-10-25):** The classification table below is a
-> historical execution record and is not reproducible from the current
-> canonical dataset. The `A (60Y)` row sums to 11 anchors (`4 + 7`) although
+> historical execution record and is not reproducible from the datasets used
+> for this audit. The `A (60Y)` row sums to 11 anchors (`4 + 7`) although
 > Experiment A has 10 anchors. The pre-alignment commit `43d4f8d` produced
 > **49** unexplained results (`A=10`, `B=8`, `C=25`, `D=6`), not 43. The
 > prior baseline, cross-validated against the production path before the

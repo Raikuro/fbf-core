@@ -1,16 +1,18 @@
 # ERN Part 20 — More Thoughts on Equity Glidepaths
 
-> **Status:** CANONICAL METHODOLOGY — IMPLEMENTATION ALIGNMENT PENDING
+> **Status:** CANONICAL METHODOLOGY — RESEARCH REPLICATION INCOMPLETE
 >
 > **Article:** [The Ultimate Guide to Safe Withdrawal Rates – Part 20: More Thoughts on Equity Glidepaths](https://earlyretirementnow.com/2017/09/20/the-ultimate-guide-to-safe-withdrawal-rates-part-20-more-thoughts-on-equity-glidepaths/)
 >
 > **Implementation relationship:** Part 20 extends Part 19 with 8 additional passive-only glidepaths, 30-year horizons, CAPE ≤20 conditioning, fixed-SWR failure-rate analysis, and final-value-target experiments. A deterministic 10-year mechanical case study is presented separately from the historical simulations.
 >
-> **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established. The ATH is the CPI-adjusted real total-return ATH, not nominal; see `ern_part20_e2e_audit.md` §19.7. FBF implementation execution order not yet aligned to established rule.
+> **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established. The ATH is the CPI-adjusted real total-return ATH, not nominal; see `ern_part20_e2e_audit.md` §19.7. FBF retains its existing execution order; the V1 forensic isolation showed that switching to the ERN order produced 0 ULP change, so execution-order alignment is not a remaining validation requirement (see audit §10).
 >
 > **Correction note (2026-10-25):** Anchor values in the historical results tables below predate the real-ATH correction. Current active-anchor values and the recalculated residual inventory are in `ern_part20_e2e_audit.md` §19.7.
 >
-> **E2E status:** NOT YET VALIDATED as canonical ERN replication. Implementation alignment pending.
+> **E2E status:** NOT YET VALIDATED as canonical ERN replication. Residual differences remain UNEXPLAINED; the §10 A/B/C difference-attribution investigation is closed only as a forensic assessment on the datasets then available.
+>
+> **Data-provenance limitation (2026-10-31):** The numerical comparisons in this document used research datasets and derived artifacts whose provenance and vintage relative to the current canonical Excel workbook have not been re-established. Those inputs may be obsolete. The evidence is historical and data-dependent, not definitive validation against canonical data. The final regeneration and revalidation task is recorded as the last item in `TODO.md`; A and C remain provisional until that task is completed, while B is methodology-supported and does not depend on regenerated data. All remain subject to reassessment if canonical-data evidence requires it.
 >
 > **E2E audit definition:** See [ern_part20_e2e_audit.md](ern_part20_e2e_audit.md) for the complete audit specification.
 >
@@ -578,17 +580,17 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 
 | Strategy | Published | FBF | Δ (pp) | Classification | Evidence |
 |----------|-----------|-----|--------|----------------|----------|
-| static_075 | 3.82% | 3.84% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| static_080 | 3.65% | 3.66% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort (1739 vs 1740), ordering, fee, rounding |
-| gp_060_100_0.003_passive | 3.91% | 3.93% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| gp_060_100_0.004_passive | 3.86% | 3.87% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, ordering, fee, rounding |
-| gp_060_100_0.003_active | 3.96% | 3.97% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, ordering, fee, rounding, ATH |
-| gp_060_100_0.004_active | 3.94% | 3.91% | -0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| gp_040_100_0.004_passive | 3.95% | 3.96% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, ordering, fee, rounding |
-| gp_040_100_0.004_active | 3.97% | 3.99% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| gp_040_100_0.005_passive | 3.90% | 3.92% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| static_100 | 2.85% | 2.87% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| gp_030_070_0.00111_passive | 3.56% | 3.58% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| static_075 | 3.82% | 3.84% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; residual unexplained; ordering/ATH hypotheses closed by audit §10 |
+| static_080 | 3.65% | 3.66% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort (1739 vs 1740), fee, rounding |
+| gp_060_100_0.003_passive | 3.91% | 3.93% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; residual unexplained; ordering hypothesis closed by audit §10 |
+| gp_060_100_0.004_passive | 3.86% | 3.87% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, fee, rounding |
+| gp_060_100_0.003_active | 3.96% | 3.97% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, fee, rounding |
+| gp_060_100_0.004_active | 3.94% | 3.91% | -0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; residual unexplained; ordering/ATH hypotheses closed by audit §10 |
+| gp_040_100_0.004_passive | 3.95% | 3.96% | +0.01 | EXPLAINED DIFFERENCE | 1 ULP; cohort, fee, rounding |
+| gp_040_100_0.004_active | 3.97% | 3.99% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; residual unexplained; ordering/ATH hypotheses closed by audit §10 |
+| gp_040_100_0.005_passive | 3.90% | 3.92% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; residual unexplained; ordering hypothesis closed by audit §10 |
+| static_100 | 2.85% | 2.87% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; residual unexplained; ordering hypothesis closed by audit §10 |
+| gp_030_070_0.00111_passive | 3.56% | 3.58% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; residual unexplained; ordering hypothesis closed by audit §10 |
 
 **Classification summary:**
 - REPRODUCED: 0
@@ -596,7 +598,7 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 - UNEXPLAINED DIFFERENCE: 7
 - CAPABILITY GAP: 0
 
-**Notes:** All UNEXPLAINED DIFFERENCE results exceed the 1-ULP display-precision threshold. Per the audit protocol (ern_part20_e2e_audit.md §9), these are recorded with full identifying context. No implementation changes are made at this stage. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10 of `ern_part20_e2e_audit.md`.
+**Notes:** All UNEXPLAINED DIFFERENCE results exceed the 1-ULP display-precision threshold. Per the audit protocol (ern_part20_e2e_audit.md §9), these are recorded with full identifying context. No implementation changes are made at this stage. The Part 20 audit §10 A/B/C assessment is closed on the datasets used (A eliminated provisionally; B superseded; C withdrawn provisionally); canonical-data revalidation is deferred to the final task in `TODO.md`. See §10 of `ern_part20_e2e_audit.md`.
 
 ### 11.5 Fixed SWR Failure Rates (Table 04, CAPE > 20)
 
@@ -621,46 +623,46 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 |----------|---------|-----|-----------|-----|--------|----------------|----------|
 | static_075 | 60Y | 3.00% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | static_075 | 60Y | 3.25% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
-| static_075 | 60Y | 3.50% | 0.0% | 4.4% | +4.4 | UNEXPLAINED DIFFERENCE | 44 ULP; data-vintage/ordering/cohort/ATH compounding |
-| static_075 | 60Y | 3.75% | 5.8% | 22.2% | +16.4 | UNEXPLAINED DIFFERENCE | 164 ULP; data-vintage/ordering/cohort/ATH compounding |
+| static_075 | 60Y | 3.50% | 0.0% | 4.4% | +4.4 | UNEXPLAINED DIFFERENCE | 44 ULP; data-vintage/cohort candidates; ordering/ATH hypotheses closed by audit §10 |
+| static_075 | 60Y | 3.75% | 5.8% | 22.2% | +16.4 | UNEXPLAINED DIFFERENCE | 164 ULP; data-vintage/cohort candidates; ordering/ATH hypotheses closed by audit §10 |
 | static_080 | 60Y | 3.00% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
-| static_080 | 60Y | 3.25% | 0.0% | 0.3% | +0.3 | UNEXPLAINED DIFFERENCE | 3 ULP; data-vintage/ordering/cohort compounding |
-| static_080 | 60Y | 3.50% | 0.0% | 3.4% | +3.4 | UNEXPLAINED DIFFERENCE | 34 ULP; data-vintage/ordering/cohort compounding |
-| static_080 | 60Y | 3.75% | 5.5% | 23.5% | +18.0 | UNEXPLAINED DIFFERENCE | 180 ULP; data-vintage/ordering/cohort compounding |
-| static_100 | 60Y | 3.00% | 1.0% | 0.8% | -0.2 | UNEXPLAINED DIFFERENCE | 2 ULP; data-vintage/ordering/cohort |
-| static_100 | 60Y | 3.25% | 4.1% | 2.3% | -1.8 | UNEXPLAINED DIFFERENCE | 18 ULP; data-vintage/ordering/cohort |
-| static_100 | 60Y | 3.50% | 11.6% | 8.6% | -3.0 | UNEXPLAINED DIFFERENCE | 30 ULP; data-vintage/ordering/cohort |
-| static_100 | 60Y | 3.75% | 23.4% | 21.1% | -2.3 | UNEXPLAINED DIFFERENCE | 23 ULP; data-vintage/ordering/cohort |
-| static_100 | 60Y | 4.00% | 33.5% | 30.3% | -3.2 | UNEXPLAINED DIFFERENCE | 32 ULP; data-vintage/ordering/cohort |
+| static_080 | 60Y | 3.25% | 0.0% | 0.3% | +0.3 | UNEXPLAINED DIFFERENCE | 3 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_080 | 60Y | 3.50% | 0.0% | 3.4% | +3.4 | UNEXPLAINED DIFFERENCE | 34 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_080 | 60Y | 3.75% | 5.5% | 23.5% | +18.0 | UNEXPLAINED DIFFERENCE | 180 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 60Y | 3.00% | 1.0% | 0.8% | -0.2 | UNEXPLAINED DIFFERENCE | 2 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 60Y | 3.25% | 4.1% | 2.3% | -1.8 | UNEXPLAINED DIFFERENCE | 18 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 60Y | 3.50% | 11.6% | 8.6% | -3.0 | UNEXPLAINED DIFFERENCE | 30 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 60Y | 3.75% | 23.4% | 21.1% | -2.3 | UNEXPLAINED DIFFERENCE | 23 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 60Y | 4.00% | 33.5% | 30.3% | -3.2 | UNEXPLAINED DIFFERENCE | 32 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
 | gp_060_100_0.003_passive | 60Y | 3.00% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | gp_060_100_0.003_passive | 60Y | 3.25% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
-| gp_060_100_0.003_passive | 60Y | 3.50% | 0.0% | 0.5% | +0.5 | UNEXPLAINED DIFFERENCE | 5 ULP; data-vintage/ordering/cohort |
-| gp_060_100_0.003_passive | 60Y | 3.75% | 14.0% | 11.7% | -2.3 | UNEXPLAINED DIFFERENCE | 23 ULP; data-vintage/ordering/cohort |
-| gp_030_070_0.00111_passive | 60Y | 3.00% | 3.1% | 2.1% | -1.0 | UNEXPLAINED DIFFERENCE | 10 ULP; data-vintage/ordering/cohort |
-| gp_030_070_0.00111_passive | 60Y | 3.25% | 8.4% | 8.9% | +0.5 | UNEXPLAINED DIFFERENCE | 5 ULP; data-vintage/ordering/cohort |
-| gp_030_070_0.00111_passive | 60Y | 3.50% | 27.0% | 24.8% | -2.2 | UNEXPLAINED DIFFERENCE | 22 ULP; data-vintage/ordering/cohort |
-| gp_030_070_0.00111_passive | 60Y | 3.75% | 31.1% | 30.8% | -0.3 | EXPLAINED DIFFERENCE | 3 ULP; data-vintage/ordering/cohort/rounding |
-| gp_030_070_0.00111_passive | 60Y | 4.00% | 32.5% | 31.1% | -1.4 | UNEXPLAINED DIFFERENCE | 14 ULP; data-vintage/ordering/cohort |
+| gp_060_100_0.003_passive | 60Y | 3.50% | 0.0% | 0.5% | +0.5 | UNEXPLAINED DIFFERENCE | 5 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| gp_060_100_0.003_passive | 60Y | 3.75% | 14.0% | 11.7% | -2.3 | UNEXPLAINED DIFFERENCE | 23 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| gp_030_070_0.00111_passive | 60Y | 3.00% | 3.1% | 2.1% | -1.0 | UNEXPLAINED DIFFERENCE | 10 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| gp_030_070_0.00111_passive | 60Y | 3.25% | 8.4% | 8.9% | +0.5 | UNEXPLAINED DIFFERENCE | 5 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| gp_030_070_0.00111_passive | 60Y | 3.50% | 27.0% | 24.8% | -2.2 | UNEXPLAINED DIFFERENCE | 22 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| gp_030_070_0.00111_passive | 60Y | 3.75% | 31.1% | 30.8% | -0.3 | EXPLAINED DIFFERENCE | 3 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10; rounding |
+| gp_030_070_0.00111_passive | 60Y | 4.00% | 32.5% | 31.1% | -1.4 | UNEXPLAINED DIFFERENCE | 14 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
 | static_075 | 30Y | 3.00% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | static_075 | 30Y | 3.25% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | static_075 | 30Y | 3.50% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | static_075 | 30Y | 3.75% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
-| static_075 | 30Y | 4.00% | 5.8% | 3.7% | -2.1 | UNEXPLAINED DIFFERENCE | 21 ULP; data-vintage/ordering/cohort |
+| static_075 | 30Y | 4.00% | 5.8% | 3.7% | -2.1 | UNEXPLAINED DIFFERENCE | 21 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
 | static_080 | 30Y | 3.00% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | static_080 | 30Y | 3.25% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | static_080 | 30Y | 3.50% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
-| static_080 | 30Y | 3.75% | 0.0% | 0.3% | +0.3 | UNEXPLAINED DIFFERENCE | 3 ULP; data-vintage/ordering/cohort |
-| static_080 | 30Y | 4.00% | 5.5% | 3.7% | -1.8 | UNEXPLAINED DIFFERENCE | 18 ULP; data-vintage/ordering/cohort |
-| static_100 | 30Y | 3.00% | 0.5% | 0.3% | -0.2 | UNEXPLAINED DIFFERENCE | 2 ULP; data-vintage/ordering/cohort |
-| static_100 | 30Y | 3.25% | 1.0% | 0.5% | -0.5 | UNEXPLAINED DIFFERENCE | 5 ULP; data-vintage/ordering/cohort |
-| static_100 | 30Y | 3.50% | 1.7% | 1.3% | -0.4 | UNEXPLAINED DIFFERENCE | 4 ULP; data-vintage/ordering/cohort |
-| static_100 | 30Y | 3.75% | 4.6% | 3.7% | -0.9 | UNEXPLAINED DIFFERENCE | 9 ULP; data-vintage/ordering/cohort |
-| static_100 | 30Y | 4.00% | 13.7% | 11.0% | -2.7 | UNEXPLAINED DIFFERENCE | 27 ULP; data-vintage/ordering/cohort |
+| static_080 | 30Y | 3.75% | 0.0% | 0.3% | +0.3 | UNEXPLAINED DIFFERENCE | 3 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_080 | 30Y | 4.00% | 5.5% | 3.7% | -1.8 | UNEXPLAINED DIFFERENCE | 18 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 30Y | 3.00% | 0.5% | 0.3% | -0.2 | UNEXPLAINED DIFFERENCE | 2 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 30Y | 3.25% | 1.0% | 0.5% | -0.5 | UNEXPLAINED DIFFERENCE | 5 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 30Y | 3.50% | 1.7% | 1.3% | -0.4 | UNEXPLAINED DIFFERENCE | 4 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 30Y | 3.75% | 4.6% | 3.7% | -0.9 | UNEXPLAINED DIFFERENCE | 9 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
+| static_100 | 30Y | 4.00% | 13.7% | 11.0% | -2.7 | UNEXPLAINED DIFFERENCE | 27 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
 | gp_030_070_0.00111_passive | 30Y | 3.00% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | gp_030_070_0.00111_passive | 30Y | 3.25% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | gp_030_070_0.00111_passive | 30Y | 3.50% | 0.0% | 0.0% | 0.0 | REPRODUCED | Exact 0 failure match |
 | gp_030_070_0.00111_passive | 30Y | 3.75% | 2.7% | 2.7% | 0.0 | REPRODUCED | Exact match |
-| gp_030_070_0.00111_passive | 30Y | 4.00% | 18.3% | 15.1% | -3.2 | UNEXPLAINED DIFFERENCE | 32 ULP; data-vintage/ordering/cohort |
+| gp_030_070_0.00111_passive | 30Y | 4.00% | 18.3% | 15.1% | -3.2 | UNEXPLAINED DIFFERENCE | 32 ULP; data-vintage/cohort candidates; ordering hypothesis closed by audit §10 |
 
 **Classification summary:**
 - REPRODUCED: 16
@@ -668,9 +670,9 @@ Requires implementation: failure-rate aggregation (Experiment C), FV=50%/100% ex
 - UNEXPLAINED DIFFERENCE: 25
 - CAPABILITY GAP: 0
 
-**Notes:** Experiment C shows significant discrepancies between FBF and published ERN failure rates. The 25 UNEXPLAINED DIFFERENCE results span 2–180 display ULPs (0.1% quantum). The largest discrepancies occur at higher SWR values (3.50%, 3.75%, 4.00%) where FBF's later data endpoint and methodological differences (ordering, ATH, cohort convention) compound. The 16 REPRODUCED results are all at 0.0% published failure rates where FBF also finds 0 failures. The single EXPLAINED DIFFERENCE (3 ULP) is at the boundary of the classification threshold. No capability gaps were encountered — the fixed-SWR failure-rate aggregation was fully executed using existing FBF infrastructure.
+**Notes:** Experiment C shows significant discrepancies between FBF and published ERN failure rates. The 25 UNEXPLAINED DIFFERENCE results span 2–180 display ULPs (0.1% quantum). The largest discrepancies occur at higher SWR values (3.50%, 3.75%, 4.00%) where FBF's later data endpoint and cohort-convention differences, alongside unisolated factors, may compound. The 16 REPRODUCED results are all at 0.0% published failure rates where FBF also finds 0 failures. The single EXPLAINED DIFFERENCE (3 ULP) is at the boundary of the classification threshold. No capability gaps were encountered — the fixed-SWR failure-rate aggregation was fully executed using existing FBF infrastructure.
 
-**Data-vintage interpretation (not formal classification):** The published ERN Part 20 results originate from an older data period (pre-2016). FBF's canonical dataset extends further. This data-vintage difference is a plausible contributor to the observed discrepancies, particularly at higher SWR values where small return differences compound over 60-year horizons. However, per the audit protocol (§9), these are formally classified as UNEXPLAINED DIFFERENCE because the data-vintage effect has not been isolated and quantified via variant runs (§10). Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10 of `ern_part20_e2e_audit.md`.
+**Data-vintage interpretation (not formal classification):** The published ERN Part 20 results originate from an older data period (pre-2016). The FBF comparison uses repository datasets whose provenance and vintage relative to the current canonical Excel workbook have not been re-established; those datasets may be obsolete. Data-vintage and data-source effects have therefore not been isolated and quantified, and they may compound at higher SWR values over 60-year horizons. Per the audit protocol (§9), these remain formally classified as UNEXPLAINED DIFFERENCE. The §10 A/B/C investigation is closed only as a forensic assessment on the datasets used and does not resolve data attribution; see §10 of `ern_part20_e2e_audit.md` and the final canonical-data revalidation task in `TODO.md`.
 
 **60-year horizon, selected cells:**
 
@@ -731,7 +733,7 @@ Strongest candidate future replication gates: 60Y failsafe (10 selected anchors)
 2. **Computational execution:** Verify all cells produce real outcomes (not all 0% or 100%).
 3. **Canonical replication:** Compare independently reproduced FBF outputs against ERN-published numerical evidence extracted from Tables 02, 03, 04, and 06 at the displayed precision, together with the resolved methodological specification.
 4. **Article-consistency review:** Verify glidepaths are generally among the best performers in CAPE > 20 scenarios (detailed observations in §15.5).
-5. **Ordering-impact quantification:** Measure FBF vs ERN ordering difference on 60Y/30Y failsafe values (now RESOLVED — inherited from Part 19).
+5. **Ordering-impact quantification:** Measure FBF vs ERN ordering difference on 60Y/30Y failsafe values (now RESOLVED — V1 isolation measured 0.0 ULP change on the 46 A–D anchors).
 6. **Case-study glidepath verification:** Verify linear 70% → 90% at 2pp/year against Tables 01/05 (now RESOLVED).
 
 ### 12.2 Acceptance Criteria
@@ -813,7 +815,7 @@ Do not use the E2E as proof that Part 20 has been independently replicated.
 ### 14.1 Prerequisite: Data and Methodology Resolution
 
 **All items RESOLVED:**
-1. ~~Simulation ordering~~ — ERN: returns → withdrawal → rebalancing; FBF differs (known difference)
+1. ~~Simulation ordering~~ — ERN: returns → withdrawal → rebalancing; FBF differs (known difference; V1 isolation measured zero effect)
 2. ~~ATH semantics~~ — both use the CPI-adjusted real total-return index (audit §19.7)
 3. ~~First-month semantics~~ — glidepath month-0 uses starting allocation unchanged
 4. ~~Forward-return methodology~~ — Part 1 §4: equity 6.6%, bond 0% for 120 months then 2.6%
@@ -838,7 +840,7 @@ Do not use the E2E as proof that Part 20 has been independently replicated.
 ### 15.1 Pre-Implementation Prerequisites
 
 **All methodology questions RESOLVED:**
-- [x] Simulation ordering equivalence established — ERN: returns → withdrawal → rebalancing; FBF differs (known difference)
+- [x] Simulation ordering equivalence established — ERN: returns → withdrawal → rebalancing; FBF differs, with V1 isolation measuring zero effect on the A–D anchors
 - [x] ATH/underwater semantics clarified — both use the CPI-adjusted real total-return index (audit §19.7)
 - [x] First-month semantics established — glidepath month-0 uses starting allocation unchanged
 - [x] Forward-return methodology established — Part 1 §4: equity 6.6%, bond 0% for 120 months then 2.6%
@@ -970,12 +972,12 @@ Not automated pass/fail rules. Article-consistency observations only:
 
 | Strategy | FV Target | Published | FBF | Δ (pp) | Classification | Evidence |
 |----------|-----------|-----------|-----|--------|----------------|----------|
-| static_075 | 0% | 3.25% | 3.28% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| static_075 | 50% | 3.15% | 3.18% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| static_075 | 100% | 3.05% | 3.08% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| gp_060_100_0.004_active | 0% | 3.47% | 3.49% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| gp_060_100_0.004_active | 50% | 3.42% | 3.45% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
-| gp_060_100_0.004_active | 100% | 3.34% | 3.36% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; cohort/ordering/fee/ATH difference attribution pending (Part 20 audit §10 A/B/C remain open) |
+| static_075 | 0% | 3.25% | 3.28% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; residual unexplained; ordering/ATH hypotheses closed by audit §10 |
+| static_075 | 50% | 3.15% | 3.18% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; residual unexplained; ordering hypothesis closed by audit §10 |
+| static_075 | 100% | 3.05% | 3.08% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; residual unexplained; ordering hypothesis closed by audit §10 |
+| gp_060_100_0.004_active | 0% | 3.47% | 3.49% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; residual unexplained; ordering/ATH hypotheses closed by audit §10 |
+| gp_060_100_0.004_active | 50% | 3.42% | 3.45% | +0.03 | UNEXPLAINED DIFFERENCE | 3 ULP; residual unexplained; ordering/ATH hypotheses closed by audit §10 |
+| gp_060_100_0.004_active | 100% | 3.34% | 3.36% | +0.02 | UNEXPLAINED DIFFERENCE | 2 ULP; residual unexplained; ordering/ATH hypotheses closed by audit §10 |
 
 **Classification summary:**
 - REPRODUCED: 1 (gp_060_100_0.004_active FV=0 — matches Experiment A)
@@ -983,7 +985,7 @@ Not automated pass/fail rules. Article-consistency observations only:
 - UNEXPLAINED DIFFERENCE: 4 (2–3 ULP)
 - CAPABILITY GAP: 0
 
-**Notes:** Experiment D shows 4 UNEXPLAINED DIFFERENCE results (2–3 ULP = 0.02–0.03 pp). The FV=0 results reuse Experiment A's search (cache verified), so the discrepancies at FV=0 match Experiment A's results. The FV=50% and FV=100% results show similar discrepancy magnitudes. No capability gaps were encountered — the FV target search was fully executed using existing FBF infrastructure. Part 20 audit §10 difference-attribution variants (A/B/C) remain open; see §10 of `ern_part20_e2e_audit.md`.
+**Notes:** Experiment D shows 4 UNEXPLAINED DIFFERENCE results (2–3 ULP = 0.02–0.03 pp). The FV=0 results reuse Experiment A's search (cache verified), so the discrepancies at FV=0 match Experiment A's results. The FV=50% and FV=100% results show similar discrepancy magnitudes. No capability gaps were encountered — the FV target search was fully executed using existing FBF infrastructure. The Part 20 audit §10 A/B/C assessment is closed on the datasets used (A eliminated provisionally; B superseded; C withdrawn provisionally); canonical-data revalidation is deferred to the final task in `TODO.md`. See §10 of `ern_part20_e2e_audit.md`.
 
 ---
 
@@ -1122,7 +1124,7 @@ The `Currency` enum in `src/fbf/core/domain/model/money.py` defines only `EUR`. 
  
 `The difference between the article's conceptual Returns → Withdrawal → Rebalance ordering and the current FBF pipeline ordering (which applies MarketEvolution AFTER PortfolioRebalance) remains an untested hypothesis and is not established as the cause.`
  
-No controlled test has isolated this pipeline ordering difference. It remains a plausible but untested hypothesis.
+No controlled test has isolated this pipeline ordering difference. It remains a plausible but untested hypothesis. This Experiment E source/reference ambiguity is separate from the §10 A/B/C forensic assessment, which covered the Experiments A–D publication comparisons on the datasets then available; canonical-data revalidation is deferred to the final task in `TODO.md`.
  
 ### 16.5.8 Classification Summary
  

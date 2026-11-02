@@ -5,6 +5,14 @@
 **Investigation Artifact:** `tests/forensic_data_vintage.py` (created, run, removed)  
 **Execution:** `RUN_ERN_E2E=1 python tests/forensic_data_vintage.py`
 
+> **Data-provenance qualification (2026-10-31):** "Canonical" in this report
+> refers to the repository datasets used at investigation time. Their provenance
+> and vintage relative to the current canonical Excel workbook have not been
+> re-established, and they may be obsolete. The "ruled out" conclusion is
+> therefore historical for that input set, not a guarantee for regenerated or
+> current canonical data. Final regeneration and reassessment is recorded as the
+> last item in `TODO.md`.
+
 ---
 
 ## 1. Executive Summary
