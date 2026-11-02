@@ -751,11 +751,9 @@ September 1929
 
 ### 14.3 Historical Universe
 
-The published article focuses on selected historical worst-case cohorts rather than presenting a complete historical cohort grid. The workbook may contain additional cohorts, but their existence must not be inferred into the replication scope until the workbook is inspected.
+The published article focuses on selected historical worst-case cohorts rather than presenting a complete historical cohort grid. The 2026-11 scope audit confirmed this at the source: the article reports the `1965-11` and `1929-09` case studies and states that additional cohorts were examined but not published. The `Timing-Leverage-Calc.xlsx` workbook contains the `1929 Case Study` and `1965 Case Study` sheets plus `Calc`, `Chart-Main`, `Return Data`, and `Disclaimers`; it has no cohort-distribution sheet. The `1,739` `Distribution of Final Value` sheet belongs to the SWR Toolbox, not the Part 52 workbook, and does not define a Part 52-specific cohort universe.
 
-ERN confirmed in post-publication comments that he examined more cohorts but deliberately restricted the published discussion to historical worst-case scenarios.
-
-The exact workbook scope must nevertheless be established before assuming that any global "safe withdrawal rate" interpretation represents a broader cohort universe.
+ERN also confirmed in post-publication comments that he examined more cohorts but deliberately restricted the published discussion to historical worst-case scenarios.
 
 Do not infer a complete FBF cohort universe from the existence of the two case studies.
 
@@ -769,14 +767,14 @@ The three candidate historical universes are not interchangeable; each encodes a
 
 The `1,739` distribution sheet is not a historical-validation universe: 233 cohorts require projected asset/CPI and FFR, with the latest simulation requirements extending to `2045-10` FFR and `2045-11` terminal snapshots. It remains a projection/extension diagnostic.
 
-The available evidence is sufficient to reject `1,452` as a canonical historical universe: it is a legacy one-month-stricter filter, not a methodology-derived boundary. It is not sufficient to choose between `1,453` and `1,506`, because two methodological prerequisites remain unresolved.
+The available evidence is sufficient to reject `1,452` as a canonical historical universe: it is a legacy one-month-stricter filter, not a methodology-derived boundary. It does not establish either `1,453` or `1,506` as an article-defined canonical universe, and the external FFR extension policy remains unresolved.
 
-1. **Intended Part 52 cohort universe.** Section 14.3 records that the article presents selected worst-case cohorts, not a complete historical grid, and that the workbook's exact scope must be established before inferring a broader universe. The `1,739` `Distribution of Final Value` sheet is an SWR distribution sheet; it has not been established as the Part 52-specific validation target. Without that scope, both `1,453` and `1,506` are candidate historical subsets, not the canonical intended universe.
-2. **External FFR extension policy.** The `1,506` universe requires accepting the FRED `FEDFUNDS` extension as methodologically equivalent to the workbook's H.15 effective-rate series. The source audit in §3.4 establishes the same measure and exact overlap through `2021-12`, but the extension still lacks a reproducible download recipe and is subject to live revisions. The project has not adopted an explicit acceptance rule for post-workbook external FFR observations in canonical historical validation.
+1. **Intended Part 52 cohort universe — scope established.** The §14.3 scope audit found no article- or workbook-defined full Part 52 universe: the article reports only the `1965-11` and `1929-09` case studies, and the Timing workbook has no cohort-distribution sheet. The `1,739` `Distribution of Final Value` sheet is an SWR Toolbox artifact and is not the Part 52-specific validation target. Consequently `1,453` and `1,506` are candidate full-universe diagnostics, not article-defined canonical universes.
+2. **External FFR extension policy — open.** The `1,506` universe requires accepting the FRED `FEDFUNDS` extension as methodologically equivalent to the workbook's H.15 effective-rate series. The source audit in §3.4 establishes the same measure and exact overlap through `2021-12`, but the extension still lacks a reproducible download recipe and is subject to live revisions. The project has not adopted an explicit acceptance rule for post-workbook external FFR observations in full-universe historical diagnostics.
 
 A subordinate definitional point follows from those two: the `1,452`/`1,453` boundary must not be resolved by treating the workbook FFR endpoint as a terminal asset/CPI constraint. If the intended universe is historical, the terminal asset/CPI snapshot date is not a reason to exclude a cohort whose FFR consumption is fully observed.
 
-Decision: eligibility remains open. `1,453` is the defensible workbook-native-FFR diagnostic; `1,506` is the defensible all-observed-historical diagnostic; neither is the canonical historical validation universe until the intended Part 52 cohort scope and external FFR extension policy are established. `1,739` remains a projection/extension diagnostic only. `1,452` is legacy and must not be promoted to canonical status by default.
+Decision: eligibility remains open for full-universe diagnostics. The article and workbook do not define a full Part 52 cohort universe, so canonical acceptance remains anchor-based. `1,453` is the defensible workbook-native-FFR diagnostic; `1,506` is the defensible all-observed-historical diagnostic; neither is an article-defined canonical universe. The unresolved policy question is whether full-universe historical diagnostics may use the FRED extension. `1,739` remains a projection/extension diagnostic only. `1,452` is legacy and must not be promoted to canonical status by default.
 
 ---
 

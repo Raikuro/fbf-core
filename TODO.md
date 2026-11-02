@@ -306,16 +306,18 @@ limitations, and the distinction between gross survival and feasibility.
 3. **Solver reproduction** — deferred. The published values are Solver outputs;
    fixed-parameter feasibility at those values is regression protection, not
    Solver replication.
-4. **Eligibility** — assessed; decision remains open. `1,452` is a legacy
-   terminal filter and is not canonical. `1,453` is the largest
-   workbook-native-FFR universe; `1,506` is the largest all-observed-historical
-   universe but requires the FRED FFR extension for 53 cohorts. The choice
-   cannot be resolved until the Part 52-specific intended cohort universe is
-   established from the article/workbook rather than inferred from the `1,739`
-   distribution sheet, and until an explicit policy accepts or rejects
-   post-2021 external FFR observations for canonical validation. See
-   `docs/research/ern_part52_replication.md` §14.4. Do not choose a universe
-   merely because it has more observations.
+4. **Eligibility** — assessed; decision remains open for full-universe
+   diagnostics. `1,452` is a legacy terminal filter and is not canonical.
+   `1,453` is the largest workbook-native-FFR universe; `1,506` is the largest
+   all-observed-historical universe but requires the FRED FFR extension for 53
+   cohorts. The 2026-11 scope audit found no article- or workbook-defined full
+   Part 52 universe: the article reports only the `1965-11` and `1929-09` case
+   studies, and the Timing workbook has no cohort-distribution sheet. Canonical
+   acceptance is therefore anchor-based; the `1,453`/`1,506` choice is a
+   diagnostic-universe policy and still requires an explicit rule for post-2021
+   external FFR observations. See `docs/research/ern_part52_replication.md`
+   §14.3–14.4. Do not choose a universe merely because it has more
+   observations.
 
 ### Deferred
 
