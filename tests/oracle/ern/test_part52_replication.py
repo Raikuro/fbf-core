@@ -11,14 +11,14 @@ FFR use:
 - A2-A8 and A10-A11 use the runtime FFR series with lag_months=1
   (month T uses FFR from month T-1).
 
-The A10 1929-09 anchor now also evaluates the workbook's three-constraint
-feasibility result through `evaluate_part52_feasibility()`, using the same
-built plan and the production Part 52 kernel. `statistics.success` remains
-gross portfolio survival; the A10 anchor asserts each feasibility condition
-independently and records the diagnostic metrics. Full-universe feasibility,
-LTV enforcement, and the final-value target are not applied to every scenario
-(`debt_ltv_enforcement=False`). Full-universe counts are diagnostic, not
-canonical acceptance targets.
+The A2, A3, and A10 published-parameter anchors also evaluate the workbook's
+three-constraint feasibility result through `evaluate_part52_feasibility()`,
+using the same built plan and the production Part 52 kernel.
+`statistics.success` remains gross portfolio survival; each anchor asserts
+every feasibility condition independently and records the diagnostic metrics.
+Full-universe feasibility, LTV enforcement, and the final-value target are not
+applied to every scenario (`debt_ltv_enforcement=False`). Full-universe
+gross-survival counts are diagnostic, not canonical acceptance targets.
 
 The FFR conversion formula is resolved (see
 docs/research/ern_part52_replication.md §3.2 and §27.8). Open questions are
@@ -54,7 +54,8 @@ Parameters:
     LTV limit: 50% (observed by the feasibility helper; enforcement disabled)
     Final value target: $250,000 (feasibility helper default; not configured in the study)
     Success metric: statistics.success = gross survival
-    Feasibility metric: A10 1929-09 anchor only, via evaluate_part52_feasibility()
+    Feasibility metric: A2/A3 1965-11 and A10 1929-09 anchors, via
+        evaluate_part52_feasibility()
 """
 
 from __future__ import annotations
@@ -100,8 +101,7 @@ HORIZON_YEARS = 30
 COHORT_HORIZON_YEARS = 60
 EXPECTED_UNITS = 1739
 FFR_DATASET = "ffr"
-FEASIBILITY_ANCHOR_SCENARIO = "A10"
-FEASIBILITY_ANCHOR_COHORT_START = date(1929, 9, 1)
+FEASIBILITY_ANCHOR_SCENARIO_IDS = frozenset({"A2", "A3", "A10"})
 MIN_NET_WORTH_TARGET = Decimal("1000")
 FINAL_NET_WORTH_TARGET = Decimal("250000")
 
@@ -234,6 +234,7 @@ class ExecutionResult:
     classification: str  # A, B, C, D, or E
     anchor_feasibility: Part52FeasibilityMetrics | None = None
     anchor_gross_survival: bool | None = None
+    anchor_cohort_start: date | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -308,14 +309,13 @@ def _execute_study(config: StudyConfiguration) -> tuple[Any, float, BuiltStudy]:
     return result, t_end - t_start, built
 
 
-def _anchor_unit_index(built: BuiltStudy) -> int:
-    """Return the plan index of the A10 feasibility anchor cohort."""
+def _anchor_unit_index(built: BuiltStudy, start_date: date) -> int:
+    """Return the plan index of the scenario's feasibility anchor cohort."""
     for index, unit in enumerate(built.plan.units):
-        if unit.cohort.start_date == FEASIBILITY_ANCHOR_COHORT_START:
+        if unit.cohort.start_date == start_date:
             return index
     raise AssertionError(
-        f"Feasibility anchor cohort {FEASIBILITY_ANCHOR_COHORT_START} "
-        f"not found in {FEASIBILITY_ANCHOR_SCENARIO}"
+        f"Feasibility anchor cohort {start_date} not found in study plan"
     )
 
 
@@ -385,8 +385,10 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
 
     anchor_feasibility: Part52FeasibilityMetrics | None = None
     anchor_gross_survival: bool | None = None
-    if scenario.scenario_id == FEASIBILITY_ANCHOR_SCENARIO:
-        index = _anchor_unit_index(built)
+    anchor_cohort_start: date | None = None
+    if scenario.scenario_id in FEASIBILITY_ANCHOR_SCENARIO_IDS:
+        anchor_cohort_start = date(scenario.cohort_year, scenario.cohort_month, 1)
+        index = _anchor_unit_index(built, anchor_cohort_start)
         context = _context_for_unit(built, built.plan.units[index])
         anchor_feasibility = evaluate_part52_feasibility(context)
         anchor_gross_survival = (
@@ -415,7 +417,53 @@ def _execute_scenario(scenario: CanonicalScenario) -> ExecutionResult:
         classification=classification,
         anchor_feasibility=anchor_feasibility,
         anchor_gross_survival=anchor_gross_survival,
+        anchor_cohort_start=anchor_cohort_start,
     )
+
+
+def _assert_anchor_feasibility(
+    result: ExecutionResult,
+    expected_start: date,
+) -> None:
+    """Assert fixed-parameter feasibility for one published anchor cohort."""
+    scenario_id = result.scenario.scenario_id
+    assert result.anchor_cohort_start == expected_start, (
+        f"{scenario_id} anchor start mismatch: "
+        f"expected {expected_start}, got {result.anchor_cohort_start}"
+    )
+    metrics = result.anchor_feasibility
+    assert metrics is not None, f"{scenario_id} feasibility anchor was not evaluated"
+    assert result.anchor_gross_survival is not None
+    assert metrics.gross_survival is result.anchor_gross_survival, (
+        f"{scenario_id} feasibility helper and oracle disagree on gross survival: "
+        f"helper={metrics.gross_survival}, oracle={result.anchor_gross_survival}"
+    )
+    assert metrics.gross_survival is True, (
+        f"{scenario_id} anchor gross survival failed: {metrics}"
+    )
+    assert metrics.min_net_worth_ok is True, (
+        f"{scenario_id} min net worth {metrics.min_net_worth} "
+        f"is below {metrics.min_net_worth_target}"
+    )
+    assert metrics.final_net_worth_ok is True, (
+        f"{scenario_id} final net worth {metrics.final_net_worth} "
+        f"is below {metrics.final_net_worth_target}"
+    )
+    assert metrics.max_loan_to_portfolio_ok is True, (
+        f"{scenario_id} max loan-to-portfolio {metrics.max_loan_to_portfolio} "
+        f"exceeds {metrics.max_loan_to_portfolio_limit}"
+    )
+    assert metrics.feasible == (
+        metrics.min_net_worth_ok
+        and metrics.final_net_worth_ok
+        and metrics.max_loan_to_portfolio_ok
+    )
+    assert metrics.feasible is True, (
+        f"{scenario_id} three-constraint feasibility failed: {metrics}"
+    )
+    assert metrics.min_net_worth_target == MIN_NET_WORTH_TARGET
+    assert metrics.final_net_worth_target == FINAL_NET_WORTH_TARGET
+    assert metrics.max_loan_to_portfolio_limit == LTV_LIMIT
 
 
 # ---------------------------------------------------------------------------
@@ -455,31 +503,63 @@ class TestCanonicalERNReplication:
             f"expected 1739/1739, got {r.successful_units}/{r.total_units}"
         )
 
-    def test_a2_no_timing_leverage_reproduces(self, all_results: list[ExecutionResult]) -> None:
-        """A2: 1965 no timing, WR=3.78%, B%=10.76% → 100% gross survival.
+    def test_a2_full_universe_gross_survival_diagnostic(
+        self, all_results: list[ExecutionResult]
+    ) -> None:
+        """A2 full-universe gross survival at fixed published parameters.
 
-        This is not the three-constraint feasibility result. The full-universe
-        count is diagnostic, not a canonical acceptance target.
+        All 1,739 distribution units survive grossly. This is not
+        three-constraint feasibility and not a canonical acceptance target; the
+        1965-11 anchor is the acceptance surface. A failure here indicates
+        cohort-level depletion on the current dataset vintage, not a failure of
+        the published 1965 Solver result.
         """
         r = next(x for x in all_results if x.scenario.scenario_id == "A2")
         assert r.success_rate == Decimal("1"), (
-            f"A2 REPLICATION DISCREPANCY: WR={r.scenario.published_wr}, "
+            f"A2 gross-survival diagnostic: WR={r.scenario.published_wr}, "
             f"B%={r.borrow_pct_used}, expected 1739/1739, "
             f"got {r.successful_units}/{r.total_units}"
         )
 
-    def test_a3_threshold_20_reproduces(self, all_results: list[ExecutionResult]) -> None:
-        """A3: 1965 20% threshold, WR=3.91%, B%=41.08% → 100% gross survival.
+    def test_a2_anchor_feasibility(self, all_results: list[ExecutionResult]) -> None:
+        """A2 1965-11: gross survival and all three fixed-parameter constraints.
 
-        The monthly-draw fix (removing the loan_balance == 0 guard) resolved
-        the 6-cohort discrepancy. A3 now reproduces the gross-survival anchor.
-        This does not establish three-constraint feasibility; full-universe
-        counts are diagnostic.
+        This validates the production path at the published WR/B values. It is
+        not a Solver replication and does not confirm the published optimized
+        values; Solver reproduction remains deferred. Metric values are
+        current-vintage diagnostics, not published acceptance constants.
+        """
+        r = next(x for x in all_results if x.scenario.scenario_id == "A2")
+        _assert_anchor_feasibility(r, date(1965, 11, 1))
+
+    def test_a3_full_universe_gross_survival_diagnostic(
+        self, all_results: list[ExecutionResult]
+    ) -> None:
+        """A3 full-universe gross survival at fixed published parameters.
+
+        All 1,739 distribution units survive grossly. This is not
+        three-constraint feasibility and not a canonical acceptance target; the
+        1965-11 anchor is the acceptance surface. A failure here indicates
+        cohort-level depletion on the current dataset vintage, not a failure of
+        the published 1965 Solver result.
         """
         r = next(x for x in all_results if x.scenario.scenario_id == "A3")
         assert r.success_rate == Decimal("1"), (
-            f"A3 expected 1739/1739, got {r.successful_units}/{r.total_units}"
+            f"A3 gross-survival diagnostic: WR={r.scenario.published_wr}, "
+            f"B%={r.borrow_pct_used}, expected 1739/1739, "
+            f"got {r.successful_units}/{r.total_units}"
         )
+
+    def test_a3_anchor_feasibility(self, all_results: list[ExecutionResult]) -> None:
+        """A3 1965-11: gross survival and all three fixed-parameter constraints.
+
+        This validates the production path at the published WR/B values. It is
+        not a Solver replication and does not confirm the published optimized
+        values; Solver reproduction remains deferred. Metric values are
+        current-vintage diagnostics, not published acceptance constants.
+        """
+        r = next(x for x in all_results if x.scenario.scenario_id == "A3")
+        _assert_anchor_feasibility(r, date(1965, 11, 1))
 
     def test_a9_1929_baseline_reproduces(self, all_results: list[ExecutionResult]) -> None:
         """A9: 1929 baseline, WR=3.61%, no leverage → all cohorts succeed."""
@@ -489,63 +569,33 @@ class TestCanonicalERNReplication:
             f"expected 1739/1739, got {r.successful_units}/{r.total_units}"
         )
 
-    def test_a10_1929_no_timing_reproduces(self, all_results: list[ExecutionResult]) -> None:
-        """A10: 1929 no timing, WR=4.39%, B%=31.86% → 100% gross survival.
+    def test_a10_full_universe_gross_survival_diagnostic(
+        self, all_results: list[ExecutionResult]
+    ) -> None:
+        """A10 full-universe gross survival at fixed published parameters.
 
-        This is gross survival only. At fixed A10 parameters the diagnostic
-        all-three count is 1323/1739; full-universe counts are not canonical
-        acceptance targets.
+        All 1,739 distribution units survive grossly. This is not
+        three-constraint feasibility and not a canonical acceptance target; the
+        1929-09 anchor is the acceptance surface. At fixed A10 parameters the
+        current-vintage all-three diagnostic is 1323/1739.
         """
         r = next(x for x in all_results if x.scenario.scenario_id == "A10")
         assert r.success_rate == Decimal("1"), (
-            f"A10 REPLICATION DISCREPANCY: WR={r.scenario.published_wr}, "
+            f"A10 gross-survival diagnostic: WR={r.scenario.published_wr}, "
             f"B%={r.borrow_pct_used}, expected 1739/1739, "
             f"got {r.successful_units}/{r.total_units}"
         )
 
-    def test_a10_anchor_feasibility_reproduces(
-        self, all_results: list[ExecutionResult]
-    ) -> None:
-        """A10 1929-09: gross survival and all three feasibility conditions hold.
+    def test_a10_anchor_feasibility(self, all_results: list[ExecutionResult]) -> None:
+        """A10 1929-09: gross survival and all three fixed-parameter constraints.
 
-        The feasibility helper re-runs the production Part 52 kernel for this
-        single anchor unit. Its reported `gross_survival` must match the
-        oracle's own execution for the same plan unit. Metric values are
-        diagnostics tied to the current canonical dataset vintage; they are not
-        canonical acceptance constants.
+        This validates the production path at the published WR/B values. It is
+        not a Solver replication and does not confirm the published optimized
+        values; Solver reproduction remains deferred. Metric values are
+        current-vintage diagnostics, not published acceptance constants.
         """
         r = next(x for x in all_results if x.scenario.scenario_id == "A10")
-        metrics = r.anchor_feasibility
-        assert metrics is not None, "A10 feasibility anchor was not evaluated"
-        assert r.anchor_gross_survival is not None
-        assert metrics.gross_survival is r.anchor_gross_survival, (
-            "A10 feasibility helper and oracle disagree on gross survival: "
-            f"helper={metrics.gross_survival}, oracle={r.anchor_gross_survival}"
-        )
-        assert metrics.gross_survival is True, (
-            f"A10 anchor gross survival failed: {metrics}"
-        )
-        assert metrics.min_net_worth_ok is True, (
-            f"A10 min net worth {metrics.min_net_worth} "
-            f"is below {metrics.min_net_worth_target}"
-        )
-        assert metrics.final_net_worth_ok is True, (
-            f"A10 final net worth {metrics.final_net_worth} "
-            f"is below {metrics.final_net_worth_target}"
-        )
-        assert metrics.max_loan_to_portfolio_ok is True, (
-            f"A10 max loan-to-portfolio {metrics.max_loan_to_portfolio} "
-            f"exceeds {metrics.max_loan_to_portfolio_limit}"
-        )
-        assert metrics.feasible == (
-            metrics.min_net_worth_ok
-            and metrics.final_net_worth_ok
-            and metrics.max_loan_to_portfolio_ok
-        )
-        assert metrics.feasible is True, f"A10 three-constraint feasibility failed: {metrics}"
-        assert metrics.min_net_worth_target == MIN_NET_WORTH_TARGET
-        assert metrics.final_net_worth_target == FINAL_NET_WORTH_TARGET
-        assert metrics.max_loan_to_portfolio_limit == LTV_LIMIT
+        _assert_anchor_feasibility(r, date(1929, 9, 1))
 
     def test_bf_discovered_scenarios_produce_results(
         self, all_results: list[ExecutionResult]
