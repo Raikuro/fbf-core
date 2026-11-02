@@ -131,12 +131,12 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
 | 49.1 | Experiment A: Preliminary leverage | Analytical check | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Buy-and-hold implemented | Implement after T6.2 |
-| 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` (Experiments B–F) | Buy-and-hold + LTV enforcement + real-rate implemented (`fc83253`, `bf42fe5`) | Retain; Charts 02–06 validated |
-| 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` | Buy-and-hold + LTV enforcement + real-rate implemented | Retain; Charts 03 validated |
-| 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` | Buy-and-hold + real-rate implemented | Retain; Chart 04 validated |
-| 49.5 | Experiment E: $30k/$10k preferred | Scenario | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` | Buy-and-hold + real-rate implemented | Retain; Charts 05/06 validated |
-| 49.6 | Experiment F: Historical 4% conclusion | 1925-1990 universe | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication.py` | Buy-and-hold + LTV enforcement + real-rate implemented | Retain; 4752 units, 0 failures |
-| 49.7 | Non-canonical 6-cell E2E | 2E × 3I × 1,739 = 10,434 | NON-CANONICAL RESEARCH | `IMPLEMENTED` | `test_part49_replication.py` | None | Retain — validates leverage mechanics |
+| 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` (Experiments B–F) | Buy-and-hold + LTV enforcement + real-rate implemented (`fc83253`, `bf42fe5`) | Retain; Charts 02–06 validated |
+| 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` | Buy-and-hold + LTV enforcement + real-rate implemented | Retain; Charts 03 validated |
+| 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` | Buy-and-hold + real-rate implemented | Retain; Chart 04 validated |
+| 49.5 | Experiment E: $30k/$10k preferred | Scenario | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` | Buy-and-hold + real-rate implemented | Retain; Charts 05/06 validated |
+| 49.6 | Experiment F: Historical 4% conclusion | 1925-1990 universe | RESEARCH REPLICATION | `VALIDATED` | `test_part49_replication_app.py` | Buy-and-hold + LTV enforcement + real-rate implemented | Retain; 4752 units, 0 failures |
+| 49.7 | Non-canonical 6-cell E2E | 2E × 3I × 1,739 = 10,434 | NON-CANONICAL RESEARCH | `IMPLEMENTED` | `test_part49_replication_app.py` | None | Retain — validates leverage mechanics |
 | 49.8 | Integration tests (18 units) | 2E × 3I × 3 cohorts | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part49_canonical_execution.py` | None | Retain — execution correctness |
 | 49.9 | Buy-and-hold capability | N/A | N/A | `IMPLEMENTED` | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` (`fc83253`) | None | Complete |
 | 49.10 | LTV enforcement | N/A | N/A | `IMPLEMENTED` | `LTVEvaluationStep` with `ltv_enforcement=True` (`bf42fe5`) | None | Complete |
@@ -162,7 +162,7 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 | `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | Parts 1+2 | 313,020 | FAST production engine | Production | SWR success rates against the workbook-derived oracle (FV=0 only) | Yes | Production conformance for the foundational SWR grid |
 | `test_full_swr_grid.py::test_smoke_cell_matches_workbook_oracle` | Part 1 | 1,739 | FAST production engine | Production | Single-cell workbook-oracle anchor | Yes | Diagnostic smoke, different responsibility |
 | `test_part20_replication.py::test_part20_full_grid_replication` | Part 20 | 556,480 | CLI reference | Regression only | Grid structure, computational execution, traceable anchors — NOT replication | Yes | Regression coverage, NOT replication evidence |
-| `test_part49_replication.py::test_part49_canonical_replication` | Part 49 | 10,434 | Python API (`ResearchExecutor`) | Non-canonical | Leverage mechanics with deviations (LTV OFF, no buy-and-hold) | Yes | Validates leverage mechanics, NOT canonical replication |
+| `test_part49_replication_app.py::test_part49_canonical_replication` | Part 49 | 10,434 | Python API (`ResearchExecutor`) | Non-canonical | Leverage mechanics with deviations (LTV OFF, no buy-and-hold) | Yes | Validates leverage mechanics, NOT canonical replication |
 | `test_part42_replication.py::test_part42_canonical_replication` | Part 42 | 93,915 | Python API (`FastPathSimulationExecutor`) | Structural only | Grid structure, directional invariants — NOT ERN anchor validation | Yes | Structural validation, NOT published-table replication |
 | `TestCanonicalERNReplication` (test_part52_canonical_ern_replication.py) | Part 52 | 19,129 | Python API (`FastPathSimulationExecutor`) | A1/A9: canonical (100%); A10: deferred (95.7%) | A1/A9: canonical replication with published anchors (1739/1739 success); A10: 1665/1739 (95.7%) — execution/timing discrepancy deferred until optimization | Yes | Canonical (A1/A9) + deferred A10 research validation |
 | `test_part52_deterministic_validation.py` | Part 52 | 1,739 (baseline) | Python API | Integration | Mechanism correctness (policy registration, config construction) | Yes | Mechanism assertions distinct from simulation |
@@ -497,7 +497,7 @@ All Part 49 canonical experiments (B–F) are implemented and validated with buy
   - Prerequisite: T6.1 (complete)
   - Dependencies: T6.1
 
-**Remaining action:** Commit canonical replication test `tests/oracle/ern/test_part49_replication.py` (already written, validates all 5 experiments).
+**Status:** The Part 49 replication test is committed as `tests/oracle/ern/test_part49_replication_app.py`. Its existence does not implement or complete Experiment A, which remains `PLANNED — NOT IMPLEMENTED` (49.1).
 
 ---
 

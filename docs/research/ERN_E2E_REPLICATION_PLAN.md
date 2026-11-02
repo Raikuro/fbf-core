@@ -216,9 +216,9 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
   1. **Buy-and-hold capability: IMPLEMENTED** — `BuyAndHoldAllocationPolicy` + `create_buy_and_hold_pipeline()` (`fc83253`).
   2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True` for Experiments B, C, F; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
   3. **Real-rate debt handling: IMPLEMENTED** — `debt_interest_rate_is_real` flag on `SimulationContext` + `InterestAccrualStep` bypasses CPI deflation (`bf42fe5`, GAP-2).
-- **E2E status:** **VALIDATED WITH DOCUMENTED LIMITATIONS** — Experiments B–F validated with buy-and-hold, LTV enforcement, real-rate debt. Experiments B–F executed via `tests/oracle/ern/test_part49_replication.py` (rewritten, gated `ern_e2e`). Chart 02 (margin-call window), Chart 03 (1929 trajectory), Chart 04 (L/P ratios), Charts 05/06 (max LTV) match published values. Experiment F: 4752 units (792 cohorts × 6 cells), 0 failures.
+- **E2E status:** **VALIDATED WITH DOCUMENTED LIMITATIONS** — Experiments B–F validated with buy-and-hold, LTV enforcement, real-rate debt. Experiments B–F executed via `tests/oracle/ern/test_part49_replication_app.py` (rewritten, gated `ern_e2e`). Chart 02 (margin-call window), Chart 03 (1929 trajectory), Chart 04 (L/P ratios), Charts 05/06 (max LTV) match published values. Experiment F: 4752 units (792 cohorts × 6 cells), 0 failures.
 - **Non-leverage oracle:** Matches independent `p49_oracle_table.csv` within cohort-population tolerance.
-- **E2E test:** `tests/oracle/ern/test_part49_replication.py` (rewritten, gated `ern_e2e`, 5 experiments, Tier A/D/E validation).
+- **E2E test:** `tests/oracle/ern/test_part49_replication_app.py` (rewritten, gated `ern_e2e`, 5 experiments, Tier A/D/E validation).
 - **Supporting tests:** `test_part49_buy_and_hold.py` (10 passed), `test_part49_canonical_execution.py` (10 passed), `test_debt_oracle.py` (24 passed).
 
 #### Part 52 — NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
@@ -346,7 +346,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 |--------|----------------|------|-----------|-------|--------|
 | E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | 313,020 | **CANONICAL — VALIDATED** |
 | E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_replication.py::test_part20_full_grid_structure` | 556,480 | **CANONICAL METHODOLOGY — IMPLEMENTATION ALIGNMENT PENDING** |
-| E2E-Part49 | Part 49 | (Python API) | `test_part49_replication.py::test_part49_canonical_replication` | 10,434 | **SUBSET — TWO DEVIATIONS** |
+| E2E-Part49 | Part 49 | (Python API) | `test_part49_replication_app.py::test_part49_canonical_replication` | 10,434 | **SUBSET — TWO DEVIATIONS** |
 | E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **E2E/IMPLEMENTATION VALIDATION DEFERRED** |
 | E2E-Part52 | Part 52 | (Python API) | `test_part52_canonical_ern_replication.py` | 19,129 | **NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED** |
 
@@ -414,13 +414,13 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 **Methodology:** COMPLETE (see `ern_part49_replication.md` §24).
 
-**Implementation status:** **IMPLEMENTED & VALIDATED** — All canonical deviations resolved. Experiments B–F executed via `tests/oracle/ern/test_part49_replication.py` (rewritten, gated `ern_e2e`). 
+**Implementation status:** **IMPLEMENTED & VALIDATED** — All canonical deviations resolved. Experiments B–F executed via `tests/oracle/ern/test_part49_replication_app.py` (rewritten, gated `ern_e2e`).
 
 **E2E status:** **VALIDATED WITH DOCUMENTED LIMITATIONS** — Experiments B–F validated with buy-and-hold, LTV enforcement, real-rate debt. Chart 02 (margin-call window), Chart 03 (1929 trajectory), Chart 04 (L/P ratios), Charts 05/06 (max LTV) match published values. Experiment F: 4752 units (792 cohorts × 6 cells), 0 failures.
 
 **Non-leverage oracle:** Matches independent `p49_oracle_table.csv` within cohort-population tolerance.
 
-**E2E test:** `tests/oracle/ern/test_part49_replication.py` (rewritten, gated `ern_e2e`, 5 experiments, Tier A/D/E validation).
+**E2E test:** `tests/oracle/ern/test_part49_replication_app.py` (rewritten, gated `ern_e2e`, 5 experiments, Tier A/D/E validation).
 
 **Supporting tests:** `test_part49_buy_and_hold.py` (10 passed), `test_part49_canonical_execution.py` (10 passed), `test_debt_oracle.py` (24 passed).
 
@@ -652,7 +652,7 @@ Markers and environment variables have distinct roles:
 | `test_full_grid_matches_oracle` | `test_ern_swr_replication.py` | Full 180-cell grid (313K units) via CLI |
 | `test_part20_full_grid_replication` | `test_part20_replication.py` | Full 320-cell Part 20 grid (556K units) via CLI, three-level validation |
 | `test_part20_determinism` | `test_part20_replication.py` | Single-cell determinism check (two independent CLI invocations) |
-| `test_part49_canonical_replication` | `test_part49_replication.py` | Full 6-cell Part 49 grid (10K units) via Python API, three-level validation |
+| `test_part49_canonical_replication` | `test_part49_replication_app.py` | Full 6-cell Part 49 grid (10K units) via Python API, three-level validation |
 | `test_part42_canonical_replication` | `test_part42_replication.py` | Full 45-cell Part 42 grid (94K units) via Python API, three-level validation |
 
 **Total: 5 tests**
@@ -689,7 +689,7 @@ Markers and environment variables have distinct roles:
 |------|----------------|------------------|----------------------|-------------------|-------------------|
 | `test_ern_swr_replication.py::test_smoke_grid_matches_oracle` | ~14s | 2,099 | 1 cell | None | No (already minimal) |
 | `test_ern_swr_replication.py::test_full_grid_matches_oracle` | ~51s (historical pre-migration CLI subprocess; includes startup/dataset loading; not directly comparable to the post-migration Numba baseline) | 313,020 | 180 cells (independent) | CLI subprocess, dataset loading | No (single CLI subprocess) |
-| `test_part49_replication.py::test_part49_canonical_replication` | ~7.5m | 10,434 | 6 cells (2E × 3I) | Python API, dataset loading | No (single Python API call) |
+| `test_part49_replication_app.py::test_part49_canonical_replication` | ~7.5m | 10,434 | 6 cells (2E × 3I) | Python API, dataset loading | No (single Python API call) |
 | `test_part42_replication.py::test_part42_canonical_replication` | ~67s | 93,915 | 45 cells (5E × 9S) | Python API, dataset loading, accumulation | No (single Python API call) |
 | `test_part49_canonical_execution.py` | ~1s (reduced fixture) | 18 | 6 cells (2E × 3I) | Dataset loading, pipeline construction | No (integration test, not research-scale) |
 | `test_part49_aggregation.py` | ~1s (reduced fixture) | 18 | 6 cells (2E × 3I) | Dataset loading, pipeline construction | No (integration test, not research-scale) |

@@ -162,7 +162,7 @@ computed, satisfying §8.4 ("do not … reconstruct the loan afterward").
 `Part52WithdrawalPolicy`. Part 52 is unaffected by Option B.
 
 **Existing hard oracle that masks this:** the interest-rate-direction
-assertions in `tests/oracle/ern/test_part49_replication.py:303-308` pass under
+assertions in `tests/oracle/ern/test_part49_replication_app.py:295-303` pass under
 the broken semantics, and no unit test asserts Part 49 total spending.
 
 **[CORRECTED] Test migration inventory for GAP-1 fix:**
@@ -181,7 +181,7 @@ when GAP-1 is fixed:
 | `tests/benchmarks/test_part49_performance.py` | Multiple benchmarks | Use `Part49WithdrawalPolicy(withdrawal_rate=...)` with workaround rates |
 
 **Total: 9 test functions across 4 test files** require migration. The
-`tests/oracle/ern/test_part49_replication.py` directional assertions
+`tests/oracle/ern/test_part49_replication_app.py` directional assertions
 (`rate_15 <= rate_0`, `rate_30 <= rate_15`) will also need re-evaluation
 post-fix as success rates will change.
 
@@ -341,7 +341,7 @@ post-hoc analysis of failure mode.
 |---|---|
 | GAP-1 | No test asserts Part 49 total spending or portfolio-sale split; `test_part49_buy_and_hold.py` asserts only structural properties and positive holdings |
 | GAP-2 | All debt unit tests use `inflation_cumulative = 0`; the canonical E2E is `RUN_ERN_E2E`-gated and uses directional assertions |
-| GAP-3 | `examples/studies/ern_part49.yaml` sets `ltv_enforcement: false`; the canonical oracle config sets `debt_ltv_enforcement=False` (`test_part49_replication.py:110`) |
+| GAP-3 | `examples/studies/ern_part49.yaml` sets `ltv_enforcement: false` (line 52); the canonical test loads that YAML |
 
 ### 4.5 Combined diagnostic impact on the published Chart 04 anchors
 
@@ -681,7 +681,7 @@ to `AGENTS.md` Commit Governance (no commit without explicit authorization).
 * Experiments D/E charts: `ltv_enforcement=False` (observe-only).
 * Experiments B/C: `ltv_enforcement=True` (terminal).
 * §18 invariants asserted as HARD on every experiment.
-* Extend `tests/oracle/ern/test_part49_replication.py` (canonical only — no
+* Extend `tests/oracle/ern/test_part49_replication_app.py` (canonical only — no
   ad-hoc oracle tests).
 * **Agents must not run this with `RUN_ERN_E2E` enabled as part of routine
   validation** (`AGENTS.md`).
@@ -709,13 +709,13 @@ T6.2c (GAP-3) is unblocked following D-2 resolution (2026-09-29).**
 | Integration | `tests/integration/test_part49_leverage_semantics.py` (**new**) | end-to-end spending split, loan recursion, terminal margin call | none |
 | Integration | extend `tests/integration/test_part49_buy_and_hold.py` | regression on C-1/C-2 | none |
 | E2E | new/extended `tests/integration/…` (mirroring `test_part3_canonical_ern_replication.py` naming) | Experiments A–F execution + classified anchors | `ern_e2e` + `RUN_ERN_E2E=1` |
-| Oracle | extend `tests/oracle/ern/test_part49_replication.py` | canonical grid re-baselined **after** T6.2b | `ern_e2e` + `RUN_ERN_E2E=1` |
+| Oracle | extend `tests/oracle/ern/test_part49_replication_app.py` | canonical grid re-baselined **after** T6.2b | `ern_e2e` + `RUN_ERN_E2E=1` |
 | Contract | `tests/contract/test_core_boundaries.py` | only if a new public symbol is exported (AGENTS.md "Adding a New Public Symbol") | none |
 | Benchmarks | `tests/benchmarks/` | re-baseline after semantics change | none |
 
 **Re-baselining obligation.** T6.2b changes numerical results for every Part 49
 study. Existing baselines/directional assertions in
-`test_part49_replication.py`, `test_part49_aggregation.py`,
+`test_part49_replication_app.py`, `test_part49_aggregation.py`,
 `test_part49_canonical_execution.py`, `test_part49_smoke_execution.py`,
 `test_part49_multi_cohort.py`, `test_part49_grid_audit.py`,
 `test_part49_grid_materialization.py`, and `test_part49_buy_and_hold.py` must
@@ -742,7 +742,7 @@ Each entry identifies the test, the semantic it validates, and the required chan
 | `tests/integration/test_part49_buy_and_hold.py` | `_make_part49_buy_and_hold_config` | `WITHDRAWAL_RATE = 0.03` (workaround) | Use `withdrawal_rate = 0.04` (total spending) with `ldr=0.01` |
 | `tests/integration/test_part49_canonical_execution.py` | Configuration uses `CANONICAL_SWR = (0.03,)` | Workaround config | Use `withdrawal_rate = total spending` |
 | `tests/benchmarks/test_part49_performance.py` | Multiple benchmarks | Workaround rates | Update to use corrected semantics |
-| `tests/oracle/ern/test_part49_replication.py` | Lines 303-308 directional assertions | `rate_15 <= rate_0`, `rate_30 <= rate_15` | Re-evaluate post-fix; may need new baselines |
+| `tests/oracle/ern/test_part49_replication_app.py` | Lines 295-303 directional assertions | `rate_15 <= rate_0`, `rate_30 <= rate_15` | Re-evaluate post-fix; may need new baselines |
 
 **Total: 8 test functions across 4 test files** require migration. All changes
 are in the **same commit** as the GAP-1/2/3 semantic corrections (T6.2b) per
