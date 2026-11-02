@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import sys
@@ -56,10 +57,11 @@ class WorkbookRow:
 
 @dataclass(frozen=True)
 class WorkbookData:
-    """Extracted index rows and return rows."""
+    """Extracted index rows, return rows, and source identity."""
 
     index_rows: tuple[tuple[str, Decimal, Decimal, Decimal], ...]
     return_rows: tuple[WorkbookRow, ...]
+    source_sha256: str
 
 
 def _local_name(tag: str) -> str:
@@ -124,6 +126,14 @@ def _collect_cells(root: ElementTree.Element) -> dict[str, _Cell]:
                 numeric_value = None
         cells[ref] = _Cell(value=numeric_value, has_formula=has_formula)
     return cells
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(8192), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _month_date(year: int, month: int) -> str:
@@ -211,7 +221,11 @@ def extract_workbook(workbook_path: Path) -> WorkbookData:
         raise ValueError(f"Unexpected first production date: {rows[0].date}")
     if rows[-1].date != "2026-06-01":
         raise ValueError(f"Unexpected last production date: {rows[-1].date}")
-    return WorkbookData(index_rows=tuple(index_rows), return_rows=tuple(rows))
+    return WorkbookData(
+        index_rows=tuple(index_rows),
+        return_rows=tuple(rows),
+        source_sha256=_sha256(workbook_path),
+    )
 
 
 def _csv_text(header: list[str], rows: list[list[str]]) -> str:
@@ -228,17 +242,23 @@ def _write_csv(path: Path, text: str) -> None:
 
 def _provenance(
     *,
+    artifact_sha256: str,
+    source_sha256: str,
     source_field: str,
     source_sheet: str,
+    source_cells: str,
     observation_count: int,
     date_range: str,
     notes: str,
 ) -> str:
     return json.dumps(
         {
+            "schema_version": "1.0",
             "source_file": "SWR_Toolbox_v2.0.xlsx",
+            "source_sha256": source_sha256,
             "source_sheet": source_sheet,
             "source_field": source_field,
+            "source_cells": source_cells,
             "source_date_format": "year (column B), month (column A)",
             "source_numeric_type": "cached Excel value (preserved exactly)",
             "extraction_method": (
@@ -247,6 +267,7 @@ def _provenance(
             ),
             "observation_count": observation_count,
             "date_range": date_range,
+            "artifact_sha256": artifact_sha256,
             "validation_result": "PASS",
             "notes": notes,
         },
@@ -288,43 +309,73 @@ def write_outputs(data: WorkbookData, output_dir: Path) -> list[Path]:
     date_range = f"{rows[0].date} to {rows[-1].date}"
     provenance_targets = {
         "workbook_returns.provenance.json": _provenance(
+            artifact_sha256=hashlib.sha256(
+                targets["workbook_returns.csv"].encode("utf-8")
+            ).hexdigest(),
+            source_sha256=data.source_sha256,
             source_field="Q (equity real return), R (bond real return)",
             source_sheet=_ASSET_RETURNS,
+            source_cells="Q7:Q1871, R7:R1871",
             observation_count=len(rows),
             date_range=date_range,
             notes="Exact combined oracle fixture for tools/ern/workbook_oracle.py",
         ),
         "spx_tr_real.provenance.json": _provenance(
+            artifact_sha256=hashlib.sha256(
+                targets["spx_tr_real.csv"].encode("utf-8")
+            ).hexdigest(),
+            source_sha256=data.source_sha256,
             source_field="Q",
             source_sheet=_ASSET_RETURNS,
+            source_cells="Q7:Q1871",
             observation_count=len(rows),
             date_range=date_range,
             notes="S&P 500 total-return monthly real returns",
         ),
         "bond_10y_tr_real.provenance.json": _provenance(
+            artifact_sha256=hashlib.sha256(
+                targets["bond_10y_tr_real.csv"].encode("utf-8")
+            ).hexdigest(),
+            source_sha256=data.source_sha256,
             source_field="R",
             source_sheet=_ASSET_RETURNS,
+            source_cells="R7:R1871",
             observation_count=len(rows),
             date_range=date_range,
             notes="10-year bond market total-return monthly real returns",
         ),
         "spx_tr.provenance.json": _provenance(
+            artifact_sha256=hashlib.sha256(
+                targets["spx_tr.csv"].encode("utf-8")
+            ).hexdigest(),
+            source_sha256=data.source_sha256,
             source_field="F",
             source_sheet=_ASSET_RETURNS,
+            source_cells="F6:F1871",
             observation_count=len(data.index_rows),
             date_range=f"{data.index_rows[0][0]} to {data.index_rows[-1][0]}",
             notes="S&P 500 total-return nominal index",
         ),
         "bm10.provenance.json": _provenance(
+            artifact_sha256=hashlib.sha256(
+                targets["bm10.csv"].encode("utf-8")
+            ).hexdigest(),
+            source_sha256=data.source_sha256,
             source_field="G",
             source_sheet=_ASSET_RETURNS,
+            source_cells="G6:G1871",
             observation_count=len(data.index_rows),
             date_range=f"{data.index_rows[0][0]} to {data.index_rows[-1][0]}",
             notes="10-year bond market cumulative nominal index",
         ),
         "cpi.provenance.json": _provenance(
+            artifact_sha256=hashlib.sha256(
+                targets["cpi.csv"].encode("utf-8")
+            ).hexdigest(),
+            source_sha256=data.source_sha256,
             source_field="E",
             source_sheet=_ASSET_RETURNS,
+            source_cells="E6:E1871",
             observation_count=len(data.index_rows),
             date_range=f"{data.index_rows[0][0]} to {data.index_rows[-1][0]}",
             notes="CPI level",

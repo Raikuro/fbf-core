@@ -188,6 +188,40 @@ The Timing workbook's CPI column C is also not the same as its `CPI Shiller` col
 
 Implication: exact numerical equivalence with the 2022 Timing workbook is not a valid acceptance test. The current runtime is the corrected SWR vintage. The `2008/9` cluster can affect cohorts whose 30-year window includes late 2008 or early 2009; it does not affect the `1929` or `1965` A10 anchors. The substantive CPI revision is confined to `2019-2021` and affects real-return and terminal-snapshot calculations for cohorts ending in those months. Part 52 validation may use the current SWR asset/CPI series; the separate eligibility decision remains open.
 
+### 3.4.2 Provenance and Reproducibility Audit
+
+The canonical Part 52 inputs are pinned at two levels: the SHA-256 of each derived CSV and, where the source artifact is available, the SHA-256 of the source workbook or raw series. These controls make artifact-level validation reproducible; they do not by themselves establish acquisition-level reproducibility.
+
+**Recorded provenance.**
+
+| Artifact | Source identity | Recorded controls |
+|---|---|---|
+| `cpi.csv`, `spx_tr.csv`, `bm10.csv`, `spx_tr_real.csv`, `bond_10y_tr_real.csv`, `workbook_returns.csv` | `SWR_Toolbox_v2.0.xlsx`, `Asset Returns`, columns `E`/`F`/`G`/`Q`/`R` | Source SHA-256, source cells, observation count, date range, artifact SHA-256, extraction method, validation result |
+| `ffr.csv` historical segment | `Timing-Leverage-Calc.xlsx`, `Return Data!K4:K1815`, formula `=IF(ISNUMBER(M4),M4,N4)` | Source URL, source SHA-256, workbook created/modified timestamps, source cells/formula, fallback metadata, observation count/range, artifact SHA-256 |
+| `ffr.csv` extension | `data/ern/raw/FEDFUNDS.csv`, series `FEDFUNDS` | Series ID/URL, raw-source SHA-256, raw observation count/range, extraction slice count/range, transformation, revision status |
+
+The extractor rejects missing or malformed workbook inputs and validates contiguous dates, formulas, and boundaries before writing. The provenance contract tests pin the artifact and source hashes, source cells, segment counts, and the `2021-12`/`2022-01` boundary. The SWR source hash was verified against an external workbook copy that reproduced all six canonical CSVs byte-for-byte; that verification is not repeatable from the repository alone.
+
+**Missing or ambiguous provenance.**
+
+1. The acquisition URL and retrieval date for `SWR_Toolbox_v2.0.xlsx` are not recorded. The source hash identifies the file used, but a contributor cannot independently obtain that exact file from the repository or a recorded URL.
+2. The SWR workbook package contains no core-properties metadata in the inspected copy; workbook creation/modification dates are unavailable. The source hash is the primary identity.
+3. The retrieval date for `Timing-Leverage-Calc.xlsx` is not recorded. The public source URL, SHA-256, and internal created/modified timestamps identify the workbook; the acquisition event itself is not reconstructible.
+4. The FRED extension still lacks acquisition metadata: download date, request URL/query, retrieval tool, and FRED last-updated timestamp are not recorded. The frozen raw snapshot is hash-pinned and the series is subject to revision, so the exact vintage cannot be independently recreated from FRED.
+5. The upstream source and vintage of the pre-1954-07 workbook column `N` remain undocumented. This cannot be resolved from FBF artifacts and requires workbook/source research.
+6. `ffr.csv` has no per-row origin marker. The workbook/extension boundary is fixed and recorded in provenance, so origin is reproducible for the current artifact, but a future concatenation must preserve the boundary or add an explicit marker.
+7. Canonical market/CPI CSVs contain only historical observations through `2026-06`. Forward projection is applied in code, not stored in these files; future files must not silently mix projected rows into canonical CSVs.
+8. No reproducible workbook-download recipe is present. Source verification is possible only when an external workbook copy is supplied; the extractor then verifies its hash against the recorded source identity.
+
+**Gap classification.**
+
+- Independently fixable through metadata/tests: artifact SHA-256 pins, source SHA-256 for the SWR workbook, source-cell ranges, FFR segment metadata, source timestamps for the Timing workbook, and provenance contract tests. These are implemented by this audit.
+- Requires the canonical workbook or an authoritative acquisition record: SWR acquisition URL/retrieval date, Timing retrieval date, and any workbook-internal metadata not present in the inspected copy.
+- Requires source research: pre-1954 `N` upstream source/vintage and the exact FRED retrieval event/last-updated timestamp.
+- Requires a future regeneration policy: whether to add per-row origin markers, how to record projected rows, and how to pin and refresh external sources.
+
+**Conclusion.** The current artifacts support reproducible historical validation at the artifact level: a validator can verify the exact CSV bytes, observation counts, source cells, segment boundaries, and the external FFR slice. They do not yet support fully auditable regeneration at the acquisition level, because the source acquisition events and external FRED vintage are not reproducible from the repository alone. Before canonical dataset regeneration, provenance must additionally record retrieval metadata, source locations, and segment markers as specified above.
+
 ### 3.5 SWR Cash Is Not an FFR Substitute
 
 The ERN SWR toolbox's `Asset Returns!I6:I1871` series is a cumulative nominal 3-month US Treasury-bill total-return index, not the federal funds rate. It covers actual observations from 1871-01 through 2026-06 (1,866 months), starts at `100.0` in 1871-01, reaches `47574.20198548` in 2026-06, and is blank after the workbook's projection boundary.

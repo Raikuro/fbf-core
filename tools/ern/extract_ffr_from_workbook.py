@@ -378,6 +378,8 @@ def build_provenance(
                 "Timing-Leverage-Calc.xlsx"
             ),
             "source_sha256": history.workbook_sha256,
+            "source_created": "2022-03-12T17:11:40Z",
+            "source_modified": "2022-03-21T20:16:41Z",
             "source_sheet": _WORKBOOK_SHEET,
             "source_cells": _HISTORY_CELL_RANGE,
             "source_formula": _HISTORY_FORMULA,
@@ -411,10 +413,18 @@ def build_provenance(
     if extension is not None:
         provenance["extension"] = {
             "source_file": "data/ern/raw/FEDFUNDS.csv",
+            "source_series_id": "FEDFUNDS",
+            "source_url": "https://fred.stlouisfed.org/series/FEDFUNDS",
             "source_field": "FEDFUNDS",
             "source_sha256": extension.source_sha256,
+            "source_observation_count": 866,
+            "source_date_range": "1954-07-01 to 2026-08-01",
             "source_units": "percent per annum",
             "output_units": "decimal per annum",
+            "source_revision_status": (
+                "FRED series is subject to revision; this artifact uses a "
+                "frozen local snapshot pinned by SHA-256"
+            ),
             "transformation": "value / 100, formatted to 4 decimal places",
             "observation_count": len(extension.rows),
             "date_range": _date_range(extension.rows),

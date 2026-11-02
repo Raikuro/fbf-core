@@ -1,12 +1,16 @@
 {
+  "schema_version": "1.0",
   "source_file": "SWR_Toolbox_v2.0.xlsx",
+  "source_sha256": "d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6",
   "source_sheet": "Asset Returns",
   "source_field": "Q",
+  "source_cells": "Q7:Q1871",
   "source_date_format": "year (column B), month (column A)",
   "source_numeric_type": "cached Excel value (preserved exactly)",
   "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, or normalization.",
   "observation_count": 1865,
   "date_range": "1871-02-01 to 2026-06-01",
+  "artifact_sha256": "b3e9054e2744f2db773476058fa7d94d2dbc075a573328bbe8ae55bfe158d04e",
   "validation_result": "PASS",
   "notes": "S&P 500 total-return monthly real returns"
 }

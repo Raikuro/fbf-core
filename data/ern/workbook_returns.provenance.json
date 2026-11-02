@@ -1,12 +1,16 @@
 {
+  "schema_version": "1.0",
   "source_file": "SWR_Toolbox_v2.0.xlsx",
+  "source_sha256": "d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6",
   "source_sheet": "Asset Returns",
   "source_field": "Q (equity real return), R (bond real return)",
+  "source_cells": "Q7:Q1871, R7:R1871",
   "source_date_format": "year (column B), month (column A)",
   "source_numeric_type": "cached Excel value (preserved exactly)",
   "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, or normalization.",
   "observation_count": 1865,
   "date_range": "1871-02-01 to 2026-06-01",
+  "artifact_sha256": "30e175de7f9b6dce52c91cace47a8acefdfdbaf1ad7e13715dd15716424e6855",
   "validation_result": "PASS",
   "notes": "Exact combined oracle fixture for tools/ern/workbook_oracle.py"
 }

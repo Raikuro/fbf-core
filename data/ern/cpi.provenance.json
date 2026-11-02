@@ -1,12 +1,16 @@
 {
+  "schema_version": "1.0",
   "source_file": "SWR_Toolbox_v2.0.xlsx",
+  "source_sha256": "d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6",
   "source_sheet": "Asset Returns",
   "source_field": "E",
+  "source_cells": "E6:E1871",
   "source_date_format": "year (column B), month (column A)",
   "source_numeric_type": "cached Excel value (preserved exactly)",
   "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, or normalization.",
   "observation_count": 1866,
   "date_range": "1871-01-01 to 2026-06-01",
+  "artifact_sha256": "6ee118c2c3d3101304fa72cc386228aea02fe43efd71bcba5b79ebc4a11d5c47",
   "validation_result": "PASS",
   "notes": "CPI level"
 }

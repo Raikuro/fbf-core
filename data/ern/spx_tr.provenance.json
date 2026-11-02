@@ -1,12 +1,16 @@
 {
+  "schema_version": "1.0",
   "source_file": "SWR_Toolbox_v2.0.xlsx",
+  "source_sha256": "d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6",
   "source_sheet": "Asset Returns",
   "source_field": "F",
+  "source_cells": "F6:F1871",
   "source_date_format": "year (column B), month (column A)",
   "source_numeric_type": "cached Excel value (preserved exactly)",
   "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, or normalization.",
   "observation_count": 1866,
   "date_range": "1871-01-01 to 2026-06-01",
+  "artifact_sha256": "f0b3650e47f1c420fff9a1bcbfa5c027884ef6bb5a529c473f5ce9a71d8c20bb",
   "validation_result": "PASS",
   "notes": "S&P 500 total-return nominal index"
 }
