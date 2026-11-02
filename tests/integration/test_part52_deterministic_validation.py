@@ -6,7 +6,7 @@ executable through the production study-building path.
 
 This file tests MECHANISM CORRECTNESS only.
 Full ERN replication scenarios (A1/A2/A3) are owned by
-``test_part52_canonical_ern_replication.py`` and are not duplicated here.
+``test_part52_replication.py`` and are not duplicated here.
 
 Scope:
     - PART52 policy type registration

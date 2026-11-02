@@ -1,8 +1,12 @@
-"""Part 52 canonical cohort-universe and FFR provenance coverage.
+"""Part 52 coverage layers and FFR provenance.
 
-These tests exercise the explicit canonical filter at a Part 52 caller. They
-do not replace the research-validation execution suite or its gross-survival
-assertions; the default cohort universe remains the full 1,739-cohort set.
+The workbook ``Distribution of Final Value`` sheet defines 1,739 retirement
+labels (1871-02..2015-12), but it is stale relative to the underlying data:
+the SWR Toolbox historical returns/CPI end at 2026-06, and the separate FFR
+workbook ``Return Data!K`` ends at 2021-12.  These tests pin the distinct
+coverage boundaries so they are not conflated with a "full workbook" claim.
+They do not replace the research-validation execution suite or its
+gross-survival assertions.
 """
 
 from __future__ import annotations
@@ -29,15 +33,18 @@ from fbf.core.study.internal.cohort.generator import CohortGenerator
 
 DATA_DIR = Path("data/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
-WORKBOOK_END = date(2021, 12, 1)
+MARKET_HISTORY_END = date(2026, 6, 1)
+FFR_WORKBOOK_END = date(2021, 12, 1)
+FFR_RUNTIME_END = date(2026, 8, 1)
 FFR_EXTENSION_START = date(2022, 1, 1)
 FORWARD_FILL_START = date(2026, 9, 1)
 N_END = date(1954, 6, 1)
 M_START = date(1954, 7, 1)
 
-CANONICAL_COUNT = 1452
-FFR_ONLY_COUNT = 1453
-EXTENDED_COUNT = 287
+HISTORICAL_MARKET_COVERAGE_COUNT = 1506
+FFR_HISTORY_COVERAGE_COUNT = 1453
+LEGACY_TERMINAL_2021_12_COUNT = 1452
+LEGACY_TERMINAL_OUTSIDE_COUNT = 287
 POST_2021_FFR_COUNT = 286
 FORWARD_FILLED_COUNT = 230
 NO_FORWARD_FILL_COUNT = 1509
@@ -60,12 +67,22 @@ def _terminal_snapshot_date(cohort: CohortSpecification) -> date:
     return _add_months(cohort.start_date, 360)
 
 
-def _is_canonical(cohort: CohortSpecification) -> bool:
-    return _terminal_snapshot_date(cohort) <= WORKBOOK_END
+def _is_legacy_terminal_2021_12(cohort: CohortSpecification) -> bool:
+    return _terminal_snapshot_date(cohort) <= FFR_WORKBOOK_END
+
+
+def _has_complete_market_history(cohort: CohortSpecification) -> bool:
+    return _terminal_snapshot_date(cohort) <= MARKET_HISTORY_END
 
 
 def _is_ffr_only_covered(cohort: CohortSpecification) -> bool:
-    return _latest_consumed_ffr_date(cohort) <= WORKBOOK_END
+    return _latest_consumed_ffr_date(cohort) <= FFR_WORKBOOK_END
+
+
+def _last_csv_date(path: Path) -> date:
+    with path.open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    return date.fromisoformat(rows[-1]["date"])
 
 
 def _n_consumed_months(cohort: CohortSpecification) -> int:
@@ -77,8 +94,8 @@ def _n_consumed_months(cohort: CohortSpecification) -> int:
 
 def _part52_config(*, ffr_spread: Decimal | None = None) -> StudyConfiguration:
     values: dict[str, object] = {
-        "name": "ERN_Part52_canonical_coverage",
-        "description": "Explicit canonical Part 52 cohort coverage",
+        "name": "ERN_Part52_legacy_2021_12_coverage",
+        "description": "Legacy Part 52 cohorts with terminal snapshots on or before 2021-12",
         "version": "1.0",
         "allocation_policy_type": "ConstantAllocationPolicy",
         "allocation_policy_values": (Decimal("0.75"),),
@@ -120,17 +137,17 @@ def full_cohorts(canonical_dataset: Dataset) -> tuple[CohortSpecification, ...]:
 
 
 @pytest.fixture(scope="module")
-def canonical_cohorts(
+def legacy_terminal_cohorts(
     full_cohorts: tuple[CohortSpecification, ...],
 ) -> tuple[CohortSpecification, ...]:
-    return tuple(cohort for cohort in full_cohorts if _is_canonical(cohort))
+    return tuple(cohort for cohort in full_cohorts if _is_legacy_terminal_2021_12(cohort))
 
 
 @pytest.mark.parametrize(
     "ffr_spread",
     [pytest.param(None, id="non_ffr"), pytest.param(Decimal("0.005"), id="ffr")],
 )
-def test_part52_canonical_filter_applies_at_caller(
+def test_legacy_2021_12_filter_applies_at_caller(
     canonical_dataset: Dataset,
     ffr_spread: Decimal | None,
 ) -> None:
@@ -139,22 +156,29 @@ def test_part52_canonical_filter_applies_at_caller(
         str(DATA_DIR),
         INITIAL_WEALTH,
         dataset=canonical_dataset,
-        cohort_filter=_is_canonical,
+        cohort_filter=_is_legacy_terminal_2021_12,
     )
 
-    assert len(built.cohorts) == CANONICAL_COUNT
-    assert len(built.plan.units) == CANONICAL_COUNT
+    assert len(built.cohorts) == LEGACY_TERMINAL_2021_12_COUNT
+    assert len(built.plan.units) == LEGACY_TERMINAL_2021_12_COUNT
     assert built.cohorts[0].start_date == date(1871, 1, 31)
     assert built.cohorts[-1].start_date == date(1991, 12, 1)
 
 
-def test_canonical_and_extended_cohort_counts(
+def test_legacy_2021_12_and_outside_cohort_counts(
     full_cohorts: tuple[CohortSpecification, ...],
-    canonical_cohorts: tuple[CohortSpecification, ...],
+    legacy_terminal_cohorts: tuple[CohortSpecification, ...],
 ) -> None:
+    """The full 60-year set maps to the workbook's 1,739 retirement labels.
+
+    Workbook retirement labels 1871-02..2015-12 map to runtime cohort starts
+    1871-01..2015-11 because the runtime start is the pre-retirement snapshot.
+    """
     assert len(full_cohorts) == 1739
-    assert len(canonical_cohorts) == CANONICAL_COUNT
-    assert len(full_cohorts) - len(canonical_cohorts) == EXTENDED_COUNT
+    assert full_cohorts[0].start_date == date(1871, 1, 31)
+    assert full_cohorts[-1].start_date == date(2015, 11, 1)
+    assert len(legacy_terminal_cohorts) == LEGACY_TERMINAL_2021_12_COUNT
+    assert len(full_cohorts) - len(legacy_terminal_cohorts) == LEGACY_TERMINAL_OUTSIDE_COUNT
 
     post_2021 = tuple(
         cohort
@@ -172,29 +196,65 @@ def test_canonical_and_extended_cohort_counts(
 
 def test_ffr_only_boundary_excludes_1992_01_terminal_snapshot(
     full_cohorts: tuple[CohortSpecification, ...],
-    canonical_cohorts: tuple[CohortSpecification, ...],
+    legacy_terminal_cohorts: tuple[CohortSpecification, ...],
 ) -> None:
     ffr_only = tuple(cohort for cohort in full_cohorts if _is_ffr_only_covered(cohort))
     boundary = CohortSpecification(date(1992, 1, 1))
 
-    assert len(ffr_only) == FFR_ONLY_COUNT
+    assert len(ffr_only) == FFR_HISTORY_COVERAGE_COUNT
     assert boundary in ffr_only
-    assert boundary not in canonical_cohorts
+    assert boundary not in legacy_terminal_cohorts
     assert _latest_consumed_ffr_date(boundary) == date(2021, 12, 1)
     assert _terminal_snapshot_date(boundary) == date(2022, 1, 1)
 
 
-def test_canonical_n_exposure(
-    canonical_cohorts: tuple[CohortSpecification, ...],
+def test_historical_market_coverage_layers(
+    full_cohorts: tuple[CohortSpecification, ...],
+    legacy_terminal_cohorts: tuple[CohortSpecification, ...],
 ) -> None:
-    any_n = tuple(cohort for cohort in canonical_cohorts if cohort.start_date < M_START)
+    """Historical market/CPI coverage is 1,506 cohorts, not the legacy 1,452.
+
+    The SWR Toolbox historical series end at 2026-06.  The 1,452 subset is a
+    one-month-stricter legacy filter tied to the separate FFR workbook end.
+    """
+    market_covered = tuple(
+        cohort for cohort in full_cohorts if _has_complete_market_history(cohort)
+    )
+    ffr_covered = tuple(cohort for cohort in full_cohorts if _is_ffr_only_covered(cohort))
+
+    assert len(market_covered) == HISTORICAL_MARKET_COVERAGE_COUNT
+    assert market_covered[-1].start_date == date(1996, 6, 1)
+    assert _terminal_snapshot_date(market_covered[-1]) == MARKET_HISTORY_END
+    assert _latest_consumed_ffr_date(market_covered[-1]) < FFR_RUNTIME_END
+
+    assert len(ffr_covered) == FFR_HISTORY_COVERAGE_COUNT
+    assert ffr_covered[-1].start_date == date(1992, 1, 1)
+    assert _latest_consumed_ffr_date(ffr_covered[-1]) == FFR_WORKBOOK_END
+
+    assert len(legacy_terminal_cohorts) == LEGACY_TERMINAL_2021_12_COUNT
+    assert legacy_terminal_cohorts[-1].start_date == date(1991, 12, 1)
+    assert _terminal_snapshot_date(legacy_terminal_cohorts[-1]) == FFR_WORKBOOK_END
+
+    assert len(market_covered) - len(legacy_terminal_cohorts) == 54
+    assert len(market_covered) - len(ffr_covered) == 53
+
+
+def test_historical_market_source_end_is_2026_06() -> None:
+    assert _last_csv_date(DATA_DIR / "workbook_returns.csv") == MARKET_HISTORY_END
+    assert _last_csv_date(DATA_DIR / "cpi.csv") == MARKET_HISTORY_END
+
+
+def test_legacy_2021_12_n_exposure(
+    legacy_terminal_cohorts: tuple[CohortSpecification, ...],
+) -> None:
+    any_n = tuple(cohort for cohort in legacy_terminal_cohorts if cohort.start_date < M_START)
     only_n = tuple(
-        cohort for cohort in canonical_cohorts if _latest_consumed_ffr_date(cohort) < M_START
+        cohort for cohort in legacy_terminal_cohorts if _latest_consumed_ffr_date(cohort) < M_START
     )
     mixed = tuple(cohort for cohort in any_n if cohort not in only_n)
 
     assert (len(any_n), len(only_n), len(mixed)) == (1002, 643, 359)
-    assert sum(_n_consumed_months(cohort) for cohort in canonical_cohorts) == 296100
+    assert sum(_n_consumed_months(cohort) for cohort in legacy_terminal_cohorts) == 296100
 
 
 def test_a10_a11_loan_rate_schedule_uses_n_for_299_months() -> None:
@@ -220,7 +280,7 @@ def test_a10_a11_loan_rate_schedule_uses_n_for_299_months() -> None:
 def test_workbook_m_segment_matches_raw_fedfunds_within_tolerance() -> None:
     ffr = dict(load_ffr_rates(str(DATA_DIR)))
     raw = _load_raw_fedfunds()
-    segment = tuple(rate_date for rate_date in ffr if M_START <= rate_date <= WORKBOOK_END)
+    segment = tuple(rate_date for rate_date in ffr if M_START <= rate_date <= FFR_WORKBOOK_END)
 
     assert len(segment) == 810
     differences = [abs(ffr[rate_date] - raw[rate_date] / Decimal("100")) for rate_date in segment]

@@ -224,8 +224,8 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 #### Part 52 — NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
 
 - **Classification:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
-- **Methodology status:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and canonical cohort eligibility are implemented; remaining work is FFR vintage, asset/CPI numerical equivalence, and validation semantics.
-- **FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. In the 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Canonical cohort eligibility is implemented as full workbook coverage: 1,452 canonical cohorts, an FFR-only boundary of 1,453, and an extended diagnostic default of 1,739. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; FFR vintage remains open because the workbook does not document the upstream source or vintage of the pre-1954 `N` fallback.
+- **Methodology status:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and the 2021-12 terminal-snapshot subset are implemented; remaining work is FFR vintage, asset/CPI numerical equivalence, and validation semantics.
+- **FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. The 1,739-row `Distribution of Final Value` is stale at 2015-12. SWR Toolbox historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The 1,452-cohort 2021-12 terminal-snapshot subset is a legacy one-month-stricter filter, not full data coverage. In the 1,739-cohort distribution, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; FFR vintage remains open because the workbook does not document the upstream source or vintage of the pre-1954 `N` fallback.
 - **E2E specification:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR data-fidelity and validation-semantics questions.
 - **Existing tests useful as:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment; LTV observed, not enforced).
 - **Test files:** `tests/oracle/ern/test_part52_replication.py` (11 scenarios, gated `research_validation`).
@@ -348,7 +348,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_replication.py::test_part20_full_grid_structure` | 556,480 | **CANONICAL METHODOLOGY — IMPLEMENTATION ALIGNMENT PENDING** |
 | E2E-Part49 | Part 49 | (Python API) | `test_part49_replication_app.py::test_part49_canonical_replication` | 10,434 | **SUBSET — TWO DEVIATIONS** |
 | E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **E2E/IMPLEMENTATION VALIDATION DEFERRED** |
-| E2E-Part52 | Part 52 | (Python API) | `test_part52_canonical_ern_replication.py` | 19,129 | **NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED** |
+| E2E-Part52 | Part 52 | (Python API) | `test_part52_replication.py` | 19,129 | **NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED** |
 
 ### E.2 Canonical E2E Grids Not Yet Validated
 
@@ -496,9 +496,9 @@ The Part 20 forensic investigations are complete and accepted. Nine investigatio
 ### F.5 Part 52 — Timing Leverage
 
 **Status:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
-**Methodology:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and canonical cohort eligibility are implemented; remaining work is FFR vintage, asset/CPI numerical equivalence, and validation semantics.
+**Methodology:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and the 2021-12 terminal-snapshot subset are implemented; remaining work is FFR vintage, asset/CPI numerical equivalence, and validation semantics.
 **E2E specification:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR vintage/asset-CPI fidelity and validation-semantics questions.
-**FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. In the 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Canonical cohort eligibility is implemented as full workbook coverage: 1,452 canonical cohorts, an FFR-only boundary of 1,453, and an extended diagnostic default of 1,739. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; FFR vintage remains open because the workbook does not document the upstream source or vintage of the pre-1954 `N` fallback. The FRED snapshot is consistent but its acquisition path is not fully reproducible; the SWR cash series is a 3-month T-bill total-return index and is not an FFR substitute.
+**FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. The 1,739-row `Distribution of Final Value` is stale at 2015-12. SWR Toolbox historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The 1,452-cohort 2021-12 terminal-snapshot subset is a legacy one-month-stricter filter, not full data coverage. In the 1,739-cohort distribution, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; FFR vintage remains open because the workbook does not document the upstream source or vintage of the pre-1954 `N` fallback. The FRED snapshot is consistent but its acquisition path is not fully reproducible; the SWR cash series is a 3-month T-bill total-return index and is not an FFR substitute.
 **Validation scope:** Current oracle test measures gross survival, not the three-constraint feasibility result; full-universe counts are diagnostic. Euro-area reference-rate analogues are research-only and out of scope for this replication.
 **Existing value:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment; LTV observed, not enforced).
 **Test classification:** `@pytest.mark.research_validation` (gated by `RUN_ERN_E2E=1`).
@@ -558,7 +558,7 @@ without belonging in the default developer test suite.
 | `tests/integration/test_part49_multi_cohort.py` | Integration | Integration | No | Yes |
 | `tests/integration/test_part49_grid_audit.py` | Integration | Integration | No | Yes |
 | `tests/integration/test_part42.py` | Integration | Integration | No | Yes |
-| `tests/integration/test_part52_canonical_ern_replication.py` | Integration | **Non-Canonical Research Validation** | Yes (19K units) | **No** |
+| `tests/oracle/ern/test_part52_replication.py` | Oracle | **Non-Canonical Research Validation** | Yes (19K units) | **No** |
 | `tests/integration/test_part52_deterministic_validation.py` | Integration | Integration | No (runs in normal mode) | Yes |
 | `tests/integration/test_part52_numerical_trace.py` | Integration | Integration | No | Yes |
 | `tests/integration/test_part52_ffr_floating_rate.py` | Integration | Integration | No | Yes |
@@ -661,7 +661,7 @@ Markers and environment variables have distinct roles:
 
 | Test class/file | What it does |
 |----------------|-------------|
-| `TestCanonicalERNReplication` (test_part52_canonical_ern_replication.py) | 11 Part 52 scenarios (FFR approximations) |
+| `TestCanonicalERNReplication` (test_part52_replication.py) | 11 Part 52 scenarios (FFR approximations) |
 
 **Total: 10 tests** (all in one class, one fixture)
 
@@ -693,7 +693,7 @@ Markers and environment variables have distinct roles:
 | `test_part42_replication.py::test_part42_canonical_replication` | ~67s | 93,915 | 45 cells (5E × 9S) | Python API, dataset loading, accumulation | No (single Python API call) |
 | `test_part49_canonical_execution.py` | ~1s (reduced fixture) | 18 | 6 cells (2E × 3I) | Dataset loading, pipeline construction | No (integration test, not research-scale) |
 | `test_part49_aggregation.py` | ~1s (reduced fixture) | 18 | 6 cells (2E × 3I) | Dataset loading, pipeline construction | No (integration test, not research-scale) |
-| `test_part52_canonical_ern_replication.py` | >15 min (timeout) | 19,129 | 11 scenarios | Part52Evaluator grid sweep per scenario | Yes — scenarios are independent |
+| `test_part52_replication.py` | >15 min (timeout) | 19,129 | 11 scenarios | Part52Evaluator grid sweep per scenario | Yes — scenarios are independent |
 | `test_part52_deterministic_validation.py` | ~5 min (estimated) | 5,000+ | 3 scenarios × 1,739 cohorts | scenario_results fixture | No (shared fixture) |
 | `test_part49_grid_materialization.py` | ~17s | 93,906 (no execution) | 54 cells | Study plan construction | No (materialization is the test) |
 | `test_part49_multi_cohort.py` | ~17s | 4–12 per test | 10 test classes | None | No (already well-partitioned) |
@@ -811,7 +811,7 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 | `tests/oracle/ern/test_ern_swr_replication.py` | Only `test_full_grid_matches_oracle` has `@pytest.mark.ern_e2e`; smoke test runs in normal suite | Canonical E2E = full grid only |
 | `tests/integration/test_part49_canonical_execution.py` | REDUCED fixture from 10,434 to 18 units; docstrings updated | Integration test, not research-scale |
 | `tests/integration/test_part49_aggregation.py` | REDUCED fixture from 10,434 to 18 units; docstrings updated | Integration test, not research-scale |
-| `tests/integration/test_part52_canonical_ern_replication.py` | Added `@pytest.mark.research_validation` to `TestCanonicalERNReplication` | Non-canonical research validation (10 tests) |
+| `tests/oracle/ern/test_part52_replication.py` | Added `@pytest.mark.research_validation` to `TestCanonicalERNReplication` | Non-canonical research validation (10 tests) |
 | `tests/integration/test_part52_deterministic_validation.py` | Removed `research_validation` markers from 5 redundant classes; tests now run in normal mode | Redundant with File 1; 19 tests run in normal mode |
 | `AGENTS.md` | Updated invocation hierarchy to include research_validation | Reflects corrected gating model |
 | `docs/research/ERN_E2E_REPLICATION_PLAN.md` | Updated Sections E, F, G, H, I, L, M, N, O | Reflects corrected taxonomy and gaps |
@@ -861,7 +861,7 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 **Priority 2 — Part 52 redundancy cleanup:**
 
 4. Remove `research_validation` marker from redundant tests in `test_part52_deterministic_validation.py`
-5. Merge `test_threshold_does_not_reproduce` resolution detector into `test_part52_canonical_ern_replication.py`
+5. Merge `test_threshold_does_not_reproduce` resolution detector into `test_part52_replication.py`
 
 **Priority 3 — Part 52 splitting:**
 
@@ -966,7 +966,7 @@ Deletion is correct. No independent information was lost.
 | `test_part49_aggregation.py` | No | Part 49 aggregation structure and statistics | **RETAIN** — independent aggregation validation |
 | `test_part49_grid_audit.py` | No | Part 49 dataset and cohort audit | **RETAIN** — independent audit validation |
 | `test_part49.py` | No | Part 49 small grid execution | **RETAIN** — independent execution validation |
-| `test_part52_canonical_ern_replication.py` | No | Part 52 scenario execution (non-canonical) | **RETAIN** — non-canonical integration test |
+| `test_part52_replication.py` | No | Part 52 scenario execution (non-canonical) | **RETAIN** — non-canonical integration test |
 | `test_part52_numerical_trace.py` | No | Part 52 numerical trace validation | **RETAIN** — independent numerical validation |
 | `test_part52_deterministic_validation.py` | No | Part 52 deterministic mechanism validation | **RETAIN** — independent mechanism validation |
 | `test_part52_ffr_floating_rate.py` | No | Part 52 FFR floating rate tests | **RETAIN** — independent FFR behavior validation |

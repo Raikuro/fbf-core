@@ -7,7 +7,7 @@
 >
 > **Methodology status:** SIMULATION MECHANICS AND FIXED-PARAMETER FEASIBILITY IMPLEMENTED. The FFR conversion formula is resolved (§3.2, §27.8). Asset/CPI differences against the 2022 Timing workbook are attributed to workbook vintage, not to an open formula or date-alignment defect (§3.4.1). **Phase 2 validation semantics** (gross survival versus the three-constraint feasibility result, diagnostic counts, and oracle assertions) remains open. Replicating the workbook Solver remains a separate future milestone. Drawdown uses the real total-return series (`Calc!AK`), not a nominal ATH. The terminal month is a valuation point with no withdrawal; the workbook executes 360 withdrawals across rows 40–399 and applies terminal growth/interest in row 400. Repayment cash flows are specified in §8.2 and §27.16.
 >
-> **Phase 1 FFR data fidelity policy:** implemented. The canonical cohort universe is explicitly filtered to 1,452 workbook-backed cohorts, the extended diagnostic universe remains 1,739 cohorts, post-2021 FFR uses actual FRED observations through 2026-08 followed by a documented hold-last policy, and the FFR artifact is frozen with provenance hashes.
+> **Phase 1 FFR data fidelity policy:** implemented. The workbook `Distribution of Final Value` sheet defines 1,739 retirement labels (1871-02..2015-12; runtime starts 1871-01..2015-11), but it is stale at 2015-12. SWR Toolbox historical market/CPI data end at 2026-06 and support 1,506 complete 30-year cohorts; the separate FFR workbook `Return Data!K` ends at 2021-12 and supports 1,453 workbook-native FFR cohorts. The 1,452-cohort 2021-12 terminal-snapshot subset is a legacy one-month-stricter filter, not full data coverage. Post-2021 FFR uses actual FRED observations through 2026-08 followed by a documented hold-last policy, and the FFR artifact is frozen with provenance hashes. The 2026-11 source audit confirms FRED `FEDFUNDS` as the defensible extension; it is the same H.15 effective-rate measure, not a target, T-bill, or secured-rate substitute (§3.4).
 >
 > **E2E status:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR data-fidelity and validation-semantics questions. Solver replication is deferred.
 >
@@ -117,7 +117,7 @@ The article explicitly states that the FFR-based model materially worsens the 19
 
 The remaining questions are data fidelity and validation semantics, not the conversion formula: asset/CPI source-vintage attribution (§3.4.1), the undocumented vintage of the pre-1954 `N` fallback, and whether oracle assertions measure gross survival or the three-constraint feasibility result.
 
-FFR temporal coverage, post-2021 handling, and canonical cohort eligibility are now defined explicitly.
+FFR temporal coverage, post-2021 handling, and the 2021-12 terminal-snapshot subset are now defined explicitly.
 
 ### 3.3 Data Requirement
 
@@ -162,7 +162,17 @@ K = IF(ISNUMBER(M), M, N)
 
 `data/ern/ffr_monthly.json` is a reconstructed FFR series, not the workbook `K` series. It covers 1928-04..2026-08. Exact numeric comparison with `K` yields 522 differences: 306 substantive differences before 1954-07, reflecting the reconstructed-FFR versus 3M-yield distinction, plus 216 post-1954 floating-point serialization differences with a maximum absolute difference of approximately `2.78e-17`. A tolerance of `1e-15` yields 306 differences. For example, 1929-09 is 3.16% in `K` and 6.07% in the JSON. Do not treat the JSON reconstruction as a substitute for the workbook series without reconciliation.
 
-The CPI and real asset-return series end at 2026-06; the canonical dataset's forward projection begins at 2026-07 and extends to 2075-11. The FFR runtime series ends at 2026-08. The canonical universe is defined by full workbook coverage, not by FFR coverage alone: a cohort is canonical only when its terminal asset/CPI snapshot is on or before 2021-12. This yields 1,452 cohorts (1871-01..1991-12). An FFR-only boundary yields 1,453 because the 1992-01 cohort consumes FFR through 2021-12 but its terminal asset/CPI snapshot is 2022-01. The 1,739-cohort universe remains the extended diagnostic default; 287 cohorts are outside the canonical boundary.
+The SWR Toolbox CPI and real asset-return series end at 2026-06; the canonical dataset's forward projection begins at 2026-07 and extends to 2075-11. The FFR runtime series ends at 2026-08. SWR Toolbox contains no FFR series: the 2021-12 cutoff comes from the separate `Timing-Leverage-Calc.xlsx` `Return Data!K` endpoint, not from the SWR Toolbox data boundary.
+
+Coverage must be described in layers:
+
+- The workbook `Distribution of Final Value` sheet defines 1,739 retirement labels from 1871-02 through 2015-12; the runtime represents these as cohort starts 1871-01 through 2015-11. The sheet is stale at 2015-12 and does not extend to the 2026-06 data boundary.
+- Complete historical market/CPI coverage supports 1,506 runtime cohorts (starts 1871-01..1996-06; terminal asset/CPI snapshots through 2026-06).
+- Complete workbook-native FFR coverage supports 1,453 runtime cohorts (starts through 1992-01; latest consumed FFR through 2021-12).
+- The legacy 2021-12 terminal-snapshot subset contains 1,452 cohorts. It is one month stricter than FFR consumption because the 1992-01 cohort consumes FFR through 2021-12 but has a 2022-01 terminal asset/CPI snapshot.
+- With the accepted runtime FFR extension through 2026-08, historical market/CPI coverage remains 1,506. The full 1,739-cohort distribution is a projection/extension diagnostic, not historical data coverage.
+
+The 1,452 subset is therefore a conservative legacy filter, not the canonical universe. The 287 cohorts outside it are not outside the workbook; they are distribution cohorts that require post-2021 FFR extension or projection. The full 1,739-cohort distribution remains the extended diagnostic default.
 
 Post-2021 policy is explicit: extended diagnostics use actual FRED FFR through 2026-08 and hold the last observed rate (`3.63%`) constant thereafter. In the full 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months from 2026-09 onward. The no-forward-fill variant contains 1,509 cohorts. The policy defines temporal coverage; it does not establish numerical equivalence with the Timing workbook.
 
@@ -187,6 +197,28 @@ The `2008/9` S&P 500 cluster is explained by faulty Timing `Return Data!E` level
 The Timing workbook's CPI column C is also not the same as its `CPI Shiller` column G; the SWR runtime uses the column-C family. Do not substitute the Shiller `data/ern/raw/ie_data.csv` CPI for the runtime CPI.
 
 Implication: exact numerical equivalence with the 2022 Timing workbook is not a valid acceptance test. The current runtime is the corrected SWR vintage. The `2008/9` cluster can affect cohorts whose 30-year window includes late 2008 or early 2009; it does not affect the `1929` or `1965` A10 anchors. The substantive CPI revision is confined to `2019-2021` and affects real-return and terminal-snapshot calculations for cohorts ending in those months. Part 52 validation may use the current SWR asset/CPI series; the separate eligibility decision remains open.
+
+**FFR source audit (retrieved 2026-11-01).** The canonical workbook consumes FFR only through `2021-12`; `Return Data` ends at row 1815 and contains no later observations. `SWR_Toolbox_v2.0.xlsx` contains no FFR series at all. The post-2021 requirement is therefore an extension problem, not a workbook re-extraction problem. The recommended extension is FRED `FEDFUNDS` from `2022-01`: it is the same effective federal funds rate measure, published by the Board of Governors in H.15, monthly, percent, not seasonally adjusted, as an average of daily effective-rate observations. The H.15 monthly footnote states that monthly figures include each calendar day in the month. Values are divided by `100`; no level adjustment or splice factor is applied. This preserves the workbook's effective-rate definition and the `FFR + spread` model.
+
+| Candidate | Definition / source | Coverage at retrieval | Disposition |
+|---|---|---|---|
+| Workbook `Return Data!K` | Spliced FFR/3M yield, `IF(ISNUMBER(M),M,N)` | `1871-01..2021-12` | Canonical historical segment; retain. |
+| FRED [`FEDFUNDS`](https://fred.stlouisfed.org/series/FEDFUNDS) | Effective federal funds rate; Board H.15; monthly average of daily figures; percent, NSA | `1954-07..2026-09` | **Extend from `2022-01`**; same effective-rate measure. |
+| FRED/NY Fed [`EFFR`](https://fred.stlouisfed.org/series/EFFR) | Volume-weighted median of overnight federal funds transactions (FR 2420); daily | `2000-07-03..2026-10-29` | Same market, but too short for the required extension; use for post-2000 daily validation only. |
+| FRED [`TB3MS`](https://fred.stlouisfed.org/series/TB3MS) | 3-month Treasury bill secondary-market rate, discount basis; monthly average of business days | `1934-01..2026-09` | Reject: term, discount-basis, sovereign yield, not an overnight unsecured interbank rate. |
+| FRED [`SOFR`](https://fred.stlouisfed.org/series/SOFR) | Secured overnight financing rate; daily | `2018-04-03..2026-10-29` | Reject: secured market and much shorter history; not a drop-in for unsecured fed funds. |
+| FRED [`DFEDTAR`](https://fred.stlouisfed.org/series/DFEDTAR) / [`DFEDTARU`](https://fred.stlouisfed.org/series/DFEDTARU) / [`DFEDTARL`](https://fred.stlouisfed.org/series/DFEDTARL) | FOMC target rate or target range; daily | `1982-09-27..2008-12-15`; range `2008-12-16..2026-10-31` | Reject: policy target, not the transacted effective rate; no pre-1982 history. |
+| `ffr_monthly.json` | Reconstructed FFR `1928-04..1954-06` plus `FEDFUNDS`; monthly | `1928-04..2026-08` | Reject as replacement: no `1871..1928` coverage, and pre-1954 values differ materially (`1929-09`: `6.07%` versus `3.16%` in `K`). Research sensitivity only. |
+
+The extension is supported by overlap evidence rather than a level splice. Workbook `M` matches `FEDFUNDS` for all 810 months `1954-07..2021-12` after decimal conversion; the maximum measured absolute difference is `3e-17`. The current `ffr.csv` matches the live `FEDFUNDS` series for all 866 months `1954-07..2026-08`; the post-2021 segment is already the same source. At retrieval, live `FEDFUNDS` contained `2026-09 = 3.75` (updated `2026-10-01`), while the frozen artifact ends at `2026-08 = 3.63`. A future refresh to `2026-09` would add one FFR-only complete cohort (`1,509` to `1,510`) and reduce forward-filled cohorts from `230` to `229`; it would not change the `1,506` historical-market/CPI bound. This audit does not refresh or regenerate the artifact.
+
+The rejected alternatives are not equivalent even when recent levels are close. Over `1954-07..2026-09`, `FEDFUNDS` versus `TB3MS` has mean absolute error `0.449` pp, maximum absolute error `5.37` pp, and correlation `0.990`; the largest gaps occur in 1974 and 1980-81. `FEDFUNDS` versus monthly average `EFFR` over `2000-07..2026-09` has MAE `0.006` pp and maximum absolute error `0.111` pp, which confirms the same effective-rate family but does not extend history before `2000-07`. `FEDFUNDS` versus monthly average `SOFR` over `2018-04..2026-09` has MAE `0.030` pp, but SOFR is secured and starts only in `2018-04`. The target/range midpoint has MAE `0.056` pp versus `FEDFUNDS` over `1982-09..2026-09` and a maximum gap of `1.035` pp, but it is a policy instrument, not a transacted rate, and has no pre-1982 history.
+
+The pre-1954 `N` fallback must remain in place. `FEDFUNDS` begins in `1954-07`; replacing the entire `K` series with `FEDFUNDS` would discard `1871-01..1954-06` and change the workbook's documented splice. Replacing only `1928-1954` with reconstructed FFR would introduce a separate pre-1954 methodology change, not an extension. The `N` upstream source and vintage remain undocumented, so this is an accepted data-fidelity limitation rather than a resolved provenance claim. FRED metadata flags `FEDFUNDS` as public domain with citation requested; `EFFR` and `SOFR` metadata flag copyrighted data with citation required. H.15/FRED data are subject to revision, so any future extension must record the retrieval date, source endpoint, FRED last-updated timestamp, and snapshot hash; the current repository still lacks a reproducible FRED download recipe.
+
+The `287` cohorts outside the legacy `1,452` subset are exactly the contiguous monthly starts `1992-01..2015-11`. Of these, `54` (`1992-01..1996-06`) have complete historical market/CPI coverage; the current FEDFUNDS extension covers their latest consumed FFR months, `2021-12..2026-05`, and all `54` are all-three feasible in the current A10 diagnostic. The remaining `233` (`1996-07..2015-11`) require latest consumed FFR through `2026-06..2045-10` and terminal snapshots through `2026-07..2045-11`; they remain projection/extension diagnostics, not historical validation. The full `1,739` set requires FFR through `2045-10`, which no official source can supply today. At fixed A10 parameters all `287` are all-three feasible (`1,323` full minus `1,036` legacy), but that diagnostic does not establish numerical equivalence with the workbook.
+
+If eligibility is revised, the defensible historical target is the `1,506` historical-market/CPI layer (`1,090` all-three at A10), not the stale `1,739` distribution and not the legacy `1,452` filter. That revision is a coverage decision, not a change in the FFR rate definition. It must wait for asset/CPI equivalence and the validation-semantic work, and it must be accompanied by an explicit eligibility rule. No new three-constraint counts are claimed here; the A10 table in §22.1 remains the current diagnostic.
 
 ### 3.4.2 Provenance and Reproducibility Audit
 
@@ -224,9 +256,9 @@ The extractor rejects missing or malformed workbook inputs and validates contigu
 
 ### 3.5 SWR Cash Is Not an FFR Substitute
 
-The ERN SWR toolbox's `Asset Returns!I6:I1871` series is a cumulative nominal 3-month US Treasury-bill total-return index, not the federal funds rate. It covers actual observations from 1871-01 through 2026-06 (1,866 months), starts at `100.0` in 1871-01, reaches `47574.20198548` in 2026-06, and is blank after the workbook's projection boundary.
+The ERN SWR toolbox's `Asset Returns!I6:I1871` series is a cumulative nominal 3-month US Treasury-bill total-return index, not the federal funds rate. The cells are hardcoded numeric levels, not formulas, and the workbook records no upstream source or vintage for the series. It covers actual observations from 1871-01 through 2026-06 (1,866 months), starts at `100.0` in 1871-01, reaches `47574.20198548` in 2026-06, and is blank after the workbook's projection boundary. The implied annual yield used here is `12 × (I_t / I_{t-1} - 1)`, consistent with the pre-1954 one-twelfth monthly recurrence; effective annualization would add only a small convexity term.
 
-Comparing annualized monthly cash returns with FRED `FEDFUNDS` over the 864 months from 1954-07 through 2026-06 gives:
+Comparing this simple annualized monthly cash yield with FRED `FEDFUNDS` over the 864 months from 1954-07 through 2026-06 gives:
 
 | Statistic | Value |
 |---|---|
@@ -239,7 +271,7 @@ Comparing annualized monthly cash returns with FRED `FEDFUNDS` over the 864 mont
 | Within 100 bp | `87.3%` |
 | Correlation | `0.986` |
 
-The largest misses are 1980-12 (`-5.17` pp), 1974-07 (`-5.02` pp), and 1981-05 (`-4.83` pp). Before 1954-07 the cash series closely matches the workbook's short-term-yield leg: MAE `0.0095` pp over 1,001 months, maximum absolute error `0.42` pp, correlation `0.99984`. That agreement is evidence that both series represent short-term T-bill yields, not evidence that the cash series is FFR. The cash series and Timing `J` are also essentially the same after 1934; early rounding and revisions compound to roughly `-200` index points by 2021-12.
+The largest misses are 1980-12 (`-5.17` pp), 1974-07 (`-5.02` pp), and 1981-05 (`-4.83` pp). Before 1954-07 the cash series closely matches the workbook's short-term-yield leg: MAE `0.0095` pp over 1,001 months, maximum absolute error `0.42` pp, correlation `0.99984`. That agreement is evidence that both series represent short-term T-bill yields, not evidence that the cash series is FFR. The cash series is also not independent of the Timing workbook. Through 1933 its ratio to Timing `J` drifts with pre-1934 data differences; from 1934-01 onward the two series are proportional, `I ≈ 0.99500145 × J` to about `1e-12`. The level gap therefore grows with the index level and reaches roughly `-200` points by 2021-12, even though the post-1934 monthly returns are numerically identical.
 
 The cash series is a total-return index with reinvestment and workbook rounding. Using it as an FFR would change both the rate level and the timing of interest accrual. It must not be used as a pre-1928 FFR proxy, a post-2021 extension, or a general substitute for `data/ern/ffr.csv`.
 
@@ -1087,7 +1119,7 @@ The following are concrete implementation-fidelity findings identified during th
 
 3. **FFR cohort/date filtering — policy implemented**
 
-   Canonical Part 52 coverage is defined by full workbook coverage, not by an incidental FFR dataset boundary: the terminal asset/CPI snapshot must be on or before 2021-12. The resulting canonical universe is 1,452 cohorts; the FFR-only boundary is 1,453 because the 1992-01 cohort has a 2022-01 terminal snapshot. The filter is explicit at the Part 52 caller, and the extended diagnostic default remains 1,739 cohorts.
+   The `Distribution of Final Value` sheet defines 1,739 cohorts (retirement labels 1871-02..2015-12; runtime starts 1871-01..2015-11), but it is stale at 2015-12. Historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The legacy 2021-12 terminal-snapshot subset selects cohorts whose terminal asset/CPI snapshot is on or before 2021-12, yielding 1,452 cohorts; it is one month stricter than FFR consumption and is not the canonical universe. The filter is explicit at the Part 52 caller, and the extended diagnostic default remains the full 1,739-cohort distribution.
 
 4. **Full cohort validation**
 
@@ -1769,16 +1801,17 @@ For the canonical 1965-11 case, runtime observations T=0..360 cover
 retirement label 1965-12. The one-month FFR lag is unchanged: T=1 uses the
 FFR observed at the pre-retirement start W-1.
 
-The workbook `Return Data!K` FFR series covers 1871-01..2021-12 (1,812 months).
-The runtime `ffr.csv` has 1,868 observations from 1871-01..2026-08 and matches
-that series over the common range. The canonical cohort filter is explicit at
-the Part 52 caller: a cohort is selected only when its terminal asset/CPI
-snapshot is on or before 2021-12, yielding 1,452 cohorts with a 60-year cohort
-horizon and a 30-year simulation horizon. The filter is not applied globally;
-the existing research-validation oracle continues to use the extended
-1,739-cohort universe. An FFR-only boundary yields 1,453 cohorts because the
-1992-01 cohort consumes FFR through 2021-12 but its terminal asset/CPI snapshot
-is 2022-01.
+The `Timing-Leverage-Calc.xlsx` `Return Data!K` FFR series covers
+1871-01..2021-12 (1,812 months). The runtime `ffr.csv` has 1,868 observations
+from 1871-01..2026-08 and matches that series over the common range. The 2021-12
+terminal-snapshot filter is explicit at the Part 52 caller: a cohort is selected
+only when its terminal asset/CPI snapshot is on or before 2021-12, yielding
+1,452 cohorts with a 60-year cohort horizon and a 30-year simulation horizon.
+This is a legacy one-month-stricter filter, not full data coverage. SWR Toolbox
+historical market/CPI supports 1,506 cohorts through 2026-06, and workbook-native
+FFR supports 1,453 cohorts through 2021-12. The 1,739-row distribution sheet is
+stale at 2015-12. The filter is not applied globally; the existing
+research-validation oracle continues to use the full 1,739-cohort distribution.
 ```
 
 ### 27.24 Summary of Resolved vs. Unresolved Rules
@@ -1865,8 +1898,8 @@ dataset vintage. In particular, gross survival is not the three-constraint
 feasibility result. The choice between the `1,506`, `1,453`, and `1,452`
 coverage options remains an independent open eligibility decision. See §22.6.
 
-FFR temporal coverage, post-2021 handling, and canonical cohort eligibility are
-implemented.
+FFR temporal coverage, post-2021 handling, and the 2021-12 terminal-snapshot
+subset are implemented.
 
 ---
 
@@ -1909,7 +1942,7 @@ NONE — simulation mechanics are resolved.
 
 1. Asset/CPI differences against the 2022 Timing workbook are resolved as a workbook-vintage effect, not an open implementation defect. Runtime asset/CPI matches SWR Toolbox v2.0 exactly. The Timing workbook predates the SWR `2024-02-24` CPI/return revision and the `2025-05-24` correction of faulty 2008/9 S&P 500 TR points. The maximum CPI difference is `0.653` index points at `2021-12`, and the former 2008-12 return anomaly is induced by the faulty Timing 2008-11 level. Exact equivalence with the stale Timing workbook is not an acceptance target; see §3.4.1.
 2. The 1871–1954 `N` splice is accepted as the workbook's documented fallback, but the upstream source and vintage of `N` are not documented. This is a recorded limitation, not a resolved provenance claim.
-3. Canonical cohort eligibility is resolved as full workbook coverage: 1,452 cohorts, with an FFR-only boundary of 1,453 and an extended diagnostic universe of 1,739. The filter is explicit at the Part 52 caller.
+3. The `Distribution of Final Value` sheet defines 1,739 cohorts (retirement labels 1871-02..2015-12; runtime starts 1871-01..2015-11) but is stale at 2015-12. Historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The legacy 2021-12 terminal-snapshot subset is 1,452 cohorts, one month stricter than FFR consumption. It is not the canonical universe or full data coverage. The filter is explicit at the Part 52 caller.
 4. Post-2021 FFR handling is defined: actual FRED through 2026-08, then hold the last observed rate; 230 cohorts consume forward-filled months in the full universe, and the no-forward-fill variant has 1,509 cohorts.
 5. `ffr_monthly.json` is a reconstructed series, not workbook `K`; exact numeric comparison yields 522 differences (306 substantive before 1954-07, 216 post-1954 floating-point artifacts).
 6. The SWR cash total-return series is not an FFR source and must not be substituted for the canonical FFR series (§3.5).
@@ -1938,4 +1971,4 @@ Part 52 is substantially more dependent on the ERN workbook than Part 49. The wo
 
 The **architecture should remain deliberately unspecified** at this stage. The important requirement is behavioral equivalence to the ERN workbook/article, followed by the smallest implementation change necessary to express that behavior in FBF.
 
-Production code, test assertions, YAML, and canonical data must not be changed as part of documentation reconciliation; Phase 2 requires separate authorization.
+Production code behavior, YAML, and canonical data are not changed by documentation reconciliation; numerical Phase 2 work requires separate authorization.

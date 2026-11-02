@@ -189,7 +189,7 @@ implement without profiling evidence.
 
 ## S6 Part 52 — Validation State and Phase Boundary
 
-**Classification:** simulation mechanics resolved; FFR data-fidelity policy implemented; asset/CPI equivalence and validation semantics open
+**Classification:** simulation mechanics resolved; FFR data-fidelity policy implemented; asset/CPI equivalence and validation-semantic assertions open
 
 This section supersedes the former S6.P FFR prerequisite, S6.6B FFR integration
 limitation, and S6.6B canonical-replication-deferred entries.
@@ -253,17 +253,36 @@ limitation, and S6.6B canonical-replication-deferred entries.
   pre-1928 proxy or post-2021 extension.
 - CPI and real asset-return series end at 2026-06. The canonical dataset's
   forward projection begins at 2026-07 and extends to 2075-11.
-- In the full 1,739-cohort universe, 286 cohorts consume post-2021 FFR and
-  230 consume forward-filled months from 2026-09 onward. The canonical
-  workbook-backed universe is 1,452 cohorts; see the Phase 1 section below.
+- Coverage layers must not be conflated:
+  - The workbook `Distribution of Final Value` sheet defines 1,739 retirement
+    labels (1871-02..2015-12; runtime starts 1871-01..2015-11). The sheet is
+    stale relative to the underlying data and does not extend to 2026-06.
+  - Complete historical market/CPI coverage is 1,506 runtime cohorts (starts
+    1871-01..1996-06; terminal snapshots through 2026-06).
+  - Complete workbook-native FFR coverage is 1,453 runtime cohorts (starts
+    through 1992-01; latest consumed FFR through 2021-12).
+  - The legacy 2021-12 terminal-snapshot subset is 1,452 cohorts. It is one
+    month stricter than FFR consumption because 1992-01 consumes FFR through
+    2021-12 but has a 2022-01 terminal snapshot.
+  - With the accepted runtime FFR extension through 2026-08, historical
+    market/CPI coverage remains 1,506. The full 1,739-cohort distribution is a
+    projection/extension diagnostic, not historical data coverage.
+- In the full 1,739-cohort distribution universe, 286 cohorts consume
+  post-2021 FFR and 230 consume forward-filled months from 2026-09 onward.
 
 ### Phase 1 — FFR data fidelity (policy implemented; asset/CPI equivalence open)
 
-1. Canonical cohort eligibility is implemented as full workbook coverage:
-   terminal asset/CPI snapshot on or before 2021-12, yielding 1,452 cohorts.
-   The FFR-only boundary is 1,453 because 1992-01 consumes FFR through 2021-12
-   but has a 2022-01 terminal snapshot. The filter is explicit at the Part 52
-   caller; the extended diagnostic default remains 1,739 cohorts.
+1. The 2021-12 cutoff is not a SWR Toolbox data boundary. It comes from the
+   separate FFR workbook `Timing-Leverage-Calc.xlsx` `Return Data!K`, which ends
+   at 2021-12. SWR Toolbox historical returns/CPI end at 2026-06, and SWR
+   Toolbox contains no FFR series. The 1,739-row distribution sheet is stale at
+   2015-12. The 1,452 subset is therefore a legacy conservative filter, not
+   full data coverage or an automatically correct canonical universe. Complete
+   historical market/CPI coverage is 1,506 cohorts; workbook-native FFR coverage
+   is 1,453. The filter is explicit at a Part 52 caller and covered by
+   `tests/integration/test_part52_cohort_coverage.py`; the oracle does not
+   apply it, and the full 1,739-cohort distribution remains the diagnostic
+   default.
 2. Post-2021 FFR handling is defined and implemented: actual FRED through
    2026-08, then hold the last observed rate. In the full universe, 286 cohorts
    consume post-2021 FFR and 230 consume forward-filled months; the
@@ -284,6 +303,14 @@ limitation, and S6.6B canonical-replication-deferred entries.
    annualized returns have a `0.464` pp mean absolute error against FRED FFR;
    see `docs/research/ern_part52_replication.md` §3.5.
 
+8. The 2026-11 FFR source audit confirms FRED `FEDFUNDS` as the correct
+   post-2021 extension: same H.15 effective-rate measure, monthly, with a
+   verified `1954-07..2021-12` overlap against workbook `M`. Source selection
+   is no longer open. The remaining decision is eligibility: whether to replace
+   the legacy `1,452` terminal filter with the `1,506` historical-market layer
+   after asset/CPI equivalence and validation semantics are resolved. Do not
+   change production eligibility or refresh the frozen FFR artifact as part of
+   this audit. See `docs/research/ern_part52_replication.md` §3.4.
 ### Phase 2 — validation semantics and oracle assertions (acceptance surface implemented; diagnostics and Solver open)
 
 The canonical oracle test now documents scenario provenance, LTV/final-target

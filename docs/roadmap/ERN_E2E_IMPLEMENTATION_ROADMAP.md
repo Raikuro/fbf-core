@@ -147,7 +147,7 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
 | 52.1 | 11 canonical scenarios (A1-A11) | 11 scenarios × 1,739 distribution cohorts; coverage layers 1,506 / 1,453 / 1,452 not applied | RESEARCH REPLICATION | `PARTIALLY IMPLEMENTED` | `test_part52_replication.py` — gross-survival diagnostics for A1/A2/A3/A9/A10; A2/A3/A10 published-anchor fixed-parameter feasibility asserted; A4-A8/A11 execute without canonical anchors | Solver reproduction deferred; full-universe diagnostics and eligibility remain open | Published-anchor feasibility is the acceptance surface; full-universe counts are diagnostics by coverage layer and vintage; do not treat them as canonical historical validation |
-| 52.2 | Full cohort validation | 1,739 cohorts | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 52.1 | Implement with 52.1 |
+| 52.2 | Full cohort validation | 1,739-row distribution (retirement labels 1871-02..2015-12; runtime starts 1871-01..2015-11); 1,506 historical-market cohorts; 1,453 workbook-FFR cohorts; 1,452 legacy subset | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | Coverage layers implemented and covered at the caller by `tests/integration/test_part52_cohort_coverage.py`; full validation not run | Part 52.1; asset/CPI equivalence; Phase 2 validation semantics | Validate the intended universe explicitly; do not treat the stale 1,739-row distribution or the legacy 1,452 subset as automatic full data coverage |
 | 52.3 | Solver/optimization reproduction | Binary search over WR × B% | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 52.1 | Implement after 52.1 |
 | 52.4 | Mechanism correctness | 1 scenario × 1,739 | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_deterministic_validation.py` (mechanism assertions) | None | Retain mechanism assertions; remove redundant simulation |
 | 52.5 | Lifecycle trace | 1 synthetic scenario | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_numerical_trace.py` | None | Retain |
@@ -164,7 +164,7 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 | `test_part20_replication.py::test_part20_full_grid_replication` | Part 20 | 556,480 | CLI reference | Regression only | Grid structure, computational execution, traceable anchors — NOT replication | Yes | Regression coverage, NOT replication evidence |
 | `test_part49_replication_app.py::test_part49_canonical_replication` | Part 49 | 10,434 | Python API (`ResearchExecutor`) | Non-canonical | Leverage mechanics with deviations (LTV OFF, no buy-and-hold) | Yes | Validates leverage mechanics, NOT canonical replication |
 | `test_part42_replication.py::test_part42_canonical_replication` | Part 42 | 93,915 | Python API (`FastPathSimulationExecutor`) | Structural only | Grid structure, directional invariants — NOT ERN anchor validation | Yes | Structural validation, NOT published-table replication |
-| `TestCanonicalERNReplication` (test_part52_canonical_ern_replication.py) | Part 52 | 19,129 | Python API (`FastPathSimulationExecutor`) | A1/A9: canonical (100%); A10: deferred (95.7%) | A1/A9: canonical replication with published anchors (1739/1739 success); A10: 1665/1739 (95.7%) — execution/timing discrepancy deferred until optimization | Yes | Canonical (A1/A9) + deferred A10 research validation |
+| `TestCanonicalERNReplication` (`test_part52_replication.py`) | Part 52 | 19,129 | Python API (`run_study`) | Diagnostic only — 1,739 distribution units; 1,506 historical-market coverage, 1,453 workbook-FFR coverage, and feasibility not applied | Gross-survival assertions for A1/A2/A3/A9/A10; A10 all-three diagnostic is 1323/1739; not canonical acceptance | Yes | Diagnostic research validation; not full canonical replication |
 | `test_part52_deterministic_validation.py` | Part 52 | 1,739 (baseline) | Python API | Integration | Mechanism correctness (policy registration, config construction) | Yes | Mechanism assertions distinct from simulation |
 | `test_part52_numerical_trace.py` | Part 52 | 1 (synthetic) | Python API | Integration | Lifecycle trace validation | Yes | Independent numerical validation |
 | `test_part52_ffr_floating_rate.py` | Part 52 | ~6 (synthetic) | Python API | Integration | FFR interest scheduling | Yes | Independent FFR behavior validation |
@@ -179,7 +179,7 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 - **Part 20's 320-cell test** is NOT equivalent to documented Part 20 Experiments A-E. It is regression coverage, not replication.
 - **Part 42's 45-cell test** is NOT equivalent to published-table replication. It is structural validation only.
 - **Part 49's 6-cell test** is NOT canonical Part 49 replication. It is a modified FBF interpretation with documented deviations.
-- **Part 52's current 11 scenarios**: A1/A9 are canonical replication (published anchors, 1739/1739 success); A2-A8/A10-A11 are non-canonical research validation (FFR scenarios use fixed-rate approximation), NOT full canonical replication.
+- **Part 52's current 11 scenarios**: execute the runtime FFR path, but assert only 1,739-unit gross survival on the full distribution diagnostic; historical-market coverage (1,506), workbook-FFR coverage (1,453), the legacy 1,452 subset, and three-constraint feasibility are not applied. NOT full canonical replication.
 - **Part 1's current E2E** remains valuable until Part 2's superset validation actually exists and independently validates the required outputs.
 
 ---
@@ -190,7 +190,7 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 
 **Part 52 A1 simulation duplication:**
 
-`test_part52_canonical_ern_replication.py` A1 scenario and `test_part52_deterministic_validation.py` baseline execute the exact same configuration:
+`test_part52_replication.py` A1 scenario and `test_part52_deterministic_validation.py` baseline execute the exact same configuration:
 - Same WR (0.0358), same B% (0), same threshold (None), same interest rate (0.015)
 - Same pipeline (`create_default_pipeline()`)
 - Same result (1739/1739 success)
@@ -311,14 +311,15 @@ Commit `d6a2cbd` (`fix: align ERN fee semantics with canonical data`).
 - Non-Part52 validation: zero regressions
 - Independent ERN oracle was **not modified**
 
-**Deferred:**
-- A10 (FFR + leverage scenario): 1665/1739 = 95.7% — execution/timing discrepancy, not fee-related (see B10)
+**Later A10 correction:**
+- At checkpoint `d6a2cbd`: A10 (FFR + leverage scenario) reported 1665/1739 = 95.7%.
+- After the terminal-month/repayment corrections in `6fe3803`: 1739/1739 gross survival and 1323/1739 all-three diagnostic. The old count remains historical evidence, not the current blocker (see B10).
 
 ### Phase 1 — Fully Specified Canonical Extensions (COMPLETE)
 
 Targets whose methodology, datasets, and expected outputs are already sufficiently defined.
 
-- [x] **T1.1** Part 52 full canonical E2E validation — **COMPLETE (per stated acceptance criteria; A10 remains deferred — see B10)**
+- [x] **T1.1** Part 52 gross-survival E2E diagnostic — **IMPLEMENTED (checkpoint `d6a2cbd`; canonical acceptance remains open — see 52.1/52.2)**
   - Target: Update all 11 scenarios (A1-A11) to use actual FFR data; validate against ERN published values
   - Checkpoint: `d6a2cbd` — `fix: align ERN fee semantics with canonical data`
   - Follow-up semantic alignment: `4ffc0c5` — `fix: align Part52 canonical ERN semantics`
@@ -330,13 +331,13 @@ Targets whose methodology, datasets, and expected outputs are already sufficient
   - FFR lookup normalized to month-start
   - A1 (1965-11, no FFR, 0% borrow): **1739/1739 = 100%** — canonical anchor reproduced
   - A9 (1929-09, no FFR, 0% borrow): **1739/1739 = 100%** — canonical anchor reproduced
-  - A10 (1929-09, FFR+0.50%, B%=31.86%, WR=4.39%): **1665/1739 = 95.7%** — deferred (see B10)
+  - A10 at checkpoint: **1665/1739 = 95.7%**; after `6fe3803`: **1739/1739 gross survival**, all-three diagnostic **1323/1739**
   - Independent ERN oracle was not modified
-  - Expected test location: `tests/integration/test_part52_canonical_ern_replication.py`
-  - Canonical: Partial — A1/A9 validated; A10 deferred to optimization phase
-  - Expected scale: 11 scenarios × 1,739 cohorts = 19,129 units
-  - Acceptance criteria: A1/A9 match published anchors — **MET**; A10 execution/timing reconciliation — **DEFERRED** (see B10)
-  - Known blocker: A10 execution/timing recurrence discrepancy (see B10)
+  - Current test location: `tests/oracle/ern/test_part52_replication.py`
+  - Canonical: Diagnostic only — 1,739 distribution units; historical-market coverage (1,506), workbook-FFR coverage (1,453), the legacy 1,452 filter, and feasibility assertions are not applied
+  - Expected scale: 11 scenarios × 1,739 diagnostic cohorts = 19,129 units
+  - Acceptance criteria: A1/A2/A3/A9/A10 gross-survival assertions pass; canonical feasibility acceptance remains **OPEN**
+  - Known blocker: Phase 2 validation semantics and asset/CPI equivalence (see 52.1/52.2)
   - Dependencies: None
   - Note: T1.1 and T1.2 are independent tasks with no mutual dependency
 
@@ -527,7 +528,7 @@ A test that merely runs all cells is NOT automatically considered replication-co
 | Part 20 | All 5 experiments (A-E) executed; every discrepancy classified per §9 of audit definition |
 | Part 42 | Published Tables 01-05 validated; OMY improvement quantified |
 | Part 49 | All 6 experiments validated with buy-and-hold; LTV enforcement active |
-| Part 52 | All 11 scenarios validated with actual FFR data; solver reproduction confirmed |
+| Part 52 | 11 scenarios execute with runtime FFR; gross-survival diagnostic recorded; historical-market (1,506) / workbook-FFR (1,453) coverage, legacy 1,452 subset feasibility, and solver reproduction remain open |
 
 ### Discrepancy Classification (Part 20)
 
@@ -591,7 +592,7 @@ SWR full-grid measurement.
 | B7 | Part 49 LTV enforcement currently OFF | Part 49 | RESOLVED (2026-09-29) | `ERN_E2E_REPLICATION_PLAN.md` §F.3; `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)" |
 | B8 | Part 52 Part52Evaluator infeasible-search semantics | Part 52 | **RESOLVED** | `Part52Evaluator.evaluate()` records `feasible_borrow_pct` and `tested_borrow_pcts`; see `tests/unit/optimization/test_part52_evaluator.py` |
 | B9 | Part 19/20 assertion/output ambiguity | Parts 19/20 | **RESOLVED** (test corrections) | Experiment A has no exact published numerical anchors; fixture is documentation validated structurally. Part 20 assertions follow documented Part 20 audit §10 difference-attribution variant (A/B/C) status and bisection-step semantics. See `test_part19_canonical_ern_replication.py`, `test_part20_e2e_audit.py`. |
-| B10 | Part 52 A10 execution/timing recurrence discrepancy | Part 52 | DEFERRED | Production recurrence: `P_t = (P_{t-1} - C + X) * (1 + w_t - f)` (withdraw-at-start); ERN workbook: `S_t = Z_{t-1} * (1 + w_t - f)` with `Z_t = S_t - W_t` (grow-then-withdraw); creates second-order timing term `-(C-X)*(w-f)` ≈ $10-20/month; fee correction recovered only 4/74 failed cohorts; root cause is execution-level, not fee-semantics; deferred until optimization phase; oracle must remain untouched; no weakening of canonical expectations |
+| B10 | Part 52 A10 execution/timing recurrence discrepancy | Part 52 | **SUPERSEDED (gross survival resolved)** | Historical checkpoint `d6a2cbd`: 1665/1739 gross survival, with the withdraw-at-start vs workbook grow-then-withdraw recurrence as the then-suspected execution-level cause. Later terminal-month/repayment corrections in `6fe3803` produce 1739/1739 gross survival; the remaining 1323/1739 is the all-three feasibility diagnostic tracked by 52.1/52.2 and TODO S6 Part 52 Phase 2, not a gross-survival recurrence. |
 
 ---
 

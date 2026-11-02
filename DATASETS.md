@@ -203,6 +203,9 @@ derived from
 `data/ern/ffr.provenance.json`. The canonical `ffr.csv` artifact is frozen by
 SHA-256
 `98591457d5d03867bd81992d43b57a6cabc4ce967f3ec9324676216abbf2f5f1`.
+The 2026-11 source audit confirms FRED `FEDFUNDS` as the correct post-2021
+extension and rejects target-rate, Treasury-bill, SOFR, and reconstructed-FFR
+substitutes; see `docs/research/ern_part52_replication.md` §3.4.
 `ffr_monthly.json` is a reconstructed research series, not the canonical
 workbook `K` series, and must not replace the historical segment.
 
