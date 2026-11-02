@@ -39,12 +39,13 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 ### Part 52 Phase 2 progress (bounded)
 
-`tests/oracle/ern/test_part52_replication.py` now asserts the A10 `1929-09`
-anchor's gross survival and all three workbook feasibility conditions through
-`evaluate_part52_feasibility()`, using the same built study and planned unit.
-Full-universe feasibility, coverage-layer filtering, solver reproduction, and
-asset/CPI equivalence remain open. The broader Part 52 target state remains
-tracked in `TODO.md` and `docs/research/ern_part52_replication.md`.
+`tests/oracle/ern/test_part52_replication.py` now asserts published-anchor
+fixed-parameter feasibility for A2 (`1965-11`), A3 (`1965-11`), and A10
+(`1929-09`). Full-universe gross-survival and feasibility counts are diagnostics
+reported by coverage layer and dataset vintage; they are not acceptance targets.
+Solver reproduction and the `1,506` / `1,453` / `1,452` eligibility decision
+remain open. The broader Part 52 target state remains tracked in `TODO.md` and
+`docs/research/ern_part52_replication.md`.
 
 ---
 
@@ -145,7 +146,7 @@ tracked in `TODO.md` and `docs/research/ern_part52_replication.md`.
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 52.1 | 11 canonical scenarios (A1-A11) | 11 scenarios × 1,739 cohorts | RESEARCH REPLICATION | `PARTIALLY IMPLEMENTED` | `test_part52_canonical_ern_replication.py` — A1/A9: canonical replication (1739/1739 success); A2-A8/A10-A11: FFR scenarios with deferred A10 divergence (1665/1739 = 95.7%) | A10 execution/timing recurrence discrepancy (deferred until optimization); other FFR scenarios blocked on FFR methodology | A1/A9 validated at checkpoint `d6a2cbd`; A10 deferred — see §10 B10 |
+| 52.1 | 11 canonical scenarios (A1-A11) | 11 scenarios × 1,739 distribution cohorts; coverage layers 1,506 / 1,453 / 1,452 not applied | RESEARCH REPLICATION | `PARTIALLY IMPLEMENTED` | `test_part52_replication.py` — gross-survival diagnostics for A1/A2/A3/A9/A10; A2/A3/A10 published-anchor fixed-parameter feasibility asserted; A4-A8/A11 execute without canonical anchors | Solver reproduction deferred; full-universe diagnostics and eligibility remain open | Published-anchor feasibility is the acceptance surface; full-universe counts are diagnostics by coverage layer and vintage; do not treat them as canonical historical validation |
 | 52.2 | Full cohort validation | 1,739 cohorts | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 52.1 | Implement with 52.1 |
 | 52.3 | Solver/optimization reproduction | Binary search over WR × B% | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 52.1 | Implement after 52.1 |
 | 52.4 | Mechanism correctness | 1 scenario × 1,739 | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_deterministic_validation.py` (mechanism assertions) | None | Retain mechanism assertions; remove redundant simulation |

@@ -1048,7 +1048,19 @@ The following are concrete implementation-fidelity findings identified during th
 
 6. **Validation semantics**
 
-   The current oracle measures gross survival. At fixed A10 parameters the production path reports `1739/1739` gross survival but `1323/1739` for all three constraints. Gross survival is not the three-constraint feasibility result, and the A2/A3/A10 full-universe assertions must not be treated as canonical acceptance targets until the feasibility metric wiring is resolved. Asset/CPI vintage differences are explained in §3.4.1.
+   The acceptance surface is published-anchor fixed-parameter feasibility for A2 (`1965-11`), A3 (`1965-11`), and A10 (`1929-09`). Each anchor asserts gross survival separately from the three workbook constraints through `evaluate_part52_feasibility()`. Passing these assertions does not reproduce the workbook Solver or confirm its published optimized WR/Borrow% outputs; Solver reproduction remains deferred.
+
+   Full-universe gross-survival and feasibility counts are diagnostics, not acceptance targets. They must be reported by coverage layer and dataset vintage. Current-vintage all-three counts are:
+
+   | Scenario | Distribution (1,739) | Historical market (1,506) | Workbook FFR (1,453) | Legacy terminal (1,452) |
+   |---|---:|---:|---:|---:|
+   | A2 | 1,703 | 1,470 | 1,417 | 1,416 |
+   | A3 | 1,735 | 1,502 | 1,449 | 1,448 |
+   | A10 | 1,323 | 1,090 | 1,037 | 1,036 |
+
+   Gross survival is `100%` in every layer for A2/A3/A10 on this vintage. These are diagnostics on the current production path, not canonical historical validation or acceptance constants. The `287` cohorts outside the legacy subset are the contiguous starts `1992-01..2015-11`. The `54` starts `1992-01..1996-06` account for the difference between the legacy and historical-market layers; the `233` starts `1996-07..2015-11` account for the difference between the historical-market and full-distribution layers and depend on projected asset/CPI after `2026-06` and, for later cohorts, FFR beyond the observed range. The FFR source audit and extension rationale are in §3.4. Asset/CPI vintage differences are explained in §3.4.1.
+
+   The choice between the `1,506`, `1,453`, and `1,452` coverage options remains an independent open eligibility decision. More observations do not by themselves make an option methodologically correct.
 
 ---
 
@@ -1786,16 +1798,21 @@ terminal row has no withdrawal. The production Numba path does not call
 `decide()` accounting is legacy and unused. Canonical repayment lives in
 `_simulate_part52`.
 
-At fixed A10 parameters, after the terminal-month and repayment corrections,
-the production path reports `1739/1739` gross survival, `1686/1739` final-NW,
-`1656/1739` min-NW, `1323/1739` max-L/P, and `1323/1739` all-three. The
-Decimal recurrence produces the same counts; that is evidence of implementation
-consistency, not independent methodological confirmation. The `1929-09` unit
-itself satisfies all three financial conditions. These counts remain
-diagnostic because the undocumented `N` vintage and validation semantics
-remain unresolved; asset/CPI vintage differences are explained in §3.4.1. They are **not**
-acceptance values. In particular, gross survival is not the three-constraint
-feasibility result.
+The fixed-parameter acceptance surface is the published-anchor cohort for A2,
+A3, and A10. At the current vintage, each anchor satisfies gross survival and
+all three constraints. The A10 `1929-09` anchor is one of these acceptance
+checks, not a Solver replication. At fixed A10 parameters, after the
+terminal-month and repayment corrections, the full-universe production path
+reports `1739/1739` gross survival, `1686/1739` final-NW, `1656/1739` min-NW,
+`1323/1739` max-L/P, and `1323/1739` all-three. The Decimal recurrence produces
+the same counts; that is evidence of implementation consistency, not
+independent methodological confirmation. These full-universe counts remain
+diagnostics because the undocumented `N` vintage and validation semantics
+remain unresolved; asset/CPI vintage differences are explained in §3.4.1. They
+are **not** acceptance values and must be reported by coverage layer and
+dataset vintage. In particular, gross survival is not the three-constraint
+feasibility result. The choice between the `1,506`, `1,453`, and `1,452`
+coverage options remains an independent open eligibility decision. See §22.6.
 
 FFR temporal coverage, post-2021 handling, and canonical cohort eligibility are
 implemented.

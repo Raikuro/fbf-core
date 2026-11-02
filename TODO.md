@@ -284,20 +284,31 @@ limitation, and S6.6B canonical-replication-deferred entries.
    annualized returns have a `0.464` pp mean absolute error against FRED FFR;
    see `docs/research/ern_part52_replication.md` §3.5.
 
-### Phase 2 — validation semantics and oracle assertions (open)
+### Phase 2 — validation semantics and oracle assertions (acceptance surface implemented; diagnostics and Solver open)
 
-1. Distinguish `statistics.success` (gross survival) from the three-constraint
-   feasibility result in oracle assertions.
-2. Treat full-universe counts as diagnostic, not canonical acceptance targets.
-   At fixed A10 parameters, the current diagnostic is `1739/1739` gross survival
-   and `1323/1739` all-three.
-3. Correct scenario provenance and classification descriptions: A4–A8 and A11
-   use BF-discovered Borrow%; A1 and A9 are non-FFR baselines.
-4. Record that LTV is observed but not enforced in the current study
-   configuration and that the final-value target is not configured in the oracle
-   test.
-5. Reassess the A2/A3/A10 full-universe assertions only after asset/CPI
-   equivalence and the feasibility metric wiring are resolved.
+The canonical oracle test now documents scenario provenance, LTV/final-target
+limitations, and the distinction between gross survival and feasibility.
+
+1. **Acceptance surface** — published-anchor fixed-parameter feasibility for
+   A2 (`1965-11`), A3 (`1965-11`), and A10 (`1929-09`). Each anchor asserts
+   gross survival separately from the three workbook constraints through
+   `evaluate_part52_feasibility()`. Passing these assertions does not
+   reproduce the workbook Solver or confirm its published optimized WR/Borrow%
+   outputs.
+2. **Full-universe diagnostics** — gross-survival and feasibility counts are
+   diagnostics, not canonical acceptance targets. Report them separately by
+   coverage layer (`1,739` distribution, `1,506` historical-market, `1,453`
+   workbook-FFR, `1,452` legacy terminal) and by dataset vintage. Current-vintage
+   fixed-parameter all-three counts are A2 `1703/1739`, A3 `1735/1739`, and A10
+   `1323/1739`; the corresponding historical-market counts are A2 `1470/1506`,
+   A3 `1502/1506`, and A10 `1090/1506`. Gross survival is `100%` in every layer
+   on this vintage, but these counts are not canonical historical validation.
+3. **Solver reproduction** — deferred. The published values are Solver outputs;
+   fixed-parameter feasibility at those values is regression protection, not
+   Solver replication.
+4. **Eligibility** — the choice between `1,506`, `1,453`, and `1,452` remains
+   an independent open decision. Do not choose a universe merely because it has
+   more observations.
 
 ### Deferred
 
