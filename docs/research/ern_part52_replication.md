@@ -5,7 +5,7 @@
 >
 > **Implementation relationship:** Part 52 extends the leverage analysis from Part 49 by making margin borrowing state-dependent. Instead of borrowing a fixed portion of retirement spending every month, the retiree normally funds spending from the portfolio and activates margin borrowing only when the S&P 500 has fallen sufficiently below its most recent all-time high. A second rule repays the loan when the S&P 500 reaches a fresh real all-time high.
 >
-> **Methodology status:** SIMULATION MECHANICS AND FIXED-PARAMETER FEASIBILITY IMPLEMENTED. The FFR conversion formula is resolved (§3.2, §27.8). Asset/CPI numerical equivalence with the Timing workbook remains an unresolved data-fidelity item. **Phase 2 validation semantics** (gross survival versus the three-constraint feasibility result, diagnostic counts, and oracle assertions) remains open. Replicating the workbook Solver remains a separate future milestone. Drawdown uses the real total-return series (`Calc!AK`), not a nominal ATH. The terminal month is a valuation point with no withdrawal; the workbook executes 360 withdrawals across rows 40–399 and applies terminal growth/interest in row 400. Repayment cash flows are specified in §8.2 and §27.16.
+> **Methodology status:** SIMULATION MECHANICS AND FIXED-PARAMETER FEASIBILITY IMPLEMENTED. The FFR conversion formula is resolved (§3.2, §27.8). Asset/CPI differences against the 2022 Timing workbook are attributed to workbook vintage, not to an open formula or date-alignment defect (§3.4.1). **Phase 2 validation semantics** (gross survival versus the three-constraint feasibility result, diagnostic counts, and oracle assertions) remains open. Replicating the workbook Solver remains a separate future milestone. Drawdown uses the real total-return series (`Calc!AK`), not a nominal ATH. The terminal month is a valuation point with no withdrawal; the workbook executes 360 withdrawals across rows 40–399 and applies terminal growth/interest in row 400. Repayment cash flows are specified in §8.2 and §27.16.
 >
 > **Phase 1 FFR data fidelity policy:** implemented. The canonical cohort universe is explicitly filtered to 1,452 workbook-backed cohorts, the extended diagnostic universe remains 1,739 cohorts, post-2021 FFR uses actual FRED observations through 2026-08 followed by a documented hold-last policy, and the FFR artifact is frozen with provenance hashes.
 >
@@ -115,7 +115,7 @@ The article explicitly states that the FFR-based model materially worsens the 19
 
 **Resolved — 2026 audit.** The annual-to-monthly transformation is established in §27.8: the annual FFR plus spread is divided by 12, multiplied by `CPI_{t-1}/CPI_t`, with a one-month FFR lag. The alternatives (`(1 + FFR)^(1/12) - 1`, spread added after conversion, end-of-month interest, or the inverse CPI ratio `CPI_t/CPI_{t-1}`) are rejected by the workbook trajectory. The margin-rate formula is verified to floating-point precision against workbook `Calc!M` when the same FFR month and CPI ratio are supplied. The timeline/FFR alignment is resolved (§27.23); full-trajectory equivalence still depends on the separate equity-return data-fidelity issue.
 
-The remaining questions are data fidelity and validation semantics, not the conversion formula: asset/CPI numerical equivalence, the undocumented vintage of the pre-1954 `N` fallback, and whether oracle assertions measure gross survival or the three-constraint feasibility result.
+The remaining questions are data fidelity and validation semantics, not the conversion formula: asset/CPI source-vintage attribution (§3.4.1), the undocumented vintage of the pre-1954 `N` fallback, and whether oracle assertions measure gross survival or the three-constraint feasibility result.
 
 FFR temporal coverage, post-2021 handling, and canonical cohort eligibility are now defined explicitly.
 
@@ -170,7 +170,23 @@ Post-2021 policy is explicit: extended diagnostics use actual FRED FFR through 2
 
 The FRED extension source is a local snapshot with 866 monthly observations from 1954-07 through 2026-08. It matches the embedded FRED snapshot used by `scripts/build_ffr_from_fred.py` for all 834 overlapping months through 2023-12, and adds 2024-01..2026-08. Workbook `M` matches the raw series after `/100` for all 810 months 1954-07..2021-12; the maximum measured absolute difference is `3e-17`, and all 810 months are within `1e-15`. Naive exact equality is not expected because cached Excel floats and decimal serialization differ. The repository records the source hash but not a reproducible download recipe; the acquisition path is therefore a provenance limitation, not evidence of full reproducibility. Do not replace the canonical series with `ffr_monthly.json` or with a cash-return proxy.
 
-Before 1954-07, 1,002 canonical cohorts consume at least one `N` observation, 643 consume only `N`, and 359 consume both `N` and `M`; 296,100 of 522,720 consumed FFR observations come from `N`. The A10/A11 loan-rate schedules use `N` for 299 of 360 retirement months. Accepting `N` is a documented data-fidelity limitation, not a claim that its upstream source or vintage is known. The 1,452-cohort boundary establishes temporal coverage only; it does not establish exact asset/CPI equivalence with the Timing workbook. Runtime asset/CPI comes from SWR Toolbox v2.0, and CPI differences up to `0.653` index points and a 2008-12 return anomaly remain unresolved.
+Before 1954-07, 1,002 canonical cohorts consume at least one `N` observation, 643 consume only `N`, and 359 consume both `N` and `M`; 296,100 of 522,720 consumed FFR observations come from `N`. The A10/A11 loan-rate schedules use `N` for 299 of 360 retirement months. Accepting `N` is a documented data-fidelity limitation, not a claim that its upstream source or vintage is known. The 1,452-cohort boundary establishes temporal coverage only. Runtime asset/CPI comes from SWR Toolbox v2.0. Asset/CPI differences against the 2022 Timing workbook are source-vintage effects and are quantified in §3.4.1; they are not an unresolved formula or date-alignment defect.
+
+**3.4.1 Asset/CPI vintage reconciliation.**
+
+The 2022 Timing workbook and the current SWR Toolbox are different vintages, not two copies of one immutable dataset. The published Timing workbook's metadata records creation on `2022-03-12` and last modification on `2022-03-21`. The archived extraction `data/ern/part52/canonical_market_data.json` (added in `15fff92`, removed in `71f9f9f`) reproduces its `Return Data` rows exactly: 1,812 rows of columns C/E/F/K match the downloaded public `Timing-Leverage-Calc.xlsx` with zero mismatches (workbook SHA-256 `e0a0dbea11543809b2f2e8544cc84e21a19e0ca864d8ef3664135b945bbcda38`). The archive is recoverable with `git show 15fff92:data/ern/part52/canonical_market_data.json`. The current runtime CSVs `cpi.csv`, `spx_tr.csv`, `bm10.csv`, `spx_tr_real.csv`, and `bond_10y_tr_real.csv` match the current SWR Toolbox `Asset Returns` export exactly for all 1,866 index rows and 1,865 return rows.
+
+Comparison method: exact `Decimal` comparison over the 1,812 common months; Timing real returns are derived as `(index_t / index_{t-1}) / (CPI_t / CPI_{t-1}) - 1` and compared with the runtime real-return CSVs. Results:
+
+- **CPI:** 1,417 values are exact and 395 differ. The 364 differences in `1871-01..1949-12` are serialization noise (`<= 5e-9`); `1950-01..1999-12` is exact; the 31 substantive differences are confined to `2019-2021`, with maximum `0.653` index points at `2021-12` (Timing `280.192`, SWR `280.845`). Mean absolute difference over all 1,812 months is `0.0131` index points.
+- **S&P 500 real returns:** 1,809 of 1,811 derived months differ, but most differences are negligible: 939 exceed `1e-8`, 289 exceed `1e-6`, 161 exceed `0.1%`, and 65 exceed `1%`. The largest cluster is `2008-11..2009-03`: `2008-12` is `+11.887%` in Timing versus `+1.903%` in SWR, `2008-11` is `-13.934%` versus `-5.502%`, `2009-02` is `-15.077%` versus `-10.972%`, and `2009-03` is `+14.189%` versus `+8.867%`.
+- **10-year bond real returns:** maximum absolute difference is `0.002162` at `2021-12`; mean absolute difference is `9.24e-6`. Only four months exceed `0.1%`, all coincident with the CPI revision. There is no independent bond-return anomaly.
+
+The `2008/9` S&P 500 cluster is explained by faulty Timing `Return Data!E` levels in `2008-11` and `2009-02`: after normalizing the constant 1871 base, the Timing levels are about `9.8%` and `4.9%` below the current SWR levels. The SWR Toolbox `Change log` records the correction on `2025-05-24`: “Updated return data to fix faulty data points in the SPX-TR in 2008/9.” The Timing values are therefore not a valid target. Other scattered S&P 500 differences (for example `1900-10..1900-12`, `1968-08/09`, `1990-09`, `1997-08/09`, `2000-12/2001-01`, and `2002-08`) are isolated workbook-vintage values; the SWR `Change log` also records a `2024-02-24` CPI/return revision (“there was likely a revision in CPI”), but it does not identify every historical point. These are source revisions, not formula, date-alignment, or rounding errors.
+
+The Timing workbook's CPI column C is also not the same as its `CPI Shiller` column G; the SWR runtime uses the column-C family. Do not substitute the Shiller `data/ern/raw/ie_data.csv` CPI for the runtime CPI.
+
+Implication: exact numerical equivalence with the 2022 Timing workbook is not a valid acceptance test. The current runtime is the corrected SWR vintage. The `2008/9` cluster can affect cohorts whose 30-year window includes late 2008 or early 2009; it does not affect the `1929` or `1965` A10 anchors. The substantive CPI revision is confined to `2019-2021` and affects real-return and terminal-snapshot calculations for cohorts ending in those months. Part 52 validation may use the current SWR asset/CPI series; the separate eligibility decision remains open.
 
 ### 3.5 SWR Cash Is Not an FFR Substitute
 
@@ -1028,11 +1044,11 @@ The following are concrete implementation-fidelity findings identified during th
 
 5. **Post-2021 FFR and projection-boundary interaction**
 
-   Runtime `ffr.csv` uses actual FRED observations through 2026-08 and holds the last observed rate thereafter. In the full 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months from 2026-09 onward. The policy is defined and implemented; the remaining question is the separate asset/CPI numerical equivalence with the Timing workbook, not whether post-2021 FFR is available.
+   Runtime `ffr.csv` uses actual FRED observations through 2026-08 and holds the last observed rate thereafter. In the full 1,739-cohort universe, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months from 2026-09 onward. The policy is defined and implemented. Asset/CPI vintage differences are explained in §3.4.1; they do not affect post-2021 FFR availability.
 
 6. **Validation semantics**
 
-   The current oracle measures gross survival. At fixed A10 parameters the production path reports `1739/1739` gross survival but `1323/1739` for all three constraints. Gross survival is not the three-constraint feasibility result, and the A2/A3/A10 full-universe assertions must not be treated as canonical acceptance targets until asset/CPI equivalence and the feasibility metric wiring are resolved.
+   The current oracle measures gross survival. At fixed A10 parameters the production path reports `1739/1739` gross survival but `1323/1739` for all three constraints. Gross survival is not the three-constraint feasibility result, and the A2/A3/A10 full-universe assertions must not be treated as canonical acceptance targets until the feasibility metric wiring is resolved. Asset/CPI vintage differences are explained in §3.4.1.
 
 ---
 
@@ -1776,8 +1792,8 @@ the production path reports `1739/1739` gross survival, `1686/1739` final-NW,
 Decimal recurrence produces the same counts; that is evidence of implementation
 consistency, not independent methodological confirmation. The `1929-09` unit
 itself satisfies all three financial conditions. These counts remain
-diagnostic because asset/CPI numerical equivalence, the undocumented `N`
-vintage, and validation semantics remain unresolved. They are **not**
+diagnostic because the undocumented `N` vintage and validation semantics
+remain unresolved; asset/CPI vintage differences are explained in §3.4.1. They are **not**
 acceptance values. In particular, gross survival is not the three-constraint
 feasibility result.
 
@@ -1823,7 +1839,7 @@ NONE — simulation mechanics are resolved.
 
 ### C. Data-fidelity items
 
-1. Asset/CPI numerical equivalence with the Timing workbook remains unresolved. Runtime asset/CPI comes from SWR Toolbox v2.0; observed CPI differences reach `0.653` index points and a 2008-12 return anomaly remains.
+1. Asset/CPI differences against the 2022 Timing workbook are resolved as a workbook-vintage effect, not an open implementation defect. Runtime asset/CPI matches SWR Toolbox v2.0 exactly. The Timing workbook predates the SWR `2024-02-24` CPI/return revision and the `2025-05-24` correction of faulty 2008/9 S&P 500 TR points. The maximum CPI difference is `0.653` index points at `2021-12`, and the former 2008-12 return anomaly is induced by the faulty Timing 2008-11 level. Exact equivalence with the stale Timing workbook is not an acceptance target; see §3.4.1.
 2. The 1871–1954 `N` splice is accepted as the workbook's documented fallback, but the upstream source and vintage of `N` are not documented. This is a recorded limitation, not a resolved provenance claim.
 3. Canonical cohort eligibility is resolved as full workbook coverage: 1,452 cohorts, with an FFR-only boundary of 1,453 and an extended diagnostic universe of 1,739. The filter is explicit at the Part 52 caller.
 4. Post-2021 FFR handling is defined: actual FRED through 2026-08, then hold the last observed rate; 230 cohorts consume forward-filled months in the full universe, and the no-forward-fill variant has 1,509 cohorts.
