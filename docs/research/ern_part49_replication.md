@@ -1,15 +1,15 @@
 # ERN Part 49 — Using Leverage in Retirement
 
-> **Status:** NON-CANONICAL SUBSET — CANONICAL B–F NOT IMPLEMENTED
+> **Status:** CANONICAL B–F IMPLEMENTED — E2E GATED
 > **Article:** [Using Leverage in Retirement – SWR Series Part 49](https://earlyretirementnow.com/2021/11/16/leverage-in-retirement-swr-series-part-49/)
 >
 > **Implementation relationship:** Part 49 investigates whether margin loans can hedge sequence-of-returns risk by replacing part of the portfolio withdrawal with borrowing against the portfolio. The article finds that excessive leverage exacerbates sequence risk, but a modest supplemental loan (approximately 1% of portfolio) can improve outcomes.
 >
 > **Methodology status:** COMPLETE / FROZEN.
 >
-> **Implementation status:** CAPABILITIES IMPLEMENTED — buy-and-hold (`fc83253`), LTV enforcement, real-rate debt handling, and terminal margin-call semantics (`bf42fe5`) exist. The only committed replication test is a 6-cell non-canonical subset (2 equity × 3 interest = 10,434 units) with LTV enforcement OFF and `ConstantAllocationPolicy`; it does not exercise Experiments B–F.
+> **Implementation status:** CAPABILITIES IMPLEMENTED — buy-and-hold (`fc83253`), LTV enforcement, real-rate debt handling, terminal margin-call semantics (`bf42fe5`), and consistent Numba total-spending timeline reporting (GAP-1b). Canonical Experiments B–F are covered by `tests/oracle/ern/test_part49_canonical_bf.py`; the non-canonical 6-cell diagnostic remains in `test_part49_replication_app.py`.
 >
-> **E2E status:** NOT VALIDATED as canonical ERN replication. Experiments B–F remain planned; `docs/research/ern_part49_t6.2_e2e_plan.md` is an implementation/validation plan, not a delivered test.
+> **E2E status:** VALIDATED for Experiments B–F under `RUN_ERN_E2E=1`. Experiments B/C use dual-mode execution: observe-only chart reproduction and separate 75% LTV enforcement/terminality validation. Experiment A remains the separate analytical task under Part 49.1.
 
 ---
 

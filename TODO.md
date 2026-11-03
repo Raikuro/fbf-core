@@ -403,8 +403,9 @@ issue must not disappear.
 
 These items were designed during S5 (see `docs/roadmap/S5_4_R2_ARCHITECTURE.md`
 and `docs/roadmap/S5_7_PERFORMANCE_REPORT.md`) but are intentionally deferred.
-The canonical Part 49 workload (10,434 units) completes successfully within
-operational resource limits (~6.2 min, ~11.1 GB RSS).
+The largest Part 49 workload (the 10,434-unit non-canonical diagnostic)
+completes successfully within operational resource limits (~6.2 min,
+~11.1 GB RSS).
 
 ### Batched execution (`BatchedExecutor`)
 

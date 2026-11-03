@@ -894,5 +894,53 @@ class TestPart49BuyAndHoldDispatchContract:
             _auto_select_backend(built, NoOpProfiler())
 
 
+class TestPart49BuyAndHoldTimelineSpendingReporting:
+    def test_timeline_reports_total_spending_without_changing_cash_flows(self) -> None:
+        ctx = _make_context(_create_flat_dataset(12), 12)
+        run = Part49BuyAndHoldNumbaExecutor(materialize_timeline=True).execute(
+            EngineExperimentDefinition(
+                name="timeline", description="timeline", simulation_contexts=(ctx,)
+            )
+        )
+        result = run.simulation_results[0]
+        assert result.timeline is not None
+        month0 = result.timeline.monthly_results[0]
+        assert month0.withdrawal_decision is not None
+
+        annual = INITIAL_WEALTH.amount
+        portfolio_withdrawal = Decimal(
+            str(float(annual) * float(WITHDRAWAL_RATE) / 12.0)
+        )
+        loan_draw = Decimal(str(float(annual) * float(LOAN_DRAW_RATE) / 12.0))
+        total_spending = Decimal(
+            str(float(annual) * (float(WITHDRAWAL_RATE) + float(LOAN_DRAW_RATE)) / 12.0)
+        )
+
+        decision = month0.withdrawal_decision
+        assert decision.nominal_amount.amount == total_spending
+        assert decision.spending_budget == total_spending
+        assert decision.loan_draw_amount == loan_draw
+
+        portfolio_value = sum(
+            (
+                holding.units
+                * month0.market_snapshot.index_levels[holding.asset_class]
+                for holding in month0.portfolio.holdings
+            ),
+            Decimal("0"),
+        )
+        assert abs(portfolio_value - (annual - portfolio_withdrawal)) < Decimal("0.01")
+        assert month0.debt_snapshot is not None
+        assert month0.debt_snapshot.loan_balance == loan_draw
+
+        baseline = Part49BuyAndHoldNumbaExecutor(materialize_timeline=False).execute(
+            EngineExperimentDefinition(
+                name="baseline", description="baseline", simulation_contexts=(ctx,)
+            )
+        )
+        baseline_stats = baseline.simulation_results[0].statistics
+        assert result.statistics.final_wealth == baseline_stats.final_wealth
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

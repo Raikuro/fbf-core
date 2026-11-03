@@ -96,12 +96,13 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 - **Research question:** How does margin-loan leverage affect SWR success?
 - **Methodology:** Rolling-cohort simulation with debt/lifecycle mechanics.
-- **Dataset:** Same as Part 1.
-- **Cohort definition:** 1,739 rolling monthly cohorts.
+- **Dataset:** Production `data/ern`.
+- **Cohort definition:** Experiment-specific single cohorts, plus 792 monthly cohorts (1925-01…1990-12) for Experiment F.
 - **Horizons:** 30 years.
-- **Policies:** Partial leverage (3% portfolio withdrawal + 1% loan draw = 4% total spending), fixed real interest rates (0%, 1.5%, 3%), LTV observed but not enforced.
-- **Success criteria:** Portfolio survives full horizon (no LTV enforcement = observation only).
-- **Published anchors:** 6 canonical cells (2 equity × 3 interest rates).
+- **Policies:** Partial leverage (portfolio withdrawal + 1% loan draw = 4% total spending), fixed real interest rates (0%, 1.5%, 3%), buy-and-hold allocation.
+- **Modes:** Experiments B/C run dual-mode: observe-only for chart reproduction and `ltv_enforcement=True` for 75% terminal-failure validation.
+- **Success criteria:** Portfolio survives full horizon in observe-only mode; LTV breaches terminate as `margin_call_terminal` in enforcement mode.
+- **Published anchors:** Experiments B–F charts and the Experiment F historical failure count.
 
 ### B.8 Part 52 — Timing Leverage in Retirement
 
@@ -210,19 +211,20 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **YAML file:** `ern_part42.yaml` (retained; study configuration is complete).
 - **Documentation:** `docs/roadmap/MULTI_STUDY_REPLICATION_ROADMAP.md` §A.3.
 
-#### Part 49 — NON-CANONICAL SUBSET; CANONICAL B–F NOT IMPLEMENTED
+#### Part 49 — CANONICAL B–F IMPLEMENTED — E2E GATED
 
-- **Grid:** `ern_part49.yaml` (2E × 3I = 6 cells in the committed test; the YAML file does not exercise the canonical B–F experiment matrices).
-- **Dataset:** `ern_swr_h720.json`
+- **Grid:** Experiment-specific matrices (B–E single-cohort scenarios; F is 792 cohorts × 6 configurations = 4,752 units).
+- **Dataset:** Production `data/ern`.
 - **Methodology status:** COMPLETE / FROZEN (see `ern_part49_replication.md` §24).
-- **Implementation status:** **CAPABILITIES IMPLEMENTED; CANONICAL E2E NOT DELIVERED**
+- **Implementation status:** **CAPABILITIES AND CANONICAL E2E IMPLEMENTED**
   1. **Buy-and-hold capability: IMPLEMENTED** — `BuyAndHoldAllocationPolicy` + `create_buy_and_hold_pipeline()` (`fc83253`).
   2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True`; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
   3. **Real-rate debt handling: IMPLEMENTED** — `debt_interest_rate_is_real` flag on `SimulationContext` + `InterestAccrualStep` bypasses CPI deflation (`bf42fe5`, GAP-2).
-- **E2E status:** **NON-CANONICAL SUBSET ONLY — B–F NOT IMPLEMENTED.** The committed test is one 6-cell replication (2E × 3I = 10,434 units) with `ltv_enforcement: false` and `ConstantAllocationPolicy`. It does not exercise Experiments B–F. The Chart 02–06 match claims, the 4,752-unit Experiment F run, and the reported per-experiment results are historical/planned diagnostics, not current committed validation.
-- **Non-leverage oracle:** The non-leverage cells are compared with the pinned historical `p49_oracle_table.csv` within cohort-population tolerance; this is not canonical B–F validation.
-- **E2E test:** `tests/oracle/ern/test_part49_replication_app.py::test_part49_canonical_replication` (one test, 6 cells, gated `ern_e2e`).
-- **Supporting tests:** `tests/integration/test_part49_buy_and_hold_numba_executor.py` (current Numba buy-and-hold coverage), `tests/integration/test_part49_canonical_execution.py`, `tests/oracle/ern/test_debt_oracle.py`. The legacy `tests/integration/test_part49_buy_and_hold.py` was deleted at `2c43e68`.
+  4. **Timeline spending reporting: IMPLEMENTED** — both Part 49 Numba executors report total spending (portfolio withdrawal + loan draw) in `withdrawal_decision.nominal_amount` and `spending_budget` without changing cash flows (GAP-1b).
+- **E2E status:** **CANONICAL B–F VALIDATED under `RUN_ERN_E2E=1`.** Experiments B/C use dual-mode execution: observe-only for chart reproduction and `ltv_enforcement=True` for 75% terminality. Experiments D/E validate Chart 04–06 leverage ratios, and Experiment F validates the 4,752-unit historical failure coverage.
+- **E2E test:** `tests/oracle/ern/test_part49_canonical_bf.py` (7 tests, gated `ern_e2e`).
+- **Non-canonical diagnostic:** `tests/oracle/ern/test_part49_replication_app.py::test_part49_canonical_replication` retains the 6-cell, 10,434-unit leverage-mechanics coverage and pinned `p49_oracle_table.csv`; it is not canonical B–F validation.
+- **Supporting tests:** `tests/integration/test_part49_buy_and_hold_numba_executor.py`, `tests/integration/test_part49_numba_executor.py`, `tests/integration/test_part49_canonical_execution.py`, `tests/oracle/ern/test_debt_oracle.py`. The legacy `tests/integration/test_part49_buy_and_hold.py` was deleted at `2c43e68`.
 
 #### Part 52 — NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
 
@@ -244,7 +246,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 | Part 19 | YES | Implemented & cross-validated | Resolved (ATH fix `3e47550`) |
 | Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Resolved (ATH fix `3e47550`) |
 | Part 42 | NO (historical) | Historically validated; current test deleted | Port-to-Numba vs retire unresolved |
-| Part 49 | PARTIAL | Capabilities implemented; only non-canonical 6-cell subset | Canonical B–F E2E not implemented |
+| Part 49 | YES (B–F) | Canonical B–F implemented and gated; non-canonical 6-cell diagnostic retained | Experiment A analytical check pending |
 | Part 52 | PARTIAL | A2/A3/A10 published-anchor feasibility; A1/A9 diagnostics; other scenarios research validation | Eligibility/full-universe policy; Solver reproduction deferred |
 
 ---
@@ -349,7 +351,8 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 |--------|----------------|------|-----------|-------|--------|
 | E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | 313,020 | **CANONICAL — VALIDATED** |
 | E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_grid.py::test_part20_full_grid_replication` | 556,480 | **REGRESSION COVERAGE — NOT REPLICATION** |
-| E2E-Part49 | Part 49 | (Python API) | `test_part49_replication_app.py::test_part49_canonical_replication` | 10,434 | **NON-CANONICAL SUBSET — LTV OFF; B–F NOT IMPLEMENTED** |
+| E2E-Part49 | Part 49 | (Python API) | `test_part49_canonical_bf.py` | 4,752 + B–E scenarios | **CANONICAL — VALIDATED (B–F, gated `ern_e2e`)** |
+| E2E-Part49-Diag | Part 49 | (Python API) | `test_part49_replication_app.py::test_part49_canonical_replication` | 10,434 | **NON-CANONICAL SUBSET — LTV OFF; leverage-mechanics diagnostic** |
 | E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **HISTORICAL AUDIT TEST DELETED; CURRENT COVERAGE STRUCTURAL ONLY** |
 | E2E-Part52 | Part 52 | (Python API) | `test_part52_replication.py` | 19,129 | **NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED** |
 
@@ -368,7 +371,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | Part 19 (Glidepaths) | Canonical methodology — implementation & cross-validated | Resolved (ATH fix `3e47550`) |
 | Part 20 (Glidepaths) | Audit complete on available data — canonical-data revalidation pending | Resolved (ATH fix `3e47550`) |
 | Part 42 (OMY) | Historical audit test deleted; port-vs-retire unresolved | No current published-table validation surface |
-| Part 49 (Leverage) | Non-canonical 6-cell subset — LTV OFF; B–F not implemented | Canonical B–F E2E not delivered |
+| Part 49 (Leverage) | Canonical B–F implemented; non-canonical 6-cell diagnostic retained | Experiment A analytical check pending |
 | Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | FFR resolved; full E2E validation pending |
 
 ### E.4 Strict-Superset Relationships
@@ -410,23 +413,24 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.3 Part 49 — Using Leverage in Retirement
 
-**Status:** NON-CANONICAL SUBSET; CANONICAL B–F NOT IMPLEMENTED
-**Reason:** Capabilities are implemented, but the canonical experiment validation is not:
+**Status:** CANONICAL B–F IMPLEMENTED — E2E GATED
+**Reason:** Capabilities and canonical B–F validation are implemented:
 1. **Buy-and-hold capability: IMPLEMENTED** — `BuyAndHoldAllocationPolicy` + `create_buy_and_hold_pipeline()` (`fc83253`).
 2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True`; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
 3. **Real-rate debt handling: IMPLEMENTED** — `debt_interest_rate_is_real` flag on `SimulationContext` + `InterestAccrualStep` bypasses CPI deflation (`bf42fe5`, GAP-2).
+4. **Timeline spending reporting: IMPLEMENTED** — both Part 49 Numba executors report total spending in `withdrawal_decision.nominal_amount` and `spending_budget` without changing cash flows (GAP-1b).
 
 **Methodology:** COMPLETE (see `ern_part49_replication.md` §24).
 
-**Implementation status:** **CAPABILITIES IMPLEMENTED; CANONICAL E2E NOT DELIVERED.** The T6.2 document is a plan. The only committed replication test is one 6-cell test (2E × 3I = 10,434 units) with `ltv_enforcement: false` and `ConstantAllocationPolicy`.
+**Implementation status:** **CAPABILITIES AND CANONICAL E2E IMPLEMENTED.** `tests/oracle/ern/test_part49_canonical_bf.py` covers Experiments B–F, including B/C dual-mode, Chart 04–06 anchors, and the 4,752-unit Experiment F run.
 
-**E2E status:** **NON-CANONICAL SUBSET ONLY.** Experiments B–F are not implemented as committed tests. The Chart 02–06 matches, the 4,752-unit Experiment F run, and the reported per-experiment results are historical/planned diagnostics, not current validation.
+**E2E status:** **CANONICAL B–F VALIDATED under `RUN_ERN_E2E=1`.**
 
-**Non-leverage oracle:** The non-leverage cells are compared with the pinned historical `p49_oracle_table.csv`; this is not canonical B–F validation.
+**Non-canonical diagnostic:** `tests/oracle/ern/test_part49_replication_app.py::test_part49_canonical_replication` retains the 6-cell, 10,434-unit leverage-mechanics coverage and pinned `p49_oracle_table.csv`; it is not canonical B–F validation.
 
-**E2E test:** `tests/oracle/ern/test_part49_replication_app.py::test_part49_canonical_replication` (one test, 6 cells, gated `ern_e2e`).
+**E2E test:** `tests/oracle/ern/test_part49_canonical_bf.py` (7 tests, gated `ern_e2e`).
 
-**Supporting tests:** `tests/integration/test_part49_buy_and_hold_numba_executor.py`, `tests/integration/test_part49_canonical_execution.py`, `tests/oracle/ern/test_debt_oracle.py`. The legacy `tests/integration/test_part49_buy_and_hold.py` was deleted at `2c43e68`.
+**Supporting tests:** `tests/integration/test_part49_buy_and_hold_numba_executor.py`, `tests/integration/test_part49_numba_executor.py`, `tests/integration/test_part49_canonical_execution.py`, `tests/oracle/ern/test_debt_oracle.py`. The legacy `tests/integration/test_part49_buy_and_hold.py` was deleted at `2c43e68`.
 
 ### F.4 Part 19/20 — Equity Glidepaths
 

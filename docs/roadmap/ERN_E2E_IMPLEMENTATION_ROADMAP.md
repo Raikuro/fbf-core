@@ -130,12 +130,12 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 49.1 | Experiment A: Preliminary leverage | Analytical check | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Buy-and-hold implemented; no analytical test | Implement the analytical check; canonical B–F E2E remains planned |
-| 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Canonical B–F test not delivered; `ern_part49_t6.2_e2e_plan.md` is a plan | Implement canonical B–F E2E per T6.2; do not cite chart matches as current validation |
-| 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Same as 49.2 | Implement canonical B–F E2E per T6.2; do not cite chart matches as current validation |
-| 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Same as 49.2 | Implement canonical B–F E2E per T6.2; do not cite chart matches as current validation |
-| 49.5 | Experiment E: $30k/$10k preferred | Scenario | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Same as 49.2 | Implement canonical B–F E2E per T6.2; do not cite chart matches as current validation |
-| 49.6 | Experiment F: Historical 4% conclusion | 1925-1990 universe | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None canonical; non-canonical 6-cell diagnostic only (49.7) | Same as 49.2; no committed 4,752-unit run | Implement canonical B–F E2E per T6.2; do not cite 4,752 units as current evidence |
+| 49.1 | Experiment A: Preliminary leverage | Analytical check | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Buy-and-hold implemented; no analytical test | Implement the analytical check (canonical B–F E2E delivered under T6.2) |
+| 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part49_canonical_bf.py::test_experiment_b_*` | None | Retain dual-mode canonical E2E: observe-only chart window + 75% LTV terminality |
+| 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part49_canonical_bf.py::test_experiment_c_*` | None | Retain dual-mode canonical E2E: month-238 diagnostic + 75% LTV terminality |
+| 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part49_canonical_bf.py::test_experiment_d_*` | None | Retain Chart 04 L/P anchor validation |
+| 49.5 | Experiment E: $30k/$10k preferred | Scenario | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part49_canonical_bf.py::test_experiment_e_*` | None | Retain Chart 05/06 max L/P anchor validation |
+| 49.6 | Experiment F: Historical 4% conclusion | 1925-1990 universe | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part49_canonical_bf.py::test_experiment_f_*` (4,752 units) | None | Retain structural/failure coverage; expected 3 failures at 1929-08 |
 | 49.7 | Non-canonical 6-cell E2E | 2E × 3I × 1,739 = 10,434 | NON-CANONICAL RESEARCH | `IMPLEMENTED` | `test_part49_replication_app.py::test_part49_canonical_replication` (LTV enforcement OFF; ConstantAllocationPolicy) | None | Retain as leverage-mechanics diagnostic; NOT canonical ERN replication |
 | 49.8 | Integration tests (18 units) | 2E × 3I × 3 cohorts | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part49_canonical_execution.py` | None | Retain — execution correctness |
 | 49.9 | Buy-and-hold capability | N/A | N/A | `IMPLEMENTED` | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` (`fc83253`) | None | Complete |
@@ -476,26 +476,26 @@ Keep existing structural/invariant coverage. The published-table audit is histor
   - Discrepancy documentation: `docs/research/ern_part42_replication_discrepancies.md` is a historical record, not a current reproduction command
   - Historical implementation and quality gates: completed successfully at `95b1b50`
 
-### Phase 6 — Part 49 (CAPABILITIES IMPLEMENTED; CANONICAL B–F E2E NOT DELIVERED)
+### Phase 6 — Part 49 (CANONICAL B–F IMPLEMENTED — E2E GATED)
 
-Buy-and-hold mechanics, LTV enforcement, real-rate debt handling, and terminal margin-call semantics are implemented. The canonical Experiments B–F E2E is not implemented as committed tests; the only committed replication test is a 6-cell non-canonical diagnostic.
+Buy-and-hold mechanics, LTV enforcement, real-rate debt handling, terminal margin-call semantics, and GAP-1b total-spending timeline reporting are implemented. Canonical Experiments B–F are covered by a gated E2E test; the 6-cell non-canonical diagnostic remains as leverage-mechanics coverage.
 
 - [x] **T6.1** Part 49 buy-and-hold capability — **COMPLETE**
   - Target: Implement buy-and-hold portfolio mechanics in FBF
   - Status: **COMPLETE** — `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` implemented at `fc83253`
-  - Acceptance criteria: Buy-and-hold mechanics validated; canonical Part 49 B–F E2E remains planned
+  - Acceptance criteria: Buy-and-hold mechanics validated; canonical Part 49 B–F E2E delivered under T6.2
   - Dependencies: None
 
-- [ ] **T6.2** Part 49 canonical E2E (Experiments B–F) — **PLANNED / NOT IMPLEMENTED**
+- [x] **T6.2** Part 49 canonical E2E (Experiments B–F) — **COMPLETE**
   - Target: Experiments B–F with buy-and-hold mechanics, LTV enforcement, real-rate debt
-  - Status: **CAPABILITIES IMPLEMENTED; CANONICAL E2E NOT DELIVERED** — `bf42fe5` implemented GAP-1 (withdrawal semantics), GAP-2 (real-rate flag), GAP-3 (terminal margin-call); these are capability fixes, not B–F validation
-  - Plan: `docs/research/ern_part49_t6.2_e2e_plan.md` is an implementation/validation plan, not a delivered test
-  - Current committed test: `tests/oracle/ern/test_part49_replication_app.py` has one 6-cell test (2E × 3I = 10,434 units) with `ltv_enforcement: false` and `ConstantAllocationPolicy`; it does not exercise Experiments B–F
-  - Unsupported in the current tree: the Chart 02–06 match claims, the 4,752-unit Experiment F run, and the reported per-experiment results; these are historical/planned diagnostics until a committed B–F test exists
+  - Status: **IMPLEMENTED & VALIDATED** — `tests/oracle/ern/test_part49_canonical_bf.py` covers Experiments B–F, including B/C dual-mode observe-only and 75% LTV terminality, and the 4,752-unit Experiment F run
+  - GAP-1b: both Part 49 Numba executors now report total spending in `withdrawal_decision.nominal_amount` and `spending_budget` without changing cash flows
+  - Plan: `docs/research/ern_part49_t6.2_e2e_plan.md`
+  - Non-canonical diagnostic: `tests/oracle/ern/test_part49_replication_app.py` retains the 6-cell test (2E × 3I = 10,434 units); it is not canonical B–F validation
   - Prerequisite: T6.1 (complete)
   - Dependencies: T6.1
 
-**Status:** The only committed Part 49 replication test is the non-canonical 6-cell test in `tests/oracle/ern/test_part49_replication_app.py`. Experiment A remains `PLANNED — NOT IMPLEMENTED` (49.1), and Experiments B–F remain planned under T6.2.
+**Status:** Canonical Experiments B–F are implemented and validated under `RUN_ERN_E2E=1`. Experiment A remains `PLANNED — NOT IMPLEMENTED` (49.1).
 
 ---
 

@@ -429,6 +429,7 @@ class Part49NumbaExecutor(SimulationExecutor):
                             build_simulation_timeline,
                         )
 
+                        total_spending = portfolio_withdrawal + loan_draw
                         timeline = build_simulation_timeline(
                             ctx,
                             out_values,
@@ -437,7 +438,7 @@ class Part49NumbaExecutor(SimulationExecutor):
                                 ctx.withdrawal_policy
                             ).__name__,
                             withdrawal_amounts=[
-                                Decimal(str(portfolio_withdrawal))
+                                Decimal(str(total_spending))
                             ]
                             * months_simulated,
                             loan_draw_amount=Decimal(str(loan_draw)),
