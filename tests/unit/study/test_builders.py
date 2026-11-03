@@ -8,7 +8,7 @@ so the real engine can price and rebalance the initial holdings.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -1201,3 +1201,178 @@ class TestCohortFilter:
         )
 
         assert len(result.experiment_result.simulation_results) == 12
+
+
+class TestCohortDateConfiguration:
+    """Tests for optional ``cohorts.start_date`` / ``cohorts.end_date``."""
+
+    @staticmethod
+    def _yaml(**cohort_values: object) -> dict[str, object]:
+        return {
+            **_BASE_YAML,
+            "cohorts": {
+                "horizon_years": [5],
+                **cohort_values,
+            },
+        }
+
+    @staticmethod
+    def _config(
+        *,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> StudyConfiguration:
+        return StudyConfiguration(
+            name="cohort-date-test",
+            description="",
+            version="1.0",
+            allocation_policy_type="ConstantAllocationPolicy",
+            allocation_policy_values=(Decimal("0.5"),),
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+            withdrawal_policy_values=(Decimal("0.04"),),
+            horizon_years=(5,),
+            cohort_horizon_years=5,
+            cohort_start_date=start_date,
+            cohort_end_date=end_date,
+        )
+
+    def test_from_yaml_parses_month_dates(self) -> None:
+        config = StudyConfiguration.from_yaml(
+            self._yaml(start_date="2000-03", end_date="2000-08")
+        )
+
+        assert config.cohort_start_date == date(2000, 3, 1)
+        assert config.cohort_end_date == date(2000, 8, 1)
+
+    def test_from_yaml_parses_full_iso_dates_and_date_objects(self) -> None:
+        config = StudyConfiguration.from_yaml(
+            self._yaml(
+                start_date="2000-03-01",
+                end_date=date(2000, 8, 1),
+            )
+        )
+
+        assert config.cohort_start_date == date(2000, 3, 1)
+        assert config.cohort_end_date == date(2000, 8, 1)
+
+    def test_from_yaml_rejects_datetime_values(self) -> None:
+        with pytest.raises(ValueError, match="without a time component"):
+            StudyConfiguration.from_yaml(
+                self._yaml(start_date=datetime(2000, 3, 1, 12, 0))
+            )
+
+    def test_from_yaml_omitted_bounds_preserve_defaults(self) -> None:
+        config = StudyConfiguration.from_yaml(self._yaml())
+
+        assert config.cohort_start_date is None
+        assert config.cohort_end_date is None
+
+    @pytest.mark.parametrize("raw", ["2000-3", "2000-03-1", "200003", "not-a-date"])
+    def test_from_yaml_rejects_invalid_date_shape(self, raw: str) -> None:
+        with pytest.raises(ValueError, match="must be an ISO date"):
+            StudyConfiguration.from_yaml(self._yaml(start_date=raw))
+
+    def test_from_yaml_rejects_invalid_calendar_date(self) -> None:
+        with pytest.raises(ValueError, match="not a valid calendar date"):
+            StudyConfiguration.from_yaml(self._yaml(start_date="2000-13"))
+
+    def test_from_yaml_rejects_reversed_bounds(self) -> None:
+        with pytest.raises(ValueError, match="must not be after"):
+            StudyConfiguration.from_yaml(
+                self._yaml(start_date="2000-08", end_date="2000-03")
+            )
+
+    def test_build_plan_selects_exact_inclusive_range(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        built = build_study_plan(
+            self._config(start_date=date(2000, 2, 1), end_date=date(2000, 6, 1)),
+            "data/ern",
+            Money(Decimal("1000000"), Currency.EUR),
+            dataset=_make_monthly_dataset(),
+        )
+
+        assert [cohort.start_date for cohort in built.cohorts] == [
+            date(2000, 2, 1),
+            date(2000, 3, 1),
+            date(2000, 4, 1),
+            date(2000, 5, 1),
+            date(2000, 6, 1),
+        ]
+        assert len(built.plan.units) == 5
+
+    def test_default_bounds_preserve_rolling_universe(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+        from fbf.core.study.internal.cohort.generator import CohortGenerator
+
+        dataset = _make_monthly_dataset()
+        expected = CohortGenerator.generate_rolling_monthly(dataset, 61)
+        built = build_study_plan(
+            self._config(),
+            "data/ern",
+            Money(Decimal("1000000"), Currency.EUR),
+            dataset=dataset,
+        )
+
+        assert built.cohorts == expected
+        assert len(built.cohorts) == 60
+
+    def test_start_bound_without_end_uses_dataset_end(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        built = build_study_plan(
+            self._config(start_date=date(2000, 6, 1)),
+            "data/ern",
+            Money(Decimal("1000000"), Currency.EUR),
+            dataset=_make_monthly_dataset(),
+        )
+
+        assert built.cohorts[0].start_date == date(2000, 6, 1)
+        assert built.cohorts[-1].start_date == date(2004, 12, 1)
+
+    def test_end_bound_without_start_uses_dataset_start(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        built = build_study_plan(
+            self._config(end_date=date(2000, 6, 1)),
+            "data/ern",
+            Money(Decimal("1000000"), Currency.EUR),
+            dataset=_make_monthly_dataset(),
+        )
+
+        assert built.cohorts[0].start_date == date(2000, 1, 1)
+        assert built.cohorts[-1].start_date == date(2000, 6, 1)
+        assert len(built.cohorts) == 6
+
+    def test_explicit_end_does_not_override_horizon_feasibility(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        built = build_study_plan(
+            self._config(end_date=date(2009, 12, 1)),
+            "data/ern",
+            Money(Decimal("1000000"), Currency.EUR),
+            dataset=_make_monthly_dataset(),
+        )
+
+        assert built.cohorts[-1].start_date == date(2004, 12, 1)
+        assert len(built.cohorts) == 60
+
+    def test_infeasible_range_raises(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        with pytest.raises(ValueError, match="no feasible cohorts"):
+            build_study_plan(
+                self._config(
+                    start_date=date(2005, 1, 1),
+                    end_date=date(2005, 6, 1),
+                ),
+                "data/ern",
+                Money(Decimal("1000000"), Currency.EUR),
+                dataset=_make_monthly_dataset(),
+            )

@@ -6,6 +6,15 @@ file.
 
 ---
 
+## Next Actionable Task
+
+**Part 2.1 — full FV>0 canonical E2E** is the next pending research task. The
+cohort-date configuration prerequisite is implemented; the remaining
+prerequisites are the FBF-generated Part 2 regression fixture and resolution of
+the documented warm-up timing question. Part 2.2 and Part 2.3 follow Part 2.1.
+
+---
+
 ## External Integration: UI Timeline Persistence
 
 **Classification:** external integration gap — deferred; not a Core execution
@@ -66,83 +75,6 @@ intentional consequence of the slope granularity, not an implementation defect.
 
 The 361-month endpoint should be preserved as-is. Do not round the slope or
 adjust the implementation to force the endpoint at month 360.
-
----
-
-## S1 Follow-Up: ERN Validation Discrepancies
-
-**Classification:** CLOSED — investigation accepted
-
-The S1 glidepath investigation is complete. All validated findings are
-recorded in `docs/research/ERN_E2E_REPLICATION_PLAN.md` §F.4.1.
-
-### Final classification
-
-**GLIDEPATH DISCREPANCY NOT ESTABLISHED — PRESENTATION/GRID ARTIFACT**
-
-### Validated findings (summary)
-
-1. **Cohort universe** — CLOSED. ERN's workbook retirement labels span
-   Feb 1871–Dec 2015 (1,739 cohorts, 383 with CAPE > 20); FBF represents the
-   same cohorts as runtime starts Jan 1871–Nov 2015.
-
-2. **CAPE cohort selection** — CLOSED. No divergence found.
-
-3. **Withdrawal frequency** — CLOSED. Monthly and annual validation
-   performed. Frequency is not the primary explanation. Configurable
-   frequency implementation remains valid.
-
-4. **Fee model** — CLOSED. ERN applies 0.05% p.a. monthly. FBF dataset
-   embeds the same fee drag. FBF-derived returns match ERN net returns.
-
-5. **Return construction / forward extrapolation** — CLOSED. Realized and
-   forward returns match ERN. No correction required.
-
-6. **Static allocation calculation** — CLOSED. The mathematical failsafe
-   agrees with the FBF oracle. Apparent differences with published 3.25%
-   are attributable to ERN's search/reporting convention and rounded
-   success-rate presentation.
-
-7. **Glidepath / rebalancing mechanics** — CLOSED. FBF applies glidepath
-   target at beginning of monthly cycle and rebalances before market
-   evolution. Consistent with available ERN methodology description.
-   ERN glidepath source not available in this repository; full
-   source-level equivalence cannot be claimed but no divergence
-   established.
-
-8. **Part 20 published anchors** — IMPORTANT. The previously supplied
-   3.47% value has no traceable occurrence in ERN code, tests, or
-   documented Part 20 values. The traceable anchor is 3.34% for the
-   60→100% glidepath / CAPE > 20 / FV=1.0 configuration. FBF produces
-   381/382 = 99.7% success at 3.34%, which rounds to 100% under ERN's
-   success-rate convention.
-
-### Do not reopen
-
-Do not reopen Part 20 methodology investigations unless new evidence
-contradicts these validated conclusions. Do not create new tasks to
-investigate fees, withdrawal frequency, cohort selection, return
-construction, forward extrapolation, static allocation mathematics, or
-rebalancing mechanics merely because FBF's precise binary-searched failsafe
-differs from a published ERN percentage. Published ERN percentages must be
-interpreted according to the documented search/grid and success-rate
-conventions.
-
----
-
-## S1 Follow-Up: Part 19 Configuration Representation
-
-**Classification:** architectural/documentation follow-up — RESOLVED in L.1
-
-The generic builder (`_build_unified_parameter_configs`) creates Cartesian
-products of independent parameter axes. Part 19 requires constrained
-`(start, end, slope)` combinations where slopes are associated with specific
-start/end pairs.
-
-**Resolution:** L.1 introduced the `allocation_policy.configurations` list in
-the YAML schema, enabling explicit parameter tuples that are crossed only
-with the remaining study axes (withdrawal_rate, horizon_years). This
-eliminates the need for Cartesian products of glidepath parameters.
 
 ---
 

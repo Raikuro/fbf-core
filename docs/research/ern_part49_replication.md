@@ -1049,4 +1049,4 @@ monthly execution
 
 Those are now resolved inputs to the replication.
 
-The next phase is implementation of the **canonical B–F E2E** per `docs/research/ern_part49_t6.2_e2e_plan.md`, with the exact published chart cells treated as the comparison oracle. The current committed test remains only the non-canonical 6-cell diagnostic.
+The canonical **B–F E2E** was delivered in `tests/oracle/ern/test_part49_canonical_bf.py` under T6.2 (`1834d7d`), with the exact published chart cells treated as the comparison oracle. The non-canonical 6-cell diagnostic remains a separate leverage-mechanics test. Experiment A (the preliminary analytical check, Part 49.1) remains the only pending Part 49 target.

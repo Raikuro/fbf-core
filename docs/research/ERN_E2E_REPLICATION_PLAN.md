@@ -142,21 +142,20 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 - **Grid:** `ern_grid.yaml` (same as Part 1, with terminal value target dimension)
 - **Dataset:** `ern_swr_h720.json`
-- **Status:** Fully implemented. The `final_value_target: [0.0]` in `ern_grid.yaml` covers the depletion case; terminal value variants can be expressed by modifying the FV target.
-- **E2E test:** `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` (same test as Part 1).
-- **Note:** Strict superset of Part 1 (see Section D).
+- **Status:** FV=0 depletion case is implemented and validated through the Part 1 grid. FV>0 cells are supported by the engine/configuration but have no canonical Part 2 E2E yet. Explicit `cohorts.start_date` / `cohorts.end_date` configuration is implemented for locking the cohort window.
+- **E2E test:** Current coverage is the FV=0 grid in `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle`. Part 2.1–2.3 remain pending.
+- **Note:** Strict superset of Part 1 once Part 2.1 is implemented.
 
-#### Part 3 — CANONICAL: NO
+#### Part 3 — CANONICAL: YES — IMPLEMENTED, ANCHORS PROVISIONAL
 
-- **Classification:** METHODOLOGY COMPLETE — E2E SPEC PENDING
+- **Classification:** IMPLEMENTED — 6 published anchors recorded as provisional numerical baselines pending final canonical-data validation
 - **Methodology status:** COMPLETE — all 3 Part 3-specific methodology questions resolved:
   1. CAPE observation timing — RESOLVED: use actual date of canonical CAPE observation
   2. Pre-1881 cohort handling — RESOLVED: include pre-1881 cohorts; CAPE series extracted to canonical CSV (`cape_shiller.csv`)
   3. CAPE-conditioned filtering — RESOLVED: use article graph definitions as source of truth
 - **Data status:** Canonical asset-return data is available in `canonical/ern_asset_returns`. Data availability is NOT the blocking issue.
-- **Implementation status:** Part 3 pipeline exists but produces 0% success due to dataset representation issues (not data availability).
-- **Existing tests useful as:** Non-canonical framework validation (CAPE regime classification, cohort generation, aggregation logic).
-- **Test files:** `tests/unit/research/test_part3_*.py`, `tests/integration/` (CAPE-related).
+- **Implementation status:** IMPLEMENTED — 4 experiment configurations execute against the corrected 21-weight grid (`e767d6a`); 6 published anchors are recorded as provisional baselines pending the final canonical-data validation task.
+- **E2E test:** `tests/integration/test_part3_canonical_ern_replication.py` (12 tests, gated `ern_e2e`).
 - **YAML files:** `ern_part3_replication.yaml` (retained; individual experiment files `ern_part3_expA/B/C/D.yaml` removed as strict subsets — see Section K).
 - **Documentation:** `docs/research/ern_part3_replication.md` (methodology questions resolved).
 
@@ -241,10 +240,10 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 | Article | CANONICAL NOW | Classification | Blocking Dependency |
 |---------|--------------|----------------|---------------------|
 | Part 1 | YES | Canonical | None (redundant with Part 2) |
-| Part 2 | YES | Canonical (FV=0) | FV>0 cells not implemented |
-| Part 3 | YES (methodology) | Forensic complete — gap external | None |
-| Part 19 | YES | Implemented & cross-validated | Resolved (ATH fix `3e47550`) |
-| Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Resolved (ATH fix `3e47550`) |
+| Part 2 | YES | Canonical (FV=0); FV>0 planned | Regression fixture; warm-up timing; Part 2.1 |
+| Part 3 | YES (methodology) | Implemented; anchors provisional pending final canonical-data validation | None for current E2E; final revalidation pending |
+| Part 19 | YES | Implemented & cross-validated | Resolved |
+| Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
 | Part 42 | NO (historical) | Historically validated; current test deleted | Port-to-Numba vs retire unresolved |
 | Part 49 | YES (B–F) | Canonical B–F implemented and gated; non-canonical 6-cell diagnostic retained | Experiment A analytical check pending |
 | Part 52 | PARTIAL | A2/A3/A10 published-anchor feasibility; A1/A9 diagnostics; other scenarios research validation | Eligibility/full-universe policy; Solver reproduction deferred |
@@ -350,43 +349,43 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | E2E ID | ERN Article(s) | YAML | Test file | Units | Status |
 |--------|----------------|------|-----------|-------|--------|
 | E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | 313,020 | **CANONICAL — VALIDATED** |
+| E2E-Part3 | Part 3 | `ern_part3_replication.yaml` | `test_part3_canonical_ern_replication.py` | 168 cells × 1,739 | **CANONICAL — IMPLEMENTED; 6 ANCHORS PROVISIONAL** |
+| E2E-Part19 | Part 19 | `ern_part20.yaml` | `test_part19_canonical_ern_replication.py`, `test_part19_experiment_b_e2e.py` | 162 + 90 cells | **CANONICAL — IMPLEMENTED & CROSS-VALIDATED** |
 | E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_grid.py::test_part20_full_grid_replication` | 556,480 | **REGRESSION COVERAGE — NOT REPLICATION** |
 | E2E-Part49 | Part 49 | (Python API) | `test_part49_canonical_bf.py` | 4,752 + B–E scenarios | **CANONICAL — VALIDATED (B–F, gated `ern_e2e`)** |
 | E2E-Part49-Diag | Part 49 | (Python API) | `test_part49_replication_app.py::test_part49_canonical_replication` | 10,434 | **NON-CANONICAL SUBSET — LTV OFF; leverage-mechanics diagnostic** |
 | E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **HISTORICAL AUDIT TEST DELETED; CURRENT COVERAGE STRUCTURAL ONLY** |
 | E2E-Part52 | Part 52 | (Python API) | `test_part52_replication.py` | 19,129 | **NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED** |
 
-### E.2 Canonical E2E Grids Not Yet Validated
+### E.2 Canonical E2E Grids With Validation Caveats
 
 | Article | Canonical grid | Units | Methodology status | Validation status |
 |---------|---------------|-------|-------------------|-------------------|
-| Part 19 | 24 glidepaths × 5 SWR × 1H × 1,739 = 208,680 | COMPLETE | Implementation alignment pending |
-| Part 20 | 32 glidepaths × 5 SWR × 2H × 1,739 = 556,480 | COMPLETE | Implementation alignment pending |
+| Part 3 | 4 experiments × 21W × 2H = 168 cells × 1,739 | COMPLETE | Implemented; 6 anchors provisional pending final canonical-data validation |
+| Part 20 | 32 glidepaths × 5 SWR × 2H × 1,739 = 556,480 | COMPLETE | Audit complete on available data; canonical-data revalidation pending |
 
 ### E.3 Non-Canonical / Blocked / Deferred
 
 | Article | Classification | Blocking dependency |
 |---------|---------------|-------------------|
-| Part 3 (CAPE) | Methodology complete — E2E spec pending | None (methodology complete) |
-| Part 19 (Glidepaths) | Canonical methodology — implementation & cross-validated | Resolved (ATH fix `3e47550`) |
-| Part 20 (Glidepaths) | Audit complete on available data — canonical-data revalidation pending | Resolved (ATH fix `3e47550`) |
+| Part 3 (CAPE) | Canonical E2E implemented; anchors provisional | Final canonical-data validation |
+| Part 19 (Glidepaths) | Canonical methodology — implementation & cross-validated | Final canonical-data validation |
+| Part 20 (Glidepaths) | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
 | Part 42 (OMY) | Historical audit test deleted; port-vs-retire unresolved | No current published-table validation surface |
 | Part 49 (Leverage) | Canonical B–F implemented; non-canonical 6-cell diagnostic retained | Experiment A analytical check pending |
-| Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | FFR resolved; full E2E validation pending |
+| Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | Eligibility/full-universe policy; Solver reproduction deferred |
 
 ### E.4 Strict-Superset Relationships
 
 | Superset | Subset | Relationship verified? | Notes |
 |----------|--------|----------------------|-------|
-| Part 2 (SWR with terminal value) | Part 1 (SWR depletion) | Yes — Part 2 adds `final_value_target` dimension | Part 1 redundant |
+| Part 2 (SWR with terminal value) | Part 1 (SWR depletion) | Yes — Part 2 adds `final_value_target` dimension | Part 1 redundant after Part 2.1 is implemented |
 | Part 20 (32 glidepaths) | Part 19 (24 glidepaths) | Partially — glidepath definitions are subset; Experiment A is independent | Part 19 Experiment A remains independent E2E target |
 
-**Total canonical E2E tests: 2** (Parts 1/2 SWR grid only)
-**Total canonical methodology implemented: 1** (Part 19)
-**Total audit complete with canonical-data revalidation pending: 1** (Part 20)
-**Total historical validation with current surface removed: 1** (Part 42)
-**Total non-canonical subset: 1** (Part 49)
-**Total non-canonical/partial: 2** (Parts 3, 52)
+**Canonical E2E surfaces:** Parts 1/2, Part 3, Part 19 A/B, and Part 49 B–F.
+**Canonical-data revalidation pending:** Parts 3, 19/20 (final task).
+**Historical validation with current surface removed:** Part 42.
+**Non-canonical or partial:** Parts 49 diagnostic and Part 52.
 
 ---
 
@@ -394,11 +393,11 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.1 Part 3 — CAPE-Conditional SWR
 
-**Status:** FORENSICALLY COMPLETE — PUBLISHED ANCHOR GAP EXTERNAL
+**Status:** IMPLEMENTED — 6 PUBLISHED ANCHORS PROVISIONAL PENDING FINAL CANONICAL-DATA VALIDATION
 **Methodology:** COMPLETE — all 3 Part 3-specific methodology questions resolved (CAPE observation timing, pre-1881 cohort handling, CAPE-conditioned cohort filtering). Canonical asset-return data is available in `canonical/ern_asset_returns`.
 **E2E specification:** IMPLEMENTED — `test_part3_canonical_ern_replication.py` (12 tests, gated `ern_e2e`).
 **Forensic outcome:** FBF data-derived results agree with independently reconfigured SWR Toolbox within ≤0.9 pp. The remaining discrepancy vs ERN published anchors is external to FBF (expense ratio, CAPE timing, forward projection, published rounding).
-**Existing value:** Forensic framework validation (CAPE regime classification, cohort generation, aggregation logic).
+**Existing value:** Canonical E2E with provisional anchors; final numerical confirmation is part of the final canonical-data validation task.
 **Test classification:** `test_part3_canonical_ern_replication.py` (12 gated E2E tests, anchors recorded as provisional baselines).
 **YAML files:** `ern_part3_replication.yaml` (retain as study configuration).
 
@@ -856,9 +855,9 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 
 ---
 
-## O. Recommended Next Session
+## O. Current Backlog
 
-### Completed in This Phase
+### Completed capability and validation work
 
 1. ~~Remove redundant Part 3 YAML files.~~ DONE
 2. ~~Remove obsolete `ern_full.yaml`.~~ DONE
@@ -870,29 +869,28 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 8. ~~Reduce Part 49 fixtures from 10,434 to 18 units.~~ DONE
 9. ~~Mark Part 52 as research_validation.~~ DONE
 10. ~~Document canonical E2E gaps (Part 49, Part 19/20, Part 42).~~ DONE
+11. ~~Implement Part 49 canonical B–F E2E (T6.2, `1834d7d`).~~ DONE
+12. ~~Implement explicit cohort-date configuration (`cohorts.start_date` / `cohorts.end_date`) and verify the default 1,739-cohort universe.~~ DONE
 
-### Implementation Backlog (Next Phase)
+### Next actionable task
 
-**Priority 1 — Canonical E2E coverage gaps:**
+**Part 2.1 — full FV>0 canonical E2E** (5W × 9R × 2H × 5FV × 1,739 = 782,550 units).
 
-1. ~~Create `@pytest.mark.ern_e2e` test for Part 49 (6 cells × 1,739 cohorts = 10,434 units)~~ DONE
-2. ~~Create `@pytest.mark.ern_e2e` test for Part 20 (320 cells × 1,739 cohorts = 556K units)~~ DONE
-3. ~~Create `@pytest.mark.ern_e2e` test for Part 42 (45 cells × 2,087 cohorts = 94K units)~~ DONE
+Remaining prerequisites:
 
-**Priority 2 — Part 52 redundancy cleanup:**
+1. FBF-generated `part2_regression_fixture.csv` (explicitly a regression fixture, not a replication oracle).
+2. Resolution of the documented Part 2 warm-up timing question before published anchors become acceptance criteria.
+3. Part 2.0 cohort-date configuration is complete and is no longer a blocker.
 
-4. Remove `research_validation` marker from redundant tests in `test_part52_deterministic_validation.py`
-5. Merge `test_threshold_does_not_reproduce` resolution detector into `test_part52_replication.py`
+Part 2.2 (FV=0 cross-check) and Part 2.3 (four published anchors) follow Part 2.1.
 
-**Priority 3 — Part 52 splitting:**
+### Remaining open/deferred work
 
-6. Split Part 52 scenarios into individual test functions for parallel execution and better diagnostics
-
-### Long-term (Deferred)
-
-1. Resolve Part 3 blocking dependency (market return data)
-2. Resolve Part 52 blocking dependency (FFR dataset coverage)
-3. Consider environment variable simplification after canonical E2Es are stable
+1. **Part 49.1** — Experiment A preliminary analytical check.
+2. **Part 42** — port-to-Numba versus retire decision; no current published-table validation surface.
+3. **Part 52** — eligibility/full-universe policy decision; Solver reproduction deferred.
+4. **External UI timeline persistence** — `fbf-ui` integration, not a Core execution change.
+5. **Final canonical dataset regeneration and revalidation** — must remain the final project task.
 
 ---
 

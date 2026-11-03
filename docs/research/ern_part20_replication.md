@@ -1,6 +1,6 @@
 # ERN Part 20 — More Thoughts on Equity Glidepaths
 
-> **Status:** CANONICAL METHODOLOGY — RESEARCH REPLICATION INCOMPLETE
+> **Status:** CANONICAL METHODOLOGY — AUDIT COMPLETE ON AVAILABLE DATA; CANONICAL-DATA REVALIDATION PENDING
 >
 > **Article:** [The Ultimate Guide to Safe Withdrawal Rates – Part 20: More Thoughts on Equity Glidepaths](https://earlyretirementnow.com/2017/09/20/the-ultimate-guide-to-safe-withdrawal-rates-part-20-more-thoughts-on-equity-glidepaths/)
 >
@@ -10,7 +10,7 @@
 >
 > **Correction note (2026-10-25):** Anchor values in the historical results tables below predate the real-ATH correction. Current active-anchor values and the recalculated residual inventory are in `ern_part20_e2e_audit.md` §19.7.
 >
-> **E2E status:** NOT YET VALIDATED as canonical ERN replication. Residual differences remain UNEXPLAINED; the §10 A/B/C difference-attribution investigation is closed only as a forensic assessment on the datasets then available.
+> **E2E status:** AUDIT COMPLETE ON AVAILABLE DATA — Experiments A–E executed by `test_part20_e2e_audit.py`; residual differences remain classified per the audit. Canonical-data revalidation is the final task in `TODO.md`.
 >
 > **Data-provenance limitation (2026-10-31):** The numerical comparisons in this document used research datasets and derived artifacts whose provenance and vintage relative to the current canonical Excel workbook have not been re-established. Those inputs may be obsolete. The evidence is historical and data-dependent, not definitive validation against canonical data. The final regeneration and revalidation task is recorded as the last item in `TODO.md`; A and C remain provisional until that task is completed, while B is methodology-supported and does not depend on regenerated data. All remain subject to reassessment if canonical-data evidence requires it.
 >

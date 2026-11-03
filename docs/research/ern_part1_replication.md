@@ -312,43 +312,67 @@ The existing E2E infrastructure can execute the Part 1 experiment:
 | Production E2E | `tests/oracle/ern/test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | 313,020 units on the production dataset, exact equality to the workbook-derived oracle; gated by `RUN_ERN_E2E=1` |
 | Smoke test | `tests/oracle/ern/test_full_swr_grid.py::test_smoke_cell_matches_workbook_oracle` | 1-cell production diagnostic against the workbook-derived oracle; gated by `RUN_ERN_E2E=1` |
 
-### 4.2 YAML Configuration Gap
+### 4.2 YAML Configuration Gap (Resolved for Cohort Selection)
 
-**The current YAML schema cannot express the Part 1 temporal window.**
+**Original finding:** The YAML schema could not express the Part 1 temporal
+window. The `StudyConfiguration` dataclass had no cohort-date fields, and
+cohort generation always used the full dataset via
+`CohortGenerator.generate_rolling_monthly()`.
 
-The `StudyConfiguration` dataclass has **zero date-related fields**. There is no mechanism to specify:
-- `start_date` / `end_date` for the study period
-- `cohort_start` / `cohort_end` for cohort generation bounds
-- `data_cutoff` to exclude forward-projection data
+**Resolution:** study YAML now accepts optional inclusive cohort-date bounds:
 
-The cohort generation always uses the entire dataset via `CohortGenerator.generate_rolling_monthly()`. The method `CohortGenerator.generate_range()` exists and supports date-bounded cohort generation, but it is **never called from any production code path** (dead API surface).
+```yaml
+cohorts:
+  horizon_years: [30, 40, 50, 60]
+  start_date: 1871-01
+  end_date: 2015-11
+```
 
-**Current implicit behavior:** The dataset's structure (2,459 snapshots with forward projections ending at 2075-11-01) and the 721-observation longest horizon implicitly constrain rolling-window starts to indices 0–1,738, producing 1,739 windows. The last window starts in November 2015. This is not explicitly controllable via YAML. The production historical/projection boundary is June/July 2026; the 1,739 count is not derived from the old 2016 boundary.
+The bounds select retirement-cohort start dates only. `YYYY-MM` is the canonical
+monthly form and expands to the first day of the month; full `YYYY-MM-DD` dates
+are also accepted as inclusive bounds. If one bound is omitted, the corresponding
+dataset boundary is used. If both are omitted, the original rolling-monthly
+universe is produced unchanged. Explicit bounds do not change the simulation
+horizon, the base snapshot, or the dataset's historical/projection boundary.
+
+The separate **data-cutoff** gap remains distinct: this configuration does not
+exclude forward-projection data or redefine the dataset's available range.
+
 
 ### 4.3 Distinguishing Implementation Capability from YAML Precision
 
 | Claim | Status |
 |-------|--------|
 | "Existing implementation can execute the experiment" | **TRUE** — the dataset and cohort generation produce 1,739 cohorts and 313,020 simulation units |
-| "Existing user-facing YAML precisely specifies the ERN Part 1 experiment" | **FALSE** — the YAML lacks temporal constraints; correctness is implicit |
+| "Existing user-facing YAML precisely specifies the ERN Part 1 cohort window" | **TRUE when `cohorts.start_date` / `cohorts.end_date` are supplied** — otherwise the same 1,739 cohorts are still produced implicitly |
+| "Existing user-facing YAML precisely specifies the dataset cutoff and projection boundary" | **FALSE** — cohort bounds do not alter the dataset's historical/forward range |
 
-The `ern_grid.yaml` produces 1,739 cohorts because:
+The unmodified `ern_grid.yaml` still produces 1,739 cohorts because:
 1. The production dataset contains 2,459 snapshots and the 721-observation longest horizon yields 1,739 rolling starts
 2. The horizon constraints produce a last start of November 2015
-3. No explicit temporal filtering is applied or needed
+3. No explicit temporal filtering is applied
 
-If the dataset were modified (e.g., extended further into the future, or truncated), the cohort set would change silently. The YAML provides no way to lock the temporal window. The published-ERN target uses the separate `reference_oracle.py` 2016-09 truncation rather than this production dataset path.
+If the dataset were modified (e.g., extended further into the future, or truncated), the default cohort set would change silently. Supplying explicit cohort bounds locks the cohort window without changing the dataset boundary. The published-ERN target uses the separate `reference_oracle.py` 2016-09 truncation rather than this production dataset path.
 
-### 4.4 Required YAML Change for Explicit Temporal Control
+### 4.4 Implemented YAML Change for Explicit Cohort Control
 
-To precisely specify the Part 1 experiment, the YAML schema would need a way to explicitly constrain the retirement cohort date range without conflating it with the dataset's historical/forward data boundary or the technical preceding-month base snapshot.
+The YAML schema now provides explicit retirement-cohort bounds without conflating them with the dataset's historical/forward data boundary or the technical preceding-month base snapshot.
 
-The current YAML cannot express:
-- The retirement cohort start/end range (February 1871 through December 2015)
-- The distinction between the base snapshot (1871-01-31, an implementation construct) and the first retirement cohort (February 1871)
-- A data cutoff date to exclude forward-projection data from cohort generation
+```yaml
+cohorts:
+  horizon_years: [30, 40, 50, 60]
+  start_date: 1871-01
+  end_date: 2015-11
+```
 
-**This is a configuration gap, not a data gap.** The data is correct; the YAML cannot express the constraint.
+The configuration expresses:
+- The retirement cohort start/end range, inclusively
+- A cohort window independent of the base snapshot (1871-01-31, an implementation construct)
+- The horizon constraints that determine tail feasibility
+
+It does **not** express a data cutoff date to exclude forward-projection data from cohort generation. That remains a separate configuration gap.
+
+**This was a configuration gap, not a data gap.** The data is correct; the YAML can now express the cohort-date constraint.
 
 ### 4.5 Proposed Additional E2Es
 
@@ -690,7 +714,7 @@ final_value_target: [0.0]
 expense_ratio: 0.0005
 ```
 
-**Note:** This YAML does not explicitly constrain the temporal window. The 1,739 cohorts are produced implicitly by the dataset structure and horizon constraints.
+**Note:** This YAML does not constrain the cohort window explicitly; the 1,739 cohorts are produced by the dataset structure and horizon constraints. To lock the cohort window, add optional `cohorts.start_date` / `cohorts.end_date` bounds. Cohort bounds do not change the dataset or its projection boundary.
 
 ### 9.3 Execution Command
 
@@ -734,27 +758,46 @@ This is a replication interpretation based on the available evidence, not a conf
 
 ### 10.4 Whether the Current YAML Schema Can Express That Window
 
-**No.** The `StudyConfiguration` has zero date-related fields. The YAML cannot specify:
-- Cohort start/end dates
-- Data cutoff dates
-- Study period boundaries
+**Yes, for the retirement-cohort window.** `StudyConfiguration` now accepts
+optional `cohorts.start_date` and `cohorts.end_date` bounds and wires them
+through `build_study_plan()` to `CohortGenerator.generate_range()`.
 
-The `CohortGenerator.generate_range()` method exists in the codebase but is never called from production code. Adding temporal constraints would require new YAML fields and wiring them through `build_study_plan()`.
+The YAML still cannot specify a data cutoff or study-period boundary separate
+from the dataset. Those are distinct concerns and remain outside the
+cohort-date contract.
 
 ### 10.5 Exact User-Facing YAML
 
-The YAML shown in Section 9.2 is the exact file a user would provide. It produces 1,739 cohorts implicitly through the dataset structure, but it does not explicitly constrain the temporal window.
+The YAML shown in Section 9.2 still produces 1,739 cohorts implicitly through
+the dataset structure. To make the cohort window explicit:
+
+```yaml
+cohorts:
+  horizon_years: [30, 40, 50, 60]
+  start_date: 1871-01
+  end_date: 2015-11
+```
+
+The bounds are inclusive, select only existing horizon-feasible cohort starts,
+and leave the dataset's historical/projection boundary unchanged.
 
 ### 10.6 Whether `ern_grid.yaml` Is Already Equivalent
 
-**Functionally equivalent for the current production dataset, but not precisely specified.** The YAML produces 1,739 cohorts because:
+**Functionally equivalent for the current production dataset, but not locked
+unless bounds are supplied.** The unmodified YAML produces 1,739 cohorts
+because:
 1. The dataset contains 2,459 snapshots and the 721-observation longest horizon yields 1,739 rolling starts
 2. The horizon constraints produce a last start of November 2015
-3. No explicit temporal filtering is needed
+3. No explicit temporal filtering is applied
 
-If the dataset were extended or truncated, the YAML would produce different results silently. The YAML lacks the temporal constraints needed to precisely specify either the production data cutoff or the published-ERN 2016 window.
+If the dataset is extended or truncated, the unmodified YAML can produce
+different results silently. Supplying `cohorts.start_date` / `cohorts.end_date`
+locks the cohort window without redefining the dataset boundary.
 
-The published-ERN oracle path is separate: `tools/ern/reference_oracle.py` truncates history at 2016-09 and applies the published forward assumptions. Current production uses the loader through June 2026 and the workbook assumptions.
+The published-ERN oracle path is separate: `tools/ern/reference_oracle.py`
+truncates history at 2016-09 and applies the published forward assumptions.
+Current production uses the loader through June 2026 and the workbook
+assumptions.
 
 ### 10.7 Resulting Unit Count
 
@@ -786,11 +829,11 @@ The conclusion is based on:
 
 | Gap | Description | Impact |
 |-----|-------------|--------|
-| No temporal constraint fields in YAML | Cannot explicitly specify cohort date range or data cutoff | Correctness is implicit; dataset changes would silently alter results |
-| `generate_range()` is dead code | The API surface exists but is not wired into configuration | Cannot be used without code changes |
+| No data-cutoff field in YAML | Cohort bounds constrain cohort selection only; YAML cannot exclude forward-projection data or define a study-period boundary separate from the dataset | Projection-dependent cohorts remain selected implicitly when bounds are omitted |
 | Forward projection is hardcoded | `_HISTORICAL_END`, `_PROJECTION_END`, and forward rates are constants in `ern.py` | Cannot be configured per-study |
 | Forward methodology differs by target | Production uses workbook 4.0%/2.5% then 5.5%/2.25% from July 2026; the published reference oracle uses 6.6%/0% then 2.6% from October 2016 | Both targets are validated separately; neither is selectable through YAML |
 
-These gaps do not prevent either target from being evaluated against its respective oracle, but they remain implementation/configuration and methodology-fidelity issues that must be addressed before claiming a fully faithful, configurable ERN implementation. In particular:
-1. The YAML schema must be extended to support explicit temporal constraints.
-2. The E2E must be strengthened with independent forward-projection validation.
+These gaps do not prevent either target from being evaluated against its respective oracle, but they remain implementation/configuration and methodology-fidelity issues that must be addressed before claiming a fully faithful, configurable ERN implementation. The cohort-date portion of the temporal gap is resolved: `cohorts.start_date` and `cohorts.end_date` are wired through `build_study_plan()` to `CohortGenerator.generate_range()`. Remaining work:
+
+1. Extend the YAML schema for an explicit data-cutoff or projection-boundary contract if a study needs one.
+2. Strengthen the E2E with independent forward-projection validation.

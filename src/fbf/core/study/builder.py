@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -241,11 +241,70 @@ def build_interest_rate_schedule(
     return tuple(schedule)
 
 
+def _parse_optional_date(
+    mapping: Mapping[str, Any], key: str
+) -> date | None:
+    """Parse an optional monthly ISO date (``YYYY-MM`` or ``YYYY-MM-DD``)."""
+    raw = mapping.get(key)
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        raise ValueError(
+            f"cohorts.{key} must be a date without a time component"
+        )
+    if isinstance(raw, date):
+        return raw
+    if not isinstance(raw, str):
+        raise ValueError(
+            f"cohorts.{key} must be an ISO date (YYYY-MM or YYYY-MM-DD)"
+        )
+
+    parts = raw.split("-")
+    valid_shape = (
+        len(parts) in (2, 3)
+        and len(parts[0]) == 4
+        and len(parts[1]) == 2
+        and (len(parts) == 2 or len(parts[2]) == 2)
+    )
+    if not valid_shape:
+        raise ValueError(
+            f"cohorts.{key} must be an ISO date (YYYY-MM or YYYY-MM-DD), "
+            f"got {raw!r}"
+        )
+
+    normalised = raw if len(parts) == 3 else f"{raw}-01"
+    try:
+        return date.fromisoformat(normalised)
+    except ValueError as exc:
+        raise ValueError(
+            f"cohorts.{key} is not a valid calendar date: {raw!r}"
+        ) from exc
+
+
 def build_cohort_specs(
-    dataset: Dataset, horizon_months: int
+    dataset: Dataset,
+    horizon_months: int,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> tuple[CohortSpecification, ...]:
-    """Generate all horizon-feasible rolling monthly cohorts from *dataset*."""
-    return CohortGenerator.generate_rolling_monthly(dataset, horizon_months)
+    """Generate horizon-feasible cohorts, optionally within an inclusive range.
+
+    With no bounds, this preserves the full rolling-monthly universe.  When one
+    bound is omitted, the corresponding dataset boundary is used, so a single
+    bound narrows the existing universe from that side.
+    """
+    if start_date is None and end_date is None:
+        return CohortGenerator.generate_rolling_monthly(dataset, horizon_months)
+
+    effective_start = start_date if start_date is not None else dataset.start_date
+    effective_end = end_date if end_date is not None else dataset.end_date
+    return CohortGenerator.generate_range(
+        dataset,
+        horizon_months,
+        effective_start,
+        effective_end,
+    )
 
 
 def build_initial_portfolio(initial_wealth: Money, dataset: Dataset) -> Portfolio:
@@ -538,6 +597,13 @@ class StudyConfiguration:
         The declared withdrawal policy and its ``withdrawal_rate`` array.
     horizon_years:
         The declared ``cohorts.horizon_years`` array.
+    cohort_horizon_years:
+        Optional separate horizon used only to determine the cohort universe.
+    cohort_start_date / cohort_end_date:
+        Optional inclusive bounds for retirement-cohort start dates
+        (``cohorts.start_date`` / ``cohorts.end_date``).  They constrain
+        cohort selection only; they do not alter the dataset or its
+        historical/projection boundary.
     explicit_configurations:
         Explicit policy parameter dicts (Mode B only; ``None`` in Mode A).
         Each dict maps parameter names to scalar values appropriate for the
@@ -560,6 +626,11 @@ class StudyConfiguration:
     # across ALL studies for comparability. When set, cohorts are generated
     # for this horizon even if the actual simulation horizons are shorter.
     cohort_horizon_years: int | None = None
+    # Optional inclusive bounds for the retirement-cohort start dates.
+    # These constrain cohort generation only; they do not alter the dataset,
+    # its historical/projection boundary, or the simulation horizon.
+    cohort_start_date: date | None = None
+    cohort_end_date: date | None = None
     final_value_target_values: tuple[Decimal, ...] | None = None
     glidepath_start_values: tuple[Decimal, ...] | None = None
     glidepath_end_values: tuple[Decimal, ...] | None = None
@@ -638,6 +709,18 @@ class StudyConfiguration:
             not isinstance(cohort_horizon_years, int) or cohort_horizon_years <= 0
         ):
             raise ValueError("cohorts.cohort_horizon_years must be a positive integer")
+
+        cohort_start_date = _parse_optional_date(cohorts, "start_date")
+        cohort_end_date = _parse_optional_date(cohorts, "end_date")
+        if (
+            cohort_start_date is not None
+            and cohort_end_date is not None
+            and cohort_start_date > cohort_end_date
+        ):
+            raise ValueError(
+                "cohorts.start_date must not be after cohorts.end_date "
+                f"({cohort_start_date} > {cohort_end_date})"
+            )
 
         allocation_policy = data.get("allocation_policy")
         if not isinstance(allocation_policy, dict):
@@ -881,6 +964,8 @@ class StudyConfiguration:
             withdrawal_policy_values=withdrawal_policy_values,
             horizon_years=horizon_years,
             cohort_horizon_years=cohort_horizon_years,
+            cohort_start_date=cohort_start_date,
+            cohort_end_date=cohort_end_date,
             final_value_target_values=final_value_target_values,
             glidepath_start_values=glidepath_start_values,
             glidepath_end_values=glidepath_end_values,
@@ -1395,7 +1480,12 @@ def build_study_plan(
     else:
         longest_horizon_years = _longest_horizon_years(config)
         cohort_horizon_months = longest_horizon_years * 12 + 1
-    cohorts = build_cohort_specs(dataset, cohort_horizon_months)
+    cohorts = build_cohort_specs(
+        dataset,
+        cohort_horizon_months,
+        start_date=config.cohort_start_date,
+        end_date=config.cohort_end_date,
+    )
     if not cohorts:
         raise ValueError(
             f"Dataset is too small for a "
@@ -1540,7 +1630,12 @@ def build_omy_study_plan(
     retirement_horizon_years = max(config.base_config.horizon_years)
     total_horizon_months = 12 + retirement_horizon_years * 12 + 1
 
-    cohorts = build_cohort_specs(dataset, total_horizon_months)
+    cohorts = build_cohort_specs(
+        dataset,
+        total_horizon_months,
+        start_date=config.base_config.cohort_start_date,
+        end_date=config.base_config.cohort_end_date,
+    )
     if not cohorts:
         raise ValueError(
             f"Dataset is too small "

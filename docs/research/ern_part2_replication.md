@@ -407,6 +407,9 @@ metadata:
 
 cohorts:
   horizon_years: [30, 60]
+  # Optional inclusive cohort bounds; omit to preserve the default universe.
+  # start_date: 1871-01
+  # end_date: 2015-11
 
 allocation_policy:
   type: "ConstantAllocationPolicy"
@@ -421,7 +424,18 @@ final_value_target: [0.0, 0.25, 0.5, 0.75, 1.0]
 
 **This uses only the current public FBF contract.** No Part-2-specific YAML fields, no new CLI flags, no new engine behavior are required for the final-value target dimension itself.
 
-However, this does not close the temporal-configuration gap identified by the Part 1 audit (Part 1 §4.2–4.4). The Part 1 audit established that the current YAML schema lacks explicit temporal constraints (cohort start/end dates, data cutoff, study period boundaries). Part 2 depends on the shared 1,739 cohort start-date universe, and the YAML currently produces those cohorts implicitly through the dataset structure and horizon constraints. The future implementation must still provide a clean way to express the intended cohort/date scope established by the Part 1 audit. Do not accidentally close a Part 1 configuration gap simply because Part 2 itself does not introduce a new conceptual axis.
+However, this does not close the temporal-configuration gap identified by the Part 1 audit (Part 1 §4.2–4.4). That gap is now addressed for **cohort selection** by optional inclusive bounds on the shared cohort universe:
+
+```yaml
+cohorts:
+  horizon_years: [30, 60]
+  start_date: 1871-01
+  end_date: 2015-11
+```
+
+`cohorts.start_date` and `cohorts.end_date` accept `YYYY-MM` (canonical monthly form, expanded to the first day) or full `YYYY-MM-DD` dates. If one bound is omitted, the corresponding dataset boundary is used. If both are omitted, the pre-existing rolling-monthly universe is produced unchanged. The bounds affect cohort selection only: they do not change the simulation horizon, the base snapshot, or the dataset's historical/projection boundary. A separate data-cutoff configuration remains out of scope and must not be conflated with this cohort-date contract.
+
+For the FBF production dataset, the default 1,739-cohort universe runs from the 1871-01-31 base snapshot through the 2015-11-01 cohort start. A Part 2 configuration can lock that window explicitly without changing any financial semantics.
 
 ### 9.4 Execution Command
 
@@ -449,6 +463,7 @@ The YAML shown in Section 9.3. The key expansion from Part 1 is:
 
 - `final_value_target: [0.0, 0.25, 0.5, 0.75, 1.0]` (5 targets instead of 1)
 - `cohorts.horizon_years: [30, 60]` (2 horizons instead of 4)
+- Optional `cohorts.start_date` / `cohorts.end_date` bounds to lock the intended cohort window; omitting them preserves the existing implicit 1,739-cohort universe
 
 ### 10.3 Execution
 
@@ -632,7 +647,7 @@ The article makes several qualitative observations (0.50pp haircut, 70% equity t
 
 ## 14. Summary
 
-ERN Part 2 extends Part 1 by adding a final-value target dimension to the success criterion. The key addition is the **terminal-only** check: `final_wealth >= target × initial_wealth`. The target is evaluation-only: fixed-real execution uses the workbook recurrence for every target, and the terminal threshold is applied to the completed trajectory (Section 3). The YAML configuration already supports multiple FV targets as a Cartesian-product axis (Section 9). No Part-2-specific engine behavior, YAML fields, or CLI flags are required for the final-value target dimension itself. However, the temporal-configuration gap identified by the Part 1 audit remains open.
+ERN Part 2 extends Part 1 by adding a final-value target dimension to the success criterion. The key addition is the **terminal-only** check: `final_wealth >= target × initial_wealth`. The target is evaluation-only: fixed-real execution uses the workbook recurrence for every target, and the terminal threshold is applied to the completed trajectory (Section 3). The YAML configuration already supports multiple FV targets as a Cartesian-product axis (Section 9). No Part-2-specific engine behavior, YAML fields, or CLI flags are required for the final-value target dimension itself. The shared temporal-configuration prerequisite is now implemented for cohort selection; the remaining Part 2 prerequisites are the regression fixture and warm-up timing resolution.
 
 The future E2E requires:
 

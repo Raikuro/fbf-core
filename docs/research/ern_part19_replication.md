@@ -6,9 +6,9 @@
 >
 > **Implementation relationship:** Part 19 glidepath definitions are represented within the existing `ern_part20.yaml` configuration and `GlidepathAllocationPolicy`. Part 20 extends Part 19 with 8 additional passive-only glidepaths and 30-year horizons. Whether Part 20 reproduces Part 19 Experiment A is deferred.
 >
-> **Methodology status:** COMPLETE — global monthly sequencing and ATH rules established. FBF implementation execution order not yet aligned to established rule.
+> **Methodology status:** COMPLETE — global monthly sequencing and real-ATH rules established.
 >
-> **E2E status:** NOT YET VALIDATED as canonical ERN replication. Implementation alignment pending.
+> **E2E status:** IMPLEMENTED & CROSS-VALIDATED — Experiment A (`test_part19_canonical_ern_replication.py`) and Experiment B (`test_part19_experiment_b_e2e.py`) are implemented and gated `ern_e2e`; both are cross-validated against Part 20. Final canonical-data revalidation remains part of the final project task.
 
 ---
 
