@@ -36,6 +36,7 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionBackend, ExecutionOptions
 from fbf.core.study import StudyConfiguration
 
+from .constants import WORKBOOK_ORACLE_CSV, OracleTable, load_oracle_table
 from .published_dataset import load_published_ern_dataset
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -214,6 +215,11 @@ def part2_fixture() -> dict[CellKey, FixtureRow]:
 
 
 @pytest.fixture(scope="session")
+def part1_workbook_oracle() -> OracleTable:
+    return load_oracle_table(WORKBOOK_ORACLE_CSV)
+
+
+@pytest.fixture(scope="session")
 def published_dataset() -> Dataset:
     return load_published_ern_dataset()
 
@@ -263,6 +269,46 @@ def test_part2_full_grid_matches_regression_fixture(
     print("=" * 62)
 
     assert not mismatches, f"{len(mismatches)} cells differ from the Part 2 fixture"
+
+
+@pytest.mark.ern_e2e
+def test_part2_fv0_matches_part1_workbook_oracle(
+    part2_execution: Part2Execution,
+    part1_workbook_oracle: OracleTable,
+) -> None:
+    fv0_keys = tuple(
+        (weight, rate, horizon, Decimal("0.0"))
+        for weight in WEIGHTS
+        for rate in RATES
+        for horizon in HORIZONS
+    )
+    assert len(fv0_keys) == 90
+
+    mismatches: list[tuple[CellKey, Decimal, int]] = []
+    for key in fv0_keys:
+        weight, rate, horizon, _target = key
+        assert part2_execution.cell_units_run.get(key, 0) == COHORTS_PER_CELL
+
+        success_count = part2_execution.cell_success_count.get(key, 0)
+        actual_pct = (
+            Decimal(success_count) / Decimal(COHORTS_PER_CELL) * Decimal("100")
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_EVEN)
+        expected_pct = part1_workbook_oracle[(float(weight), horizon)][float(rate)]
+        if actual_pct != Decimal(expected_pct):
+            mismatches.append((key, actual_pct, expected_pct))
+
+    print("\n" + "=" * 62)
+    print("ERN PART 2.2 FV=0 CROSS-CHECK AGAINST PART 1")
+    print("=" * 62)
+    print(f"Cells checked: {len(fv0_keys)}")
+    print(f"Mismatches:    {len(mismatches)}")
+    for key, actual, expected in mismatches[:20]:
+        print(f"  {key}: actual={actual}%, part1={expected}%")
+    print("=" * 62)
+
+    assert not mismatches, (
+        f"{len(mismatches)} FV=0 Part 2 cells differ from the Part 1 workbook oracle"
+    )
 
 
 @pytest.mark.ern_e2e

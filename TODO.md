@@ -8,11 +8,12 @@ file.
 
 ## Next Actionable Task
 
-**Part 2.2 — FV=0 cross-check against Part 1** is the next pending research
-task. Part 2.1 is implemented, including the full 450-cell production
-regression grid, the generated fixture, the four published anchors on the
-frozen published-2016 dataset, and the warm-up timing validation. Part 2.2 must
-compare the 90 FV=0 cells in the Part 2 grid against the Part 1 oracle.
+**Part 49.1 — Experiment A preliminary analytical check** is the next pending
+research task now that Part 2 is complete through Part 2.2. Part 2.2 cross-checks
+the 90 FV=0 cells in the Part 2 grid against the Part 1 workbook oracle. The
+remaining open Part 52 eligibility/full-universe and Solver work is tracked in
+the Part 52 section below, and final canonical dataset regeneration remains the
+last project task.
 
 ---
 

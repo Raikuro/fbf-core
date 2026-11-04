@@ -49,12 +49,12 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 
 ### Next pending task
 
-**Part 2.2 — FV=0 cross-check against Part 1** is the next pending task.
-Part 2.1 is implemented: the full 450-cell FV>0 regression grid, the generated
-production fixture, the four published anchors, and the warm-up timing
-validation are in place. Part 2.2 must cross-check the 90 FV=0 cells against
-the Part 1 oracle. Part 2.3 (additional anchors) has no additional published
-Part 2 anchors beyond the four already covered by Part 2.1.
+**Part 49.1 — Experiment A preliminary analytical check** is the next pending
+task now that Part 2 is complete through Part 2.2. Part 2.1 delivered the
+450-cell FV>0 regression grid, generated production fixture, four published
+anchors, and warm-up timing validation. Part 2.2 cross-checks the 90 FV=0 cells
+against the Part 1 workbook oracle. Part 2.3 has no additional published Part 2
+anchors beyond the four already covered by Part 2.1.
 
 ---
 
@@ -98,7 +98,7 @@ Part 2 anchors beyond the four already covered by Part 2.1.
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
 | 2.0 | Explicit cohort-date configuration | Optional inclusive `cohorts.start_date` / `cohorts.end_date`; default universe unchanged at 1,739 | CONFIGURATION CAPABILITY | `IMPLEMENTED` | `StudyConfiguration`, `build_cohort_specs`, `CohortGenerator.generate_range`; tests in `test_builders.py`, `test_cohort_date_configuration.py` | None | Retain; prerequisite for Part 2.1 |
 | 2.1 | Full FV>0 extension | 5W × 9R × 2H × 5FV × 1,739 = 782,550 units | RESEARCH REPLICATION | `IMPLEMENTED` | `tests/oracle/ern/test_ern_part2.py`; `data/ern/part2_regression_fixture.csv`; `examples/studies/ern_part2.yaml` | None | Retain; full-grid regression on current production, anchors on frozen published-2016 |
-| 2.2 | FV=0 cross-check against Part 1 | 90 cells | REGRESSION COVERAGE | `PLANNED — NOT IMPLEMENTED` | None | Part 2.1 | Implement next |
+| 2.2 | FV=0 cross-check against Part 1 | 90 cells | REGRESSION COVERAGE | `IMPLEMENTED` | `tests/oracle/ern/test_ern_part2.py::test_part2_fv0_matches_part1_workbook_oracle` | None | Retain; exact rounded-percentage equality against the Part 1 workbook oracle |
 | 2.3 | 4 published Part 2 anchors | 4 cells | RESEARCH REPLICATION | `IMPLEMENTED — covered by 2.1` | `tests/oracle/ern/test_ern_part2.py::test_part2_published_anchors` | None | Retain; no additional anchors added |
 
 ### Part 3 — Equity Valuation Using CAPE

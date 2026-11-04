@@ -361,6 +361,8 @@ occupies that role.
   production dataset by `tools/ern/build_part2_regression_fixture.py`; it is
   regression coverage only, not an independent replication oracle. The four Part 2
   published anchors are evaluated against the frozen `published_2016` fixture.
+  Part 2.2 cross-checks the 90 Part 2 FV=0 cells against
+  `workbook_oracle_table.csv`; it introduces no additional dataset.
   Changing the production data requires re-certifying the workbook oracle and
   regenerating the Part 2 regression fixture; it does not re-baseline the
   published-ERN fixture.
