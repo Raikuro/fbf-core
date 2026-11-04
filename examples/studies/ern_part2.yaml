@@ -1,0 +1,30 @@
+# ERN Part 2: Capital Preservation vs. Capital Depletion
+#
+# Full FBF reproduction subset:
+#   5 equity weights x 9 withdrawal rates x 2 horizons x 5 final-value targets
+#   x 1,739 shared cohorts = 782,550 simulation units.
+#
+# The cohort window is locked to the canonical rolling-universe boundaries.
+# The 30-year and 60-year horizons share the same 1,739 cohort start dates.
+
+metadata:
+  name: "ERN Part 2 — Capital Preservation vs. Capital Depletion"
+  version: "1.0"
+  description: "ERN Part 2: 5 weights x 9 rates x 2 horizons x 5 FV targets x 1,739 cohorts"
+
+cohorts:
+  horizon_years: [30, 60]
+  cohort_horizon_years: 60
+  start_date: "1871-01"
+  end_date: "2015-11"
+
+allocation_policy:
+  type: "ConstantAllocationPolicy"
+  equity_allocation: [1.0, 0.75, 0.5, 0.25, 0.0]
+
+withdrawal_policy:
+  type: "FixedRealWithdrawalPolicy"
+  withdrawal_rate: [0.03, 0.0325, 0.035, 0.0375, 0.04, 0.0425, 0.045, 0.0475, 0.05]
+
+final_value_target: [0.0, 0.25, 0.5, 0.75, 1.0]
+expense_ratio: 0.0005

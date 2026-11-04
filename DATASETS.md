@@ -350,15 +350,20 @@ occupies that role.
   bundle's version for easy provenance checks.
 - Reproducibility at the run level is anchored by `dataset.identifier` in the study YAML,
   plus the recorded `dataset_identifier` column in persisted studies.
-- The ERN certification has two separate targets. The published-ERN historical
+- The ERN certification has three separate targets. The published-ERN historical
   replication uses the frozen `data/ern/published_2016/` fixture and the pinned
   `p49_oracle_table.csv` (T+1 cohort terms, multiplicative fee). Current production
   is workbook-conformant and is checked independently by `tools/ern/workbook_oracle.py`
   against `workbook_returns.csv`; its pinned production matrix is
   `data/ern/workbook_oracle_table.csv` (T cohort terms, additive fee). The production
   E2E compares the engine to the workbook matrix, not to the published oracle.
-  Changing the production data requires re-certifying the workbook oracle; it does not
-  re-baseline the published-ERN fixture.
+  Part 2.1 adds `data/ern/part2_regression_fixture.csv`, generated from the current
+  production dataset by `tools/ern/build_part2_regression_fixture.py`; it is
+  regression coverage only, not an independent replication oracle. The four Part 2
+  published anchors are evaluated against the frozen `published_2016` fixture.
+  Changing the production data requires re-certifying the workbook oracle and
+  regenerating the Part 2 regression fixture; it does not re-baseline the
+  published-ERN fixture.
 - Consumers should record `dataset.identifier` **and** `dataset.version` (both available on
   the resolved `fbf.core.domain.model.dataset.Dataset`) alongside results for full
   reproducibility.

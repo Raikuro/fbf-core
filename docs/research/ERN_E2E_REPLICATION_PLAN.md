@@ -39,14 +39,14 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 ### B.2 Part 2 — Capital Preservation vs. Capital Depletion
 
-- **Research question:** How do terminal value targets (depletion, 50%, 100%) affect the SWR?
+- **Research question:** How do terminal value targets (depletion, 25%, 50%, 75%, 100%) affect the SWR?
 - **Methodology:** Same as Part 1, extended with terminal value thresholds.
-- **Dataset:** Same as Part 1.
-- **Cohort definition:** Same as Part 1.
-- **Horizons:** 30, 40, 50, 60 years.
+- **Dataset:** Current production for the regression grid; frozen `published_2016` for the published anchors.
+- **Cohort definition:** 1,739 shared monthly cohorts with explicit 1871-01..2015-11 bounds.
+- **Horizons:** 30 and 60 years.
 - **Policies:** Same as Part 1.
 - **Success criteria:** Portfolio meets or exceeds terminal value target at horizon end.
-- **Published anchors:** Success rate curves for depletion, 50%, and 100% terminal value targets.
+- **Published anchors:** 100% / 3.5% / 60Y / FV=0 = 98%; 100% / 3.5% / 60Y / FV=100% = 96%; 100% / 4.0% / 30Y / FV=0 = 97%; 100% / 4.0% / 30Y / FV=100% = 80%. These four anchors are covered by Part 2.1. Part 2.2 is the FV=0 cross-check against Part 1.
 
 ### B.3 Part 3 — Equity Valuation Using CAPE
 
@@ -133,18 +133,18 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 #### Part 1 — CANONICAL: YES
 
 - **Grid:** `ern_grid.yaml` (5W × 9R × 4H = 180 cells)
-- **Dataset:** `ern_swr_h720.json`
-- **Status:** Fully implemented and validated against oracle table (`p49_oracle_table.csv`).
+- **Dataset:** Current production `data/ern`.
+- **Status:** Fully implemented and validated against the workbook oracle (`workbook_oracle_table.csv`). The published-ERN oracle remains a separate historical target.
 - **E2E test:** `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` (full grid) and `::test_smoke_cell_matches_workbook_oracle` (smoke).
-- **Note:** Redundant with Part 2 (see Section D). The current test file replaces the historical `test_ern_swr_replication.py` name referenced in earlier revisions of this plan.
+- **Note:** Retained until Part 2.2 closes the FV=0 cross-check. The current test file replaces the historical `test_ern_swr_replication.py` name referenced in earlier revisions of this plan.
 
-#### Part 2 — CANONICAL: YES
+#### Part 2 — CANONICAL: YES — PART 2.1 IMPLEMENTED
 
-- **Grid:** `ern_grid.yaml` (same as Part 1, with terminal value target dimension)
-- **Dataset:** `ern_swr_h720.json`
-- **Status:** FV=0 depletion case is implemented and validated through the Part 1 grid. FV>0 cells are supported by the engine/configuration but have no canonical Part 2 E2E yet. Explicit `cohorts.start_date` / `cohorts.end_date` configuration is implemented for locking the cohort window.
-- **E2E test:** Current coverage is the FV=0 grid in `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle`. Part 2.1–2.3 remain pending.
-- **Note:** Strict superset of Part 1 once Part 2.1 is implemented.
+- **Grid:** `examples/studies/ern_part2.yaml` (5W × 9R × 2H × 5FV = 450 cells; 782,550 units)
+- **Dataset:** Current production `data/ern` for the regression grid; frozen `data/ern/published_2016` for the published anchors.
+- **Status:** Part 2.1 is implemented. The full grid matches `data/ern/part2_regression_fixture.csv` exactly on current production data. The four published anchors match within the documented ±1 pp tolerance on the published-2016 vintage. The deterministic warm-up timing is pinned by `tests/oracle/ern/test_part2_warmup.py`. The FV=0 cross-check against Part 1 remains Part 2.2.
+- **E2E test:** `tests/oracle/ern/test_ern_part2.py` (gated `ern_e2e`).
+- **Note:** Part 2.1 is not a strict superset of Part 1: it uses only 30y/60y, a different oracle surface, and defers the Part 1 FV=0 cross-check to Part 2.2.
 
 #### Part 3 — CANONICAL: YES — IMPLEMENTED, ANCHORS PROVISIONAL
 
@@ -239,8 +239,8 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 
 | Article | CANONICAL NOW | Classification | Blocking Dependency |
 |---------|--------------|----------------|---------------------|
-| Part 1 | YES | Canonical | None (redundant with Part 2) |
-| Part 2 | YES | Canonical (FV=0); FV>0 planned | Regression fixture; warm-up timing; Part 2.1 |
+| Part 1 | YES | Canonical | Retained until Part 2.2 FV=0 cross-check |
+| Part 2 | YES | Canonical Part 2.1 implemented | Part 2.2 FV=0 cross-check pending |
 | Part 3 | YES (methodology) | Implemented; anchors provisional pending final canonical-data validation | None for current E2E; final revalidation pending |
 | Part 19 | YES | Implemented & cross-validated | Resolved |
 | Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
@@ -266,23 +266,21 @@ A research E2E is redundant only when another E2E is a **strict superset** of th
 
 ### D.2 Superset Decisions
 
-#### Part 1 ⊂ Part 2 — VERIFIED STRICT SUBSET
+#### Part 1 vs Part 2.1 — RELATED BUT NOT YET REDUNDANT
 
-| Dimension | Part 1 | Part 2 | Match? |
-|-----------|--------|--------|--------|
-| Data source | `spx_tr_real.csv`, `bond_10y_tr_real.csv` | Same | Yes |
-| Cohorts | 1,739 rolling monthly | Same | Yes |
-| Horizons | 30, 40, 50, 60 years | Same | Yes |
-| Allocation | 5 weights: [0.0, 0.25, 0.5, 0.75, 1.0] | Same | Yes |
-| Withdrawal rates | 9 rates: [0.03, 0.0325, ..., 0.05] | Same | Yes |
-| Terminal value | 0% (depletion only) | 0%, 50%, 100% | Part 2 is superset |
-| Research calculation | SWR success rate grid | Extended with FV dimension | Part 2 subsumes Part 1 |
-| Grid file | `ern_grid.yaml` | Same file | Same |
-| Oracle table | `p49_oracle_table.csv` | Same table | Same |
+| Dimension | Part 1 | Part 2.1 | Match? |
+|-----------|--------|----------|--------|
+| Grid data source | Current production | Current production for regression; published-2016 for anchors | Partial |
+| Cohorts | 1,739 rolling monthly | Same, explicitly bounded | Yes |
+| Horizons | 30, 40, 50, 60 years | 30, 60 years | Part 1 is superset |
+| Allocation | 5 weights | Same | Yes |
+| Withdrawal rates | 9 rates | Same | Yes |
+| Terminal value | 0% (depletion only) | 0%, 25%, 50%, 75%, 100% | Part 2.1 is superset |
+| Research calculation | Workbook-oracle conformance | Regression fixture plus published anchors | Different validation surfaces |
+| Grid file | `ern_grid.yaml` | `ern_part2.yaml` | Different |
+| Oracle table | `workbook_oracle_table.csv` | `part2_regression_fixture.csv` | Different |
 
-**Decision:** Part 1 is a strict subset of Part 2. Part 1 has no independent research calculation that Part 2 does not contain. **Part 1 is redundant as a separate E2E.**
-
-**Retention rationale:** The Part 1 baseline SWR grid IS the foundational computation. Part 2 extends it with terminal value targets. The `ern_grid.yaml` file covers both. No separate Part 1 E2E is needed.
+**Decision:** Part 2.1 covers the 90 Part 2 FV=0 cells in its regression fixture, but it does not compare them to the Part 1 workbook oracle. Part 1 therefore remains required until Part 2.2 implements that cross-check. Part 2.1 is not a strict superset of Part 1 because it omits the 40-year and 50-year horizons and uses a different oracle surface.
 
 #### Part 19 ⊂ Part 20 — VERIFIED STRICT SUBSET (with deferred question)
 
@@ -333,7 +331,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 | Candidate | Superset | Exact shared methodology | Additional dimensions | Strict subset? | Decision |
 |-----------|----------|------------------------|---------------------|---------------|----------|
-| Part 1 | Part 2 | Same grid, data, cohorts, horizons, allocation, rates | Part 2 adds FV targets | YES | Part 1 is redundant; `ern_grid.yaml` covers both |
+| Part 1 | Part 2.1 | Same regression data vintage, cohort universe, allocation, rates | Part 2.1 adds FV targets; Part 1 adds 40y/50y and workbook-oracle conformance; Part 2.2 adds FV=0 cross-check | NO | Retain Part 1 until Part 2.2 closes the FV=0 cross-check |
 | Part 19 | Part 20 | Same glidepath mechanics, data, cohorts, rates | Part 20 adds 8 glidepaths + 30y horizon | YES (glidepaths) | Part 19 glidepath definitions are redundant; Part 19 Experiment A remains independent |
 | Part 3 | Part 1/2 | Different cohort definition, different data source | — | NO | Not redundant (different research question) |
 | Part 42 | Part 1/2 | Different policy (accumulation phase) | — | NO | Not redundant (different research question) |
@@ -348,7 +346,8 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 | E2E ID | ERN Article(s) | YAML | Test file | Units | Status |
 |--------|----------------|------|-----------|-------|--------|
-| E2E-SWR | Parts 1 + 2 | `ern_grid.yaml` | `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | 313,020 | **CANONICAL — VALIDATED** |
+| E2E-SWR | Part 1 | `ern_grid.yaml` | `test_full_swr_grid.py::test_full_grid_matches_workbook_oracle` | 313,020 | **CANONICAL — VALIDATED** |
+| E2E-Part2 | Part 2.1 | `ern_part2.yaml` | `test_ern_part2.py` | 782,550 | **CANONICAL PART 2.1 — IMPLEMENTED (full-grid regression + anchors)** |
 | E2E-Part3 | Part 3 | `ern_part3_replication.yaml` | `test_part3_canonical_ern_replication.py` | 168 cells × 1,739 | **CANONICAL — IMPLEMENTED; 6 ANCHORS PROVISIONAL** |
 | E2E-Part19 | Part 19 | `ern_part20.yaml` | `test_part19_canonical_ern_replication.py`, `test_part19_experiment_b_e2e.py` | 162 + 90 cells | **CANONICAL — IMPLEMENTED & CROSS-VALIDATED** |
 | E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_grid.py::test_part20_full_grid_replication` | 556,480 | **REGRESSION COVERAGE — NOT REPLICATION** |
@@ -379,7 +378,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 | Superset | Subset | Relationship verified? | Notes |
 |----------|--------|----------------------|-------|
-| Part 2 (SWR with terminal value) | Part 1 (SWR depletion) | Yes — Part 2 adds `final_value_target` dimension | Part 1 redundant after Part 2.1 is implemented |
+| Part 2 (SWR with terminal value) | Part 1 (SWR depletion) | Partially — Part 2.1 covers 30y/60y FV=0 but not 40y/50y or the Part 1 oracle cross-check | Part 1 remains required until Part 2.2 closes the FV=0 cross-check |
 | Part 20 (32 glidepaths) | Part 19 (24 glidepaths) | Partially — glidepath definitions are subset; Experiment A is independent | Part 19 Experiment A remains independent E2E target |
 
 **Canonical E2E surfaces:** Parts 1/2, Part 3, Part 19 A/B, and Part 49 B–F.

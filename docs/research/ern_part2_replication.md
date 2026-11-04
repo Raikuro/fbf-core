@@ -1,9 +1,10 @@
 # ERN Part 2 — Capital Preservation vs. Capital Depletion
 
-**Status:** DOCUMENTATION ONLY — No code changes.
+**Status:** IMPLEMENTED — Part 2.1 canonical FV>0 E2E.
 **Source:** [ERN Part 2](https://earlyretirementnow.com/2016/12/14/the-ultimate-guide-to-safe-withdrawal-rates-part-2-capital-preservation-vs-capital-depletion/)
 **Created:** 2026-09-14
-**Revised:** 2026-09-14 (evidence classification pass — §2.1 inheritance discipline, cohort statement rewrite, anchor precision verification, grid evidence downgrade, regression fixture naming, ±1pp tolerance justification, warm-up reframe, YAML gap preservation, behavioral E2E framing, FV=0 overlap invariant)
+**Revised:** 2026-11-04 (Part 2.1 implementation — warm-up timing resolved, production regression fixture generated, canonical anchors validated on the frozen published-2016 dataset)
+**Prior revision:** 2026-09-14 (evidence classification pass — §2.1 inheritance discipline, cohort statement rewrite, anchor precision verification, grid evidence downgrade, regression fixture naming, ±1pp tolerance justification, warm-up reframe, YAML gap preservation, behavioral E2E framing, FV=0 overlap invariant)
 
 ---
 
@@ -36,7 +37,7 @@ All of the following are inherited unchanged from Part 1 (see `ern_part1_replica
 | Monthly simulation frequency | Monthly | **ERN source-established** — article explicitly uses monthly frequency |
 | Real-return treatment | CSVs contain real (inflation-adjusted) returns | **ERN source-established** — article: "translated into monthly real returns" |
 | 0.05% annual fee drag | 0.05% annual; monthly conversion `1 - annual/12` | **ERN source-established** for the 0.05% magnitude; **independently-derived replication assumption** for the monthly conversion formula — article does not specify the monthly conversion formula or exact point of application within each step |
-| Initial withdrawal timing | One-twelfth of annual rate, applied at market close of previous month | **ERN source-established** — article §2.5; **FBF/oracle-consistent only** for the precise "market close of previous month" phrasing — the article's exact timing convention must be verified against the source |
+| Initial withdrawal timing | One-twelfth of annual rate, applied at market close of previous month | **ERN source-established** — the article's warm-up states the first withdrawal occurs at the beginning of the month; **verified equivalent** to the FBF `d_{c-1}..d_{c+T-1}` window by the deterministic warm-up test |
 | Inflation-adjusted withdrawals | CPI-adjusted monthly | **ERN source-established** — article: CPI-adjusted; **FBF/oracle-consistent only** for the real-space constant-withdrawal representation — `FixedRealWithdrawalPolicy` is an FBF implementation detail |
 | Portfolio rebalancing | To target weights at month end | **ERN source-established** — article: rebalancing at month end |
 | Forward projection after Sep 2016 | Equity ~6.6% real annual, bonds 0% for first 10y then ~2.6% real annual | **ERN source-established** for the annual rates (~6.6%, ~2.6%, 0% for 10y); **independently-derived replication assumption** for the annual-to-monthly conversion `(1+r)^(1/12)-1` and the exact 120-month boundary — article does not publish monthly rates or the precise month count |
@@ -181,22 +182,20 @@ The article explains: "Why not 4.00%? That's because the initial withdrawal take
 
 ### 4.3 Classification
 
-These values are:
+These values are **published analytical reference values** — deterministic results from a simplified constant-return model. They are not the primary historical replication oracle, but they are executable acceptance criteria for withdrawal timing and terminal-value semantics.
 
-- **Published analytical reference values** — deterministic results from a simplified (constant-return) model.
-- **Potentially valuable independent checkpoint** — the warm-up calculation is a deterministic analytical reference that could provide an independent E2E/unit-level validation of withdrawal timing and terminal-value semantics, but only after the exact timing convention and calculation sequence have been established (see §4.4).
-- **Not the primary historical replication oracle** — the historical simulation grid (Section 5) is the main replication target.
+### 4.4 Resolution: FBF Reproduces the Warm-Up
 
-The warm-up is potentially valuable precisely because it gives us a **second independent methodological checkpoint** — separate from the historical simulation — that could validate the withdrawal timing and terminal-value semantics. It should therefore not simply be classified as "not primary" and postponed. However, its executable use depends on resolving the timing question in §4.4.
+The warm-up timing question is resolved. The article's beginning-of-month withdrawal is economically and temporally equivalent to the FBF ERN window `d_{c-1}..d_{c+T-1}`:
 
-### 4.4 Whether FBF Can Reproduce This
+1. The initial portfolio is observed at the previous month's close (`d_{c-1}`).
+2. The first withdrawal occurs at that close, before any retirement return is applied.
+3. The portfolio then earns `T` monthly returns, with each subsequent withdrawal taken at the beginning of its month.
+4. The final value is measured at `d_{c+T-1}` after exactly `T` return intervals.
 
-The warm-up calculation requires a deterministic constant-return scenario, not a historical simulation. The current FBF framework is designed for historical-data simulation. To reproduce the warm-up:
+The annual 4% constant return is converted to an effective monthly return, `(1.04)^(1/12) - 1`. Using that convention, the FBF production path reproduces all five published maximum withdrawal rates to their published two-decimal precision.
 
-- A constant-return dataset would need to be constructed (all months returning exactly 4% real).
-- The first withdrawal timing must be verified against FBF's existing monthly withdrawal convention.
-
-The article describes the warm-up withdrawal as occurring at the beginning of the first month. The FBF implementation uses its existing monthly withdrawal convention ("at the market close of the previous month" — Part 1 §2.5). Whether these conventions are economically and temporally equivalent must be verified before the published warm-up values are used as executable acceptance criteria.
+The deterministic validation is `tests/oracle/ern/test_part2_warmup.py`. It constructs a constant-return dataset, executes the production FAST path with two probe withdrawal rates, and solves the linear withdrawal relation for each final-value target. A simple-additive or end-of-month recurrence does not reproduce the published `3.92%` / `5.66%` values.
 
 ---
 
@@ -244,8 +243,8 @@ The article's main results table (image: `swr-part2-table1.png`) has the followi
 ### 5.3 Distinction Between Grid Scopes
 
 1. **Full article research grid** — 21 equity weights × 9 rates × 2 horizons × 5 FV targets. The 21 weights and 9 rates are visually observed from the article's table image, not enumerated in text. Horizons and FV targets are source-established.
-2. **FBF designated reproduction subset** — 5 representative equity weights × 9 rates × 2 horizons × 5 FV targets. This is the subset the future E2E should validate.
-3. **Future Part 2 E2E** — Should validate the FBF subset against a regression fixture, not the complete article grid.
+2. **FBF designated reproduction subset** — 5 representative equity weights × 9 rates × 2 horizons × 5 FV targets. This is the subset implemented by the Part 2.1 E2E.
+3. **Part 2.1 E2E** — validates the FBF subset against the generated regression fixture and the four published anchors, not the complete article grid.
 
 ---
 
@@ -302,7 +301,7 @@ The 65% value appears in the Part 2 article as a comparison point ("look at the 
 |-------|---------------|-------|
 | 98%, 96%, 97%, 80% success rates | **Rounded published values** — Part 2-specific anchors from article text | ERN publishes success probabilities as whole percentages; values are rounded to nearest integer |
 | 65% success rate (50% equity / 4% / 60Y / FV=0) | **Inherited Part 1 cross-reference** — not a new Part 2 anchor | Part 1 result, cross-referenced in Part 2 article text for comparison |
-| 3.92%, 4.12%, 4.33%, 4.79%, 5.66% SWR | **Published analytical reference values** — deterministic warm-up, not historical simulation | Source-established; usable as acceptance criteria only after withdrawal timing is resolved (§4) |
+| 3.92%, 4.12%, 4.33%, 4.79%, 5.66% SWR | **Published analytical reference values** — deterministic warm-up, not historical simulation | Source-established; reproduced by the production path and pinned by the warm-up test (§4.4) |
 | 1.25pp, 0.19pp median differences | **Rounded published values** — approximate scatter-plot statistics | Per-cohort data not available; exact values not published |
 | 0.50% haircut for 30Y→60Y extrapolation | **Qualitative research conclusion** — approximate rule of thumb from article summary | Not a hard numerical test |
 
@@ -394,22 +393,21 @@ The existing `ern_part3_replication.yaml` already uses multiple FV targets:
 final_value_target: [0.0, 0.5]
 ```
 
-### 9.3 Future Part 2 Study Configuration
+### 9.3 Part 2 Study Configuration
 
-The future Part 2 YAML would be:
+The canonical configuration is `examples/studies/ern_part2.yaml`:
 
 ```yaml
-# Hypothetical — DO NOT CREATE YET
 metadata:
-  name: "ERN Part 2 — Capital Preservation vs Depletion"
+  name: "ERN Part 2 — Capital Preservation vs. Capital Depletion"
   version: "1.0"
-  description: "ERN Part 2: 5 equity × 9 rates × 2 horizons × 5 FV targets × 1739 cohorts"
+  description: "ERN Part 2: 5 weights x 9 rates x 2 horizons x 5 FV targets x 1,739 cohorts"
 
 cohorts:
   horizon_years: [30, 60]
-  # Optional inclusive cohort bounds; omit to preserve the default universe.
-  # start_date: 1871-01
-  # end_date: 2015-11
+  cohort_horizon_years: 60
+  start_date: "1871-01"
+  end_date: "2015-11"
 
 allocation_policy:
   type: "ConstantAllocationPolicy"
@@ -420,6 +418,7 @@ withdrawal_policy:
   withdrawal_rate: [0.03, 0.0325, 0.035, 0.0375, 0.04, 0.0425, 0.045, 0.0475, 0.05]
 
 final_value_target: [0.0, 0.25, 0.5, 0.75, 1.0]
+expense_ratio: 0.0005
 ```
 
 **This uses only the current public FBF contract.** No Part-2-specific YAML fields, no new CLI flags, no new engine behavior are required for the final-value target dimension itself.
@@ -446,42 +445,46 @@ sim-retire --data-dir data/ern run examples/studies/ern_part2.yaml \
 
 ---
 
-## 10. Future E2E Specification
+## 10. Part 2.1 E2E Specification
 
 ### 10.1 Input Fixtures
 
 | Fixture | Source | Purpose |
 |---------|--------|---------|
-| `spx_tr_real.csv` | Canonical (reuse from Part 1) | Historical equity returns |
-| `bond_10y_tr_real.csv` | Canonical (reuse from Part 1) | Historical bond returns |
-| Forward-return fixture | Independently derived from ERN assumptions (see Part 1 §5.3) | Post-Sep-2016 projection |
-| Regression fixture (`part2_regression_fixture.csv`) | FBF-generated — explicitly not a replication oracle | Expected success rates for FV>0 cells (internal consistency only) |
+| Production ERN dataset (`data/ern`) | Canonical current production data | Full 450-cell regression grid |
+| Published-2016 fixture (`data/ern/published_2016`) | Frozen ERN article-vintage data | Four independent published anchors |
+| Regression fixture (`data/ern/part2_regression_fixture.csv`) | Generated by `tools/ern/build_part2_regression_fixture.py` through the production path | Exact cell counts for the full grid; explicitly not a replication oracle |
 
 ### 10.2 Study Configuration
 
-The YAML shown in Section 9.3. The key expansion from Part 1 is:
+The YAML in Section 9.3. The key expansion from Part 1 is:
 
 - `final_value_target: [0.0, 0.25, 0.5, 0.75, 1.0]` (5 targets instead of 1)
 - `cohorts.horizon_years: [30, 60]` (2 horizons instead of 4)
-- Optional `cohorts.start_date` / `cohorts.end_date` bounds to lock the intended cohort window; omitting them preserves the existing implicit 1,739-cohort universe
+- Explicit `cohorts.start_date: "1871-01"` / `cohorts.end_date: "2015-11"` bounds lock the intended 1,739-cohort window.
 
 ### 10.3 Execution
 
 ```bash
-# Full grid E2E (requires RUN_ERN_E2E=1):
+# Full grid + published anchors (requires RUN_ERN_E2E=1):
 RUN_ERN_E2E=1 pytest tests/oracle/ern/test_ern_part2.py -v
 
-# Smoke test (runs in normal suite):
-pytest tests/oracle/ern/test_ern_part2_smoke.py -v
+# Deterministic warm-up timing validation (normal suite):
+pytest tests/oracle/ern/test_part2_warmup.py -v
+
+# Regenerate the regression fixture through the production path:
+python tools/ern/build_part2_regression_fixture.py
 ```
 
 ### 10.4 Expected Outputs
 
-The E2E should validate:
+The implemented Part 2.1 E2E validates:
 
-1. **Per-cell success rates** — for each (equity, rate, horizon, FV_target) cell, compare the simulated success rate against the regression fixture (FV>0 cells) or Part 1 oracle (FV=0 cells).
-2. **Anchor cells** — hard-fail checks for the specific values published in the article text (Section 6.1). These are independent replication evidence.
-3. **FV=0 consistency** — cells with FV=0 should produce identical results to the existing Part 1 oracle (for overlapping equity/rate/horizon combinations). This is a regression invariant with Part 1.
+1. **Full-grid regression** — all 450 cells (including the FV=0 cells) execute on the current production dataset and match the regression fixture's exact success counts.
+2. **Published anchors** — the four article anchors (Section 6.1) execute on the frozen published-2016 dataset and are checked against the article's rounded values with the documented ±1 pp publication-rounding tolerance.
+3. **Warm-up timing** — the deterministic 4% constant-return scenario reproduces the published `3.92%` through `5.66%` maximum withdrawal rates.
+
+FV=0 comparison against the Part 1 oracle is **Part 2.2**, not Part 2.1. The FV=0 cells are present in the Part 2.1 regression fixture, but Part 2.1 does not assert the Part 1 cross-check.
 
 ### 10.5 Oracle Strategy
 
@@ -511,21 +514,21 @@ This establishes internal consistency: FBF produces results consistent with its 
 
 **For Part 2, the article publishes only 4 explicit success-rate anchors** (Section 6.1, excluding the 65% Part 1 cross-reference). This is insufficient to construct a complete independent oracle for the 450-cell grid. The limitation must be documented rather than resolved by using a FBF-generated oracle as the primary validation source.
 
-The recommended approach is:
+The implemented approach is:
 
-1. **Hard-fail on the 4 published Part 2 anchors** — independent replication validation against the article's explicit numerical claims.
-2. **FV=0 cross-check against Part 1 oracle** — consistency check for the 90 overlapping cells (see §10.6.1).
-3. **FBF-generated regression fixture for the remaining FV>0 cells** — explicitly labelled as a regression fixture, not a replication oracle. Named `part2_regression_fixture.csv` (not `part2_oracle.csv`). The FBF-generated regression fixture establishes that the FBF implementation is internally consistent across the full FV>0 grid, but it does not independently prove that those values match ERN's methodology.
+1. **Hard-fail on the 4 published Part 2 anchors** — independent replication validation against the article's explicit numerical claims, using the frozen published-2016 dataset.
+2. **FBF-generated regression fixture for the full grid** — explicitly labelled as a regression fixture, not a replication oracle. Named `part2_regression_fixture.csv` (not `part2_oracle.csv`). It establishes internal consistency across all 450 cells but does not independently prove that those values match ERN's methodology.
+3. **FV=0 cross-check against Part 1 oracle** — deferred to Part 2.2. It is a consistency check for the 90 overlapping cells (see §10.6.1), not Part 2.1 replication evidence.
 
-The FBF-generated FV>0 table is a **regression fixture required for deterministic regression coverage**, not an ERN replication oracle. It does not increase our knowledge of whether FBF matches ERN — it only establishes that FBF's own implementation is self-consistent.
+The FBF-generated table is a **regression fixture required for deterministic regression coverage**, not an ERN replication oracle. It does not increase our knowledge of whether FBF matches ERN — it only establishes that FBF's own implementation is self-consistent.
 
 ### 10.6 Assertions
 
-| Assertion Type | Scope | Tolerance | Tolerance Justification |
-|---------------|-------|-----------|------------------------|
-| Hard-fail anchors | 4 cells from article text (Section 6.1) | ±1 pp | **Publication rounding tolerance** — ERN publishes success probabilities as whole percentages; the acceptance criterion compares against the published rounded value, not an exact numerical target. This is fundamentally different from a floating-point tolerance: it accounts for the source's own rounding, not numerical representation error. |
-| Full grid | 450 cells (5W × 9R × 2H × 5FV) | Exact Decimal equality against regression fixture | **Regression fixture comparison** — deterministic internal consistency check |
-| FV=0 cross-check | 90 cells (5W × 9R × 2H, FV=0) | Must match Part 1 oracle | **Overlap/regression invariant with Part 1** — see §10.6.1 |
+| Assertion Type | Scope | Dataset | Tolerance | Tolerance Justification |
+|---------------|-------|---------|-----------|------------------------|
+| Hard-fail anchors | 4 cells from article text (Section 6.1) | Frozen published-2016 | ±1 pp | **Publication rounding tolerance** — ERN publishes success probabilities as whole percentages; the acceptance criterion compares against the published rounded value, not an exact numerical target. This is fundamentally different from a floating-point tolerance: it accounts for the source's own rounding, not numerical representation error. |
+| Full grid | 450 cells (5W × 9R × 2H × 5FV) | Current production | Exact success counts against regression fixture | **Regression fixture comparison** — deterministic internal consistency check |
+| FV=0 cross-check | 90 cells (5W × 9R × 2H, FV=0) | Current production | Part 2.2 scope | **Overlap/regression invariant with Part 1** — deferred from Part 2.1 |
 
 #### 10.6.1 FV=0 Overlap: Regression Invariant with Part 1
 
@@ -541,13 +544,13 @@ Part 1 cells:     5 equity weights × 9 rates × 4 horizons (30Y, 40Y, 50Y, 60Y)
 
 The 90 Part 2 FV=0 cells are a strict subset of the 180 Part 1 cells (same 5 weights × 9 rates, restricted to the 2 shared horizons).
 
-This overlap is a **regression invariant**: changing the Part 2 final-value-target dimension must not alter FV=0 results. The Part 2 E2E should verify that these cells produce identical results to the Part 1 oracle. This is a consistency check, not a new validation — it confirms that adding the FV target dimension does not introduce regressions in the FV=0 baseline.
+This overlap is a **regression invariant**: changing the Part 2 final-value-target dimension must not alter FV=0 results. Part 2.1 includes the FV=0 cells in its regression fixture but does not compare them to the Part 1 oracle. That cross-check is Part 2.2.
 
 This invariant is stronger and clearer than merely saying the cells "should match" — it explicitly defines the 90 cells as the overlap and establishes the regression purpose.
 
 ### 10.7 Independent Forward-Return Validation
 
-The future E2E should independently validate the forward-projection assumptions using the fixture described in Part 1 §5.3. Part 2 uses **identical** forward assumptions to Part 1 — no separate forward-return fixture is needed for Part 2.
+Part 2 uses **identical** forward assumptions to Part 1. The published anchors use the explicit published-2016 forward fixture; the production regression grid uses the current production projection. Independent forward-return fixture validation remains the Part 1 methodology task described in Part 1 §5.3; Part 2 does not introduce a separate forward assumption.
 
 ---
 
@@ -568,30 +571,33 @@ This is a meaningful E2E concern even if the engine already has the capability. 
 3. **FV > 0 coverage** — the existing E2E explicitly skips cells where `fv > 0` (see `_assert_cell_matches` in `test_ern_swr_replication.py`). The Part 2 E2E fills this gap.
 4. **Part 2-specific grid** — 2 horizons × 5 FV targets (vs Part 1's 4 horizons × 1 FV target).
 5. **Published Part 2 anchors** — the article publishes 4 explicit success-rate values for FV>0 cells (Section 6.1).
-6. **Cross-validation against Part 1** — the 90 FV=0 cells overlapping with Part 1 must produce identical results (regression invariant).
+6. **Part 2.2 follow-up** — the 90 FV=0 cells overlapping with Part 1 are included in the Part 2.1 regression grid, but their Part 1 cross-check remains Part 2.2 scope.
 
 The new E2E is **not** justified by the need to implement new final-value engine behavior — that capability already exists and is verified by unit tests (Section 3). It is justified by the need to provide **behavioral coverage** of the terminal-only FV check across the Part 2 grid.
 
 ### 11.2 Recommended Approach
 
-**Separate Part 2 E2E test file** (`tests/oracle/ern/test_ern_part2.py`), not an extension of the Part 1 E2E. The scope and validation coverage are distinct:
+**Separate Part 2 E2E test file** (`tests/oracle/ern/test_ern_part2.py`), not an extension of the Part 1 E2E. The implemented Part 2.1 coverage is:
 
 ```
 Part 1 E2E
-    → FV=0 reproduction scope
+    → FV=0 production-conformance scope
 
-Part 2 E2E
-    → FV=0 cross-check (consistency with Part 1 — regression invariant)
+Part 2.1 E2E
+    → Full 450-cell regression grid (current production)
     → FV=25/50/75/100 coverage (new behavioral dimension)
-    → Part 2-specific anchors (4 published values — independent replication evidence)
-    → Part 2 regression fixture (FBF-generated, FV>0 cells — not replication evidence)
+    → 4 published anchors (frozen published-2016 dataset)
+    → Regression fixture (FBF-generated — not replication evidence)
+
+Part 2.2 E2E (deferred)
+    → FV=0 cross-check against the Part 1 oracle
 ```
 
-The Part 1 E2E remains focused on the Part 1 reproduction subset. The Part 2 E2E can reference Part 1 for FV=0 cross-validation, but that is a consistency check rather than independent replication evidence.
+The Part 1 E2E remains focused on the Part 1 reproduction subset. The Part 2.1 anchors are independent replication evidence; the full-grid fixture is regression evidence only.
 
 ### 11.3 FV=0 Cross-Validation: Regression Invariant with Part 1
 
-The 90 FV=0 cells in the Part 2 grid overlap with the Part 1 grid (for the 5 representative equity weights and 2 shared horizons: 30Y and 60Y). The Part 2 E2E should verify that these cells produce identical results to the Part 1 oracle. This is a **regression invariant**: changing the Part 2 final-value-target dimension must not alter FV=0 results. It is a consistency check, not a new validation.
+The 90 FV=0 cells in the Part 2 grid overlap with the Part 1 grid (for the 5 representative equity weights and 2 shared horizons: 30Y and 60Y). Part 2.1 includes these cells in the regression fixture. Part 2.2 will verify that they produce identical results to the Part 1 oracle. This is a **regression invariant**: changing the Part 2 final-value-target dimension must not alter FV=0 results. It is a consistency check, not new replication evidence.
 
 ---
 
@@ -601,15 +607,15 @@ The 90 FV=0 cells in the Part 2 grid overlap with the Part 1 grid (for the 5 rep
 
 The exact equity-weight and withdrawal-rate grid values are embedded in the article's table image (`swr-part2-table1.png`), not enumerated in the textual source. The article text only states: "The table below is an extension of the results from last week." The 21-weight × 9-rate grid is visually observed from the image and consistent with Part 1's structure, but is not independently established by the article text.
 
-**Impact:** The future E2E should validate the FBF reproduction subset (5 representative weights), not the complete 21-weight article grid.
+**Impact:** The Part 2.1 E2E validates the FBF reproduction subset (5 representative weights), not the complete 21-weight article grid.
 
 ### 12.2 Updated Table (2023)
 
 The article includes an updated table (added 2023-07-26) with data through 2022/2023. The article states: "not much of a difference." The updated table is **not** the primary replication target — the original 2016 table is, consistent with the canonical dataset period (1871-01 through 2016-09).
 
-### 12.3 Warm-Up Timing Unresolved
+### 12.3 Warm-Up Timing Resolved
 
-The warm-up calculation assumes the first withdrawal occurs "at the beginning of the first month." FBF's withdrawal timing is "at the market close of the previous month." Whether these conventions are economically and temporally equivalent must be verified before the published warm-up values are used as executable acceptance criteria.
+The article's beginning-of-month withdrawal and FBF's previous-month-close cohort window are economically and temporally equivalent (Section 4.4). The production path reproduces all five published warm-up maximum withdrawal rates; `tests/oracle/ern/test_part2_warmup.py` pins the convention. This gap is closed.
 
 ### 12.4 Forward-Projection Assumptions
 
@@ -617,7 +623,7 @@ Part 2 uses identical forward-projection assumptions to Part 1. The independent 
 
 ### 12.5 40Y and 50Y Horizons Omitted
 
-The article omits 40Y and 50Y horizons from the Part 2 table "to keep the table size manageable." The FBF YAML supports these horizons, but the future Part 2 E2E should use only 30Y and 60Y to match the article's published scope.
+The article omits 40Y and 50Y horizons from the Part 2 table "to keep the table size manageable." The FBF YAML supports these horizons, but `examples/studies/ern_part2.yaml` uses only 30Y and 60Y to match the article's published scope.
 
 ### 12.6 Article's Qualitative Statements
 
@@ -629,10 +635,10 @@ The article makes several qualitative observations (0.50pp haircut, 70% equity t
 
 | Result | Classification | Notes |
 |--------|---------------|-------|
-| FV=0 success rates (5W × 9R × 2H) | Part 1 replication oracle values — pinned regression fixture | Cross-validate against Part 1; regression invariant (§10.6.1). Individual anchor cells (e.g., 50/50/4%/30Y=95%) are independently published ERN values |
-| FV=100% success rates (4 cells) | Independent replication evidence — published ERN anchors | 98%, 96%, 97%, 80% from article text; rounded to whole percentages |
-| FV=25%, 50%, 75% success rates | Not published in text — in table image only | Cannot validate independently from text; FBF-generated regression fixture would be internal consistency only |
-| Warm-up SWRs (3.92%–5.66%) | Published analytical reference values | Deterministic, not historical simulation; usable as acceptance criteria only after timing resolution (§4.4) |
+| FV=0 success rates (5W × 9R × 2H) | Regression fixture cells in Part 2.1; Part 1 cross-check deferred to Part 2.2 | Included in the 450-cell production regression grid. Part 1 consistency is a Part 2.2 invariant (§10.6.1) |
+| FV=100% success rates (4 cells) | Independent replication evidence — published ERN anchors | 98%, 96%, 97%, 80% from article text; validated on the frozen published-2016 dataset with ±1 pp tolerance |
+| FV=25%, 50%, 75% success rates | Not published in text — in table image only | Cannot validate independently from text; covered by the FBF-generated regression fixture as internal consistency only |
+| Warm-up SWRs (3.92%–5.66%) | Published analytical reference values | Reproduced by the production path and pinned by `test_part2_warmup.py`; timing resolved in §4.4 |
 | Scatter-plot median differences (1.25pp, 0.19pp) | Rounded published values | Per-cohort data not available |
 | 0.50pp haircut rule | Qualitative research conclusion | Not a hard numerical test |
 | 70% equity threshold | Qualitative research conclusion | Not a hard numerical test |
@@ -647,13 +653,13 @@ The article makes several qualitative observations (0.50pp haircut, 70% equity t
 
 ## 14. Summary
 
-ERN Part 2 extends Part 1 by adding a final-value target dimension to the success criterion. The key addition is the **terminal-only** check: `final_wealth >= target × initial_wealth`. The target is evaluation-only: fixed-real execution uses the workbook recurrence for every target, and the terminal threshold is applied to the completed trajectory (Section 3). The YAML configuration already supports multiple FV targets as a Cartesian-product axis (Section 9). No Part-2-specific engine behavior, YAML fields, or CLI flags are required for the final-value target dimension itself. The shared temporal-configuration prerequisite is now implemented for cohort selection; the remaining Part 2 prerequisites are the regression fixture and warm-up timing resolution.
+ERN Part 2 extends Part 1 by adding a final-value target dimension to the success criterion. The key addition is the **terminal-only** check: `final_wealth >= target × initial_wealth`. The target is evaluation-only: fixed-real execution uses the workbook recurrence for every target, and the terminal threshold is applied to the completed trajectory (Section 3). The YAML configuration supports multiple FV targets as a Cartesian-product axis (Section 9). No Part-2-specific engine behavior, YAML fields, or CLI flags were required for the final-value target dimension itself.
 
-The future E2E requires:
+Part 2.1 is implemented:
 
-1. A new regression fixture with FV>0 values (generated from the current FBF implementation, explicitly labelled as a regression fixture, not a replication oracle).
-2. A new test file validating the Part 2 grid (5W × 9R × 2H × 5FV = 450 cells).
-3. Cross-validation of FV=0 cells against the Part 1 oracle (regression invariant with Part 1).
-4. Hard-fail checks on the 4 explicitly published Part 2 anchor values (Section 6.1), with ±1pp tolerance justified by publication rounding.
+1. `examples/studies/ern_part2.yaml` defines the 450-cell, 782,550-unit reproduction subset with explicit cohort bounds.
+2. `data/ern/part2_regression_fixture.csv` is generated through the production path by `tools/ern/build_part2_regression_fixture.py`.
+3. `tests/oracle/ern/test_ern_part2.py` validates the full grid against the fixture and checks the four published anchors on the frozen published-2016 dataset.
+4. `tests/oracle/ern/test_part2_warmup.py` resolves and pins the beginning-of-month warm-up timing.
 
-The article's warm-up calculation (Section 4) and scatter-plot statistics (Section 8) are useful references but should not become primary E2E acceptance criteria unless the timing mismatch (Section 12.3) is resolved and the per-cohort data is available.
+The Part 1 FV=0 cross-check remains Part 2.2 scope. The scatter-plot statistics (Section 8) remain unusable as acceptance criteria because the per-cohort values are not published.
