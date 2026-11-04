@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED — Part 2.1 canonical FV>0 E2E; Part 2.2 FV=0 cross-check.
 **Source:** [ERN Part 2](https://earlyretirementnow.com/2016/12/14/the-ultimate-guide-to-safe-withdrawal-rates-part-2-capital-preservation-vs-capital-depletion/)
 **Created:** 2026-09-14
-**Revised:** 2026-11-04 (Part 2.1 and 2.2 implementation — full-grid regression, published anchors, warm-up timing, and FV=0 Part 1 cross-check)
+**Revised:** 2026-11-04 (Part 2.1 and 2.2 implementation — full-grid regression, published anchors, warm-up timing, and FV=0 Part 1 cross-check; Part 2.3 anchor audit — no additional text-published anchors)
 **Prior revision:** 2026-09-14 (evidence classification pass — §2.1 inheritance discipline, cohort statement rewrite, anchor precision verification, grid evidence downgrade, regression fixture naming, ±1pp tolerance justification, warm-up reframe, YAML gap preservation, behavioral E2E framing, FV=0 overlap invariant)
 
 ---
@@ -304,6 +304,23 @@ The 65% value appears in the Part 2 article as a comparison point ("look at the 
 | 3.92%, 4.12%, 4.33%, 4.79%, 5.66% SWR | **Published analytical reference values** — deterministic warm-up, not historical simulation | Source-established; reproduced by the production path and pinned by the warm-up test (§4.4) |
 | 1.25pp, 0.19pp median differences | **Rounded published values** — approximate scatter-plot statistics | Per-cohort data not available; exact values not published |
 | 0.50% haircut for 30Y→60Y extrapolation | **Qualitative research conclusion** — approximate rule of thumb from article summary | Not a hard numerical test |
+
+### 6.5 Part 2.3 Anchor Audit — No Additional Anchors
+
+Part 2.3 audited the article text for any additional success-rate or withdrawal-rate anchors beyond the four already implemented in Part 2.1 and the FV=0 cross-check in Part 2.2. The complete candidate set and disposition is:
+
+| Candidate | Source value | Disposition |
+|-----------|--------------|-------------|
+| Part 2 success-rate anchors | 98%, 96%, 97%, 80% | Implemented in Part 2.1 (`test_part2_published_anchors`) |
+| Part 2 FV=0 cross-check | 90 overlapping cells | Implemented in Part 2.2 against the Part 1 workbook oracle |
+| 50% equity / 4% / 60Y / FV=0 | 65% | **Part 1 cross-reference**, not a new Part 2 anchor; already asserted by the Part 1 oracle matrix |
+| 50% equity / 4% / 30Y / FV=0 | 95% | **Part 1 cross-reference**, not a new Part 2 anchor; already asserted by the Part 1 smoke cell |
+| Warm-up maximum withdrawal rates | 3.92%, 4.12%, 4.33%, 4.79%, 5.66% | Deterministic analytical values; already pinned by `test_part2_warmup.py` |
+| Scatter-plot median differences | ≈1.25pp (30Y), ≈0.19pp (60Y) | Aggregate statistics without published per-cohort values; not cell-level anchors |
+| 30Y→60Y haircut; 70% equity threshold | 0.50pp; ≈70% | Qualitative research conclusions, not hard numerical acceptance criteria |
+| Article table image | 21W × 9R × 2H × 5FV | Values are not enumerated in the article text; OCR/visual transcription is not an independent anchor source. The production fixture remains regression evidence only |
+
+**Conclusion:** no additional source-supported Part 2-specific anchor remains. Part 2.3 is an audit outcome, not an implementation task; no duplicate Part 2 tests were added. The four text anchors remain covered by Part 2.1, the FV=0 overlap by Part 2.2, and the warm-up values by `test_part2_warmup.py`.
 
 ---
 

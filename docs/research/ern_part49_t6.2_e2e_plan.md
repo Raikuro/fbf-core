@@ -3,7 +3,8 @@
 > **Status:** IMPLEMENTED & VALIDATED — completion recorded 2026-11-03.
 >
 > **Scope:** Roadmap T6.2, simulation Experiments B–F only. Experiment A remains
-> the separate analytical task under Part 49.1 and is not absorbed here.
+> the separate analytical task under Part 49.1 (implemented independently) and is
+> not absorbed here.
 >
 > **Authority:** `ern_part49_replication.md`, the ERN Part 49 article, and the
 > approved pre-flight decisions recorded in §2. Chart-derived values remain

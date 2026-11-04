@@ -49,12 +49,13 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 
 ### Next pending task
 
-**Part 49.1 — Experiment A preliminary analytical check** is the next pending
-task now that Part 2 is complete through Part 2.2. Part 2.1 delivered the
-450-cell FV>0 regression grid, generated production fixture, four published
-anchors, and warm-up timing validation. Part 2.2 cross-checks the 90 FV=0 cells
-against the Part 1 workbook oracle. Part 2.3 has no additional published Part 2
-anchors beyond the four already covered by Part 2.1.
+**Part 49.1 — Experiment A preliminary analytical check is implemented.** The
+published Table 01 relationship is reconstructed in
+`src/fbf/core/research/part49_preliminary.py` and covered by
+`tests/unit/research/test_part49_preliminary.py`. No new canonical E2E matrix
+remains pending for Part 49. The next open decisions are the Part 42
+port-vs-retire disposition and Part 52 eligibility/full-universe policy; final
+canonical dataset regeneration remains the last project task.
 
 ---
 
@@ -99,7 +100,7 @@ anchors beyond the four already covered by Part 2.1.
 | 2.0 | Explicit cohort-date configuration | Optional inclusive `cohorts.start_date` / `cohorts.end_date`; default universe unchanged at 1,739 | CONFIGURATION CAPABILITY | `IMPLEMENTED` | `StudyConfiguration`, `build_cohort_specs`, `CohortGenerator.generate_range`; tests in `test_builders.py`, `test_cohort_date_configuration.py` | None | Retain; prerequisite for Part 2.1 |
 | 2.1 | Full FV>0 extension | 5W × 9R × 2H × 5FV × 1,739 = 782,550 units | RESEARCH REPLICATION | `IMPLEMENTED` | `tests/oracle/ern/test_ern_part2.py`; `data/ern/part2_regression_fixture.csv`; `examples/studies/ern_part2.yaml` | None | Retain; full-grid regression on current production, anchors on frozen published-2016 |
 | 2.2 | FV=0 cross-check against Part 1 | 90 cells | REGRESSION COVERAGE | `IMPLEMENTED` | `tests/oracle/ern/test_ern_part2.py::test_part2_fv0_matches_part1_workbook_oracle` | None | Retain; exact rounded-percentage equality against the Part 1 workbook oracle |
-| 2.3 | 4 published Part 2 anchors | 4 cells | RESEARCH REPLICATION | `IMPLEMENTED — covered by 2.1` | `tests/oracle/ern/test_ern_part2.py::test_part2_published_anchors` | None | Retain; no additional anchors added |
+| 2.3 | Additional published Part 2 anchors | Article-text audit | RESEARCH REPLICATION | `COMPLETE — AUDITED; NO ADDITIONAL ANCHORS` | `docs/research/ern_part2_replication.md` §6.5 | None | Retain four anchors in Part 2.1; 65%/95% are Part 1 cross-references; no duplicate tests |
 
 ### Part 3 — Equity Valuation Using CAPE
 
@@ -140,7 +141,7 @@ anchors beyond the four already covered by Part 2.1.
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 49.1 | Experiment A: Preliminary leverage | Analytical check | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Buy-and-hold implemented; no analytical test | Implement the analytical check (canonical B–F E2E delivered under T6.2) |
+| 49.1 | Experiment A: Preliminary leverage | Table 01 analytical check (18 cells) | RESEARCH REPLICATION | `IMPLEMENTED` | `src/fbf/core/research/part49_preliminary.py`; `tests/unit/research/test_part49_preliminary.py` | Independent of current canonical data | Retain source-derived reproduction; recheck anchors during final canonical-data regeneration |
 | 49.2 | Experiment B: Nov 1965 aggressive | Single cohort | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part49_canonical_bf.py::test_experiment_b_*` | None | Retain dual-mode canonical E2E: observe-only chart window + 75% LTV terminality |
 | 49.3 | Experiment C: Sep 1929 aggressive | Single cohort | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part49_canonical_bf.py::test_experiment_c_*` | None | Retain dual-mode canonical E2E: month-238 diagnostic + 75% LTV terminality |
 | 49.4 | Experiment D: $20k/$20k partial | Scenario | RESEARCH REPLICATION | `IMPLEMENTED` | `test_part49_canonical_bf.py::test_experiment_d_*` | None | Retain Chart 04 L/P anchor validation |
@@ -505,7 +506,7 @@ Buy-and-hold mechanics, LTV enforcement, real-rate debt handling, terminal margi
   - Prerequisite: T6.1 (complete)
   - Dependencies: T6.1
 
-**Status:** Canonical Experiments B–F are implemented and validated under `RUN_ERN_E2E=1`. Experiment A remains `PLANNED — NOT IMPLEMENTED` (49.1).
+**Status:** Canonical Experiments B–F are implemented and validated under `RUN_ERN_E2E=1`. Experiment A is implemented as a source-derived analytical reproduction of Table 01; validation against regenerated canonical data remains pending.
 
 ---
 
@@ -534,7 +535,7 @@ A test that merely runs all cells is NOT automatically considered replication-co
 | Part 19 | Experiment A failure rates validated; Experiment B failsafe/percentiles validated |
 | Part 20 | All 5 experiments (A-E) executed; every discrepancy classified per §9 of audit definition |
 | Part 42 | Historical 319-cell published-table audit; current audit test deleted (port vs retire unresolved) |
-| Part 49 | Experiment A planned; Experiments B–F implemented and validated in `test_part49_canonical_bf.py`; the 6-cell non-canonical diagnostic is retained separately |
+| Part 49 | Experiment A analytically reproduced from Table 01; Experiments B–F implemented and validated in `test_part49_canonical_bf.py`; the 6-cell non-canonical diagnostic is retained separately |
 | Part 52 | 11 scenarios execute with runtime FFR; gross-survival diagnostic recorded; historical-market (1,506) / workbook-FFR (1,453) coverage, legacy 1,452 subset feasibility, and solver reproduction remain open |
 
 ### Discrepancy Classification (Part 20)

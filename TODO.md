@@ -8,11 +8,24 @@ file.
 
 ## Next Actionable Task
 
-**Part 49.1 — Experiment A preliminary analytical check** is the next pending
-research task now that Part 2 is complete through Part 2.2. Part 2.2 cross-checks
-the 90 FV=0 cells in the Part 2 grid against the Part 1 workbook oracle. The
-remaining open Part 52 eligibility/full-universe and Solver work is tracked in
-the Part 52 section below, and final canonical dataset regeneration remains the
+**Part 2.3 is complete.** The article-text audit found no additional independent,
+source-supported Part 2 anchors beyond the four already implemented in Part 2.1.
+The 65% and 95% comparison values are Part 1 cross-references, the warm-up values
+are already pinned by the warm-up test, and the remaining article figures are
+aggregate or qualitative rather than cell-level anchors. No code or duplicate
+tests were added. See `docs/research/ern_part2_replication.md` §6.5.
+
+**Part 49.1 — Experiment A preliminary analytical check is implemented.** The
+published Table 01 relationship is reconstructed in
+`src/fbf/core/research/part49_preliminary.py` and covered by
+`tests/unit/research/test_part49_preliminary.py`. This is an independent
+source-methodology reproduction; rechecking its anchors against regenerated
+canonical data remains pending with the final dataset regeneration.
+
+No new canonical E2E matrix remains pending for Part 49. The next open decisions
+are the Part 42 port-vs-retire disposition and Part 52 eligibility/full-universe
+policy; Solver reproduction, external UI timeline persistence, and final
+canonical dataset regeneration remain open. Final regeneration must remain the
 last project task.
 
 ---

@@ -1,15 +1,15 @@
 # ERN Part 49 — Using Leverage in Retirement
 
-> **Status:** CANONICAL B–F IMPLEMENTED — E2E GATED
+> **Status:** CANONICAL B–F IMPLEMENTED — E2E GATED; EXPERIMENT A ANALYTICALLY REPRODUCED
 > **Article:** [Using Leverage in Retirement – SWR Series Part 49](https://earlyretirementnow.com/2021/11/16/leverage-in-retirement-swr-series-part-49/)
 >
 > **Implementation relationship:** Part 49 investigates whether margin loans can hedge sequence-of-returns risk by replacing part of the portfolio withdrawal with borrowing against the portfolio. The article finds that excessive leverage exacerbates sequence risk, but a modest supplemental loan (approximately 1% of portfolio) can improve outcomes.
 >
 > **Methodology status:** COMPLETE / FROZEN.
 >
-> **Implementation status:** CAPABILITIES IMPLEMENTED — buy-and-hold (`fc83253`), LTV enforcement, real-rate debt handling, terminal margin-call semantics (`bf42fe5`), and consistent Numba total-spending timeline reporting (GAP-1b). Canonical Experiments B–F are covered by `tests/oracle/ern/test_part49_canonical_bf.py`; the non-canonical 6-cell diagnostic remains in `test_part49_replication_app.py`.
+> **Implementation status:** CAPABILITIES IMPLEMENTED — buy-and-hold (`fc83253`), LTV enforcement, real-rate debt handling, terminal margin-call semantics (`bf42fe5`), and consistent Numba total-spending timeline reporting (GAP-1b). Canonical Experiments B–F are covered by `tests/oracle/ern/test_part49_canonical_bf.py`; the non-canonical 6-cell diagnostic remains in `test_part49_replication_app.py`. Experiment A is reconstructed analytically in `src/fbf/core/research/part49_preliminary.py` with tests in `tests/unit/research/test_part49_preliminary.py`.
 >
-> **E2E status:** VALIDATED for Experiments B–F under `RUN_ERN_E2E=1`. Experiments B/C use dual-mode execution: observe-only chart reproduction and separate 75% LTV enforcement/terminality validation. Experiment A remains the separate analytical task under Part 49.1.
+> **E2E status:** VALIDATED for Experiments B–F under `RUN_ERN_E2E=1`. Experiments B/C use dual-mode execution: observe-only chart reproduction and separate 75% LTV enforcement/terminality validation. Experiment A is source-derived and does not depend on the current canonical dataset; validation against regenerated canonical data remains pending with the final dataset regeneration.
 
 ---
 
@@ -106,6 +106,29 @@ The article models retirement spending funded entirely through a margin loan:
 The article explains that a $3M final portfolio with a 25% margin requirement would theoretically support up to approximately $2.25M of borrowing, leaving $750k equity.
 
 The article derives a "safe withdrawal rate" from the final-value calculation.
+
+### 3.2.1 Analytical Reconstruction
+
+Experiment A is a non-simulation analytical check.  Its scope is the published
+Table 01 matrix: initial capital `$1M`, final portfolio target `$3M`, six final
+loan targets from `$1.00M` through `$2.25M`, and real margin rates of `0%`,
+`1.5%`, and `3%` (18 cells).
+
+The published cells are reproduced within the table's 0.01 percentage-point
+display precision by a constant annual loan draw with continuous compounding:
+
+```text
+annual_loan_draw = loan_target * rate / (exp(rate * 30) - 1)
+```
+
+At a zero real rate the limit is `loan_target / 30`.  Sixteen cells match after
+rounding to two decimal percentage points; two three-percent cells differ by one
+display unit.  The tests therefore use the table's published display precision,
+not an invented tighter tolerance.
+
+This reconstruction is independent of the canonical market dataset.  It does
+not validate current canonical-data results, and its published numerical
+anchors must be rechecked during the final canonical-data regeneration.
 
 ### 3.3 Important Distinction
 
@@ -556,6 +579,22 @@ and immediately frames this as a historical conclusion for the 30-year simulatio
 | 25% margin requirement | loan capacity ≈ $2.25M | ARTICLE — explicit |
 | SWR at 1.5% real, $1.5–2.0M loan target | ≈ 3.96%–5.28% | ARTICLE — table-derived |
 
+Published Table 01 cells, expressed as annual spending rates for a `$1M`
+initial portfolio and a `$3M` final portfolio target:
+
+| Final loan target | 0% real | 1.5% real | 3% real |
+|-------------------|---------|-----------|---------|
+| $2.25M | 7.50% | 5.94% | 4.62% |
+| $2.00M | 6.67% | 5.28% | 4.11% |
+| $1.75M | 5.83% | 4.62% | 3.59% |
+| $1.50M | 5.00% | 3.96% | 3.08% |
+| $1.25M | 4.17% | 3.30% | 2.57% |
+| $1.00M | 3.33% | 2.64% | 2.05% |
+
+Source: [SWR-49-Table01.png](https://i0.wp.com/earlyretirementnow.com/wp-content/uploads/2021/11/SWR-49-Table01.png).
+The values are ARTICLE — table-derived.  The analytical formula reproduces all
+18 values within the table's 0.01 percentage-point display precision.
+
 ### 13.3 1965 Case Study
 
 | Observation | Value | Evidence |
@@ -738,13 +777,21 @@ Do not resolve these by intuition.
 
 ### Experiment A — Preliminary Leverage Calculation
 
+**Status:** ANALYTICALLY REPRODUCED — source-derived, not canonical-data validated.
+
 This is an analytical/final-value calculation and does not validate the stateful monthly margin-call simulation. Validate the analytical relationship between:
 
 * initial portfolio ($1M)
 * final portfolio target ($3M)
-* final loan target
+* final loan target ($1.00M–$2.25M in $0.25M increments)
 * real borrowing rate (0%, 1.5%, 3%)
 * implied spending rate
+
+The implementation covers all 18 published Table 01 cells in
+`src/fbf/core/research/part49_preliminary.py` and
+`tests/unit/research/test_part49_preliminary.py`.  The check is independent of
+the current canonical dataset; numerical validation against regenerated data
+remains part of the final dataset regeneration task.
 
 ### Experiment B — November 1965 Aggressive Leverage
 
@@ -859,7 +906,7 @@ Do not multiply a provisional cohort count by the number of scenarios and call t
 
 ### 21.1 Structural
 
-* [ ] Preliminary analytical calculation executes
+* [x] Preliminary analytical calculation executes
 * [ ] November 1965 aggressive leverage scenario executes
 * [ ] September 1929 aggressive leverage scenario executes
 * [ ] $20k/$20k scenario executes for all three borrowing rates
@@ -1049,4 +1096,11 @@ monthly execution
 
 Those are now resolved inputs to the replication.
 
-The canonical **B–F E2E** was delivered in `tests/oracle/ern/test_part49_canonical_bf.py` under T6.2 (`1834d7d`), with the exact published chart cells treated as the comparison oracle. The non-canonical 6-cell diagnostic remains a separate leverage-mechanics test. Experiment A (the preliminary analytical check, Part 49.1) remains the only pending Part 49 target.
+The canonical **B–F E2E** was delivered in `tests/oracle/ern/test_part49_canonical_bf.py` under T6.2 (`1834d7d`), with the exact published chart cells treated as the comparison oracle. The non-canonical 6-cell diagnostic remains a separate leverage-mechanics test.
+
+Experiment A (Part 49.1) is now analytically reproduced from published Table 01
+in `src/fbf/core/research/part49_preliminary.py`, with all 18 cells covered by
+`tests/unit/research/test_part49_preliminary.py`.  This is a source-methodology
+reproduction, not a validation of the current canonical dataset.  Rechecking the
+published anchors against regenerated canonical data remains pending with the
+final dataset regeneration task.

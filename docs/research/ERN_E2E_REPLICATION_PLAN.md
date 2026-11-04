@@ -46,7 +46,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **Horizons:** 30 and 60 years.
 - **Policies:** Same as Part 1.
 - **Success criteria:** Portfolio meets or exceeds terminal value target at horizon end.
-- **Published anchors:** 100% / 3.5% / 60Y / FV=0 = 98%; 100% / 3.5% / 60Y / FV=100% = 96%; 100% / 4.0% / 30Y / FV=0 = 97%; 100% / 4.0% / 30Y / FV=100% = 80%. These four anchors are covered by Part 2.1. Part 2.2 adds the FV=0 cross-check against the Part 1 workbook oracle.
+- **Published anchors:** 100% / 3.5% / 60Y / FV=0 = 98%; 100% / 3.5% / 60Y / FV=100% = 96%; 100% / 4.0% / 30Y / FV=0 = 97%; 100% / 4.0% / 30Y / FV=100% = 80%. These four anchors are covered by Part 2.1. Part 2.2 adds the FV=0 cross-check against the Part 1 workbook oracle. Part 2.3 audited the article for additional anchors; none remain beyond these four. The 65% and 95% comparison values are Part 1 cross-references, and the 3.92%–5.66% warm-up values are already pinned by the warm-up test. See `ern_part2_replication.md` §6.5.
 
 ### B.3 Part 3 — Equity Valuation Using CAPE
 
@@ -102,7 +102,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **Policies:** Partial leverage (portfolio withdrawal + 1% loan draw = 4% total spending), fixed real interest rates (0%, 1.5%, 3%), buy-and-hold allocation.
 - **Modes:** Experiments B/C run dual-mode: observe-only for chart reproduction and `ltv_enforcement=True` for 75% terminal-failure validation.
 - **Success criteria:** Portfolio survives full horizon in observe-only mode; LTV breaches terminate as `margin_call_terminal` in enforcement mode.
-- **Published anchors:** Experiments B–F charts and the Experiment F historical failure count.
+- **Published anchors:** Experiment A Table 01 (18 analytical cells); Experiments B–F charts and the Experiment F historical failure count.
 
 ### B.8 Part 52 — Timing Leverage in Retirement
 
@@ -210,9 +210,9 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **YAML file:** `ern_part42.yaml` (retained; study configuration is complete).
 - **Documentation:** `docs/roadmap/MULTI_STUDY_REPLICATION_ROADMAP.md` §A.3.
 
-#### Part 49 — CANONICAL B–F IMPLEMENTED — E2E GATED
+#### Part 49 — EXPERIMENT A ANALYTICALLY REPRODUCED; CANONICAL B–F IMPLEMENTED — E2E GATED
 
-- **Grid:** Experiment-specific matrices (B–E single-cohort scenarios; F is 792 cohorts × 6 configurations = 4,752 units).
+- **Grid:** Experiment A is the 18-cell Table 01 analytical check; B–E are single-cohort scenarios; F is 792 cohorts × 6 configurations = 4,752 units.
 - **Dataset:** Production `data/ern`.
 - **Methodology status:** COMPLETE / FROZEN (see `ern_part49_replication.md` §24).
 - **Implementation status:** **CAPABILITIES AND CANONICAL E2E IMPLEMENTED**
@@ -220,7 +220,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
   2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True`; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
   3. **Real-rate debt handling: IMPLEMENTED** — `debt_interest_rate_is_real` flag on `SimulationContext` + `InterestAccrualStep` bypasses CPI deflation (`bf42fe5`, GAP-2).
   4. **Timeline spending reporting: IMPLEMENTED** — both Part 49 Numba executors report total spending (portfolio withdrawal + loan draw) in `withdrawal_decision.nominal_amount` and `spending_budget` without changing cash flows (GAP-1b).
-- **E2E status:** **CANONICAL B–F VALIDATED under `RUN_ERN_E2E=1`.** Experiments B/C use dual-mode execution: observe-only for chart reproduction and `ltv_enforcement=True` for 75% terminality. Experiments D/E validate Chart 04–06 leverage ratios, and Experiment F validates the 4,752-unit historical failure coverage.
+- **E2E status:** **EXPERIMENT A ANALYTICALLY REPRODUCED; CANONICAL B–F VALIDATED under `RUN_ERN_E2E=1`.** Experiment A is source-derived in `src/fbf/core/research/part49_preliminary.py` and tested in `tests/unit/research/test_part49_preliminary.py`; it is independent of current canonical data. Experiments B/C use dual-mode execution: observe-only for chart reproduction and `ltv_enforcement=True` for 75% terminality. Experiments D/E validate Chart 04–06 leverage ratios, and Experiment F validates the 4,752-unit historical failure coverage.
 - **E2E test:** `tests/oracle/ern/test_part49_canonical_bf.py` (7 tests, gated `ern_e2e`).
 - **Non-canonical diagnostic:** `tests/oracle/ern/test_part49_replication_app.py::test_part49_canonical_replication` retains the 6-cell, 10,434-unit leverage-mechanics coverage and pinned `p49_oracle_table.csv`; it is not canonical B–F validation.
 - **Supporting tests:** `tests/integration/test_part49_buy_and_hold_numba_executor.py`, `tests/integration/test_part49_numba_executor.py`, `tests/integration/test_part49_canonical_execution.py`, `tests/oracle/ern/test_debt_oracle.py`. The legacy `tests/integration/test_part49_buy_and_hold.py` was deleted at `2c43e68`.
@@ -245,7 +245,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 | Part 19 | YES | Implemented & cross-validated | Resolved |
 | Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
 | Part 42 | NO (historical) | Historically validated; current test deleted | Port-to-Numba vs retire unresolved |
-| Part 49 | YES (B–F) | Canonical B–F implemented and gated; non-canonical 6-cell diagnostic retained | Experiment A analytical check pending |
+| Part 49 | YES (A–F) | Experiment A analytically reproduced; canonical B–F implemented and gated; non-canonical 6-cell diagnostic retained | Final canonical-data revalidation pending |
 | Part 52 | PARTIAL | A2/A3/A10 published-anchor feasibility; A1/A9 diagnostics; other scenarios research validation | Eligibility/full-universe policy; Solver reproduction deferred |
 
 ---
@@ -371,7 +371,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | Part 19 (Glidepaths) | Canonical methodology — implementation & cross-validated | Final canonical-data validation |
 | Part 20 (Glidepaths) | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
 | Part 42 (OMY) | Historical audit test deleted; port-vs-retire unresolved | No current published-table validation surface |
-| Part 49 (Leverage) | Canonical B–F implemented; non-canonical 6-cell diagnostic retained | Experiment A analytical check pending |
+| Part 49 (Leverage) | Experiment A analytically reproduced; canonical B–F implemented; non-canonical 6-cell diagnostic retained | Final canonical-data revalidation pending |
 | Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | Eligibility/full-universe policy; Solver reproduction deferred |
 
 ### E.4 Strict-Superset Relationships
@@ -411,8 +411,8 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.3 Part 49 — Using Leverage in Retirement
 
-**Status:** CANONICAL B–F IMPLEMENTED — E2E GATED
-**Reason:** Capabilities and canonical B–F validation are implemented:
+**Status:** EXPERIMENT A ANALYTICALLY REPRODUCED; CANONICAL B–F IMPLEMENTED — E2E GATED
+**Reason:** Experiment A is source-derived, and the capabilities plus canonical B–F validation are implemented:
 1. **Buy-and-hold capability: IMPLEMENTED** — `BuyAndHoldAllocationPolicy` + `create_buy_and_hold_pipeline()` (`fc83253`).
 2. **LTV enforcement: IMPLEMENTED** — `LTVEvaluationStep` with `ltv_enforcement=True`; `failure_state = margin_call_terminal` on breach (`bf42fe5`, GAP-3).
 3. **Real-rate debt handling: IMPLEMENTED** — `debt_interest_rate_is_real` flag on `SimulationContext` + `InterestAccrualStep` bypasses CPI deflation (`bf42fe5`, GAP-2).
@@ -420,7 +420,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 **Methodology:** COMPLETE (see `ern_part49_replication.md` §24).
 
-**Implementation status:** **CAPABILITIES AND CANONICAL E2E IMPLEMENTED.** `tests/oracle/ern/test_part49_canonical_bf.py` covers Experiments B–F, including B/C dual-mode, Chart 04–06 anchors, and the 4,752-unit Experiment F run.
+**Implementation status:** **EXPERIMENT A ANALYTICALLY REPRODUCED; CAPABILITIES AND CANONICAL E2E IMPLEMENTED.** `src/fbf/core/research/part49_preliminary.py` with `tests/unit/research/test_part49_preliminary.py` covers all 18 Table 01 cells. `tests/oracle/ern/test_part49_canonical_bf.py` covers Experiments B–F, including B/C dual-mode, Chart 04–06 anchors, and the 4,752-unit Experiment F run.
 
 **E2E status:** **CANONICAL B–F VALIDATED under `RUN_ERN_E2E=1`.**
 
@@ -875,18 +875,19 @@ The marker taxonomy remains distinct to make classification visible, but the exe
 
 ### Next actionable task
 
-**Part 49.1 — Experiment A preliminary analytical check.** Part 2 is complete
-through Part 2.2: full-grid regression, FV=0 Part 1 cross-check, published
-anchors, and warm-up timing are all implemented. Part 2.3 has no additional
-published Part 2 anchors beyond those already covered by Part 2.1.
+**Part 49.1 — Experiment A preliminary analytical check is implemented.** The
+published Table 01 relationship is reconstructed in
+`src/fbf/core/research/part49_preliminary.py` and covered by
+`tests/unit/research/test_part49_preliminary.py`. This is an independent
+source-methodology reproduction; rechecking its anchors against regenerated
+canonical data remains pending with the final dataset regeneration.
 
 ### Remaining open/deferred work
 
-1. **Part 49.1** — Experiment A preliminary analytical check.
-2. **Part 42** — port-to-Numba versus retire decision; no current published-table validation surface.
-3. **Part 52** — eligibility/full-universe policy decision; Solver reproduction deferred.
-4. **External UI timeline persistence** — `fbf-ui` integration, not a Core execution change.
-5. **Final canonical dataset regeneration and revalidation** — must remain the final project task.
+1. **Part 42** — port-to-Numba versus retire decision; no current published-table validation surface.
+2. **Part 52** — eligibility/full-universe policy decision; Solver reproduction deferred.
+3. **External UI timeline persistence** — `fbf-ui` integration, not a Core execution change.
+4. **Final canonical dataset regeneration and revalidation** — must remain the final project task.
 
 ---
 
