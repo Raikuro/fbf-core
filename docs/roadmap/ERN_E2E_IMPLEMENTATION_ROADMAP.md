@@ -53,9 +53,10 @@ remain open. The broader Part 52 target state remains tracked in `TODO.md` and
 published Table 01 relationship is reconstructed in
 `src/fbf/core/research/part49_preliminary.py` and covered by
 `tests/unit/research/test_part49_preliminary.py`. No new canonical E2E matrix
-remains pending for Part 49. The next open decisions are the Part 42
-port-vs-retire disposition and Part 52 eligibility/full-universe policy; final
-canonical dataset regeneration remains the last project task.
+remains pending for Part 49. The Part 42 historical published-table audit is
+retired and will not be ported to the Numba path. The next open decision is the
+Part 52 eligibility/full-universe policy; final canonical dataset regeneration
+remains the last project task.
 
 ---
 
@@ -132,8 +133,8 @@ canonical dataset regeneration remains the last project task.
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 42.1 | Tables 02-05: Failsafe amounts | 7 scenario types × decade cohorts | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | Historical: `tests/integration/test_part42_e2e_audit.py` (deleted at `2c43e68`); current: none | Historical 319-cell audit exists in `ern_part42_replication_discrepancies.md`; port-to-Numba vs retire unresolved | Preserve historical record; decide port vs retire before new validation |
-| 42.2 | Table 01: Fixed-4% failure probabilities | 10 rows × 11 columns | RESEARCH REPLICATION | `DEFERRED / BLOCKED` | Same historical audit; current: none | Same as 42.1 | Deferred |
+| 42.1 | Tables 02-05: Failsafe amounts | 7 scenario types × decade cohorts | RESEARCH REPLICATION | `HISTORICAL / SUPERSEDED` | Historical: `tests/integration/test_part42_e2e_audit.py` (deleted at `2c43e68`); current: none | None — retired by decision | Do not port; preserve the historical discrepancy record and frozen fixture; retain structural/oracle coverage in 42.3-42.4 |
+| 42.2 | Table 01: Fixed-4% failure probabilities | 10 rows × 11 columns | RESEARCH REPLICATION | `HISTORICAL / SUPERSEDED` | Same historical audit; current: none | None — retired by decision | Do not port; preserve the historical discrepancy record and frozen fixture; retain structural/oracle coverage in 42.3-42.4 |
 | 42.3 | Grid structure (45 cells) | 5W × 9SWR × 1H | REGRESSION COVERAGE | `IMPLEMENTED` | `test_part42_replication.py::test_part42_canonical_replication` (93,915 units) | None | Retain — structural validation only |
 | 42.4 | Accumulation/mechanics oracle | OMY accumulation semantics | ORACLE / REFERENCE | `IMPLEMENTED` | `test_part42_oracle.py` | None | Retain — independent oracle |
 
@@ -474,16 +475,17 @@ All Part 19 experiments are implemented and cross-validated with Part 20 audit r
 
 Keep existing structural/invariant coverage. The published-table audit is historical; the current tree has no equivalent committed validation surface.
 
-- [x] **T5.1** Part 42 published-table replication — **HISTORICALLY VALIDATED; CURRENT VALIDATION SURFACE REMOVED**
+- [x] **T5.1** Part 42 published-table replication — **HISTORICALLY VALIDATED; PUBLISHED-TABLE VALIDATION RETIRED**
   - Target: Tables 01-05 with decade-by-decade failsafe values
   - Prerequisite: Methodology frozen; per-cell ERN oracle table needed
   - Expected test location: New or extended E2E test
   - Canonical: Yes, in the historical validation run
   - Acceptance criteria: Published anchors validated; discrepancies classified
-  - Known blocker: No per-cell ERN oracle table exists; directional-only validation currently
+  - Blocker resolution: the historical audit is retired rather than ported; no current per-cell oracle is treated as authoritative
   - Dependencies: None (independent of other phases)
   - Historical validation: the 319-cell published-table oracle was fully accounted for at `95b1b50`; the 554-line `tests/integration/test_part42_e2e_audit.py` was deleted at `2c43e68`
-  - Current status: no equivalent committed published-table validation exists; port-to-Numba vs retire remains unresolved, consistent with the Part 42 P5/deferred classification in `docs/roadmap/NUMBA_SINGLE_ENGINE_ROADMAP.md`
+  - Current status: **RETIRED** — no equivalent committed published-table validation exists and no Numba port will be created; current structural/oracle coverage is retained
+  - Rationale: the historical run reproduced 44/319 cells, with 212 capability gaps and 63 data-vintage-attributable differences; a faithful port would also require supplemental cash-flow capability intentionally absent from the Numba path
   - Discrepancy documentation: `docs/research/ern_part42_replication_discrepancies.md` is a historical record, not a current reproduction command
   - Historical implementation and quality gates: completed successfully at `95b1b50`
 
@@ -534,7 +536,7 @@ A test that merely runs all cells is NOT automatically considered replication-co
 | Part 3 | 4 experiment configurations validated; 6 published anchors recorded as provisional baselines pending final canonical-data validation |
 | Part 19 | Experiment A failure rates validated; Experiment B failsafe/percentiles validated |
 | Part 20 | All 5 experiments (A-E) executed; every discrepancy classified per §9 of audit definition |
-| Part 42 | Historical 319-cell published-table audit; current audit test deleted (port vs retire unresolved) |
+| Part 42 | Historical 319-cell published-table audit retired; current structural/oracle validation retained; no Numba port |
 | Part 49 | Experiment A analytically reproduced from Table 01; Experiments B–F implemented and validated in `test_part49_canonical_bf.py`; the 6-cell non-canonical diagnostic is retained separately |
 | Part 52 | 11 scenarios execute with runtime FFR; gross-survival diagnostic recorded; historical-market (1,506) / workbook-FFR (1,453) coverage, legacy 1,452 subset feasibility, and solver reproduction remain open |
 
@@ -595,7 +597,7 @@ SWR full-grid measurement.
 | B2 | Part 19/20 implementation alignment (execution order) | Parts 19/20 | **RESOLVED** (`3e47550`) | `nominal_running_ath` fix in `src/fbf/core/datasets/ern.py` |
 | B3 | Part 20 Experiment C capability gap (failure-rate aggregation) | Part 20 | POTENTIAL | `ern_part20_e2e_audit.md` §5 |
 | B4 | Part 20 Experiment E capability gap (annual-frequency simulation) | Part 20 | POTENTIAL | `ern_part20_e2e_audit.md` §7 |
-| B5 | Part 42 published-table validation deferred | Part 42 | OPEN | `ERN_E2E_REPLICATION_PLAN.md` §F.2 |
+| B5 | Part 42 published-table validation retired | Part 42 | RESOLVED — RETIRED | `ERN_E2E_REPLICATION_PLAN.md` §F.2; `docs/research/ern_part42_replication_discrepancies.md` |
 | B6 | Part 49 buy-and-hold capability gap | Part 49 | **RESOLVED** (`fc83253`) | `BuyAndHoldAllocationPolicy`, `create_buy_and_hold_pipeline()` |
 | B7 | Part 49 LTV enforcement currently OFF | Part 49 | RESOLVED (2026-09-29) | `ERN_E2E_REPLICATION_PLAN.md` §F.3; `DECISIONS.md` "Part 49 LTV Enforcement Separation (Superseded)" |
 | B8 | Part 52 Part52Evaluator infeasible-search semantics | Part 52 | **RESOLVED** | `Part52Evaluator.evaluate()` records `feasible_borrow_pct` and `tested_borrow_pcts`; see `tests/unit/optimization/test_part52_evaluator.py` |

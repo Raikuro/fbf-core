@@ -394,6 +394,37 @@ configuration.
 
 ---
 
+## Part 42 Published-Table Audit Retirement
+
+**Decision:** The historical 319-cell Part 42 published-table audit is retired.
+It will not be ported to the Numba simulation path.
+
+**Context:** The audit was performed at `95b1b50` and its driver was removed at
+`2c43e68` during the Numba single-engine migration. Against the frozen oracle it
+produced 44 reproduced cells, 63 differences attributable to documented data
+vintage, and 212 capability gaps, including absent Table 01 cohort conditions.
+It is therefore not a clean acceptance oracle for the current path.
+
+**Why not port:** A faithful port would require supplemental cash-flow support
+for the Social Security scenarios in Tables 01–05. The current Numba path does
+not implement supplemental cash flows, and the single-engine roadmap defers that
+capability until a real consumer requires it. Recreating the audit solely to
+reproduce a historically data-vintage-dependent result would add execution
+capability without providing current validation value.
+
+**Alternatives rejected:** Porting the audit to the Numba path — rejected because
+the historical result is not a trustworthy current oracle and the port would
+require new execution capability for a retired validation target. Deleting the
+historical record and fixture — rejected because they preserve traceability for
+the prior discrepancy classification.
+
+**Consequence:** Part 42 keeps its structural and accumulation-oracle coverage
+(`test_part42_replication.py`, `test_part42_oracle.py`) but has no current
+published-table replication surface. The historical record and frozen fixture
+remain unchanged.
+
+---
+
 ## Part 49 Debt Temporal Semantics
 
 **Decision:** The Part 49 leverage study uses an engine-level debt state

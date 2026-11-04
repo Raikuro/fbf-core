@@ -1,6 +1,6 @@
 # ERN Part 42 Replication Discrepancies
 
-**Status:** Historical T5.1 discrepancy record — current validation surface removed
+**Status:** Historical T5.1 discrepancy record — audit retired; not ported
 
 **Source Article:** Early Retirement Now Part 42 — "The Effect of 'One More Year'" (2021-01-13)
 
@@ -10,10 +10,16 @@
 
 > **Historical context:** The 319-cell audit described below was performed at
 > `95b1b50`. The 554-line `tests/integration/test_part42_e2e_audit.py` was deleted
-> at `2c43e68` during the Numba single-engine migration. The current
-> tree has no equivalent committed published-table validation surface. The
-> port-to-Numba vs retire decision remains unresolved. The counts and
-> classifications below describe the historical run, not the current tree.
+> at `2c43e68` during the Numba single-engine migration. The current tree has no
+> equivalent committed published-table validation surface.
+>
+> **Disposition:** The audit is retired and will not be ported to the Numba path.
+> The historical run reproduced 44/319 cells, with 212 capability gaps and 63
+> data-vintage-attributable differences; a faithful port would also require
+> supplemental cash-flow support intentionally absent from the Numba path. The
+> frozen fixture and this discrepancy record are retained for traceability. The
+> counts and classifications below describe the historical run, not the current
+> tree.
 
 ---
 
@@ -180,6 +186,6 @@ RUN_ERN_E2E=1 pytest tests/integration/test_part42_e2e_audit.py -v  # historical
 
 ---
 
-**Document Classification:** Historical T5.1 Replication Discrepancy Record — current published-table validation surface removed
+**Document Classification:** Historical T5.1 Replication Discrepancy Record — audit retired; not ported
 
-**Next Review:** Required if the historical audit is ported to the current Numba path or if canonical dataset, extrapolation methodology, or cohort boundaries change.
+**Next Review:** No reproduction is planned. Revisit this record only if a future canonical-data validation explicitly requires Part 42 published-table evidence or if the historical classification needs reinterpretation.

@@ -195,16 +195,17 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 - **CAPE/projection forensic variants (V1/V2/V3):** COMPLETE on available data. Production changes are justified for projection boundary and CAPE source correction. **Part 20 audit §10 difference-attribution variants (A/B/C): CLOSED AS FORENSIC ASSESSMENT ON AVAILABLE DATA** — A eliminated provisionally, B superseded, C withdrawn provisionally; this is not a definitive canonical-data validation. See §F.4.1 and `ern_part20_e2e_audit.md` §10. Revalidation is the final task in `TODO.md`.
 - **Forensic investigations:** COMPLETE — all 9 planned investigations executed and documented.
 
-#### Part 42 — HISTORICALLY VALIDATED; CURRENT VALIDATION SURFACE REMOVED
+#### Part 42 — HISTORICAL PUBLISHED-TABLE AUDIT RETIRED
 
-- **Classification:** HISTORICAL PUBLISHED-TABLE VALIDATION — PORT-VS-RETIRE UNRESOLVED
+- **Classification:** HISTORICAL PUBLISHED-TABLE VALIDATION — RETIRED; NOT PORTED
 - **Methodology status:** COMPLETE / FROZEN (see `ern_part42_replication.md` §17).
 - **Historical validation:** a 319-cell published-table audit was performed at `95b1b50`; the 554-line `tests/integration/test_part42_e2e_audit.py` was deleted at `2c43e68`.
 - **Current committed validation surface:** None for published-table replication. Remaining coverage is structural/oracle only: `test_part42_replication.py`, `test_part42_oracle.py`, and `test_part42.py`. It does not reproduce Tables 01–05.
 - **E2E specification:** INCOMPLETE in the current tree — no per-cell ERN oracle table; directional-only validation. OMY contribution sequencing resolved (Q4): contributions are cash-flow operations within the established global monthly sequence.
 - **Implementation status:** OMY accumulation phase implemented. OMY contribution sequencing resolved (Q4): contributions are cash-flow operations within the established global monthly sequence.
 - **What exists:** Grid structure constants validated. OMY accumulation phase implemented (`run_accumulation_phase`). Integration tests pass (`test_part42.py`) with synthetic data. Oracle validation tests pass (`test_part42_oracle.py`) and validate accumulation semantics against independent implementation.
-- **What is deferred:** Porting the historical audit to the Numba path or formally retiring it; current per-cell oracle creation; current Tables 01–05 replication.
+- **What is deferred:** None for published-table replication. The historical audit is retired; no per-cell Numba oracle or Tables 01–05 port will be created.
+- **Retirement rationale:** the historical run reproduced only 44/319 cells, with 212 capability gaps and 63 data-vintage-attributable differences; a faithful port would also require supplemental cash-flow support intentionally absent from the Numba path. See `docs/research/ern_part42_replication_discrepancies.md`.
 - **Existing tests useful as:** Non-canonical validation of OMY mechanics and accumulation semantics.
 - **Historical record:** `docs/research/ern_part42_replication_discrepancies.md` documents the past run; its reproduction command is historical and no longer valid.
 - **YAML file:** `ern_part42.yaml` (retained; study configuration is complete).
@@ -244,7 +245,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 | Part 3 | YES (methodology) | Implemented; anchors provisional pending final canonical-data validation | None for current E2E; final revalidation pending |
 | Part 19 | YES | Implemented & cross-validated | Resolved |
 | Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
-| Part 42 | NO (historical) | Historically validated; current test deleted | Port-to-Numba vs retire unresolved |
+| Part 42 | NO (historical) | Historical published-table audit retired; current structural/oracle coverage retained | None |
 | Part 49 | YES (A–F) | Experiment A analytically reproduced; canonical B–F implemented and gated; non-canonical 6-cell diagnostic retained | Final canonical-data revalidation pending |
 | Part 52 | PARTIAL | A2/A3/A10 published-anchor feasibility; A1/A9 diagnostics; other scenarios research validation | Eligibility/full-universe policy; Solver reproduction deferred |
 
@@ -353,7 +354,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | E2E-Part20 | Part 20 (includes Part 19 glidepaths) | `ern_part20.yaml` | `test_part20_grid.py::test_part20_full_grid_replication` | 556,480 | **REGRESSION COVERAGE — NOT REPLICATION** |
 | E2E-Part49 | Part 49 | (Python API) | `test_part49_canonical_bf.py` | 4,752 + B–E scenarios | **CANONICAL — VALIDATED (B–F, gated `ern_e2e`)** |
 | E2E-Part49-Diag | Part 49 | (Python API) | `test_part49_replication_app.py::test_part49_canonical_replication` | 10,434 | **NON-CANONICAL SUBSET — LTV OFF; leverage-mechanics diagnostic** |
-| E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **HISTORICAL AUDIT TEST DELETED; CURRENT COVERAGE STRUCTURAL ONLY** |
+| E2E-Part42 | Part 42 | `ern_part42.yaml` | `test_part42_replication.py::test_part42_canonical_replication` | 93,915 | **HISTORICAL AUDIT RETIRED; CURRENT COVERAGE STRUCTURAL/ORACLE ONLY** |
 | E2E-Part52 | Part 52 | (Python API) | `test_part52_replication.py` | 19,129 | **NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED** |
 
 ### E.2 Canonical E2E Grids With Validation Caveats
@@ -370,7 +371,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | Part 3 (CAPE) | Canonical E2E implemented; anchors provisional | Final canonical-data validation |
 | Part 19 (Glidepaths) | Canonical methodology — implementation & cross-validated | Final canonical-data validation |
 | Part 20 (Glidepaths) | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
-| Part 42 (OMY) | Historical audit test deleted; port-vs-retire unresolved | No current published-table validation surface |
+| Part 42 (OMY) | Historical published-table audit retired; current structural/oracle coverage retained | None |
 | Part 49 (Leverage) | Experiment A analytically reproduced; canonical B–F implemented; non-canonical 6-cell diagnostic retained | Final canonical-data revalidation pending |
 | Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | Eligibility/full-universe policy; Solver reproduction deferred |
 
@@ -383,7 +384,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 **Canonical E2E surfaces:** Parts 1/2, Part 3, Part 19 A/B, and Part 49 B–F.
 **Canonical-data revalidation pending:** Parts 3, 19/20 (final task).
-**Historical validation with current surface removed:** Part 42.
+**Historical validation retired:** Part 42.
 **Non-canonical or partial:** Parts 49 diagnostic and Part 52.
 
 ---
@@ -402,11 +403,11 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 
 ### F.2 Part 42 — One More Year Syndrome
 
-**Status:** HISTORICALLY VALIDATED; CURRENT VALIDATION SURFACE REMOVED
-**Reason:** A 319-cell published-table audit was performed at `95b1b50`; the 554-line `tests/integration/test_part42_e2e_audit.py` was deleted at `2c43e68`. Port-to-Numba vs retire remains unresolved.
+**Status:** HISTORICAL PUBLISHED-TABLE AUDIT RETIRED; CURRENT COVERAGE STRUCTURAL/ORACLE ONLY
+**Reason:** A 319-cell published-table audit was performed at `95b1b50`; the 554-line `tests/integration/test_part42_e2e_audit.py` was deleted at `2c43e68`. It will not be ported: only 44/319 cells reproduced, 63 differences were data-vintage-attributable, 212 were capability gaps, and a faithful port would require supplemental cash-flow capability absent from the Numba path.
 **Methodology:** COMPLETE / FROZEN (see `ern_part42_replication.md` §17).
 **Existing implementation:** OMY accumulation phase implemented. Integration tests pass. Oracle validation tests validate accumulation semantics.
-**What is deferred:** Porting the historical audit to the Numba path or formally retiring it; current per-cell oracle creation; current Tables 01–05 replication.
+**What is deferred:** None for published-table replication. The historical audit is retired and no per-cell Numba oracle or Tables 01–05 port will be created.
 **Test classification:** Current coverage is structural/oracle only (retain); it is not published-table replication.
 
 ### F.3 Part 49 — Using Leverage in Retirement
@@ -884,10 +885,9 @@ canonical data remains pending with the final dataset regeneration.
 
 ### Remaining open/deferred work
 
-1. **Part 42** — port-to-Numba versus retire decision; no current published-table validation surface.
-2. **Part 52** — eligibility/full-universe policy decision; Solver reproduction deferred.
-3. **External UI timeline persistence** — `fbf-ui` integration, not a Core execution change.
-4. **Final canonical dataset regeneration and revalidation** — must remain the final project task.
+1. **Part 52** — eligibility/full-universe policy decision; Solver reproduction deferred.
+2. **External UI timeline persistence** — `fbf-ui` integration, not a Core execution change.
+3. **Final canonical dataset regeneration and revalidation** — must remain the final project task.
 
 ---
 

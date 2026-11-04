@@ -22,11 +22,12 @@ published Table 01 relationship is reconstructed in
 source-methodology reproduction; rechecking its anchors against regenerated
 canonical data remains pending with the final dataset regeneration.
 
-No new canonical E2E matrix remains pending for Part 49. The next open decisions
-are the Part 42 port-vs-retire disposition and Part 52 eligibility/full-universe
-policy; Solver reproduction, external UI timeline persistence, and final
-canonical dataset regeneration remain open. Final regeneration must remain the
-last project task.
+No new canonical E2E matrix remains pending for Part 49. The Part 42 historical
+319-cell published-table audit is retired and will not be ported to the Numba
+path (see `docs/research/ern_part42_replication_discrepancies.md`). The next open
+decision is the Part 52 eligibility/full-universe policy; Solver reproduction,
+external UI timeline persistence, and final canonical dataset regeneration
+remain open. Final regeneration must remain the last project task.
 
 ---
 
