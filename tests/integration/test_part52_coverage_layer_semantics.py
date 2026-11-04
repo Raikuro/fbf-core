@@ -2,12 +2,15 @@
 
 The 1,739-row distribution sheet, the 1,506 historical-market layer, the 1,453
 workbook-FFR layer, and the 1,452 legacy-terminal subset describe different
-data-availability boundaries. They are not interchangeable, and they do not by
-themselves establish historical validation or select an eligibility universe.
+data-availability boundaries. They are not interchangeable.
 
-These tests pin the layer membership, boundaries, and data dependencies so the
-1,506/1,453/1,452 decision remains a separate, open methodological choice.
-They do not run simulations and do not assert feasibility or acceptance.
+The resolved Part 52 policy uses the 1,506 historical-market layer as the
+primary historical diagnostic, the 1,453 workbook-FFR layer as the mandatory
+sensitivity, and the 1,739 distribution layer as projection-only. The 1,452
+legacy terminal filter is retired from eligibility policy.
+
+These tests pin the layer membership, boundaries, and data dependencies. They do
+not run simulations and do not assert feasibility or canonical acceptance.
 """
 
 from __future__ import annotations

@@ -248,8 +248,11 @@ def _build_study_config(
     """Build a StudyConfiguration for one canonical scenario.
 
     For FFR scenarios: use the runtime FFR series plus spread via ffr_spread.
-    The current builder does not filter cohorts to FFR coverage; full-universe
-    cohort eligibility remains open.
+    The builder deliberately retains the full 1,739-cohort distribution for this
+    diagnostic execution. Full-universe eligibility is resolved separately:
+    historical-market (1,506) is primary, workbook-FFR (1,453) is sensitivity,
+    distribution (1,739) is projection-only, and legacy terminal (1,452) is
+    retired. Canonical acceptance is the A2/A3/A10 published-anchor surface.
 
     For non-FFR scenarios: use the full cohort set with no FFR.
     """

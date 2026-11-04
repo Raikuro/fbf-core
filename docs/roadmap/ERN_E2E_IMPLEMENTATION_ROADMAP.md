@@ -39,12 +39,14 @@ This roadmap is the implementation plan derived from a three-round E2E investiga
 
 ### Part 52 Phase 2 progress (bounded)
 
-`tests/oracle/ern/test_part52_replication.py` now asserts published-anchor
+`tests/oracle/ern/test_part52_replication.py` asserts published-anchor
 fixed-parameter feasibility for A2 (`1965-11`), A3 (`1965-11`), and A10
 (`1929-09`). Full-universe gross-survival and feasibility counts are diagnostics
 reported by coverage layer and dataset vintage; they are not acceptance targets.
-Solver reproduction and the `1,506` / `1,453` / `1,452` eligibility decision
-remain open. The broader Part 52 target state remains tracked in `TODO.md` and
+Eligibility is resolved: `1,506` historical-market is the primary diagnostic,
+`1,453` workbook-FFR is the mandatory sensitivity, `1,739` distribution is
+projection-only, and `1,452` legacy terminal is retired. Solver reproduction
+remains open. The broader Part 52 target state remains tracked in `TODO.md` and
 `docs/research/ern_part52_replication.md`.
 
 ### Next pending task
@@ -54,9 +56,10 @@ published Table 01 relationship is reconstructed in
 `src/fbf/core/research/part49_preliminary.py` and covered by
 `tests/unit/research/test_part49_preliminary.py`. No new canonical E2E matrix
 remains pending for Part 49. The Part 42 historical published-table audit is
-retired and will not be ported to the Numba path. The next open decision is the
-Part 52 eligibility/full-universe policy; final canonical dataset regeneration
-remains the last project task.
+retired and will not be ported to the Numba path. The Part 52
+eligibility/full-universe policy is resolved; Solver reproduction is explicitly
+deferred, and final canonical dataset regeneration remains the last project
+task.
 
 ---
 
@@ -158,9 +161,9 @@ remains the last project task.
 
 | # | Validation target | Dimensions / scope | Type | Status | Existing implementation | Blocking dependency | Planned action |
 |---|-------------------|-------------------|------|--------|------------------------|-------------------|----------------|
-| 52.1 | 11 canonical scenarios (A1-A11) | 11 scenarios × 1,739 distribution cohorts; coverage layers 1,506 / 1,453 / 1,452 not applied | RESEARCH REPLICATION | `PARTIALLY IMPLEMENTED` | `test_part52_replication.py` — gross-survival diagnostics for A1/A2/A3/A9/A10; A2/A3/A10 published-anchor fixed-parameter feasibility asserted; A4-A8/A11 execute without canonical anchors | Solver reproduction deferred; full-universe diagnostics and eligibility remain open | Published-anchor feasibility is the acceptance surface; full-universe counts are diagnostics by coverage layer and vintage; do not treat them as canonical historical validation |
-| 52.2 | Full cohort validation | 1,739-row distribution (retirement labels 1871-02..2015-12; runtime starts 1871-01..2015-11); 1,506 historical-market cohorts; 1,453 workbook-FFR cohorts; 1,452 legacy subset | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | Coverage layers implemented and covered at the caller by `tests/integration/test_part52_cohort_coverage.py`; full validation not run | Part 52.1; asset/CPI equivalence; Phase 2 validation semantics | Validate the intended universe explicitly; do not treat the stale 1,739-row distribution or the legacy 1,452 subset as automatic full data coverage |
-| 52.3 | Solver/optimization reproduction | Binary search over WR × B% | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Part 52.1 | Implement after 52.1 |
+| 52.1 | 11 canonical scenarios (A1-A11) | 11 scenarios × 1,739 distribution cohorts; coverage layers 1,506 / 1,453 / 1,452 not applied by the oracle | RESEARCH REPLICATION | `PARTIALLY IMPLEMENTED` | `test_part52_replication.py` — gross-survival diagnostics for A1/A2/A3/A9/A10; A2/A3/A10 published-anchor fixed-parameter feasibility asserted; A4-A8/A11 execute without canonical anchors | Solver reproduction deferred | Published-anchor feasibility is the acceptance surface; full-universe counts are diagnostics by coverage layer and vintage; do not treat them as canonical historical validation |
+| 52.2 | Full cohort diagnostics | 1,739-row distribution (retirement labels 1871-02..2015-12; runtime starts 1871-01..2015-11); 1,506 historical-market primary; 1,453 workbook-FFR sensitivity; 1,452 retired legacy subset | RESEARCH REPLICATION | `IMPLEMENTED — DIAGNOSTIC ONLY` | `tests/integration/test_part52_full_universe_feasibility.py` (1,739 units); exact layer boundaries owned by `tests/integration/test_part52_cohort_coverage.py` and `test_part52_coverage_layer_semantics.py` | None | Retain as diagnostic reporting: 1,506 primary historical, 1,453 sensitivity, 1,739 projection-only; not canonical acceptance |
+| 52.3 | Solver/optimization reproduction | Binary search over WR × B% | RESEARCH REPLICATION | `PLANNED — NOT IMPLEMENTED` | None | Explicit authorization; Part 52.1 | Deferred |
 | 52.4 | Mechanism correctness | 1 scenario × 1,739 | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_deterministic_validation.py` (mechanism assertions) | None | Retain mechanism assertions; remove redundant simulation |
 | 52.5 | Lifecycle trace | 1 synthetic scenario | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_numerical_trace.py` | None | Retain |
 | 52.6 | FFR floating-rate mechanics | 6 synthetic scenarios | INTEGRATION / MECHANISM | `IMPLEMENTED` | `test_part52_ffr_floating_rate.py` | None | Retain |
@@ -176,7 +179,7 @@ remains the last project task.
 | `test_part20_grid.py::test_part20_full_grid_replication` | Part 20 | 556,480 | Python API (`run_study`) | Regression only | Grid structure, computational execution, traceable anchors — NOT replication | Yes | Regression coverage, NOT replication evidence |
 | `test_part49_replication_app.py::test_part49_canonical_replication` | Part 49 | 10,434 | Python API (`run_study`) | Non-canonical | Leverage mechanics only (LTV OFF; ConstantAllocationPolicy, not buy-and-hold); does not exercise B–F | Yes | Validates leverage mechanics, NOT canonical replication |
 | `test_part42_replication.py::test_part42_canonical_replication` | Part 42 | 93,915 | Python API (`run_study`) | Structural only | Grid structure, directional invariants — NOT ERN anchor validation | Yes | Structural validation, NOT published-table replication; historical 319-cell audit test was deleted at `2c43e68` |
-| `TestCanonicalERNReplication` (`test_part52_replication.py`) | Part 52 | 19,129 | Python API (`run_study`) | Diagnostic only — 1,739 distribution units; 1,506 historical-market coverage, 1,453 workbook-FFR coverage, and feasibility not applied | Gross-survival assertions for A1/A2/A3/A9/A10; A10 all-three diagnostic is 1323/1739; not canonical acceptance | Yes | Diagnostic research validation; not full canonical replication |
+| `TestCanonicalERNReplication` (`test_part52_replication.py`) | Part 52 | 19,129 | Python API (`run_study`) | Diagnostic only — 1,739 distribution units; coverage-layer feasibility reported by `test_part52_full_universe_feasibility.py` | Gross-survival assertions for A1/A2/A3/A9/A10; A2/A3/A10 anchor feasibility; A10 all-three diagnostic is 1323/1739; not canonical acceptance | Yes | Diagnostic research validation; not full canonical replication |
 | `test_part52_deterministic_validation.py` | Part 52 | 1,739 (baseline) | Python API | Integration | Mechanism correctness (policy registration, config construction) | Yes | Mechanism assertions distinct from simulation |
 | `test_part52_numerical_trace.py` | Part 52 | 1 (synthetic) | Python API | Integration | Lifecycle trace validation | Yes | Independent numerical validation |
 | `test_part52_ffr_floating_rate.py` | Part 52 | ~6 (synthetic) | Python API | Integration | FFR interest scheduling | Yes | Independent FFR behavior validation |
@@ -191,7 +194,7 @@ remains the last project task.
 - **Part 20's 320-cell test** is NOT equivalent to documented Part 20 Experiments A-E. It is regression coverage, not replication.
 - **Part 42's 45-cell test** is NOT equivalent to published-table replication. It is structural validation only.
 - **Part 49's 6-cell test** is NOT canonical Part 49 replication. It is a 6-cell non-canonical subset with LTV enforcement OFF and ConstantAllocationPolicy; it does not exercise Experiments B–F.
-- **Part 52's current 11 scenarios**: execute the runtime FFR path, but assert only 1,739-unit gross survival on the full distribution diagnostic; historical-market coverage (1,506), workbook-FFR coverage (1,453), the legacy 1,452 subset, and three-constraint feasibility are not applied. NOT full canonical replication.
+- **Part 52's current 11 scenarios**: execute the runtime FFR path with gross-survival diagnostics and assert A2/A3/A10 published-anchor feasibility. The separate full-universe diagnostic applies the three constraints across 1,739 units and reports the 1,506 / 1,453 / 1,452 coverage layers. NOT full canonical replication; Solver reproduction is deferred.
 - **Part 1's current E2E** remains valuable until Part 2's superset validation actually exists and independently validates the required outputs.
 
 ---
@@ -331,7 +334,7 @@ Commit `d6a2cbd` (`fix: align ERN fee semantics with canonical data`).
 
 Targets whose methodology, datasets, and expected outputs are already sufficiently defined.
 
-- [x] **T1.1** Part 52 gross-survival E2E diagnostic — **IMPLEMENTED (checkpoint `d6a2cbd`; canonical acceptance remains open — see 52.1/52.2)**
+- [x] **T1.1** Part 52 gross-survival E2E diagnostic — **IMPLEMENTED (checkpoint `d6a2cbd`; anchor acceptance implemented, Solver deferred — see 52.1/52.3)**
   - Target: Update all 11 scenarios (A1-A11) to use actual FFR data; validate against ERN published values
   - Checkpoint: `d6a2cbd` — `fix: align ERN fee semantics with canonical data`
   - Follow-up semantic alignment: `4ffc0c5` — `fix: align Part52 canonical ERN semantics`
@@ -346,10 +349,10 @@ Targets whose methodology, datasets, and expected outputs are already sufficient
   - A10 at checkpoint: **1665/1739 = 95.7%**; after `6fe3803`: **1739/1739 gross survival**, all-three diagnostic **1323/1739**
   - Independent ERN oracle was not modified
   - Current test location: `tests/oracle/ern/test_part52_replication.py`
-  - Canonical: Diagnostic only — 1,739 distribution units; historical-market coverage (1,506), workbook-FFR coverage (1,453), the legacy 1,452 filter, and feasibility assertions are not applied
+  - Canonical: Diagnostic only — 1,739 distribution units; coverage layers and anchor feasibility are asserted in 52.1/52.2
   - Expected scale: 11 scenarios × 1,739 diagnostic cohorts = 19,129 units
-  - Acceptance criteria: A1/A2/A3/A9/A10 gross-survival assertions pass; canonical feasibility acceptance remains **OPEN**
-  - Known blocker: Phase 2 validation semantics and asset/CPI equivalence (see 52.1/52.2)
+  - Acceptance criteria: A1/A2/A3/A9/A10 gross-survival assertions pass; A2/A3/A10 published-anchor feasibility is implemented; Solver reproduction remains **DEFERRED**
+  - Known blocker: Solver reproduction deferred (see 52.3)
   - Dependencies: None
   - Note: T1.1 and T1.2 are independent tasks with no mutual dependency
 
@@ -538,7 +541,7 @@ A test that merely runs all cells is NOT automatically considered replication-co
 | Part 20 | All 5 experiments (A-E) executed; every discrepancy classified per §9 of audit definition |
 | Part 42 | Historical 319-cell published-table audit retired; current structural/oracle validation retained; no Numba port |
 | Part 49 | Experiment A analytically reproduced from Table 01; Experiments B–F implemented and validated in `test_part49_canonical_bf.py`; the 6-cell non-canonical diagnostic is retained separately |
-| Part 52 | 11 scenarios execute with runtime FFR; gross-survival diagnostic recorded; historical-market (1,506) / workbook-FFR (1,453) coverage, legacy 1,452 subset feasibility, and solver reproduction remain open |
+| Part 52 | 11 scenarios execute with runtime FFR; A2/A3/A10 published-anchor feasibility implemented; full-universe diagnostics use 1,506 primary / 1,453 sensitivity / 1,739 projection hierarchy; 1,452 retired; solver reproduction deferred |
 
 ### Discrepancy Classification (Part 20)
 

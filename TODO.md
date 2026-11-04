@@ -24,8 +24,10 @@ canonical data remains pending with the final dataset regeneration.
 
 No new canonical E2E matrix remains pending for Part 49. The Part 42 historical
 319-cell published-table audit is retired and will not be ported to the Numba
-path (see `docs/research/ern_part42_replication_discrepancies.md`). The next open
-decision is the Part 52 eligibility/full-universe policy; Solver reproduction,
+path (see `docs/research/ern_part42_replication_discrepancies.md`). The Part 52
+eligibility/full-universe policy is resolved: canonical acceptance is the
+A2/A3/A10 published-anchor feasibility surface and full-universe runs are
+diagnostics under the `1,506` / `1,453` / `1,739` hierarchy. Solver reproduction,
 external UI timeline persistence, and final canonical dataset regeneration
 remain open. Final regeneration must remain the last project task.
 
@@ -138,7 +140,7 @@ implement without profiling evidence.
 
 ## S6 Part 52 — Validation State and Phase Boundary
 
-**Classification:** simulation mechanics resolved; FFR data-fidelity policy implemented; asset/CPI differences reconciled as source-vintage; A2/A3/A10 published-anchor acceptance surface implemented. Eligibility and Solver reproduction remain open.
+**Classification:** simulation mechanics resolved; FFR data-fidelity policy implemented; asset/CPI differences reconciled as source-vintage; A2/A3/A10 published-anchor acceptance surface implemented; full-universe eligibility resolved as diagnostic-only. Solver reproduction remains open.
 
 This section supersedes the former S6.P FFR prerequisite, S6.6B FFR integration
 limitation, and S6.6B canonical-replication-deferred entries.
@@ -173,11 +175,12 @@ limitation, and S6.6B canonical-replication-deferred entries.
   `tests/integration/test_part52_coverage_layer_semantics.py`: the legacy
   (1,452) and workbook-FFR (1,453) layers are fully historical; the
   historical-market layer (1,506) adds 53 cohorts using the FRED FFR extension;
-  the distribution layer (1,739) adds 233 projection-dependent cohorts. The
-  eligibility decision among these layers remains open.
-- Coverage-layer filtering (eligibility) and solver reproduction remain open.
-  The A2/A3/A10 published-anchor acceptance surface is implemented; full-universe
-  counts are diagnostics, not canonical acceptance.
+  the distribution layer (1,739) adds 233 projection-dependent cohorts.
+- Eligibility is resolved: `1,506` historical-market is the primary historical
+  diagnostic, `1,453` workbook-FFR is the mandatory sensitivity, `1,739` is
+  projection-only, and `1,452` is retired from policy. The A2/A3/A10
+  published-anchor acceptance surface is implemented; full-universe counts are
+  diagnostics, not canonical acceptance. Solver reproduction remains open.
 
 ### FFR data equivalence (bounded)
 
@@ -232,9 +235,9 @@ limitation, and S6.6B canonical-replication-deferred entries.
    full data coverage or an automatically correct canonical universe. Complete
    historical market/CPI coverage is 1,506 cohorts; workbook-native FFR coverage
    is 1,453. The filter is explicit at a Part 52 caller and covered by
-   `tests/integration/test_part52_cohort_coverage.py`; the oracle does not
-   apply it, and the full 1,739-cohort distribution remains the diagnostic
-   default.
+   `tests/integration/test_part52_cohort_coverage.py`; the oracle executes the
+   full 1,739-cohort distribution diagnostic, while the `1,506` layer is the
+   primary historical diagnostic for reporting.
 2. Post-2021 FFR handling is defined and implemented: actual FRED through
    2026-08, then hold the last observed rate. In the full universe, 286 cohorts
    consume post-2021 FFR and 230 consume forward-filled months; the
@@ -261,14 +264,17 @@ limitation, and S6.6B canonical-replication-deferred entries.
 8. The 2026-11 FFR source audit confirms FRED `FEDFUNDS` as the correct
    post-2021 extension: same H.15 effective-rate measure, monthly, with a
    verified `1954-07..2021-12` overlap against workbook `M`. Source selection
-   is no longer open. The remaining decision is eligibility: whether to replace
-   the legacy `1,452` terminal filter with the `1,506` historical-market layer.
-   The A2/A3/A10 acceptance surface is implemented and asset/CPI differences are
-   reconciled as source-vintage; the `1,453`/`1,506` choice still requires an
-   explicit rule for post-2021 external FFR observations. Do not change
-   production eligibility or refresh the frozen FFR artifact as part of this
-   audit. See `docs/research/ern_part52_replication.md` §3.4.
-### Phase 2 — validation semantics and oracle assertions (acceptance surface implemented; diagnostics and Solver open)
+   and eligibility are resolved. The `1,506` historical-market layer is the
+   primary historical diagnostic; the `1,453` workbook-native layer is the
+   mandatory sensitivity; the `1,739` distribution is projection-only; the
+   legacy `1,452` terminal filter is retired. External FFR observations are
+   admissible in the primary diagnostic only when all market/CPI inputs are
+   observed, latest consumed FFR is within the frozen artifact endpoint, and
+   the verified same-measure provenance is retained. This rule governs
+   diagnostics only, not canonical acceptance. Do not refresh the frozen FFR
+   artifact as part of this audit. See `docs/research/ern_part52_replication.md`
+   §3.4 and §14.4.
+### Phase 2 — validation semantics and oracle assertions (acceptance surface and eligibility implemented; Solver open)
 
 The canonical oracle test now documents scenario provenance, LTV/final-target
 limitations, and the distinction between gross survival and feasibility.
@@ -280,28 +286,30 @@ limitations, and the distinction between gross survival and feasibility.
    reproduce the workbook Solver or confirm its published optimized WR/Borrow%
    outputs.
 2. **Full-universe diagnostics** — gross-survival and feasibility counts are
-   diagnostics, not canonical acceptance targets. Report them separately by
-   coverage layer (`1,739` distribution, `1,506` historical-market, `1,453`
-   workbook-FFR, `1,452` legacy terminal) and by dataset vintage. Current-vintage
-   fixed-parameter all-three counts are A2 `1703/1739`, A3 `1735/1739`, and A10
-   `1323/1739`; the corresponding historical-market counts are A2 `1470/1506`,
-   A3 `1502/1506`, and A10 `1090/1506`. Gross survival is `100%` in every layer
-   on this vintage, but these counts are not canonical historical validation.
+   diagnostics, not canonical acceptance targets. Report them by dataset
+   vintage and by the resolved hierarchy: `1,506` historical-market primary,
+   `1,453` workbook-FFR sensitivity, and `1,739` distribution projection-only.
+   The retired `1,452` legacy layer may appear only as a historical comparison,
+   not as an eligibility layer. Current-vintage fixed-parameter all-three counts
+   are A2 `1703/1739`, A3 `1735/1739`, and A10 `1323/1739`; the corresponding
+   historical-market counts are A2 `1470/1506`, A3 `1502/1506`, and A10
+   `1090/1506`. Gross survival is `100%` in every layer on this vintage, but
+   these counts are not canonical historical validation.
 3. **Solver reproduction** — deferred. The published values are Solver outputs;
    fixed-parameter feasibility at those values is regression protection, not
    Solver replication.
-4. **Eligibility** — assessed; decision remains open for full-universe
-   diagnostics. `1,452` is a legacy terminal filter and is not canonical.
-   `1,453` is the largest workbook-native-FFR universe; `1,506` is the largest
-   all-observed-historical universe but requires the FRED FFR extension for 53
-   cohorts. The 2026-11 scope audit found no article- or workbook-defined full
-   Part 52 universe: the article reports only the `1965-11` and `1929-09` case
-   studies, and the Timing workbook has no cohort-distribution sheet. Canonical
-   acceptance is therefore anchor-based; the `1,453`/`1,506` choice is a
-   diagnostic-universe policy and still requires an explicit rule for post-2021
-   external FFR observations. See `docs/research/ern_part52_replication.md`
-   §14.3–14.4. Do not choose a universe merely because it has more
-   observations.
+4. **Eligibility** — resolved as a diagnostic hierarchy. `1,506`
+   historical-market is primary because every input is observed; it includes 53
+   cohorts using the verified FRED FFR extension. `1,453` workbook-native is the
+   mandatory sensitivity. `1,739` distribution is projection-only, and `1,452`
+   is a retired legacy terminal filter. The 2026-11 scope audit found no article-
+   or workbook-defined full Part 52 universe: the article reports only the
+   `1965-11` and `1929-09` case studies, and the Timing workbook has no
+   cohort-distribution sheet. Canonical acceptance is therefore anchor-based;
+   full-universe results cannot become canonical acceptance without a
+   source-defined universe and independent published target. See
+   `docs/research/ern_part52_replication.md` §14.4. Do not choose a universe
+   merely because it has more observations.
 
 ### Deferred
 

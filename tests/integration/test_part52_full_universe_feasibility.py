@@ -12,6 +12,10 @@ current canonical dataset vintage. They are not canonical acceptance constants
 and do not establish historical or canonical validation. Coverage boundaries
 and their exact group sizes are owned by
 ``tests/integration/test_part52_cohort_coverage.py``.
+
+The resolved reporting hierarchy is: historical-market (``1,506``) primary,
+workbook-FFR (``1,453``) sensitivity, distribution (``1,739``) projection-only,
+and legacy terminal (``1,452``) retired.
 """
 
 from __future__ import annotations
@@ -246,6 +250,7 @@ def test_a10_full_universe_and_coverage_layer_accounting(
     for layer in layers:
         _assert_layer_accounting(layer)
 
+    assert tuple(layer.total for layer in layers) == (1739, 1506, 1453, 1452)
     assert layers[0].total >= layers[1].total >= layers[2].total >= layers[3].total
     assert layers[0].gross_survival == sum(1 for metric in metrics if metric.gross_survival)
 

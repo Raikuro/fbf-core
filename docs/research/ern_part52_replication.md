@@ -5,11 +5,11 @@
 >
 > **Implementation relationship:** Part 52 extends the leverage analysis from Part 49 by making margin borrowing state-dependent. Instead of borrowing a fixed portion of retirement spending every month, the retiree normally funds spending from the portfolio and activates margin borrowing only when the S&P 500 has fallen sufficiently below its most recent all-time high. A second rule repays the loan when the S&P 500 reaches a fresh real all-time high.
 >
-> **Methodology status:** SIMULATION MECHANICS AND FIXED-PARAMETER FEASIBILITY IMPLEMENTED. The FFR conversion formula is resolved (§3.2, §27.8). Asset/CPI differences against the 2022 Timing workbook are attributed to workbook vintage, not to an open formula or date-alignment defect (§3.4.1). **Phase 2 validation semantics** (gross survival versus the three-constraint feasibility result, diagnostic counts, and oracle assertions) remains open. Replicating the workbook Solver remains a separate future milestone. Drawdown uses the real total-return series (`Calc!AK`), not a nominal ATH. The terminal month is a valuation point with no withdrawal; the workbook executes 360 withdrawals across rows 40–399 and applies terminal growth/interest in row 400. Repayment cash flows are specified in §8.2 and §27.16.
+> **Methodology status:** SIMULATION MECHANICS, FIXED-PARAMETER FEASIBILITY, AND ELIGIBILITY POLICY IMPLEMENTED. The FFR conversion formula is resolved (§3.2, §27.8). Asset/CPI differences against the 2022 Timing workbook are attributed to workbook vintage, not to an open formula or date-alignment defect (§3.4.1). Phase 2 validation semantics (gross survival versus the three-constraint feasibility result, diagnostic counts, and oracle assertions) are implemented. Full-universe eligibility is resolved as a diagnostic hierarchy: `1,506` historical-market is primary, `1,453` workbook-FFR is the strict sensitivity, `1,739` distribution is projection-only, and `1,452` legacy terminal is retired (§14.4). Replicating the workbook Solver remains a separate future milestone. Drawdown uses the real total-return series (`Calc!AK`), not a nominal ATH. The terminal month is a valuation point with no withdrawal; the workbook executes 360 withdrawals across rows 40–399 and applies terminal growth/interest in row 400. Repayment cash flows are specified in §8.2 and §27.16.
 >
 > **Phase 1 FFR data fidelity policy:** implemented. The workbook `Distribution of Final Value` sheet defines 1,739 retirement labels (1871-02..2015-12; runtime starts 1871-01..2015-11), but it is stale at 2015-12. SWR Toolbox historical market/CPI data end at 2026-06 and support 1,506 complete 30-year cohorts; the separate FFR workbook `Return Data!K` ends at 2021-12 and supports 1,453 workbook-native FFR cohorts. The 1,452-cohort 2021-12 terminal-snapshot subset is a legacy one-month-stricter filter, not full data coverage. Post-2021 FFR uses actual FRED observations through 2026-08 followed by a documented hold-last policy, and the FFR artifact is frozen with provenance hashes. The 2026-11 source audit confirms FRED `FEDFUNDS` as the defensible extension; it is the same H.15 effective-rate measure, not a target, T-bill, or secured-rate substitute (§3.4).
 >
-> **E2E status:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR data-fidelity and validation-semantics questions. Solver replication is deferred.
+> **E2E status:** CAN PROCEED. Canonical acceptance is the published-anchor fixed-parameter feasibility surface for A2/A3/A10; no source defines a full Part 52 cohort universe, so full-universe runs remain diagnostics. Solver replication is deferred.
 >
 > **Data boundary:** `SWR_Toolbox_v2.0.xlsx` `Asset Returns!I` is a 3-month T-bill total-return index, not FFR. Euro-area reference-rate analogues are research-only and are not part of this replication.
 
@@ -196,7 +196,7 @@ The `2008/9` S&P 500 cluster is explained by faulty Timing `Return Data!E` level
 
 The Timing workbook's CPI column C is also not the same as its `CPI Shiller` column G; the SWR runtime uses the column-C family. Do not substitute the Shiller `data/ern/raw/ie_data.csv` CPI for the runtime CPI.
 
-Implication: exact numerical equivalence with the 2022 Timing workbook is not a valid acceptance test. The current runtime is the corrected SWR vintage. The `2008/9` cluster can affect cohorts whose 30-year window includes late 2008 or early 2009; it does not affect the `1929` or `1965` A10 anchors. The substantive CPI revision is confined to `2019-2021` and affects real-return and terminal-snapshot calculations for cohorts ending in those months. Part 52 validation may use the current SWR asset/CPI series; the separate eligibility decision remains open.
+Implication: exact numerical equivalence with the 2022 Timing workbook is not a valid acceptance test. The current runtime is the corrected SWR vintage. The `2008/9` cluster can affect cohorts whose 30-year window includes late 2008 or early 2009; it does not affect the `1929` or `1965` A10 anchors. The substantive CPI revision is confined to `2019-2021` and affects real-return and terminal-snapshot calculations for cohorts ending in those months. Part 52 validation may use the current SWR asset/CPI series; full-universe eligibility is resolved separately in §14.4.
 
 **FFR source audit (retrieved 2026-11-01).** The canonical workbook consumes FFR only through `2021-12`; `Return Data` ends at row 1815 and contains no later observations. `SWR_Toolbox_v2.0.xlsx` contains no FFR series at all. The post-2021 requirement is therefore an extension problem, not a workbook re-extraction problem. The recommended extension is FRED `FEDFUNDS` from `2022-01`: it is the same effective federal funds rate measure, published by the Board of Governors in H.15, monthly, percent, not seasonally adjusted, as an average of daily effective-rate observations. The H.15 monthly footnote states that monthly figures include each calendar day in the month. Values are divided by `100`; no level adjustment or splice factor is applied. This preserves the workbook's effective-rate definition and the `FFR + spread` model.
 
@@ -799,14 +799,18 @@ The three candidate historical universes are not interchangeable; each encodes a
 
 The `1,739` distribution sheet is not a historical-validation universe: 233 cohorts require projected asset/CPI and FFR, with the latest simulation requirements extending to `2045-10` FFR and `2045-11` terminal snapshots. It remains a projection/extension diagnostic.
 
-The available evidence is sufficient to reject `1,452` as a canonical historical universe: it is a legacy one-month-stricter filter, not a methodology-derived boundary. It does not establish either `1,453` or `1,506` as an article-defined canonical universe, and the external FFR extension policy remains unresolved.
+The evidence rejects `1,452` as a canonical historical universe: it is a legacy one-month-stricter filter, not a methodology-derived boundary. Neither `1,453` nor `1,506` is an article-defined canonical universe.
 
-1. **Intended Part 52 cohort universe — scope established.** The §14.3 scope audit found no article- or workbook-defined full Part 52 universe: the article reports only the `1965-11` and `1929-09` case studies, and the Timing workbook has no cohort-distribution sheet. The `1,739` `Distribution of Final Value` sheet is an SWR Toolbox artifact and is not the Part 52-specific validation target. Consequently `1,453` and `1,506` are candidate full-universe diagnostics, not article-defined canonical universes.
-2. **External FFR extension policy — open.** The `1,506` universe requires accepting the FRED `FEDFUNDS` extension as methodologically equivalent to the workbook's H.15 effective-rate series. The source audit in §3.4 establishes the same measure and exact overlap through `2021-12`, but the extension still lacks a reproducible download recipe and is subject to live revisions. The project has not adopted an explicit acceptance rule for post-workbook external FFR observations in full-universe historical diagnostics.
+**Resolved eligibility policy for diagnostics:**
 
-A subordinate definitional point follows from those two: the `1,452`/`1,453` boundary must not be resolved by treating the workbook FFR endpoint as a terminal asset/CPI constraint. If the intended universe is historical, the terminal asset/CPI snapshot date is not a reason to exclude a cohort whose FFR consumption is fully observed.
+1. **No source-defined full universe.** The §14.3 scope audit found no article- or workbook-defined full Part 52 universe: the article reports only the `1965-11` and `1929-09` case studies, and the Timing workbook has no cohort-distribution sheet. The `1,739` `Distribution of Final Value` sheet is an SWR Toolbox artifact and is not the Part 52-specific validation target. Canonical acceptance therefore remains the published-anchor fixed-parameter feasibility surface; full-universe runs cannot become canonical acceptance without a source-defined universe and an independent published target.
+2. **Primary historical diagnostic — `1,506`.** The primary full-universe diagnostic includes every cohort whose terminal asset/CPI snapshot is observed by `2026-06` and whose latest consumed FFR is observed by the frozen `2026-08` artifact endpoint. This is the largest all-observed-historical universe. Its 53-cohort difference from `1,453` (`1992-02..1996-06`) may use the frozen FRED `FEDFUNDS` extension because that extension is the same H.15 effective-rate measure, matches workbook `M` for all 810 overlapping months `1954-07..2021-12` (maximum measured absolute difference `3e-17`), and is used as an external extension only for diagnostics.
+3. **Workbook-native sensitivity — `1,453`.** The strict source-fidelity diagnostic includes only cohorts whose latest consumed FFR is workbook-native through `2021-12`. It excludes the 53 observed-historical cohorts above solely because their FFR consumption extends beyond the workbook. It remains mandatory as a sensitivity for any reported `1,506` diagnostic.
+4. **Projection/extension diagnostic — `1,739`.** The distribution layer is projection-only: 233 cohorts require projected asset/CPI after `2026-06`, and 230 also require forward-filled FFR after `2026-08`. It is not historical validation and must not be reported as such.
+5. **Retired legacy filter — `1,452`.** The terminal-snapshot filter aligned to the workbook FFR endpoint is retired from eligibility policy. It is not a canonical universe and has no standing as a primary or sensitivity layer.
+6. **Extension acceptance rule.** External post-2021 FFR observations are admissible in the primary historical diagnostic only when (a) all market/CPI inputs are observed historical, (b) the latest consumed FFR is at or before the frozen artifact endpoint, (c) the artifact retains the verified workbook overlap and same-measure provenance, and (d) the run does not refresh or replace the frozen artifact. Cohorts requiring forward-filled FFR are excluded from the historical diagnostic. This rule governs diagnostics only; it does not establish canonical equivalence with a source-defined Part 52 universe.
 
-Decision: eligibility remains open for full-universe diagnostics. The article and workbook do not define a full Part 52 cohort universe, so canonical acceptance remains anchor-based. `1,453` is the defensible workbook-native-FFR diagnostic; `1,506` is the defensible all-observed-historical diagnostic; neither is an article-defined canonical universe. The unresolved policy question is whether full-universe historical diagnostics may use the FRED extension. `1,739` remains a projection/extension diagnostic only. `1,452` is legacy and must not be promoted to canonical status by default.
+A subordinate definitional point follows: the `1,452`/`1,453` boundary must not be resolved by treating the workbook FFR endpoint as a terminal asset/CPI constraint. If the intended universe is historical, the terminal asset/CPI snapshot date is not a reason to exclude a cohort whose FFR consumption is fully observed.
 
 ---
 
@@ -1119,11 +1123,11 @@ The following are concrete implementation-fidelity findings identified during th
 
 3. **FFR cohort/date filtering — policy implemented**
 
-   The `Distribution of Final Value` sheet defines 1,739 cohorts (retirement labels 1871-02..2015-12; runtime starts 1871-01..2015-11), but it is stale at 2015-12. Historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The legacy 2021-12 terminal-snapshot subset selects cohorts whose terminal asset/CPI snapshot is on or before 2021-12, yielding 1,452 cohorts; it is one month stricter than FFR consumption and is not the canonical universe. The filter is explicit at the Part 52 caller, and the extended diagnostic default remains the full 1,739-cohort distribution.
+   The `Distribution of Final Value` sheet defines 1,739 cohorts (retirement labels 1871-02..2015-12; runtime starts 1871-01..2015-11), but it is stale at 2015-12. Historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The resolved diagnostic hierarchy is `1,506` historical-market primary, `1,453` workbook-FFR sensitivity, and `1,739` projection-only. The legacy 2021-12 terminal-snapshot subset (`1,452`) is retired from eligibility policy. The filter remains explicit at the Part 52 caller; see §14.4.
 
 4. **Full cohort validation**
 
-   The relevant canonical validation must ultimately cover the full intended cohort universe, where that universe is established by the resolved methodology. Do not accept a handful of successful cohorts as evidence that the date/trigger/FFR alignment is correct globally.
+   No source defines the full intended cohort universe, so a canonical full-cohort target cannot be asserted. Global alignment is instead checked by the full-universe diagnostic hierarchy in §14.4. Do not accept a handful of successful cohorts as evidence that date/trigger/FFR alignment is globally correct, and do not treat any full-universe diagnostic count as canonical acceptance.
 
 5. **Post-2021 FFR and projection-boundary interaction**
 
@@ -1141,9 +1145,9 @@ The following are concrete implementation-fidelity findings identified during th
    | A3 | 1,735 | 1,502 | 1,449 | 1,448 |
    | A10 | 1,323 | 1,090 | 1,037 | 1,036 |
 
-   Gross survival is `100%` in every layer for A2/A3/A10 on this vintage. These are diagnostics on the current production path, not canonical historical validation or acceptance constants. The `287` cohorts outside the legacy subset are the contiguous starts `1992-01..2015-11`. The `54` starts `1992-01..1996-06` account for the difference between the legacy and historical-market layers; the `233` starts `1996-07..2015-11` account for the difference between the historical-market and full-distribution layers and depend on projected asset/CPI after `2026-06` and, for later cohorts, FFR beyond the observed range. The FFR source audit and extension rationale are in §3.4. Asset/CPI vintage differences are explained in §3.4.1.
+   The `1,452` column is retained only for historical continuity; it is not an eligibility layer. Gross survival is `100%` in every layer for A2/A3/A10 on this vintage. These are diagnostics on the current production path, not canonical historical validation or acceptance constants. The `287` cohorts outside the legacy subset are the contiguous starts `1992-01..2015-11`. The `54` starts `1992-01..1996-06` account for the difference between the legacy and historical-market layers; the `233` starts `1996-07..2015-11` account for the difference between the historical-market and full-distribution layers and depend on projected asset/CPI after `2026-06` and, for later cohorts, FFR beyond the observed range. The FFR source audit and extension rationale are in §3.4. Asset/CPI vintage differences are explained in §3.4.1.
 
-   The choice between the `1,506`, `1,453`, and `1,452` coverage options remains an independent open eligibility decision. More observations do not by themselves make an option methodologically correct.
+   Eligibility is resolved: `1,506` is the primary historical diagnostic, `1,453` is the mandatory workbook-native sensitivity, `1,739` is projection-only, and `1,452` is retired. The primary layer is selected because every input is observed, not because it is larger; its 53-cohort extension is bounded by the rule in §14.4 and must be reported alongside the `1,453` sensitivity. More observations do not by themselves make an option methodologically correct.
 
 ---
 
@@ -1891,12 +1895,13 @@ reports `1739/1739` gross survival, `1686/1739` final-NW, `1656/1739` min-NW,
 `1323/1739` max-L/P, and `1323/1739` all-three. The Decimal recurrence produces
 the same counts; that is evidence of implementation consistency, not
 independent methodological confirmation. These full-universe counts remain
-diagnostics because the undocumented `N` vintage and validation semantics
-remain unresolved; asset/CPI vintage differences are explained in §3.4.1. They
-are **not** acceptance values and must be reported by coverage layer and
-dataset vintage. In particular, gross survival is not the three-constraint
-feasibility result. The choice between the `1,506`, `1,453`, and `1,452`
-coverage options remains an independent open eligibility decision. See §22.6.
+diagnostics because no source defines a full Part 52 cohort universe and the
+undocumented `N` vintage remains a limitation; asset/CPI vintage differences are
+explained in §3.4.1. They are **not** acceptance values and must be reported by
+coverage layer and dataset vintage. In particular, gross survival is not the
+three-constraint feasibility result. Eligibility is resolved in §14.4: `1,506`
+historical-market is primary, `1,453` workbook-FFR is the sensitivity, `1,739`
+distribution is projection-only, and `1,452` is retired.
 
 FFR temporal coverage, post-2021 handling, and the 2021-12 terminal-snapshot
 subset are implemented.
@@ -1955,9 +1960,9 @@ NONE — simulation mechanics are resolved.
 
 ### E. Validation requirements
 
-1. Full intended-cohort validation with an explicit eligibility rule.
+1. Full-universe validation uses the resolved diagnostic eligibility hierarchy in §14.4; no source-defined canonical full-cohort universe exists.
 2. Oracle assertions must distinguish gross survival from the three-constraint feasibility result.
-3. Full-universe counts are diagnostic, not canonical acceptance targets.
+3. Full-universe counts are diagnostic, not canonical acceptance targets; canonical acceptance remains the A2/A3/A10 published-anchor feasibility surface.
 
 ### F. Currency and proxy boundaries
 

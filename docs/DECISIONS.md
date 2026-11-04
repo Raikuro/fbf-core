@@ -926,6 +926,55 @@ consistent budget across all periods regardless of portfolio performance.
 
 ---
 
+## Part 52: Full-Universe Eligibility Is Diagnostic-Only
+
+**Decision:** Part 52 canonical acceptance remains the published-anchor
+fixed-parameter feasibility surface for A2 (`1965-11`), A3 (`1965-11`), and A10
+(`1929-09`). Full-universe runs are diagnostics with a fixed hierarchy:
+
+- `1,506` historical-market cohorts are the primary historical diagnostic. All
+  market/CPI inputs are observed through `2026-06`, and the 53 cohorts needing
+  post-2021 FFR use the frozen FRED `FEDFUNDS` extension through `2026-08`.
+- `1,453` workbook-native cohorts are the mandatory sensitivity. No cohort uses
+  post-2021 external FFR.
+- `1,739` distribution cohorts are projection-only. They include projected
+  asset/CPI and, for 230 cohorts, forward-filled FFR.
+- `1,452` legacy terminal cohorts are retired from eligibility policy.
+
+External post-2021 FFR observations are admissible only in the primary
+historical diagnostic, and only when all market/CPI inputs are observed, the
+latest consumed FFR is within the frozen artifact endpoint, the verified
+same-measure provenance and workbook overlap are retained, and the artifact is
+not refreshed during the run.
+
+**Why:** The Part 52 article publishes the `1965-11` and `1929-09` case studies
+and states that additional cohorts were examined but not published. Neither the
+article nor the Timing workbook defines a complete Part 52 cohort universe. The
+`1,739` distribution sheet is an SWR Toolbox artifact, not a Part 52 target.
+Without a source-defined universe or independent published target, a
+full-universe count cannot be canonical acceptance. The `1,506` layer is
+preferred for historical diagnostics because every input is observed, not
+because it is larger. The FRED extension is the same H.15 effective-rate
+measure, matches workbook `M` for all 810 overlapping months (maximum measured
+absolute difference `3e-17`), and its effect is bounded by the mandatory `1,453`
+sensitivity.
+
+**Alternatives rejected:**
+- Treating `1,739` as canonical — rejected because it requires projected
+  asset/CPI and forward-filled FFR and has no source-defined Part 52 target.
+- Promoting `1,452` — rejected because it is an artifact of aligning terminal
+  asset/CPI snapshots to the workbook FFR endpoint, not a coverage rule.
+- Using only `1,453` as the historical diagnostic — rejected because it excludes
+  53 cohorts whose asset/CPI and FFR inputs are fully observed.
+- Treating `1,506` as canonical — rejected because the external extension and
+  full-universe population are not source-defined.
+
+**Consequence:** Full-universe reports must state the layer and dataset vintage,
+report `1,506` with the `1,453` sensitivity, and never present any of them as
+canonical acceptance. Solver replication remains a separate deferred milestone.
+
+---
+
 ## Execution Backend: FAST-only (D4.3)
 
 **Decision:** `ExecutionBackend` exposes exactly one value, `FAST`. The

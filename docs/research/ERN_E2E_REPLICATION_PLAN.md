@@ -229,9 +229,9 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 #### Part 52 — NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
 
 - **Classification:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
-- **Methodology status:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and the 2021-12 terminal-snapshot subset are implemented. Asset/CPI differences are reconciled as source-vintage differences, and the A2/A3/A10 published-anchor acceptance surface is implemented; eligibility/full-universe policy and Solver reproduction remain open.
+- **Methodology status:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and the 2021-12 terminal-snapshot subset are implemented. Asset/CPI differences are reconciled as source-vintage differences, and the A2/A3/A10 published-anchor acceptance surface is implemented. Full-universe eligibility is resolved as a diagnostic hierarchy (`1,506` primary, `1,453` sensitivity, `1,739` projection-only, `1,452` retired); Solver reproduction remains open.
 - **FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. The 1,739-row `Distribution of Final Value` is stale at 2015-12. SWR Toolbox historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The 1,452-cohort 2021-12 terminal-snapshot subset is a legacy one-month-stricter filter, not full data coverage. In the 1,739-cohort distribution, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; the pre-1954 `N` upstream source/vintage remains a documented provenance limitation.
-- **E2E specification:** CAN PROCEED for mechanics validation. The A2/A3/A10 published-anchor acceptance surface is implemented; full-universe counts are diagnostics. Eligibility/full-universe policy and Solver reproduction remain open.
+- **E2E specification:** CAN PROCEED. The A2/A3/A10 published-anchor acceptance surface is implemented; full-universe counts are diagnostics under the resolved eligibility hierarchy. Solver reproduction remains open.
 - **Existing tests useful as:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment; LTV observed, not enforced).
 - **Test files:** `tests/oracle/ern/test_part52_replication.py` (11 scenarios, gated `research_validation`).
 - **Documentation:** `TODO.md` §S6 Part 52 — Validation State and Phase Boundary; `docs/research/ern_part52_replication.md` §28.
@@ -247,7 +247,7 @@ This document covers the eight ERN (Early Retirement Now) Safe Withdrawal Rate a
 | Part 20 | YES | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
 | Part 42 | NO (historical) | Historical published-table audit retired; current structural/oracle coverage retained | None |
 | Part 49 | YES (A–F) | Experiment A analytically reproduced; canonical B–F implemented and gated; non-canonical 6-cell diagnostic retained | Final canonical-data revalidation pending |
-| Part 52 | PARTIAL | A2/A3/A10 published-anchor feasibility; A1/A9 diagnostics; other scenarios research validation | Eligibility/full-universe policy; Solver reproduction deferred |
+| Part 52 | PARTIAL | A2/A3/A10 published-anchor feasibility; A1/A9 diagnostics; full-universe diagnostic hierarchy resolved; other scenarios research validation | Solver reproduction deferred |
 
 ---
 
@@ -373,7 +373,7 @@ Different policies (untimed leverage vs timing-based leverage, different LTV con
 | Part 20 (Glidepaths) | Audit complete on available data — canonical-data revalidation pending | Final canonical-data validation |
 | Part 42 (OMY) | Historical published-table audit retired; current structural/oracle coverage retained | None |
 | Part 49 (Leverage) | Experiment A analytically reproduced; canonical B–F implemented; non-canonical 6-cell diagnostic retained | Final canonical-data revalidation pending |
-| Part 52 (Timing Leverage) | Non-canonical research validation — partially validated | Eligibility/full-universe policy; Solver reproduction deferred |
+| Part 52 (Timing Leverage) | Non-canonical research validation — anchor acceptance implemented; full-universe diagnostics resolved | Solver reproduction deferred |
 
 ### E.4 Strict-Superset Relationships
 
@@ -510,15 +510,15 @@ The Part 20 forensic investigations are complete on the available data and accep
 
 ### F.5 Part 52 — Timing Leverage
 
-**Status:** NON-CANONICAL RESEARCH VALIDATION — PARTIALLY VALIDATED
-**Methodology:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling and the 2021-12 terminal-snapshot subset are implemented; remaining work is FFR vintage, asset/CPI numerical equivalence, and validation semantics.
-**E2E specification:** CAN PROCEED for mechanics validation. Canonical acceptance remains blocked by open FFR vintage/asset-CPI fidelity and validation-semantics questions.
+**Status:** NON-CANONICAL RESEARCH VALIDATION — ANCHOR ACCEPTANCE IMPLEMENTED; SOLVER DEFERRED
+**Methodology:** Simulation mechanics resolved, including the FFR conversion formula and real total-return ATH semantics. FFR temporal handling, the 2021-12 terminal-snapshot subset, and validation semantics are implemented. Asset/CPI differences are reconciled as source-vintage; pre-1954 `N` provenance remains a documented limitation. Full-universe eligibility is resolved as a diagnostic hierarchy: `1,506` historical-market primary, `1,453` workbook-FFR sensitivity, `1,739` projection-only, `1,452` retired.
+**E2E specification:** CAN PROCEED. Canonical acceptance is the A2/A3/A10 published-anchor fixed-parameter feasibility surface; full-universe counts are diagnostics.
 **FFR dataset coverage:** PARTIALLY RESOLVED. Runtime `ffr.csv` has 1,868 observations (1871-01..2026-08) and matches workbook `Return Data!K` over all 1,812 common months through 2021-12. Values from 2022-01..2026-08 are actual FRED `FEDFUNDS` observations; runtime forward-fill begins after 2026-08. The 1,739-row `Distribution of Final Value` is stale at 2015-12. SWR Toolbox historical market/CPI coverage supports 1,506 cohorts through 2026-06; workbook-native FFR supports 1,453 cohorts through 2021-12. The 1,452-cohort 2021-12 terminal-snapshot subset is a legacy one-month-stricter filter, not full data coverage. In the 1,739-cohort distribution, 286 cohorts consume post-2021 FFR and 230 consume forward-filled months. Post-2021 handling is implemented through actual FRED observations to 2026-08 followed by hold-last; FFR vintage remains open because the workbook does not document the upstream source or vintage of the pre-1954 `N` fallback. The FRED snapshot is consistent but its acquisition path is not fully reproducible; the SWR cash series is a 3-month T-bill total-return index and is not an FFR substitute.
-**Validation scope:** Current oracle test measures gross survival, not the three-constraint feasibility result; full-universe counts are diagnostic. Euro-area reference-rate analogues are research-only and out of scope for this replication.
+**Validation scope:** The oracle test distinguishes gross survival from the three-constraint feasibility result and asserts A2/A3/A10 anchor feasibility. Full-universe counts are diagnostic under the resolved coverage hierarchy. Euro-area reference-rate analogues are research-only and out of scope for this replication.
 **Existing value:** Non-canonical validation of Part 52 mechanics (drawdown triggers, repayment; LTV observed, not enforced).
 **Test classification:** `@pytest.mark.research_validation` (gated by `RUN_ERN_E2E=1`).
 **Test files:** `tests/oracle/ern/test_part52_replication.py` (11 scenarios).
-**What would make it canonical:** Resolution of Phase 1 FFR data fidelity, Phase 2 validation semantics, and full intended-cohort validation.
+**What would make it canonical:** Workbook Solver reproduction. A full-cohort canonical target would additionally require a source-defined Part 52 cohort universe and independent published target; neither exists today.
 
 ---
 
@@ -885,7 +885,7 @@ canonical data remains pending with the final dataset regeneration.
 
 ### Remaining open/deferred work
 
-1. **Part 52** — eligibility/full-universe policy decision; Solver reproduction deferred.
+1. **Part 52** — Solver reproduction deferred; eligibility/full-universe policy is resolved and full-universe results remain diagnostic.
 2. **External UI timeline persistence** — `fbf-ui` integration, not a Core execution change.
 3. **Final canonical dataset regeneration and revalidation** — must remain the final project task.
 
