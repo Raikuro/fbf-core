@@ -78,8 +78,10 @@ Full setup, extraction, regeneration, and validation workflows are in
 | [`AGENTS.md`](./AGENTS.md) | Contributor and coding-agent constraints |
 
 Datasets are external to the wheel. Point `--data-dir` (CLI) or the `data_dir`
-Core API parameter at a Dataset Directory of `<identifier>.json` files. ERN
-CSV sources and provenance are documented in [`DATASETS.md`](./DATASETS.md).
+Core API parameter at a directory containing the canonical CSV sources. The ERN
+loader reads the fixed filenames documented in [`DATASETS.md`](./DATASETS.md)
+and reconstructs an immutable `Dataset`; there is no generic JSON dataset
+resolver or cache.
 
 ---
 

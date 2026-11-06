@@ -29,19 +29,6 @@ Part 52 Solver reproduction and the euro-area analogue are outside this task.
 
 ---
 
-## Dataset Loader Type Discrimination
-
-**Classification:** architectural debt
-
-The JSON dataset loader identifies auxiliary datasets by checking
-`"frequency" in raw`. Any JSON file with that key could be misidentified.
-
-Use positive identification through an explicit dataset type field, schema
-discriminator, registry, or validation of both `frequency` and `snapshots`.
-The current workaround is the FFR file's `data_frequency` key.
-
----
-
 ## Numba Annual Withdrawal Frequency Coverage
 
 **Classification:** unsupported Numba scope; explicitly rejected

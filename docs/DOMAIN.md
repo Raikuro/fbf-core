@@ -43,23 +43,34 @@ in which they execute never affects results.
 
 ### Portfolio
 
-The economic state of a portfolio at a given instant. Contains a list of
-AssetHoldings (each: AssetClass + euro value) and total wealth.
+An immutable snapshot of asset ownership at a point in time. A `Portfolio`
+contains a sequence of `AssetHolding` values; each holding pairs an `AssetClass`
+with a `units` quantity.
+
+**Valuation:**
+At a given `MarketSnapshot`, each holding's value is
+`units × MarketSnapshot.index_levels[asset_class]`. Total portfolio value is the
+sum of those values over all holdings. `index_levels` provide the per-unit index
+level for each asset; the `Portfolio` itself stores no monetary values.
 
 **Invariants:**
-1. Total wealth equals the sum of all asset holdings.
-2. No asset holding may be negative.
-3. Allocation sums to exactly 100% (within rounding tolerance).
-4. No money is created or destroyed by any operation.
+1. Holding units are non-negative.
+2. Total wealth equals the sum of `units × index_level` over all holdings at the
+   valuation snapshot.
+3. Derived allocation weights sum to exactly 100% within the domain's `Decimal`
+   arithmetic.
+4. Portfolio operations do not create or destroy wealth.
 
-Portfolio stores euros, never shares or units. All modifications go
-exclusively through PortfolioService.
+`Portfolio` and `AssetHolding` are frozen dataclasses and are never mutated.
+Withdrawals, rebalances, and market evolution are executed by the domain services
+`PortfolioWithdrawalService`, `PortfolioRebalanceService`, and
+`PortfolioMarketEvolutionService`; each returns a new `Portfolio`.
 
 ### AssetClass
 
 An abstract category of financial asset (e.g. ACWI Total Return EUR, Euro
 Government Bonds). Identifies a time series within a Dataset. Never stores
-money, knows a Portfolio, or contains logic.
+money or portfolio state and contains no simulation logic.
 
 ### Dataset and MarketSnapshot
 
@@ -68,9 +79,9 @@ loaded and validated before simulation begins. Completely immutable and
 shared by all simulations.
 
 A **MarketSnapshot** is an immutable point-in-time market state for a single
-month: date, per-AssetClass returns and index levels, monthly and cumulative
-inflation, running all-time-high, and underwater status. Never contains
-portfolio information.
+month: date, per-AssetClass index levels used to value holdings, monthly and
+cumulative inflation, running all-time-high, underwater status, and optional
+CAPE. Never contains portfolio information.
 
 ---
 

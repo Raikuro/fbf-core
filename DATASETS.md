@@ -5,8 +5,7 @@ provenance. Methodology and acceptance anchors are in
 [`docs/ERN_METHODOLOGY.md`](docs/ERN_METHODOLOGY.md); extraction and
 regeneration commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
-**Status:** adopted. The distribution model is generic; the ERN bundle in
-`data/ern/` is one Dataset Directory.
+**Status:** adopted. The canonical ERN production data lives in `data/ern/`.
 
 ---
 
@@ -14,42 +13,24 @@ regeneration commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
 1. Datasets are **not** part of the Core wheel. The wheel ships code and type
    information only.
-2. Resolution, loading, and caching are owned by `fbf-core`. CLI consumers only
-   pass through a `--data-dir` path.
-3. A **Dataset Directory** contains one JSON file per dataset. The filename stem
-   is the stable identifier; the file contains a `version` marker.
-4. Installed-only deployments must obtain and supply a Dataset Directory
+2. A data directory is an external local directory supplied explicitly through
+   the CLI `--data-dir` option or the `data_dir` Core API parameter. Core owns
+   dataset loading; consumers only supply the path.
+3. The canonical ERN loader expects the fixed CSV filenames listed in
+   [§2](#2-ern-dataset-files). It reconstructs an immutable `Dataset` from those
+   series, including the workbook-defined forward projection and derived market
+   state.
+4. There is no generic JSON dataset discovery, identifier/version resolver, or
+   process-local dataset cache. `build_study_plan` calls
+   `load_canonical_dataset(Path(data_dir))` unless the caller supplies an
+   already-loaded `Dataset`. The `data_dir` parameter is still required for
+   auxiliary series such as FFR when the configuration requests them.
+5. Installed-only deployments must obtain and supply the required files
    explicitly. There is no built-in fetch or materialization step.
-5. Datasets are immutable once loaded and are cached process-locally.
+6. There is no environment-variable or well-known-path fallback.
 
-The generic discovery and versioning contract is implemented by
-`fbf.core.persistence.studies.sqlite` and the study builder. If `data_dir` is
-`None`, any dataset lookup fails with `StudyNotFoundError`; there is no
-environment-variable or well-known-path fallback.
-
-### Dataset file schema
-
-```json
-{
-  "version": "<string>",
-  "frequency": "<string, e.g. monthly>",
-  "snapshots": [
-    {
-      "date": "<YYYY-MM-DD>",
-      "index_levels": {"<asset id>": "<decimal string>"},
-      "inflation": "<decimal string>",
-      "inflation_cumulative": "<decimal string>",
-      "is_ath": true,
-      "is_underwater": false,
-      "running_ath": "<decimal string>"
-    }
-  ]
-}
-```
-
-`Dataset` requires at least one snapshot, chronological order, and unique
-dates. Identifier reuse with incompatible contents is a breaking change; ship
-a new identifier or version and update referencing studies.
+`Dataset` requires at least one snapshot, chronological order, and unique dates.
+The loaded dataset is immutable and shared across simulations.
 
 ---
 

@@ -10,8 +10,8 @@
   "acquisition": {
     "acquired_at": "2026-09-01",
     "acquired_by": "FBF research workflow",
-    "method": "Local file copy from /home/raikuro/Escritorio/ie_data.csv",
-    "original_location": "/home/raikuro/Escritorio/ie_data.csv",
+    "method": "Local file copy from an external user-supplied Shiller CSV archive",
+    "original_location": "External user-supplied archive; local path not retained",
     "vintage": "unknown — this is a 2026 snapshot, not confirmed as the 2016-era version ERN used"
   },
   "content": {

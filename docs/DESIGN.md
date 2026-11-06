@@ -117,9 +117,10 @@ datasets, never access the filesystem, and never perform I/O.
 
 ## Immutability
 
-All domain objects are frozen dataclasses by default. Only `SimulationState`,
-`Portfolio`, and `AssetHolding` are mutable — and only during explicit state
-transitions within the pipeline.
+Core domain models are immutable; [`DOMAIN.md`](./DOMAIN.md) defines which
+models are frozen and how services produce new instances. Mutable state belongs
+to the execution layer (for example
+`execution.pipeline.simulation.SimulationState`), not to domain value objects.
 
 **Why:** Immutability makes state transitions explicit and auditable. It
 prevents hidden mutation, enables safe sharing across workers (the same
@@ -129,11 +130,11 @@ construction. Hidden mutation would make results depend on execution order,
 which is unacceptable for reproducible research.
 
 The separation between **Configuration** (immutable: Dataset, AllocationPolicy,
-WithdrawalPolicy, Horizon, Target) and **State** (mutable: Portfolio,
-Allocation, Accumulated Withdrawal) is absolute. They must never be mixed.
-`ExperimentDefinition` is completely immutable and never contains results.
-`SimulationResult` is constructed exactly once at simulation end and never
-modified.
+WithdrawalPolicy, Horizon, Target) and **State** (mutable execution data such
+as period counters, cash and debt balances, and accumulated results) is
+absolute. They must never be mixed. `ExperimentDefinition` is completely
+immutable and never contains results. `SimulationResult` is constructed exactly
+once at simulation end and never modified.
 
 ---
 

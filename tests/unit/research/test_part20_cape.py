@@ -153,15 +153,6 @@ class TestCapeBinaryMissingCAPE:
         with pytest.raises((ValueError, TypeError)):
             classify_cape_binary(None)  # type: ignore[arg-type]
 
-    def test_missing_cape_in_aggregation_excludes(self) -> None:
-        """Cohorts without CAPE must be excluded from Part 20 aggregation."""
-
-        # This test verifies the exclusion logic by checking that
-        # excluded_no_cape is tracked. The actual Part 20 aggregation
-        # will follow the same pattern.
-        manifest_cohorts_without_cape = 1739 - 1485  # 254 cohorts
-        assert manifest_cohorts_without_cape == 254
-
 
 class TestCapeBinaryCohortStart:
     """Verify cohort-start snapshot selection for CAPE."""

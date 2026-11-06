@@ -21,9 +21,9 @@ applied to every scenario (`debt_ltv_enforcement=False`). Full-universe
 gross-survival counts are diagnostic, not canonical acceptance targets.
 
 The FFR conversion formula is resolved (see
-docs/ERN_METHODOLOGY.md §3 and §6). Open questions are
-FFR data fidelity (vintage, post-2021 handling, end-bound/cohort eligibility,
-stale provenance metadata) and validation semantics, not the conversion formula.
+docs/ERN_METHODOLOGY.md §3 and §6). FFR data-fidelity limitations are documented
+in `DATASETS.md` and `data/ern/ffr.provenance.json`; validation semantics are
+separate from the conversion formula.
 
 Canonical Configuration Matrix (from ERN Part 52 primary source):
 

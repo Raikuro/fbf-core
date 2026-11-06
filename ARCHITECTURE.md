@@ -227,11 +227,12 @@ validation, and release builds are documented in
 
 ## 11. Dataset Distribution & Ownership
 
-Datasets are not shipped in the wheel. They are external artifacts resolved
-through the generic Dataset Directory contract, and `fbf-core` owns resolution,
-loading, and process-local caching. The CLI only passes through `--data-dir`.
-See [DATASETS.md](./DATASETS.md) for the contract, canonical sources, and
-provenance.
+Datasets are not shipped in the wheel. They are external local artifacts. The
+study builder loads the canonical ERN CSV series through
+`load_canonical_dataset(Path(data_dir))`, or accepts an already-loaded `Dataset`
+from its caller. There is no generic JSON dataset resolver, identifier/version
+lookup, or process-local dataset cache. The CLI only passes through `--data-dir`.
+See [DATASETS.md](./DATASETS.md) for canonical sources, filenames, and provenance.
 
 ---
 
