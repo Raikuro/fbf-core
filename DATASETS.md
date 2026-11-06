@@ -152,6 +152,7 @@ repeat this mapping.
   ├── spx_tr.csv                 → nominal equity index (auxiliary)
   ├── bm10.csv                   → nominal 10-year bond index (auxiliary)
   ├── cpi.csv                    → CPI levels (interest-rate inflation adjustment)
+  ├── cape_shiller.csv           → Shiller CAPE for cohort manifests (research)
   └── ffr.csv                    → Federal Funds Rate (rate-only time series)
 ```
 
@@ -162,6 +163,7 @@ repeat this mapping.
 | `spx_tr.csv` | S&P 500 total-return nominal index | auxiliary data; not loaded by `load_ern_dataset` |
 | `bm10.csv` | 10-Year Bond Market cumulative nominal index | auxiliary data; not loaded by `load_ern_dataset` |
 | `cpi.csv` | CPI index level | `fbf.core.datasets.ern` (interest-rate inflation adjustment) |
+| `cape_shiller.csv` | Shiller CAPE for Part 3/19/20 cohort manifests | research manifest; not loaded by `load_ern_dataset` |
 | `ffr.csv` | Federal Funds Rate (annual, nominal) | `fbf.core.study.builder.load_ffr_rates` → `tuple[date, Decimal]` |
 
 The equity and bond CSVs are loaded by the canonical ERN dataset loader and
@@ -183,12 +185,24 @@ sheet, validates contiguous monthly dates and the `Q`/`R` formulas, and writes:
 | `spx_tr.csv` | `F` (S&P 500 total-return nominal index) |
 | `bm10.csv` | `G` (10-year bond market cumulative nominal index) |
 | `cpi.csv` | `E` (CPI level) |
+| `cape_shiller.csv` | `O` (Shiller CAPE; canonical CAPE source) |
 | `workbook_returns.csv` | `Q` and `R`, combined oracle fixture |
 
 The cached values are preserved exactly: no formula is re-evaluated and no
 rounding, normalization, or reconstruction is applied. Each output has a
 sibling `<name>.provenance.json` recording the workbook sheet, source column,
-observation count, and date range.
+observation count, and date range. CAPE provenance additionally records the
+extraction tool/version and explicit no-merge transformations.
+
+CAPE is **workbook-only**. `SWR_Toolbox_v2.0.xlsx`, `Asset Returns!O`
+(`O6:O1871`, 1,866 observations, `1871-01..2026-06`) is authoritative. Raw
+`data/ern/raw/ie_data.csv`, any Shiller JSON source,
+`canonical/ern_asset_returns.csv`, and the pre-migration hybrid
+`cape_shiller.csv` composition are not canonical CAPE sources and must not be
+used to fill, extend, or correct it. The committed CAPE artifact is awaiting
+the workbook-only migration. The extraction and replacement procedure is in
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md); acceptance categories are in
+[`docs/ERN_METHODOLOGY.md`](docs/ERN_METHODOLOGY.md).
 
 `ffr.csv` is a separate canonical series. Its historical segment
 (`1871-01..2021-12`, 1,812 observations) is extracted from
@@ -205,16 +219,15 @@ SHA-256
 `98591457d5d03867bd81992d43b57a6cabc4ce967f3ec9324676216abbf2f5f1`.
 The 2026-11 source audit confirms FRED `FEDFUNDS` as the correct post-2021
 extension and rejects target-rate, Treasury-bill, SOFR, and reconstructed-FFR
-substitutes; see `docs/research/ern_part52_replication.md` §3.4.
+substitutes. See `docs/ERN_METHODOLOGY.md` §3 for the current Part 52 FFR
+treatment.
 `ffr_monthly.json` is a reconstructed research series, not the canonical
 workbook `K` series, and must not replace the historical segment.
 
 The FRED extension source is a local snapshot at
 `data/ern/raw/FEDFUNDS.csv` (866 monthly observations, `1954-07..2026-08`).
-It matches the embedded FRED snapshot used by
-`scripts/build_ffr_from_fred.py` for all 834 overlapping months through
-`2023-12`, and adds the `2024-01..2026-08` observations. Workbook `M` matches
-the raw series after `/100` for all 810 months `1954-07..2021-12`. The
+Workbook `M` matches the raw series after `/100` for all 810 months
+`1954-07..2021-12`. The
 repository records the source hash but does not contain a reproducible
 download recipe, so the acquisition path is a documented provenance
 limitation rather than a claim of full reproducibility. The workbook also
@@ -237,8 +250,8 @@ Post-1954 annualized cash returns differ from FRED `FEDFUNDS` with a mean bias
 of `-0.383` pp, mean absolute error of `0.464` pp, and correlation of `0.986`
 over 864 months. Before 1954-07 the cash series closely matches the workbook's
 short-term-yield leg (MAE `0.0095` pp over 1,001 months), which confirms it is
-the T-bill leg rather than FFR. The full comparison and implications are in
-`docs/research/ern_part52_replication.md` §3.5.
+the T-bill leg rather than FFR. It must not be used as an FFR source, fallback,
+or extension.
 
 ### Euro-area reference rates (research only)
 

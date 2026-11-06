@@ -11,8 +11,8 @@ from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.study import StudyConfiguration, build_study_plan
 from fbf.core.study.internal.cohort.generator import CohortGenerator
-from tests.oracle.ern.constants import ORACLE_CSV
-from tests.oracle.ern.published_dataset import (
+from tests.functional.ern.constants import ORACLE_CSV
+from tests.functional.ern.published_dataset import (
     PUBLISHED_DATA_DIR,
     PUBLISHED_EQUITY_FORWARD_ANNUAL,
     PUBLISHED_PROJECTION_END,

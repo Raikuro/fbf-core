@@ -266,9 +266,3 @@ def test_main_generates_provenance_without_rewriting_unchanged_artifact(
     assert ffr.main(args) == 0
     assert artifact.read_bytes() == artifact_bytes
     assert artifact.stat().st_mtime_ns == before_mtime
-
-
-def test_canonical_series_extractor_no_longer_owns_ffr() -> None:
-    from tools.ern import extract_canonical_series
-
-    assert not hasattr(extract_canonical_series, "extract_ffr")

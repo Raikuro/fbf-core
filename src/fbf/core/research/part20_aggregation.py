@@ -146,7 +146,7 @@ def _ordering_evidence() -> str:
     return (
         "ERNet: return → withdrawal → rebalance; "
         "FBF: withdrawal → rebalance → return "
-        "(docs/research/ern_part20_replication.md §8.1/§8.2, "
+        "(docs/ERN_METHODOLOGY.md §4 and §6, "
         "ern_part20_e2e_audit.md §9 known candidates)"
     )
 

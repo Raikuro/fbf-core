@@ -12,6 +12,7 @@ Extracted columns (``Asset Returns``):
 - ``E``: CPI level
 - ``F``: S&P 500 total-return nominal index
 - ``G``: 10-year bond market cumulative nominal index
+- ``O``: Shiller CAPE (authoritative canonical CAPE)
 - ``Q``: S&P 500 total-return real return
 - ``R``: 10-year bond market total-return real return
 
@@ -42,6 +43,12 @@ _FIRST_INDEX_ROW = 6  # 1871-01
 _FIRST_RETURN_ROW = 7  # 1871-02
 _LAST_RETURN_ROW = 1871  # 2026-06
 
+AUTHORIZED_SWR_WORKBOOK_SHA256 = (
+    "d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6"
+)
+EXTRACTION_TOOL = "tools/ern/extract_workbook_returns.py"
+EXTRACTION_TOOL_VERSION = "1.1.0"
+
 
 @dataclass(frozen=True)
 class WorkbookRow:
@@ -57,10 +64,11 @@ class WorkbookRow:
 
 @dataclass(frozen=True)
 class WorkbookData:
-    """Extracted index rows, return rows, and source identity."""
+    """Extracted index rows, return rows, CAPE rows, and source identity."""
 
     index_rows: tuple[tuple[str, Decimal, Decimal, Decimal], ...]
     return_rows: tuple[WorkbookRow, ...]
+    cape_rows: tuple[tuple[str, Decimal], ...]
     source_sha256: str
 
 
@@ -149,8 +157,34 @@ def _next_month(date: str) -> str:
     return _month_date(year, month + 1)
 
 
-def extract_workbook(workbook_path: Path) -> WorkbookData:
-    """Extract and validate all production rows from the workbook."""
+def _parse_cape(cells: dict[str, _Cell], row_number: int) -> Decimal:
+    """Return the positive cached CAPE value for one workbook row."""
+    cell = cells.get(f"O{row_number}")
+    if cell is None or cell.value is None:
+        raise ValueError(f"Missing Shiller CAPE value at O{row_number}")
+    if cell.value <= 0:
+        raise ValueError(f"Invalid Shiller CAPE value at O{row_number}: {cell.value}")
+    return cell.value
+
+
+def extract_workbook(
+    workbook_path: Path,
+    *,
+    expected_sha256: str | None = AUTHORIZED_SWR_WORKBOOK_SHA256,
+) -> WorkbookData:
+    """Extract and validate all production rows from the workbook.
+
+    ``expected_sha256`` defaults to the authorized SWR workbook identity.  Pass
+    ``None`` only for synthetic test workbooks; production extraction must never
+    disable identity verification.
+    """
+    source_sha256 = _sha256(workbook_path)
+    if expected_sha256 is not None and source_sha256 != expected_sha256:
+        raise ValueError(
+            f"Unauthorized workbook SHA-256: {source_sha256}; "
+            f"expected {expected_sha256}"
+        )
+
     with zipfile.ZipFile(workbook_path) as workbook:
         sheet_path = _worksheet_path(workbook, _ASSET_RETURNS)
         sheet_root = ElementTree.fromstring(workbook.read(sheet_path))
@@ -165,6 +199,7 @@ def extract_workbook(workbook_path: Path) -> WorkbookData:
         return cell.has_formula if cell is not None else False
 
     index_rows: list[tuple[str, Decimal, Decimal, Decimal]] = []
+    cape_rows: list[tuple[str, Decimal]] = []
     rows: list[WorkbookRow] = []
     previous_date: str | None = None
     for row_number in range(_FIRST_INDEX_ROW, _LAST_RETURN_ROW + 1):
@@ -187,6 +222,7 @@ def extract_workbook(workbook_path: Path) -> WorkbookData:
         previous_date = date
 
         index_rows.append((date, cpi, spx_tr, bm10))
+        cape_rows.append((date, _parse_cape(cells, row_number)))
         if row_number < _FIRST_RETURN_ROW:
             continue
 
@@ -221,10 +257,20 @@ def extract_workbook(workbook_path: Path) -> WorkbookData:
         raise ValueError(f"Unexpected first production date: {rows[0].date}")
     if rows[-1].date != "2026-06-01":
         raise ValueError(f"Unexpected last production date: {rows[-1].date}")
+    if len(cape_rows) != len(index_rows):
+        raise ValueError(
+            f"CAPE row count {len(cape_rows)} does not match "
+            f"index row count {len(index_rows)}"
+        )
+    if cape_rows[0][0] != "1871-01-01":
+        raise ValueError(f"Unexpected first CAPE date: {cape_rows[0][0]}")
+    if cape_rows[-1][0] != "2026-06-01":
+        raise ValueError(f"Unexpected last CAPE date: {cape_rows[-1][0]}")
     return WorkbookData(
         index_rows=tuple(index_rows),
         return_rows=tuple(rows),
-        source_sha256=_sha256(workbook_path),
+        cape_rows=tuple(cape_rows),
+        source_sha256=source_sha256,
     )
 
 
@@ -275,6 +321,50 @@ def _provenance(
     ) + "\n"
 
 
+def _cape_provenance(
+    *,
+    artifact_sha256: str,
+    source_sha256: str,
+    observation_count: int,
+    date_range: str,
+) -> str:
+    """Build the workbook-only CAPE provenance record."""
+    return json.dumps(
+        {
+            "schema_version": "1.1",
+            "source_file": "SWR_Toolbox_v2.0.xlsx",
+            "source_sha256": source_sha256,
+            "source_sheet": _ASSET_RETURNS,
+            "source_field": "O",
+            "source_field_name": "CAPE Shiller",
+            "source_cells": "O6:O1871",
+            "source_date_format": "year (column B), month (column A)",
+            "source_numeric_type": "cached Excel value (preserved exactly)",
+            "extraction_tool": EXTRACTION_TOOL,
+            "extraction_tool_version": EXTRACTION_TOOL_VERSION,
+            "extraction_method": (
+                "Direct cached-value extraction; no formula re-evaluation, "
+                "rounding, normalization, interpolation, or date extension."
+            ),
+            "transformations": [
+                "Read Asset Returns!O cached values for rows 6-1871.",
+                "No merge with ie_data.csv, Shiller JSON, "
+                "canonical/ern_asset_returns.csv, or external observations.",
+                "No gap filling, rounding, or coverage extension.",
+            ],
+            "observation_count": observation_count,
+            "date_range": date_range,
+            "artifact_sha256": artifact_sha256,
+            "validation_result": "PASS",
+            "notes": (
+                "Authoritative Shiller CAPE series for canonical ERN research; "
+                "workbook column O only."
+            ),
+        },
+        indent=2,
+    ) + "\n"
+
+
 def write_outputs(data: WorkbookData, output_dir: Path) -> list[Path]:
     """Write canonical production CSVs and the exact oracle fixture."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -290,6 +380,7 @@ def write_outputs(data: WorkbookData, output_dir: Path) -> list[Path]:
     bm10_rows = [[date, str(bm10)] for date, _cpi, _spx, bm10 in data.index_rows]
     equity_rows = [[row.date, str(row.equity_real_return)] for row in rows]
     bond_rows = [[row.date, str(row.bond_real_return)] for row in rows]
+    cape_rows = [[date, str(cape)] for date, cape in data.cape_rows]
 
     targets = {
         "workbook_returns.csv": _csv_text(
@@ -300,6 +391,7 @@ def write_outputs(data: WorkbookData, output_dir: Path) -> list[Path]:
         "spx_tr.csv": _csv_text(["date", "value"], spx_rows),
         "bm10.csv": _csv_text(["date", "value"], bm10_rows),
         "cpi.csv": _csv_text(["date", "value"], index_rows),
+        "cape_shiller.csv": _csv_text(["date", "value"], cape_rows),
     }
     for name, text in targets.items():
         path = output_dir / name
@@ -380,6 +472,14 @@ def write_outputs(data: WorkbookData, output_dir: Path) -> list[Path]:
             date_range=f"{data.index_rows[0][0]} to {data.index_rows[-1][0]}",
             notes="CPI level",
         ),
+        "cape_shiller.provenance.json": _cape_provenance(
+            artifact_sha256=hashlib.sha256(
+                targets["cape_shiller.csv"].encode("utf-8")
+            ).hexdigest(),
+            source_sha256=data.source_sha256,
+            observation_count=len(data.cape_rows),
+            date_range=f"{data.cape_rows[0][0]} to {data.cape_rows[-1][0]}",
+        ),
     }
     for name, text in provenance_targets.items():
         path = output_dir / name
@@ -410,8 +510,9 @@ def main(argv: list[str] | None = None) -> int:
     rows = data.return_rows
     print(
         f"Extracted {len(rows)} monthly return rows "
-        f"({rows[0].date} to {rows[-1].date}) and "
-        f"{len(data.index_rows)} monthly index rows"
+        f"({rows[0].date} to {rows[-1].date}), "
+        f"{len(data.index_rows)} monthly index rows, and "
+        f"{len(data.cape_rows)} monthly CAPE rows"
     )
     for path in written:
         print(f"  wrote {path}")

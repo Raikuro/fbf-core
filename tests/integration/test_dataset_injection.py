@@ -8,7 +8,7 @@ from fbf.core.application import run_study
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionBackend, ExecutionOptions
 from fbf.core.study import StudyConfiguration
-from tests.oracle.ern.published_dataset import load_published_ern_dataset
+from tests.functional.ern.published_dataset import load_published_ern_dataset
 
 
 def test_run_study_uses_injected_published_dataset() -> None:

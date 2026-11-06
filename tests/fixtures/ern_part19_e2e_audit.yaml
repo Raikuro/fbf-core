@@ -1,13 +1,13 @@
 # ERN Part 19 — T3.2 Experiment B E2E audit specification.
 #
 # Authoritative machine-readable audit matrix for
-# docs/research/ern_part19_replication.md Experiment B.
+# docs/ERN_METHODOLOGY.md §4 (Part 19 Experiment B).
 #
 # Distinction:
 # - examples/studies/ern_part19.yaml remains the canonical CLI 90-cell
 #   study. This file is the audit matrix only.
 # - Part 19 Experiment B publishes explicit numerical values for failsafe
-#   and percentile SWRs (Table in §9.2 of replication doc).
+#   and percentile SWRs (docs/ERN_METHODOLOGY.md §4).
 # - Validation uses structural/computational checks + published anchors
 #   + cross-validation against Part 20 Experiment A for the 45 overlapping cells.
 #
@@ -47,7 +47,7 @@ experiments:
     cells: 90
 
 # ---------------------------------------------------------------------------
-# Published anchors — external reference data (from docs/research/ern_part19_replication.md §9.2)
+# Published anchors — see docs/ERN_METHODOLOGY.md §4
 # ---------------------------------------------------------------------------
 
 anchors:

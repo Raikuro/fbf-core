@@ -22,7 +22,7 @@ from tests.fixtures.debt import (
     LiquidationTestCase,
     UnsatisfiableTestCase,
 )
-from tests.oracle.ern.debt_oracle import (
+from tests.functional.ern.debt_oracle import (
     DebtOracleState,
     FailureState,
     check_unsatisfiable_margin_call,

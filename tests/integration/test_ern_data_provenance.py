@@ -125,6 +125,92 @@ def test_market_artifacts_match_workbook_extraction(tmp_path: Path) -> None:
         assert generated == _load_provenance(csv_name)
 
 
+def test_cape_provenance_is_workbook_only() -> None:
+    artifact = _DATA_DIR / "cape_shiller.csv"
+    provenance_path = _DATA_DIR / "cape_shiller.provenance.json"
+    if not provenance_path.exists():
+        pytest.skip("cape_shiller.csv has not yet been migrated to workbook provenance")
+
+    provenance = _load_provenance("cape_shiller.csv")
+    rows = _read_csv_rows(artifact)
+
+    assert provenance["schema_version"] == "1.1"
+    assert provenance["source_file"] == "SWR_Toolbox_v2.0.xlsx"
+    assert provenance["source_sha256"] == _SWR_WORKBOOK_SHA256
+    assert provenance["source_sheet"] == "Asset Returns"
+    assert provenance["source_field"] == "O"
+    assert provenance["source_field_name"] == "CAPE Shiller"
+    assert provenance["source_cells"] == "O6:O1871"
+    assert provenance["artifact_sha256"] == _sha256(artifact)
+    assert provenance["observation_count"] == 1866 == len(rows)
+    assert provenance["date_range"] == "1871-01-01 to 2026-06-01"
+    assert provenance["extraction_tool"] == (
+        "tools/ern/extract_workbook_returns.py"
+    )
+    assert provenance["extraction_tool_version"]
+    assert provenance["validation_result"] == "PASS"
+    assert any(
+        "ie_data.csv" in transformation
+        for transformation in provenance["transformations"]
+    )
+
+    assert rows[0] == {"date": "1871-01-01", "value": "11.09725"}
+    assert rows[6] == {"date": "1871-07-01", "value": "12.28616144"}
+    assert rows[-1] == {"date": "2026-06-01", "value": "40.62325499"}
+    assert next(
+        row for row in rows if row["date"] == "1881-01-01"
+    )["value"] == "18.48021972"
+
+
+def test_cape_artifact_matches_workbook_extraction(tmp_path: Path) -> None:
+    raw_workbook = os.environ.get("ERN_SWR_WORKBOOK")
+    if not raw_workbook:
+        pytest.skip("ERN_SWR_WORKBOOK is not set; workbook validation skipped")
+    workbook = Path(raw_workbook)
+    if not workbook.exists():
+        pytest.skip(f"ERN_SWR_WORKBOOK does not exist: {workbook}")
+
+    data = workbook_returns.extract_workbook(workbook)
+    assert data.source_sha256 == _SWR_WORKBOOK_SHA256
+    workbook_returns.write_outputs(data, tmp_path)
+
+    generated_rows = _read_csv_rows(tmp_path / "cape_shiller.csv")
+    expected_rows = [
+        {"date": date_value, "value": str(value)}
+        for date_value, value in data.cape_rows
+    ]
+    assert generated_rows == expected_rows
+
+    generated_provenance = json.loads(
+        (tmp_path / "cape_shiller.provenance.json").read_text(encoding="utf-8")
+    )
+    assert generated_provenance["source_sha256"] == _SWR_WORKBOOK_SHA256
+    assert generated_provenance["source_field"] == "O"
+    assert generated_provenance["source_cells"] == "O6:O1871"
+    assert generated_provenance["observation_count"] == 1866
+    assert generated_provenance["artifact_sha256"] == _sha256(
+        tmp_path / "cape_shiller.csv"
+    )
+
+    committed_provenance = _DATA_DIR / "cape_shiller.provenance.json"
+    if committed_provenance.exists():
+        assert generated_provenance == json.loads(
+            committed_provenance.read_text(encoding="utf-8")
+        )
+
+
+def test_extract_workbook_rejects_wrong_expected_sha() -> None:
+    raw_workbook = os.environ.get("ERN_SWR_WORKBOOK")
+    if not raw_workbook:
+        pytest.skip("ERN_SWR_WORKBOOK is not set; workbook validation skipped")
+    workbook = Path(raw_workbook)
+    if not workbook.exists():
+        pytest.skip(f"ERN_SWR_WORKBOOK does not exist: {workbook}")
+
+    with pytest.raises(ValueError, match="Unauthorized workbook SHA-256"):
+        workbook_returns.extract_workbook(workbook, expected_sha256="0" * 64)
+
+
 def test_ffr_provenance_defines_separate_segments() -> None:
     artifact = _DATA_DIR / "ffr.csv"
     provenance = _load_provenance("ffr.csv")

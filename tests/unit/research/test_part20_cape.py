@@ -190,20 +190,14 @@ class TestCapeBinaryCohortStart:
         with open(Path("data/ern/cape_shiller.csv"), newline="") as f:
             reader = csv.reader(f)
             next(reader)
-            cape_map = {row[0]: float(row[1]) for row in reader}
+            cape_map = {row[0]: Decimal(row[1]) for row in reader}
 
         with open(Path("data/ern/cohort_manifest_part3.json")) as f:
             manifest = json.load(f)
 
-        # 1871-02-01 cohort: CAPE should be 10.9193
         cape_cohorts = [c for c in manifest["cohorts"] if c["cape_available"]]
         first = cape_cohorts[0]
-        assert first["cape_value"] == 10.9193
+        assert Decimal(str(first["cape_value"])) == cape_map["1871-02-01"]
 
-        # Verify against canonical runtime CAPE CSV
-        assert cape_map["1871-02-01"] == 10.9193
-
-        # Also verify workbook Shiller CAPE for 1998-07-01 (key cohort)
         key_entry = next(c for c in manifest["cohorts"] if c["cohort_date"] == "1998-07-01")
-        assert key_entry["cape_value"] == 38.26
-        assert cape_map["1998-07-01"] == 38.26
+        assert Decimal(str(key_entry["cape_value"])) == cape_map["1998-07-01"]

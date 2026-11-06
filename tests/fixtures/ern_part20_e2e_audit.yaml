@@ -1,14 +1,14 @@
 # ERN Part 20 — T2.1 baseline E2E audit specification.
 #
 # Authoritative machine-readable audit matrix for
-# docs/research/ern_part20_e2e_audit.md Experiments A–E.
+# docs/ERN_METHODOLOGY.md §4 (Part 20 acceptance).
 #
 # Distinction (constraint: no matrix duplication):
 # - examples/studies/ern_part20.yaml remains the canonical CLI 320-cell
 #   grid study (32 glidepaths × 5 SWR × 2 horizons). It is intentionally
 #   NOT extended to Experiments A–E; this file is the audit matrix only.
 # - `anchors` below are external reference data transcribed from
-#   docs/research/ern_part20_replication.md §11.1–§11.6 and §15.4
+#   docs/ERN_METHODOLOGY.md §4 and §6
 #   (published values at displayed precision). They are validation
 #   anchors, not a second experiment matrix (audit §11).
 #

@@ -1,0 +1,274 @@
+# ERN Methodology and Acceptance
+
+This is the authoritative description of the current ERN research methodology,
+its published acceptance anchors, and the status of each replication target.
+Dataset inventory, provenance, and frozen artifacts are documented in
+[`DATASETS.md`](../DATASETS.md). Extraction, regeneration, and validation
+commands live in [`DEVELOPMENT.md`](DEVELOPMENT.md).
+
+---
+
+## 1. Canonical Sources
+
+The authorized Excel workbooks are the sole source of truth:
+
+| Workbook | SHA-256 | Canonical role |
+|---|---|---|
+| `SWR_Toolbox_v2.0.xlsx` | `d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6` | Market returns, CPI, CAPE |
+| `Timing-Leverage-Calc.xlsx` | `e0a0dbea11543809b2f2e8544cc84e21a19e0ca864d8ef3664135b945bbcda38` | Historical FFR segment |
+
+If an authorized workbook is missing or its hash differs, extraction stops.
+No legacy dataset, Shiller raw archive, Google-Sheet master, or external series
+may fill, extend, correct, or act as a fallback for workbook data.
+
+Extraction reads cached Excel values only. No formula is re-evaluated, rounded,
+normalized, or reconstructed.
+
+---
+
+## 2. Canonical Dataset Derivation
+
+`SWR_Toolbox_v2.0.xlsx`, sheet `Asset Returns`:
+
+| Output | Source | Meaning |
+|---|---|---|
+| `spx_tr_real.csv` | `Q` (`Q7:Q1871`) | S&P 500 total-return real return |
+| `bond_10y_tr_real.csv` | `R` (`R7:R1871`) | 10-year bond total-return real return |
+| `spx_tr.csv` | `F` (`F6:F1871`) | S&P 500 total-return nominal index |
+| `bm10.csv` | `G` (`G6:G1871`) | 10-year bond cumulative nominal index |
+| `cpi.csv` | `E` (`E6:E1871`) | CPI level |
+| `cape_shiller.csv` | `O` (`O6:O1871`) | Shiller CAPE, canonical |
+| `workbook_returns.csv` | `Q` and `R` | Exact combined oracle fixture |
+
+`Timing-Leverage-Calc.xlsx`, sheet `Return Data`, column `K`
+(`K4:K1815`, 1,812 observations, `1871-01..2021-12`) supplies the historical
+FFR segment. Column `K` is the workbook splice `IF(ISNUMBER(M),M,N)`. The
+`2022-01..2026-08` extension comes from the frozen FRED `FEDFUNDS` snapshot.
+`ffr.csv` is frozen by SHA-256
+`98591457d5d03867bd81992d43b57a6cabc4ce967f3ec9324676216abbf2f5f1`.
+
+The cohort manifest (`data/ern/cohort_manifest_part3.json`) is derived
+deterministically from the canonical CAPE, market, and CPI artifacts and their
+workbook provenance. Its projection metadata is read from the production loader
+so it cannot drift from runtime behaviour.
+
+See [`DATASETS.md`](../DATASETS.md) for the complete inventory, column
+contracts, and frozen-artifact list.
+
+---
+
+## 3. Current Simulation Methodology
+
+### Cohort window
+
+Retirement label `W` maps to runtime start `W-1`: the initial withdrawal is
+taken at the previous month's closing price. A horizon of `T` months therefore
+consumes `T+1` market snapshots and `T` return intervals. The canonical
+`1,739`-cohort universe runs from `1871-02` through `2015-12`.
+
+### Ordering and fees
+
+For the workbook-conformant production path the monthly order is: withdraw,
+then apply the market return (withdrawal before growth). The production
+workbook oracle uses the additive monthly expense ratio:
+
+```text
+portfolio_return_t = w_eq * equity_real_t + w_bond * bond_real_t - fee_annual / 12
+```
+
+The frozen published-ERN oracle (`tools/ern/reference_oracle.py`) preserves the
+different historical convention: T+1 terms and a multiplicative fee. It is a
+separate comparison target and must not determine production expected values.
+
+### Forward projection
+
+Historical market/CPI data end at `2026-06`; projection begins `2026-07` and
+extends through `2075-11` (`2,459` snapshots total). Monthly forward rates use
+`(1 + annual_rate) ** (1/12) - 1`:
+
+| Asset | Months 1-120 | Month 121 onward |
+|---|---:|---:|
+| Equity | 4.0% | 5.5% |
+| Bonds | 2.5% | 2.25% |
+
+### CAPE conditioning
+
+Four-level regimes: `BELOW_15` (<15), `MODERATE` (15-20), `HIGH` (20-30), and
+`EXTREME` (>=30). The binary Part 19/20 population uses `CAPE at t-1 > 20`
+(`HIGH`), falling back to the first cohort's own CAPE when no prior observation
+exists. CAPE is the workbook `Asset Returns!O` series only.
+
+### Part 52 FFR treatment
+
+The Part 52 loan rate is FFR plus a fixed spread, divided by 12, deflated by
+`CPI_{t-1}/CPI_t`, with a one-month FFR lag and interest applied before the
+current draw/repayment. The historical FFR segment is workbook-native through
+`2021-12`. The frozen FRED extension is the same H.15 effective-rate measure and
+is admissible only in the historical diagnostic. Forward-filled months are
+never part of historical acceptance.
+
+---
+
+## 4. Published Acceptance Anchors
+
+Anchors are values stated by the published ERN articles. They are independent
+of the current implementation and must not be re-baselined when data or code
+changes. Differences are findings to classify, not permission to update the
+anchor.
+
+### Part 1 / workbook SWR grid
+
+The workbook-conformance matrix `data/ern/workbook_oracle_table.csv` is
+regenerated by `tools/ern/workbook_oracle.py` from the workbook's cached
+returns and projection rules. The production full grid must match it exactly
+for its declared cells.
+
+### Part 2 — Capital Preservation vs. Capital Depletion
+
+| Equity | Rate | Horizon | Final target | Published |
+|---:|---:|---:|---:|---:|
+| 100% | 3.5% | 60Y | 0% | 98% |
+| 100% | 3.5% | 60Y | 100% | 96% |
+| 100% | 4.0% | 30Y | 0% | 97% |
+| 100% | 4.0% | 30Y | 100% | 80% |
+
+Acceptance: rounded success rate within 1 percentage point on the frozen
+`data/ern/published_2016/` vintage.
+
+Deterministic warm-up values (constant 4% real return, beginning-of-month
+withdrawal): 5.66% (30Y, FV 0%), 4.79% (30Y, FV 50%), 4.33% (60Y, FV 0%),
+4.12% (60Y, FV 50%), 3.92% (60Y, FV 100%).
+
+### Part 3 — Equity Valuation Using CAPE
+
+| Experiment | Horizon | Equity | CAPE condition | Published |
+|---|---|---:|---|---:|
+| A (4% SWR, 0% TV) | 30Y | 100% | 20-30 | 89% |
+| A (4% SWR, 0% TV) | 60Y | 100% | 20-30 | 72% |
+| B (4% SWR, 50% TV) | 60Y | 100% | 20-30 | 71% |
+| C (3.5% SWR, 50% TV) | 60Y | 100% | overall | 96% |
+| C (3.5% SWR, 50% TV) | 60Y | 100% | 20-30 | 88% |
+| D (3.25% SWR, 50% TV) | 60Y | 100% | overall | 97% |
+
+Acceptance: within 1 percentage point. The 2023 article erratum changes the
+CAPE failure threshold from 20 to 15; it does not change the four regime
+boundaries.
+
+### Part 19 — Equity Glidepaths
+
+Published Experiment B evidence (CAPE > 20):
+
+| Configuration | Published |
+|---|---:|
+| Static 75% failsafe | 3.25% |
+| 60→100% glidepath failsafe | 3.42%-3.47% |
+| Static 80% 5th percentile | 3.47% |
+| 60→100% glidepath 5th percentile | 3.57%-3.63% |
+
+Ranges reflect distinct 60→100% variants. Compare at the article's displayed
+precision; do not invent a tolerance when the unrounded value is unpublished.
+
+### Part 20 — More Thoughts on Equity Glidepaths
+
+The deterministic 10-year case study publishes: glidepath year-2 portfolio
+`$733,314` vs static 80% `$691,746`; year-10 `$1,074,558` vs `$995,378`;
+glidepath total withdrawals `$383,240`; bull-then-bear year-10 `$1,089,990`
+vs `$1,162,099`. The annual-frequency case study is not currently automated.
+
+### Part 42 — One More Year Syndrome
+
+The historical published-table audit is retired. No Part 42 published table is
+an acceptance target. Current coverage is structural and oracle-based only.
+The article's approximate baseline failsafe (`~3.6%`) and OMY improvement
+(`just under 7.8%`) are research references, not hard gates.
+
+### Part 49 — Using Leverage in Retirement
+
+Part 49.1 (Experiment A) reconstructs the published Table 01 analytically. The
+18 annual spending cells are reproduced within the table's `0.01` percentage
+point display precision. This is an analytical reproduction, not canonical
+market-data validation, and must be rechecked after canonical data
+regeneration.
+
+Parts 49 B-F retain their pinned anchors and tolerances. Published chart values
+are diagnostic evidence; do not promote visual estimates to exact oracles.
+
+### Part 52 — Timing Leverage in Retirement
+
+Canonical acceptance is the published-anchor fixed-parameter feasibility
+surface:
+
+| Anchor | Retirement | Requirement |
+|---|---|---|
+| A2 | `1965-11` | Gross survival plus all three workbook feasibility conditions |
+| A3 | `1965-11` | Gross survival plus all three workbook feasibility conditions |
+| A10 | `1929-09` | Gross survival plus all three workbook feasibility conditions |
+
+The published optimized WR/Borrow% values are Solver outputs. Reproducing them
+is **deferred**; fixed-parameter feasibility at those values is regression
+protection, not Solver replication.
+
+Full-universe results are diagnostics, not canonical acceptance:
+
+| Universe | Cohorts | Role |
+|---|---:|---|
+| Historical market/CPI with observed FFR | 1,506 | Primary historical diagnostic |
+| Workbook-native FFR sensitivity | 1,453 | Mandatory sensitivity |
+| Distribution/projection | 1,739 | Projection-only diagnostic |
+| Legacy terminal filter | 1,452 | Retired from eligibility policy |
+
+There is no article- or workbook-defined complete Part 52 universe. Do not
+choose one merely because it has more observations.
+
+---
+
+## 5. Acceptance Categories
+
+Keep these categories distinct:
+
+1. **Published anchor** — a value stated by the article or workbook.
+   Independent acceptance criterion.
+2. **Structural invariant** — grid dimensions, cohort counts, classification
+   populations, determinism, or provenance. Not a numerical replication claim.
+3. **Canonical regression result** — a fixture generated through the current
+   production path (for example `part2_regression_fixture.csv` or
+   `workbook_oracle_table.csv`). It protects against unintended change; it is
+   not an independent oracle.
+
+Do not present a regression fixture as a published anchor. Do not update
+expected values automatically when implementation or canonical inputs change.
+
+---
+
+## 6. Current Project Conclusions
+
+- **Part 2.3**: no additional independent, source-supported Part 2 anchors exist
+  beyond the four listed above. The 65% and 95% values are Part 1
+  cross-references, the warm-up values are already pinned, and remaining
+  article figures are aggregate or qualitative.
+- **Part 42**: retired; structural/oracle coverage only.
+- **Part 49.1**: analytical reconstruction, not canonical market-data
+  validation.
+- **Part 52**: canonical acceptance is the A2/A3/A10 published-anchor
+  feasibility surface; full-universe reporting is diagnostic-only.
+- **Part 52 Solver reproduction**: deferred.
+- **UI timeline persistence**: completed in `fbf-ui`; it requires no Core
+  execution change.
+- **Euro-area reference rates**: research-only candidates; no euro dataset,
+  loader, or Part 52 path is implemented.
+
+---
+
+## 7. Frozen Artifacts
+
+Do not modify without separate explicit authorization:
+
+- `data/ern/ffr.csv`
+- `data/ern/ffr.provenance.json`
+- `data/ern/raw/FEDFUNDS.csv`
+- the Timing workbook historical FFR segment
+- `data/ern/published_2016/`
+- `data/ern/p49_oracle_table.csv`
+- `tests/functional/ern/constants.py`
+- published anchors in tests and YAML
+- any Part 49/Part 52 oracle constant already pinned

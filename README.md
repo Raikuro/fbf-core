@@ -82,9 +82,9 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest                       # run the full test suite
-mypy --strict src            # type check
-ruff check src tests         # lint
+pytest -p no:cacheprovider   # run the full test suite
+mypy --strict .              # type check
+ruff check .                 # lint
 ```
 
 ---
@@ -110,11 +110,17 @@ fbf-core/
 │   ├── integration/                 # cross-module integration tests
 │   ├── infrastructure/              # persistence and I/O tests
 │   ├── benchmarks/                  # performance benchmarks
-│   ├── oracle/ern/                  # ERN canonical truth table tests
+│   ├── functional/                  # public application/CLI acceptance tests
+│   │   └── ern/                     # canonical ERN scenarios and anchors
 │   └── contract/                    # architectural boundary assertions
 ├── ARCHITECTURE.md
 ├── AGENTS.md
 ├── DATASETS.md                # dataset distribution & ownership model
+├── TODO.md                    # unresolved technical work
+├── docs/
+│   ├── ERN_METHODOLOGY.md     # canonical methodology and acceptance anchors
+│   ├── DEVELOPMENT.md         # extraction, regeneration, validation commands
+│   └── ...                    # design, decisions, domain, profiling
 └── pyproject.toml
 ```
 
@@ -126,7 +132,10 @@ Datasets (e.g. the ERN bundle in `data/ern/`) are intentionally **not** packaged
 `fbf-core` wheel. They are consumed through the generic *Dataset Directory* contract: point
 `--data-dir` (CLI) or the `data_dir` Core API parameter at a directory of
 `<identifier>.json` dataset files. Resolution, caching, versioning, and reproducibility
-rules are documented in [DATASETS.md](./DATASETS.md).
+rules are documented in [DATASETS.md](./DATASETS.md). ERN data sources,
+methodology, and acceptance anchors are in
+[docs/ERN_METHODOLOGY.md](./docs/ERN_METHODOLOGY.md); extraction and
+regeneration are in [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
 ## Architecture
 

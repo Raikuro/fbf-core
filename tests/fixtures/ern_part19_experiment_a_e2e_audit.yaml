@@ -1,7 +1,7 @@
 # ERN Part 19 — T3.1 Experiment A E2E audit specification.
 #
 # Authoritative machine-readable audit matrix for
-# docs/research/ern_part19_replication.md Experiment A.
+# docs/ERN_METHODOLOGY.md §4 (Part 19).
 #
 # Distinction:
 # - examples/studies/ern_part19.yaml remains the canonical CLI 162-cell
@@ -44,7 +44,7 @@ experiment:
   cells: 162
 
 # Part 19 Experiment A has no published numerical anchor table
-# (docs/research/ern_part19_replication.md §9.1). Validation uses structural
+# (docs/ERN_METHODOLOGY.md §4 and §6). Validation uses structural
 # and computational checks plus exact cross-validation against the computed
 # Part 20 Experiment C cells (same execution path).
 

@@ -31,13 +31,13 @@ It contains the simulation engine, research library, and ERN oracle.
 6. **No legacy imports** (`engine.*`, `research.*`, `infrastructure.*`, old `cli.*`) may appear
    in any production source file.
 7. **Do not add `argparse`, `sys.argv`, or any presentation logic to Core.**
-8. **Do not modify `tests/oracle/ern/`** constants without a corresponding update to
+8. **Do not modify `tests/functional/ern/`** constants without a corresponding update to
    the canonical ERN acceptance matrix and explicit user approval.
 9. **Datasets are external to the wheel.** Never embed datasets in the package or
    hardcode dataset paths; discovery is explicit via `data_dir` (see `DATASETS.md`).
 10. **No machine-specific absolute paths** (`/tmp/`, `/home/`, `/Users/`, `C:\`) in
     `src/` or `tests/` — tests use `tmp_path` (enforced by `tests/contract/`).
-11. **External CLI-binary use is confined to `tests/oracle/`** — the black-box ERN
+11. **External CLI-binary use is confined to `tests/functional/`** — the black-box ERN
     harness is the only test surface allowed to drive the installed `sim-retire` binary
     (enforced by `tests/contract/test_core_boundaries.py`).
 
@@ -79,9 +79,9 @@ be clean under the plain `ruff check .` form above.
 
 ### Heavyweight ERN Research Workloads
 
-The ERN SWR replication tests in `tests/oracle/ern/` are heavyweight workloads
-(313,020 simulation units across 180 grid cells). They are **not part of the
-routine quality gate** and must never be enabled automatically.
+The ERN SWR replication tests in `tests/functional/ern/` are heavyweight
+workloads (313,020 simulation units across 180 grid cells). They are **not part
+of the routine quality gate** and must never be enabled automatically.
 
 Two categories of heavyweight ERN research workloads are controlled by the
 shared `RUN_ERN_E2E=1` environment variable:
@@ -107,18 +107,18 @@ shared `RUN_ERN_E2E=1` environment variable:
 
 ```bash
 # All canonical ERN E2Es + research validations:
-RUN_ERN_E2E=1 pytest tests/oracle/ tests/integration/test_part52_*.py -v
+RUN_ERN_E2E=1 pytest tests/functional/ -v
 
 # Full grid with fast-path equivalence:
-RUN_ERN_E2E=1 ERN_E2E_FAST_PATH=1 pytest tests/oracle/ -v
+RUN_ERN_E2E=1 ERN_E2E_FAST_PATH=1 pytest tests/functional/ -v
 ```
 
 Worker count is controlled by `ERN_E2E_WORKERS` (default: `min(8, cpu_count)`).
 Set `ERN_E2E_WORKERS=max` for all available logical CPUs.
 
-**Agents must not run `pytest tests/oracle/` with E2E env vars enabled as part
-of routine changes.** The oracle tests are a deliberate manual verification tool,
-not an automatic gate.
+**Agents must not run `pytest tests/functional/` with E2E env vars enabled as
+part of routine changes.** The functional ERN suites are a deliberate manual
+verification tool, not an automatic gate.
 
 ---
 
@@ -219,7 +219,8 @@ This policy applies to all future phases unless explicitly overridden by the use
 * Unit tests: `tests/unit/<layer>/test_<module>.py`
 * Integration tests: `tests/integration/`
 * Benchmark tests: `tests/benchmarks/`
-* Oracle tests: `tests/oracle/ern/` (canonical only — do not add ad-hoc oracle tests)
+* Functional tests: `tests/functional/` (public application/CLI boundary;
+  canonical ERN scenarios live in `tests/functional/ern/`)
 * Boundary contract tests: `tests/contract/`
 
 ---
@@ -241,6 +242,8 @@ Breaking changes to the Tier 1 or Tier 2 public API require a **Core minor versi
 | What is the intended architecture?    | ARCHITECTURE.md              |
 | Why does the architecture work this way? | docs/DESIGN.md           |
 | Why was a significant alternative rejected? | docs/DECISIONS.md    |
+| What is the canonical ERN methodology and acceptance evidence? | docs/ERN_METHODOLOGY.md |
+| How are datasets extracted and regenerated? | docs/DEVELOPMENT.md |
 | What technical work remains?          | TODO.md                      |
 | How is the repository used?           | README.md                    |
 | How should contributors modify it?    | AGENTS.md                    |
@@ -248,7 +251,8 @@ Breaking changes to the Tier 1 or Tier 2 public API require a **Core minor versi
 ### Lifecycle
 
 * **Durable** — changes only when architecture or enduring guidance changes:
-  ARCHITECTURE.md, DATASETS.md, docs/DESIGN.md, docs/DECISIONS.md.
+  ARCHITECTURE.md, DATASETS.md, docs/DESIGN.md, docs/DECISIONS.md,
+  docs/ERN_METHODOLOGY.md, docs/DEVELOPMENT.md.
 * **Operational** — changes as the active project changes: TODO.md, README.md.
 * **Behavioral** — changes when engineering rules change: AGENTS.md.
 * **Temporary** — should generally not exist in the repository: implementation

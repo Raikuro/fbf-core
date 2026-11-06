@@ -5,7 +5,7 @@ independence audit (closure item 2.9): they scan BOTH production ``src/`` and
 the ``tests/`` surface so that historical test-level dependency defects cannot
 silently return.
 
-Classification of the external CLI surface: ``tests/oracle/`` is the ONLY part
+Classification of the external CLI surface: ``tests/functional/`` is the ONLY part
 of the Core suite allowed to touch the external ``sim-retire`` console script
 (black-box ERN acceptance, gated behind ``RUN_ERN_E2E`` / ``SIM_RETIRE_BIN``,
 i.e. an explicitly classified external integration requirement).  Everything
@@ -24,7 +24,7 @@ import fbf.core
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC_DIR = _REPO_ROOT / "src"
 _TESTS_DIR = _REPO_ROOT / "tests"
-_ORACLE_DIR = _TESTS_DIR / "oracle"
+_FUNCTIONAL_DIR = _TESTS_DIR / "functional"
 
 _LEGACY_TOP_LEVEL = ("engine", "research", "infrastructure", "simulador_jubilacion")
 
@@ -73,12 +73,12 @@ def test_core_tests_have_no_cli_or_legacy_imports() -> None:
             )
 
 
-def test_cli_binary_usage_confined_to_oracle_suite() -> None:
-    """Core tests must not require a CLI binary outside the classified oracle suite.
+def test_cli_binary_usage_confined_to_functional_suite() -> None:
+    """Core tests must not require a CLI binary outside the classified functional suite.
 
     The only test helper that locates/executes the external ``sim-retire``
-    console script is ``tests/oracle/cli_harness.py``.  Any test file importing
-    it must live under ``tests/oracle/``; the worker-selection argv test inside
+    console script is ``tests/functional/cli_harness.py``.  Any test file importing
+    it must live under ``tests/functional/``; the worker-selection argv test inside
     that suite uses an injected fake ``cli`` path (no binary required).  This is
     the explicit classification boundary for "external black-box integration"
     test requirements.
@@ -88,13 +88,13 @@ def test_cli_binary_usage_confined_to_oracle_suite() -> None:
         if p.name == "cli_harness.py":
             continue
         for mod in _import_targets(p):
-            if mod == "tests.oracle.cli_harness":
+            if mod == "tests.functional.cli_harness":
                 importing_files.append(p)
     for p in importing_files:
-        assert _ORACLE_DIR in p.parents, (
+        assert _FUNCTIONAL_DIR in p.parents, (
             f"Test file {p} imports the external-CLI harness outside the "
-            f"tests/oracle/ suite; CLI-binary usage must be confined to the "
-            f"classified black-box oracle suite."
+            f"tests/functional/ suite; CLI-binary usage must be confined to the "
+            f"classified black-box functional suite."
         )
 
 
