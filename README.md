@@ -1,32 +1,11 @@
 # fbf-core
 
-High-performance, deterministic FIRE (Financial Independence, Retire Early)
-simulation and safe withdrawal rate research engine.
-
----
-
-## Overview
+Deterministic FIRE simulation and safe-withdrawal-rate research engine.
 
 `fbf-core` is a pure Python library with **zero required third-party runtime
-dependencies**. It provides the computational substrate for FIRE research:
-a Numba-backed simulation engine (optional `numba` extra), parameter-sweep study
-planning, SWR optimisation, independent oracle tooling, and an SQLite-backed
-persistence layer.
-
----
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Decimal domain, float64 kernel** | Domain monetary values use `decimal.Decimal`; the Numba engine executes on `float64` and reconstructs reported `Money` values as `Decimal`. Derived metrics use `float`. |
-| **Single Numba engine** | Dedicated Part 52/49 and generic policy-family kernels. Unsupported configurations fail explicitly; there is no fallback engine. |
-| **Workbook-aligned semantics** | Withdraw-before-growth ordering and additive fee handling for workbook-defined workloads. |
-| **Multi-horizon execution** | Deterministic trajectory-prefix derivation for multi-horizon grids. |
-| **SWR optimisation** | Binary-search solver for maximum safe withdrawal rate across a parameter space. |
-| **ERN oracle** | Canonical acceptance matrix for regression testing against published ERN data. |
-| **Study planning** | Cohort generators, parameter axes, experiment definitions. |
-| **SQLite persistence** | Study repository with codecs, schema management, and dataset caching. |
+dependencies**. It provides a Decimal domain model, a Numba-backed simulation
+engine (optional `numba` extra), study planning, SWR optimization, ERN oracle
+tooling, and SQLite persistence.
 
 ---
 
@@ -36,42 +15,32 @@ persistence layer.
 pip install "fbf-core[numba]"
 ```
 
-### Requirements
-
-* Python ≥ 3.13
-* Numba is optional for the package, but required to execute studies
-* The domain, planning, and persistence layers have no required third-party runtime dependencies
-
-### Numerical model
-
-Domain inputs (`Money`, portfolios, market snapshots, policies) and reported
-monetary values use `decimal.Decimal`. The Numba simulation kernel converts
-inputs to `float64` for execution, so trajectory computation is floating-point;
-reported monetary values are reconstructed from kernel output as `Decimal`,
-while derived metrics such as maximum drawdown remain `float`. Correctness is
-validated against independent `Decimal` or hand-calculated oracles rather than
-by using the kernel to generate expected values. See
-[`ARCHITECTURE.md` §10](./ARCHITECTURE.md#10-key-invariants).
+Requires Python ≥ 3.13. Numba is optional for installation but required to
+execute studies.
 
 ---
 
 ## Quick Start
 
 ```python
+from decimal import Decimal
+
 import fbf.core
+from fbf.core.domain.model import Currency, Money
 
-# Build a study plan from a configuration dict
-config = fbf.core.StudyConfiguration.from_dict({...})
-plan = fbf.core.build_study_plan(config)
-
-# Execute the plan (requires the numba extra)
-result = fbf.core.execute_study_plan(plan)
-
-# Optimise SWR
-optimal = fbf.core.optimize_study_swr(evaluator)
+config = fbf.core.StudyConfiguration.from_yaml({...})
+result = fbf.core.run_study(
+    config,
+    data_dir="/path/to/datasets",
+    initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+)
 ```
 
-See `ARCHITECTURE.md` for the full public API reference.
+Monetary domain values use `decimal.Decimal`. The Numba kernel converts inputs
+to `float64` for execution and reconstructs reported monetary values as
+`Decimal`; derived statistical metrics remain `float`. Correctness is pinned
+by independent Decimal and hand-calculated oracles. See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md#10-key-invariants).
 
 ---
 
@@ -82,66 +51,35 @@ python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest -p no:cacheprovider   # run the full test suite
-mypy --strict .              # type check
-ruff check .                 # lint
+ruff check .
+mypy --strict .
+pytest -p no:cacheprovider
 ```
+
+Full setup, extraction, regeneration, and validation workflows are in
+[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md).
 
 ---
 
-## Repository Layout
+## Documentation
 
-```
-fbf-core/
-├── src/
-│   └── fbf/
-│       └── core/
-│           ├── __init__.py          # public Tier 1 facade
-│           ├── errors.py            # CoreError hierarchy
-│           ├── py.typed             # PEP 561 marker
-│           ├── domain/              # value objects, policies, services
-│           ├── execution/           # simulation contracts, Numba strategies, executor
-│           ├── optimization/        # SWR solver, strategy comparator
-│           ├── persistence/         # SQLite repository
-│           ├── research/            # public research facade and pipelines
-│           └── study/               # study planning, cohort generation
-├── tests/
-│   ├── unit/                        # fast, isolated unit tests
-│   ├── integration/                 # cross-module integration tests
-│   ├── infrastructure/              # persistence and I/O tests
-│   ├── benchmarks/                  # performance benchmarks
-│   ├── functional/                  # public application/CLI acceptance tests
-│   │   └── ern/                     # canonical ERN scenarios and anchors
-│   └── contract/                    # architectural boundary assertions
-├── ARCHITECTURE.md
-├── AGENTS.md
-├── DATASETS.md                # dataset distribution & ownership model
-├── TODO.md                    # unresolved technical work
-├── docs/
-│   ├── ERN_METHODOLOGY.md     # canonical methodology and acceptance anchors
-│   ├── DEVELOPMENT.md         # extraction, regeneration, validation commands
-│   └── ...                    # design, decisions, domain, profiling
-└── pyproject.toml
-```
+| Document | Purpose |
+|---|---|
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md) | System boundaries, API tiers, invariants, execution flow |
+| [`docs/DESIGN.md`](./docs/DESIGN.md) | Design rationale and rejected approaches |
+| [`docs/DECISIONS.md`](./docs/DECISIONS.md) | Durable architectural decisions |
+| [`docs/DOMAIN.md`](./docs/DOMAIN.md) | Domain model and simulation state |
+| [`docs/EXECUTION_MODES.md`](./docs/EXECUTION_MODES.md) | Backend and strategy selection |
+| [`docs/PROFILING.md`](./docs/PROFILING.md) | Profiling and timing instrumentation |
+| [`DATASETS.md`](./DATASETS.md) | Dataset inventory, source policy, and provenance |
+| [`docs/ERN_METHODOLOGY.md`](./docs/ERN_METHODOLOGY.md) | ERN methodology and published anchors |
+| [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) | Development and canonical-data workflow |
+| [`TODO.md`](./TODO.md) | Unresolved technical work |
+| [`AGENTS.md`](./AGENTS.md) | Contributor and coding-agent constraints |
 
----
-
-## Datasets
-
-Datasets (e.g. the ERN bundle in `data/ern/`) are intentionally **not** packaged in the
-`fbf-core` wheel. They are consumed through the generic *Dataset Directory* contract: point
-`--data-dir` (CLI) or the `data_dir` Core API parameter at a directory of
-`<identifier>.json` dataset files. Resolution, caching, versioning, and reproducibility
-rules are documented in [DATASETS.md](./DATASETS.md). ERN data sources,
-methodology, and acceptance anchors are in
-[docs/ERN_METHODOLOGY.md](./docs/ERN_METHODOLOGY.md); extraction and
-regeneration are in [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md).
-
-## Architecture
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full system architecture
-including API tiers, import rules, dependency direction, and layer isolation
-invariants.
+Datasets are external to the wheel. Point `--data-dir` (CLI) or the `data_dir`
+Core API parameter at a Dataset Directory of `<identifier>.json` files. ERN
+CSV sources and provenance are documented in [`DATASETS.md`](./DATASETS.md).
 
 ---
 

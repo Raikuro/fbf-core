@@ -151,7 +151,8 @@ AUTO dispatch raises:
 Profiling is injected through the execution boundary. The default `NoOpProfiler`
 has zero overhead. Pass `ExecutionProfiler()` via
 `ExecutionOptions.with_profiling()` to collect phase timings. The profiler is
-resolved once at the execution boundary and propagated to executors.
+resolved once at the execution boundary and propagated to executors. See
+[`PROFILING.md`](PROFILING.md) for the full workflow.
 
 ---
 

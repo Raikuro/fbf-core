@@ -1,63 +1,14 @@
 # ERN Methodology and Acceptance
 
-This is the authoritative description of the current ERN research methodology,
-its published acceptance anchors, and the status of each replication target.
-Dataset inventory, provenance, and frozen artifacts are documented in
+This document is authoritative for current ERN research methodology, published
+acceptance anchors, and settled methodological conclusions. Dataset inventory,
+canonical source policy, provenance, and frozen artifacts are authoritative in
 [`DATASETS.md`](../DATASETS.md). Extraction, regeneration, and validation
-commands live in [`DEVELOPMENT.md`](DEVELOPMENT.md).
+commands are in [`DEVELOPMENT.md`](DEVELOPMENT.md).
 
 ---
 
-## 1. Canonical Sources
-
-The authorized Excel workbooks are the sole source of truth:
-
-| Workbook | SHA-256 | Canonical role |
-|---|---|---|
-| `SWR_Toolbox_v2.0.xlsx` | `d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6` | Market returns, CPI, CAPE |
-| `Timing-Leverage-Calc.xlsx` | `e0a0dbea11543809b2f2e8544cc84e21a19e0ca864d8ef3664135b945bbcda38` | Historical FFR segment |
-
-If an authorized workbook is missing or its hash differs, extraction stops.
-No legacy dataset, Shiller raw archive, Google-Sheet master, or external series
-may fill, extend, correct, or act as a fallback for workbook data.
-
-Extraction reads cached Excel values only. No formula is re-evaluated, rounded,
-normalized, or reconstructed.
-
----
-
-## 2. Canonical Dataset Derivation
-
-`SWR_Toolbox_v2.0.xlsx`, sheet `Asset Returns`:
-
-| Output | Source | Meaning |
-|---|---|---|
-| `spx_tr_real.csv` | `Q` (`Q7:Q1871`) | S&P 500 total-return real return |
-| `bond_10y_tr_real.csv` | `R` (`R7:R1871`) | 10-year bond total-return real return |
-| `spx_tr.csv` | `F` (`F6:F1871`) | S&P 500 total-return nominal index |
-| `bm10.csv` | `G` (`G6:G1871`) | 10-year bond cumulative nominal index |
-| `cpi.csv` | `E` (`E6:E1871`) | CPI level |
-| `cape_shiller.csv` | `O` (`O6:O1871`) | Shiller CAPE, canonical |
-| `workbook_returns.csv` | `Q` and `R` | Exact combined oracle fixture |
-
-`Timing-Leverage-Calc.xlsx`, sheet `Return Data`, column `K`
-(`K4:K1815`, 1,812 observations, `1871-01..2021-12`) supplies the historical
-FFR segment. Column `K` is the workbook splice `IF(ISNUMBER(M),M,N)`. The
-`2022-01..2026-08` extension comes from the frozen FRED `FEDFUNDS` snapshot.
-`ffr.csv` is frozen by SHA-256
-`98591457d5d03867bd81992d43b57a6cabc4ce967f3ec9324676216abbf2f5f1`.
-
-The cohort manifest (`data/ern/cohort_manifest_part3.json`) is derived
-deterministically from the canonical CAPE, market, and CPI artifacts and their
-workbook provenance. Its projection metadata is read from the production loader
-so it cannot drift from runtime behaviour.
-
-See [`DATASETS.md`](../DATASETS.md) for the complete inventory, column
-contracts, and frozen-artifact list.
-
----
-
-## 3. Current Simulation Methodology
+## 1. Simulation Methodology
 
 ### Cohort window
 
@@ -69,8 +20,8 @@ consumes `T+1` market snapshots and `T` return intervals. The canonical
 ### Ordering and fees
 
 For the workbook-conformant production path the monthly order is: withdraw,
-then apply the market return (withdrawal before growth). The production
-workbook oracle uses the additive monthly expense ratio:
+then apply the market return. The production workbook oracle uses the additive
+monthly expense ratio:
 
 ```text
 portfolio_return_t = w_eq * equity_real_t + w_bond * bond_real_t - fee_annual / 12
@@ -96,7 +47,7 @@ extends through `2075-11` (`2,459` snapshots total). Monthly forward rates use
 Four-level regimes: `BELOW_15` (<15), `MODERATE` (15-20), `HIGH` (20-30), and
 `EXTREME` (>=30). The binary Part 19/20 population uses `CAPE at t-1 > 20`
 (`HIGH`), falling back to the first cohort's own CAPE when no prior observation
-exists. CAPE is the workbook `Asset Returns!O` series only.
+exists. CAPE is the workbook-only series defined in `DATASETS.md`.
 
 ### Part 52 FFR treatment
 
@@ -105,11 +56,12 @@ The Part 52 loan rate is FFR plus a fixed spread, divided by 12, deflated by
 current draw/repayment. The historical FFR segment is workbook-native through
 `2021-12`. The frozen FRED extension is the same H.15 effective-rate measure and
 is admissible only in the historical diagnostic. Forward-filled months are
-never part of historical acceptance.
+never part of historical acceptance. See `DATASETS.md` for provenance and
+restrictions.
 
 ---
 
-## 4. Published Acceptance Anchors
+## 2. Published Acceptance Anchors
 
 Anchors are values stated by the published ERN articles. They are independent
 of the current implementation and must not be re-baselined when data or code
@@ -222,7 +174,7 @@ choose one merely because it has more observations.
 
 ---
 
-## 5. Acceptance Categories
+## 3. Acceptance Categories
 
 Keep these categories distinct:
 
@@ -240,7 +192,7 @@ expected values automatically when implementation or canonical inputs change.
 
 ---
 
-## 6. Current Project Conclusions
+## 4. Current Project Conclusions
 
 - **Part 2.3**: no additional independent, source-supported Part 2 anchors exist
   beyond the four listed above. The 65% and 95% values are Part 1
@@ -257,18 +209,5 @@ expected values automatically when implementation or canonical inputs change.
 - **Euro-area reference rates**: research-only candidates; no euro dataset,
   loader, or Part 52 path is implemented.
 
----
-
-## 7. Frozen Artifacts
-
-Do not modify without separate explicit authorization:
-
-- `data/ern/ffr.csv`
-- `data/ern/ffr.provenance.json`
-- `data/ern/raw/FEDFUNDS.csv`
-- the Timing workbook historical FFR segment
-- `data/ern/published_2016/`
-- `data/ern/p49_oracle_table.csv`
-- `tests/functional/ern/constants.py`
-- published anchors in tests and YAML
-- any Part 49/Part 52 oracle constant already pinned
+Frozen artifacts and their modification restrictions are listed in
+[`DATASETS.md`](../DATASETS.md).

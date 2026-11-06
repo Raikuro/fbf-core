@@ -135,8 +135,8 @@ gate for heavyweight ERN workloads.
 
 Expected results are either published anchors, structural invariants, or
 canonical regression results. See
-[`ERN_METHODOLOGY.md`](ERN_METHODOLOGY.md) §5 before changing any expected
-value.
+[`ERN_METHODOLOGY.md`](ERN_METHODOLOGY.md#3-acceptance-categories) before
+changing any expected value.
 
 ---
 

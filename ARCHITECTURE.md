@@ -2,26 +2,23 @@
 
 This document describes the high-level architecture of the FIRE Backtesting
 Framework (FBF): the responsibilities of each repository, the public API
-boundary, the dependency direction, and the local development workflow.
+boundary, the dependency direction, and the key invariants.
 
 For design rationale and rejected alternatives, see
 [docs/DESIGN.md](./docs/DESIGN.md).
 For durable architectural decisions, see [docs/DECISIONS.md](./docs/DECISIONS.md).
+For environment setup, extraction, and validation workflows, see
+[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
 ---
 
-## 1. Priority Hierarchy
+## 1. Design Priorities
 
-All design decisions are evaluated against this ordering:
-
-1. **Correctness** — mathematical precision over convenience.
-2. **Reproducibility** — identical inputs produce identical outputs, always.
-3. **Traceability** — audit trails for all decisions.
-4. **Extensibility** — clean seams for new policies and strategies.
-5. **Performance** — never at the cost of the above.
-
-Performance is explicitly last. Optimisations are opt-in, empirically
-validated, and never alter default behaviour.
+Design decisions follow the ordering in
+[`docs/DESIGN.md`](./docs/DESIGN.md#priority-hierarchy): correctness,
+reproducibility, traceability, extensibility, then performance. Performance is
+never traded for the higher priorities, and optimizations are opt-in and
+empirically validated.
 
 ## 2. Repository Overview
 
@@ -198,39 +195,11 @@ require a Core minor version increment.
 
 ---
 
-## 9. Local Development Workflow
+## 9. Local Development
 
-### 9.1 One-time setup
-
-```bash
-python3.13 -m venv .venv
-source .venv/bin/activate
-
-# Install fbf-core in editable mode
-pip install -e .
-```
-
-### 9.2 Running tests
-
-```bash
-# Full test suite
-pytest -p no:cacheprovider
-
-# Type checking
-mypy --strict src
-```
-
-### 9.3 Linting
-
-```bash
-ruff check src tests
-```
-
-### 9.4 Building distribution artifacts
-
-```bash
-python -m build --wheel
-```
+Environment setup, quality gates, extraction, regeneration, functional
+validation, and release builds are documented in
+[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
 ---
 
@@ -256,17 +225,13 @@ python -m build --wheel
 12. **Executor boundary:** `SimulationExecutor` is an application-layer coordinator only — no financial model, no pipeline steps, no statistics.
 13. **Trajectory identity:** A trajectory is defined by (start cohort/date, allocation parameters, withdrawal parameters, initial wealth, initial portfolio, other state-affecting simulation inputs). Evaluation-only dimensions such as `final_value_target` MUST NOT participate in trajectory identity and MUST NOT cause additional trajectory execution. See [docs/DECISIONS.md](./docs/DECISIONS.md#evaluation-dimensions-vs-simulation-dimensions).
 
-## 11. Dataset Distribution & Ownership Model
+## 11. Dataset Distribution & Ownership
 
-Datasets are **not** shipped in the `fbf-core` wheel; they are external artifacts consumed
-through the generic **Dataset Directory** contract (a directory of `<identifier>.json`
-files, identified by filename stem, versioned by an in-file `version` field). Dataset
-resolution, loading, and process-local caching are owned by fbf-core
-(`persistence.studies.sqlite`: `DatasetCache`, `DefaultDatasetResolver`,
-`_load_datasets_from_dir`; study-facing resolver `fbf.core.study.builder.resolve_dataset`).
-The CLI is a pass-through for `--data-dir` only. Installed-only deployments must supply a
-Dataset Directory explicitly. See [DATASETS.md](./DATASETS.md) for the full decision and
-contract.
+Datasets are not shipped in the wheel. They are external artifacts resolved
+through the generic Dataset Directory contract, and `fbf-core` owns resolution,
+loading, and process-local caching. The CLI only passes through `--data-dir`.
+See [DATASETS.md](./DATASETS.md) for the contract, canonical sources, and
+provenance.
 
 ---
 
@@ -288,28 +253,10 @@ Performance analysis distinguishes three independent optimization categories:
 2. execution overhead;
 3. data-access/IO.
 
-Optimization decisions must be based on measurement rather than assuming that
-an improvement in one category addresses another.
-
-### Profiling-Driven Optimization
-
-Future performance work must be driven by profiling, not theoretical
-complexity analysis. Before any optimization, establish a reproducible
-baseline and measure:
-
-* total simulation time;
-* policy evaluation time (including any historical scans);
-* withdrawal-decision time;
-* allocation/rebalancing time;
-* market-evolution time;
-* statistics/aggregation time;
-* serialization/IPC overhead;
-* worker/process overhead.
-
-Optimization candidates must be identified by profiling, not assumed from
-Big-O analysis. A measured bottleneck in one component may be insignificant
-in the full pipeline; conversely, a theoretically cheap operation may
-dominate if called millions of times.
+Optimization decisions must be based on measurement, not theoretical
+complexity analysis, and must not assume that an improvement in one category
+addresses another. See [docs/PROFILING.md](./docs/PROFILING.md) for the
+profiling and timing workflow.
 
 ---
 
