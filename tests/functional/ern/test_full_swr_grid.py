@@ -45,8 +45,7 @@ from fbf.core.application import run_study
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionBackend, ExecutionOptions
 from fbf.core.study import StudyConfiguration
-
-from .constants import (
+from tests.support.ern.constants import (
     COHORTS_PER_CELL,
     WORKBOOK_ORACLE_CSV,
     OracleTable,

@@ -54,8 +54,7 @@ from fbf.core.study import (
     StudyConfiguration,
     build_omy_study_plan,
 )
-
-from .constants import (
+from tests.support.ern.constants import (
     PART42_ANCHOR_BASELINE_FAILSAFE,
     PART42_GRID_CELLS,
     PART42_HORIZONS,

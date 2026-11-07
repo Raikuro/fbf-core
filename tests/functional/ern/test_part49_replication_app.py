@@ -18,9 +18,8 @@ from fbf.core.execution.strategies.part49_numba_executor import (
     Part49NumbaExecutor,
 )
 from fbf.core.study import StudyConfiguration
-
-from .constants import OracleTable, load_oracle_table
-from .published_dataset import load_published_ern_dataset
+from tests.support.ern.constants import OracleTable, load_oracle_table
+from tests.support.ern.published_dataset import load_published_ern_dataset
 
 
 class CanonicalResult(TypedDict):

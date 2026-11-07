@@ -70,7 +70,7 @@ class TestPart42GridDimensions:
     """Part 42 grid constants must match expected dimensions."""
 
     def test_grid_cell_count(self) -> None:
-        from tests.functional.ern.constants import (
+        from tests.support.ern.constants import (
             PART42_GRID_CELLS,
             PART42_HORIZON_COUNT,
             PART42_SWR_COUNT,
@@ -83,7 +83,7 @@ class TestPart42GridDimensions:
         assert PART42_GRID_CELLS == 45
 
     def test_omy_parameters(self) -> None:
-        from tests.functional.ern.constants import (
+        from tests.support.ern.constants import (
             PART42_BOND_WEIGHT,
             PART42_CONTRIBUTION_MONTHLY,
             PART42_EQUITY_WEIGHT,

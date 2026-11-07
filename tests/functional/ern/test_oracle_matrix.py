@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .constants import ANCHOR_CELLS, ORACLE_CSV, load_oracle_table
+from tests.support.ern.constants import ANCHOR_CELLS, ORACLE_CSV, load_oracle_table
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REFERENCE_TOOL = REPO_ROOT / "tools" / "ern" / "reference_oracle.py"

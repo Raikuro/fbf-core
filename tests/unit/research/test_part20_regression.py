@@ -118,22 +118,22 @@ class TestPart20GridRegression:
     """Regression: Part 20 grid structure must remain correct."""
 
     def test_32_glidepaths(self) -> None:
-        from tests.functional.ern.constants import PART20_ALL_GLIDEPATHS
+        from tests.support.ern.constants import PART20_ALL_GLIDEPATHS
 
         assert len(PART20_ALL_GLIDEPATHS) == 32
 
     def test_320_grid_cells(self) -> None:
-        from tests.functional.ern.constants import PART20_GRID_CELLS
+        from tests.support.ern.constants import PART20_GRID_CELLS
 
         assert PART20_GRID_CELLS == 320
 
     def test_part19_count_unchanged(self) -> None:
-        from tests.functional.ern.constants import PART19_GLIDEPATHS
+        from tests.support.ern.constants import PART19_GLIDEPATHS
 
         assert len(PART19_GLIDEPATHS) == 24
 
     def test_part20_count_unchanged(self) -> None:
-        from tests.functional.ern.constants import PART20_GLIDEPATHS
+        from tests.support.ern.constants import PART20_GLIDEPATHS
 
         assert len(PART20_GLIDEPATHS) == 8
 

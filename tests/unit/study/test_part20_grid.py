@@ -85,7 +85,7 @@ class TestPart20GridStructure:
 
     def test_part20_additions_are_exactly_eight(self) -> None:
         """The 8 Part 20 additions are exactly as specified."""
-        from tests.functional.ern.constants import PART20_GLIDEPATHS
+        from tests.support.ern.constants import PART20_GLIDEPATHS
 
         assert len(PART20_GLIDEPATHS) == 8
         config = _load_part20_config()
@@ -99,7 +99,7 @@ class TestPart20GridStructure:
             assert gp in seen, f"Part 20 glidepath {gp} not found in grid"
 
     def test_part20_additions_are_passive_only(self) -> None:
-        from tests.functional.ern.constants import PART20_GLIDEPATHS
+        from tests.support.ern.constants import PART20_GLIDEPATHS
 
         for start, end, _slope, mode in PART20_GLIDEPATHS:
             assert mode == "passive", (
@@ -107,14 +107,14 @@ class TestPart20GridStructure:
             )
 
     def test_part20_additions_slopes(self) -> None:
-        from tests.functional.ern.constants import PART20_GLIDEPATHS
+        from tests.support.ern.constants import PART20_GLIDEPATHS
 
         expected_slopes = {0.00111, 0.002, 0.003, 0.004}
         actual_slopes = {slope for _, _, slope, _ in PART20_GLIDEPATHS}
         assert actual_slopes == expected_slopes
 
     def test_part20_additions_start_end_pairs(self) -> None:
-        from tests.functional.ern.constants import PART20_GLIDEPATHS
+        from tests.support.ern.constants import PART20_GLIDEPATHS
 
         pairs = {(start, end) for start, end, _, _ in PART20_GLIDEPATHS}
         assert pairs == {(0.3, 0.7), (0.2, 0.6)}
@@ -142,34 +142,34 @@ class TestPart20Constants:
     """Tests for the Part 20 constants module."""
 
     def test_part19_count(self) -> None:
-        from tests.functional.ern.constants import PART19_GLIDEPATHS
+        from tests.support.ern.constants import PART19_GLIDEPATHS
 
         assert len(PART19_GLIDEPATHS) == 24
 
     def test_part20_count(self) -> None:
-        from tests.functional.ern.constants import PART20_GLIDEPATHS
+        from tests.support.ern.constants import PART20_GLIDEPATHS
 
         assert len(PART20_GLIDEPATHS) == 8
 
     def test_combined_count(self) -> None:
-        from tests.functional.ern.constants import PART20_ALL_GLIDEPATHS
+        from tests.support.ern.constants import PART20_ALL_GLIDEPATHS
 
         assert len(PART20_ALL_GLIDEPATHS) == 32
 
     def test_grid_cell_count(self) -> None:
-        from tests.functional.ern.constants import PART20_GRID_CELLS
+        from tests.support.ern.constants import PART20_GRID_CELLS
 
         assert PART20_GRID_CELLS == 320
 
     def test_swr_values(self) -> None:
-        from tests.functional.ern.constants import PART20_SWR
+        from tests.support.ern.constants import PART20_SWR
 
         assert len(PART20_SWR) == 5
         assert PART20_SWR[0] == 0.03
         assert PART20_SWR[-1] == 0.04
 
     def test_horizons(self) -> None:
-        from tests.functional.ern.constants import PART20_HORIZONS
+        from tests.support.ern.constants import PART20_HORIZONS
 
         assert PART20_HORIZONS == [30, 60]
 
