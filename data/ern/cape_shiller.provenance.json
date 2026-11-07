@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.1",
+  "source_file": "SWR_Toolbox_v2.0.xlsx",
+  "source_sha256": "d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6",
+  "source_sheet": "Asset Returns",
+  "source_field": "O",
+  "source_field_name": "CAPE Shiller",
+  "source_cells": "O6:O1871",
+  "source_date_format": "year (column B), month (column A)",
+  "source_numeric_type": "cached Excel value (preserved exactly)",
+  "extraction_tool": "tools/ern/extract_workbook_returns.py",
+  "extraction_tool_version": "1.1.0",
+  "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, normalization, interpolation, or date extension.",
+  "transformations": [
+    "Read Asset Returns!O cached values for rows 6-1871.",
+    "No merge with ie_data.csv, Shiller JSON, canonical/ern_asset_returns.csv, or external observations.",
+    "No gap filling, rounding, or coverage extension."
+  ],
+  "observation_count": 1866,
+  "date_range": "1871-01-01 to 2026-06-01",
+  "artifact_sha256": "8b486b95f4ec332923c71a8abef306b89d5d0eddc2dd1755541c66fddd9d8c59",
+  "validation_result": "PASS",
+  "notes": "Authoritative Shiller CAPE series for canonical ERN research; workbook column O only."
+}

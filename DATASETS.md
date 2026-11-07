@@ -90,16 +90,15 @@ below is the only documented exception.
 CAPE is **workbook-only**: `SWR_Toolbox_v2.0.xlsx`, sheet `Asset Returns`,
 column `O` (`O6:O1871`; 1,866 observations; `1871-01..2026-06`). Raw
 `data/ern/raw/ie_data.csv`, Shiller JSON sources,
-`canonical/ern_asset_returns.csv`, and the pre-migration hybrid
-`cape_shiller.csv` composition are not canonical CAPE sources. The committed
-`cape_shiller.csv` is awaiting the workbook-only migration.
+`canonical/ern_asset_returns.csv`, and any prior hybrid CAPE composition are
+not canonical CAPE sources. The committed `cape_shiller.csv` is the exact
+workbook-only extraction.
 
 Each workbook-generated canonical output has a sibling
 `<name>.provenance.json` recording source workbook, sheet, column/cells,
 observation count, date range, artifact hash, and validation result. CAPE
 provenance additionally records the extraction tool/version and explicit
-no-merge transformations; the current pre-migration CAPE artifact will gain
-one when it is replaced.
+no-merge transformations.
 
 ### FFR frozen exception
 

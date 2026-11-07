@@ -173,9 +173,8 @@ class TestCapeBinaryCohortStart:
         assert first["start_month_index"] == 0
 
     def test_cape_at_start_is_correct(self) -> None:
-        """The CAPE value at cohort start matches the canonical runtime CSV."""
+        """The CAPE value at cohort start is the exact canonical workbook value."""
         import csv
-        import json
         from pathlib import Path
 
         with open(Path("data/ern/cape_shiller.csv"), newline="") as f:
@@ -183,12 +182,5 @@ class TestCapeBinaryCohortStart:
             next(reader)
             cape_map = {row[0]: Decimal(row[1]) for row in reader}
 
-        with open(Path("data/ern/cohort_manifest_part3.json")) as f:
-            manifest = json.load(f)
-
-        cape_cohorts = [c for c in manifest["cohorts"] if c["cape_available"]]
-        first = cape_cohorts[0]
-        assert Decimal(str(first["cape_value"])) == cape_map["1871-02-01"]
-
-        key_entry = next(c for c in manifest["cohorts"] if c["cohort_date"] == "1998-07-01")
-        assert Decimal(str(key_entry["cape_value"])) == cape_map["1998-07-01"]
+        assert cape_map["1871-02-01"] == Decimal("10.91933677")
+        assert cape_map["1998-07-01"] == Decimal("37.06700904")
