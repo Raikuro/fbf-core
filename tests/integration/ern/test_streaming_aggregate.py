@@ -36,8 +36,7 @@ from fbf.core.persistence.studies.sqlite import (
 )
 from fbf.core.persistence.studies.sqlite.sqlite_repository import ExperimentIdentity
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
-
-from .constants import (
+from tests.support.ern.constants import (
     COHORTS_PER_CELL,
     DATA_DIR,
     WORKBOOK_ORACLE_CSV,

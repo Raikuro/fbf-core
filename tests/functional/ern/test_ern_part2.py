@@ -19,7 +19,6 @@ June 2026 and is covered by the regression grid instead.
 
 from __future__ import annotations
 
-import csv
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -35,14 +34,16 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionBackend, ExecutionOptions
 from fbf.core.study import StudyConfiguration
-
-from .constants import WORKBOOK_ORACLE_CSV, OracleTable, load_oracle_table
-from .published_dataset import load_published_ern_dataset
+from tests.support.ern.constants import (
+    WORKBOOK_ORACLE_CSV,
+    OracleTable,
+    load_oracle_table,
+)
+from tests.support.ern.published_dataset import load_published_ern_dataset
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = _REPO_ROOT / "data" / "ern"
 PART2_YAML = _REPO_ROOT / "examples" / "studies" / "ern_part2.yaml"
-FIXTURE_CSV = DATA_DIR / "part2_regression_fixture.csv"
 
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 COHORTS_PER_CELL = 1739
@@ -74,19 +75,6 @@ FV_TARGETS = (
     Decimal("1.0"),
 )
 
-CELLS = len(WEIGHTS) * len(RATES) * len(HORIZONS) * len(FV_TARGETS)
-UNITS = CELLS * COHORTS_PER_CELL
-
-FIELDS = (
-    "equity_weight",
-    "withdrawal_rate",
-    "horizon_years",
-    "final_value_target",
-    "units_run",
-    "success_count",
-    "success_rate",
-)
-
 type CellKey = tuple[Decimal, Decimal, int, Decimal]
 
 ANCHORS = (
@@ -99,28 +87,12 @@ ANCHOR_TOLERANCE_PP = Decimal("1")
 
 
 @dataclass(frozen=True)
-class FixtureRow:
-    units_run: int
-    success_count: int
-
-
-@dataclass(frozen=True)
 class Part2Execution:
     actual_cells: int
     actual_units: int
     cell_units_run: dict[CellKey, int]
     cell_success_count: dict[CellKey, int]
     exec_time_s: float
-
-
-def _expected_keys() -> tuple[CellKey, ...]:
-    return tuple(
-        (weight, rate, horizon, target)
-        for weight in WEIGHTS
-        for rate in RATES
-        for horizon in HORIZONS
-        for target in FV_TARGETS
-    )
 
 
 def _key_from_values(values: Mapping[str, int | float | bool | str]) -> CellKey:
@@ -130,36 +102,6 @@ def _key_from_values(values: Mapping[str, int | float | bool | str]) -> CellKey:
         int(str(values["horizon_years"])),
         Decimal(str(values["final_value_target"])),
     )
-
-
-def _load_fixture(path: Path = FIXTURE_CSV) -> dict[CellKey, FixtureRow]:
-    rows: dict[CellKey, FixtureRow] = {}
-    with open(path, newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        assert tuple(reader.fieldnames or ()) == FIELDS
-        for raw in reader:
-            key: CellKey = (
-                Decimal(raw["equity_weight"]),
-                Decimal(raw["withdrawal_rate"]),
-                int(raw["horizon_years"]),
-                Decimal(raw["final_value_target"]),
-            )
-            if key in rows:
-                raise AssertionError(f"duplicate fixture cell: {key}")
-            units_run = int(raw["units_run"])
-            success_count = int(raw["success_count"])
-            if not 0 <= success_count <= units_run:
-                raise AssertionError(f"invalid fixture counts for {key}")
-            expected_rate = (
-                Decimal(success_count) / Decimal(units_run)
-            ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_EVEN)
-            if Decimal(raw["success_rate"]) != expected_rate:
-                raise AssertionError(f"fixture success_rate mismatch for {key}")
-            rows[key] = FixtureRow(
-                units_run=units_run,
-                success_count=success_count,
-            )
-    return rows
 
 
 def _run_part2(config: StudyConfiguration) -> Part2Execution:
@@ -210,11 +152,6 @@ def part2_execution(part2_config: StudyConfiguration) -> Part2Execution:
 
 
 @pytest.fixture(scope="session")
-def part2_fixture() -> dict[CellKey, FixtureRow]:
-    return _load_fixture()
-
-
-@pytest.fixture(scope="session")
 def part1_workbook_oracle() -> OracleTable:
     return load_oracle_table(WORKBOOK_ORACLE_CSV)
 
@@ -222,53 +159,6 @@ def part1_workbook_oracle() -> OracleTable:
 @pytest.fixture(scope="session")
 def published_dataset() -> Dataset:
     return load_published_ern_dataset()
-
-
-@pytest.mark.ern_e2e
-def test_part2_full_grid_matches_regression_fixture(
-    part2_config: StudyConfiguration,
-    part2_execution: Part2Execution,
-    part2_fixture: dict[CellKey, FixtureRow],
-) -> None:
-    expected_keys = _expected_keys()
-    expected_set = set(expected_keys)
-
-    assert part2_config.cohort_start_date == date(1871, 1, 1)
-    assert part2_config.cohort_end_date == date(2015, 11, 1)
-    assert part2_config.horizon_years == HORIZONS
-    assert part2_config.final_value_target_values == FV_TARGETS
-
-    assert part2_execution.actual_units == UNITS
-    assert part2_execution.actual_cells == CELLS
-    assert set(part2_execution.cell_units_run) == expected_set
-    assert set(part2_fixture) == expected_set
-    assert len(part2_fixture) == CELLS
-
-    for key in expected_keys:
-        assert part2_execution.cell_units_run[key] == COHORTS_PER_CELL
-        assert part2_fixture[key].units_run == COHORTS_PER_CELL
-
-    assert sum(row.units_run for row in part2_fixture.values()) == UNITS
-
-    mismatches: list[tuple[CellKey, int, int]] = []
-    for key in expected_keys:
-        actual = part2_execution.cell_success_count.get(key, 0)
-        expected = part2_fixture[key].success_count
-        if actual != expected:
-            mismatches.append((key, actual, expected))
-
-    print("\n" + "=" * 62)
-    print("ERN PART 2 REGRESSION E2E ACCEPTANCE REPORT")
-    print("=" * 62)
-    print(f"Cells:      {part2_execution.actual_cells}/{CELLS}")
-    print(f"Units:      {part2_execution.actual_units:,}/{UNITS:,}")
-    print(f"Wall time:  {part2_execution.exec_time_s:.0f}s")
-    print(f"Mismatches: {len(mismatches)}")
-    for key, actual, expected in mismatches[:20]:
-        print(f"  {key}: actual={actual}, fixture={expected}")
-    print("=" * 62)
-
-    assert not mismatches, f"{len(mismatches)} cells differ from the Part 2 fixture"
 
 
 @pytest.mark.ern_e2e

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from .fixtures import parse_per_cell_lines
+from tests.support.ern.per_cell_parser import parse_per_cell_lines
 
 
 def _make_key(params: dict[str, float | int | bool]) -> tuple[tuple[str, float | int | bool], ...]:

@@ -13,7 +13,7 @@ from decimal import Decimal
 
 import pytest
 
-from tests.functional.ern.debt_oracle import (
+from tests.support.ern.debt_oracle import (
     DebtOracleState,
     ExecutionStatus,
     FailureState,

@@ -38,14 +38,13 @@ from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 from fbf.core.study.builder import build_interest_rate_schedule, load_ffr_rates
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
+from tests.support.ern.constants import COHORTS_PER_CELL, RATES, RETURNS_DIR
 from tools.ern.reference_oracle import (
     build_extended,
     cohort_annual_swr,
     load_real_returns,
     prefix_tables,
 )
-
-from .constants import COHORTS_PER_CELL, RATES, RETURNS_DIR
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
 HORIZON_MONTHS = {30: 361, 40: 481, 50: 601, 60: 721}
