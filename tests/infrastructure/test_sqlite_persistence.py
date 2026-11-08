@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -967,6 +968,32 @@ def test_plan_portfolio_round_trip(repo: SQLiteRepository) -> None:
     plan_id = repo.save_plan(plan, exp_id, ctx)
     loaded = repo.load_plan(plan_id, ctx)
     assert loaded.units[0].initial_portfolio.holdings[0].units == Decimal(exact_units)
+
+
+def test_plan_withdrawal_base_round_trip(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment()
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    withdrawal_base = Money(Decimal("2000000.00"), Currency.EUR)
+    unit = replace(make_unit(month=1), withdrawal_base=withdrawal_base)
+    plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+    loaded = repo.load_plan(plan_id, ctx)
+    assert loaded.units[0].withdrawal_base == withdrawal_base
+
+
+def test_plan_withdrawal_base_none_round_trip(repo: SQLiteRepository) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment()
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    plan = ResearchPlan(experiment_definition=experiment, units=(make_unit(month=1),))
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+    loaded = repo.load_plan(plan_id, ctx)
+    assert loaded.units[0].withdrawal_base is None
 
 
 def test_plan_cohort_start_date_round_trip(repo: SQLiteRepository) -> None:

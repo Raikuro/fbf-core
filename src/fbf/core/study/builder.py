@@ -34,6 +34,7 @@ from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 from fbf.core.study.internal.cohort.generator import CohortGenerator
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
+from fbf.core.study.internal.omy_timeline import OmyTimeline, resolve_omy_timeline
 from fbf.core.study.internal.parameter.axis import ParameterAxis
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
 from fbf.core.study.internal.parameter.engine import ParameterSweepEngine
@@ -1583,6 +1584,12 @@ class OmyStudyConfiguration:
         The pre-accumulation initial wealth ($2M for Part 42).
     fv_target_fraction :
         Final-value target as a fraction of original_initial_wealth.
+    omy_duration_months :
+        Number of accumulation months consumed from the fixed total horizon.
+    withdrawal_base :
+        Optional explicit fixed-real withdrawal base. When None, each execution
+        family preserves its existing default; generic OMY studies are not
+        implicitly changed.
     """
 
     base_config: StudyConfiguration
@@ -1591,17 +1598,26 @@ class OmyStudyConfiguration:
     bond_weight: Decimal
     original_initial_wealth: Money
     fv_target_fraction: Decimal
+    omy_duration_months: int = 12
+    withdrawal_base: Money | None = None
 
-
-def _make_omy_horizon_resolver(
-    retirement_horizon_years: int,
-) -> Callable[[ParameterConfiguration], int]:
-    """Horizon resolver for OMY retirement: fixed horizon, no accumulation."""
-
-    def resolve(param_config: ParameterConfiguration) -> int:
-        return retirement_horizon_years * 12 + 1
-
-    return resolve
+    def __post_init__(self) -> None:
+        if self.omy_duration_months < 1:
+            raise ValueError("OmyStudyConfiguration.omy_duration_months must be positive")
+        if self.withdrawal_base is not None:
+            if not isinstance(self.withdrawal_base, Money):
+                raise TypeError(
+                    "OmyStudyConfiguration.withdrawal_base must be a Money instance or None"
+                )
+            if self.withdrawal_base.amount <= 0:
+                raise ValueError(
+                    "OmyStudyConfiguration.withdrawal_base must be positive"
+                )
+            if self.withdrawal_base.currency != self.original_initial_wealth.currency:
+                raise ValueError(
+                    "OmyStudyConfiguration.withdrawal_base currency must match "
+                    "original_initial_wealth"
+                )
 
 
 def build_omy_study_plan(
@@ -1611,12 +1627,12 @@ def build_omy_study_plan(
     """Build a research plan with accumulation pre-processing.
 
     For each cohort:
-      1. Run 12-month accumulation (once, cached per cohort).
+      1. Run the OMY accumulation phase once, cached per cohort.
       2. Generate retirement units with the accumulated portfolio.
 
-    The accumulation result is cached by cohort start date. All other
-    accumulation inputs (contribution, weights, initial portfolio) are
-    assumed invariant for Part 42.
+    The total horizon is fixed: accumulation consumes the first
+    ``omy_duration_months`` months and retirement contains the remaining
+    months. The accumulation result is cached by cohort start date.
     """
     from fbf.core.study.internal.accumulation import run_accumulation_phase
 
@@ -1625,63 +1641,69 @@ def build_omy_study_plan(
 
     dataset = load_canonical_dataset(Path(data_dir))
 
-    # For OMY: the full horizon is accumulation (12) + retirement (30y).
-    # The dataset must contain enough snapshots for the full horizon.
-    retirement_horizon_years = max(config.base_config.horizon_years)
-    total_horizon_months = 12 + retirement_horizon_years * 12 + 1
+    horizon_years = max(config.base_config.horizon_years)
+    timeline = resolve_omy_timeline(
+        horizon_years=horizon_years,
+        omy_months=config.omy_duration_months,
+    )
 
     cohorts = build_cohort_specs(
         dataset,
-        total_horizon_months,
+        timeline.total_snapshots,
         start_date=config.base_config.cohort_start_date,
         end_date=config.base_config.cohort_end_date,
     )
     if not cohorts:
         raise ValueError(
-            f"Dataset is too small "
-            f"for {retirement_horizon_years + 1}-year OMY horizon"
+            f"Dataset is too small for {horizon_years}-year OMY horizon"
         )
 
     param_configs = _build_unified_parameter_configs(config.base_config)
 
     # Accumulation: once per cohort, cached by start_date.
     accumulation_cache: dict[date, Portfolio] = {}
-    accumulation_month_by_month: dict[date, tuple[Portfolio, ...]] = {}
+    retirement_start_by_cohort: dict[date, date] = {}
 
     target_weights = {equity_asset: config.equity_weight, bond_asset: config.bond_weight}
-    initial_portfolio = build_initial_portfolio(config.original_initial_wealth, dataset)
 
     for cohort in cohorts:
         start = cohort.start_date
         if start not in accumulation_cache:
-            acc_dataset = dataset.slice(start, 13)
+            acc_dataset = dataset.slice(start, timeline.accumulation_snapshots)
+            if len(acc_dataset) != timeline.accumulation_snapshots:
+                raise ValueError(
+                    "Dataset is too small for OMY accumulation: "
+                    f"cohort={start.isoformat()}, "
+                    f"required={timeline.accumulation_snapshots}, "
+                    f"got={len(acc_dataset)}"
+                )
+            cohort_initial_portfolio = build_initial_portfolio(
+                config.original_initial_wealth, acc_dataset
+            )
             result = run_accumulation_phase(
-                initial_portfolio=initial_portfolio,
+                initial_portfolio=cohort_initial_portfolio,
                 contribution=config.contribution_amount,
                 target_weights=target_weights,
                 dataset=acc_dataset,
                 equity_asset=equity_asset,
                 bond_asset=bond_asset,
-                months=12,
+                months=timeline.accumulation_transitions,
             )
             accumulation_cache[start] = result.final_portfolio
-            accumulation_month_by_month[start] = result.month_by_month
+            retirement_start_by_cohort[start] = acc_dataset.snapshots[-1].date
 
     # Verify accumulation uniqueness: exactly N executions for N cohorts
     assert len(accumulation_cache) == len(cohorts)
 
-    # Build retirement plan using accumulated portfolios.
-    # For each cohort, the retirement dataset starts at cohort.start_date
-    # and the initial_portfolio is the accumulated result.
-    retirement_plan = _build_omy_retirement_plan(
+    return _build_omy_retirement_plan(
         config=config,
         dataset=dataset,
         cohorts=cohorts,
         param_configs=param_configs,
         accumulation_cache=accumulation_cache,
+        retirement_start_by_cohort=retirement_start_by_cohort,
+        timeline=timeline,
     )
-
-    return retirement_plan
 
 
 def _build_omy_retirement_plan(
@@ -1691,11 +1713,13 @@ def _build_omy_retirement_plan(
     cohorts: tuple[CohortSpecification, ...],
     param_configs: tuple[ParameterConfiguration, ...],
     accumulation_cache: dict[date, Portfolio],
+    retirement_start_by_cohort: dict[date, date],
+    timeline: OmyTimeline,
 ) -> BuiltStudy:
     """Build the retirement phase plan using accumulated portfolios."""
     from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
-    retirement_horizon_years = max(config.base_config.horizon_years)
-    retirement_horizon_months = retirement_horizon_years * 12 + 1
+
+    retirement_horizon_months = timeline.retirement_snapshots
 
     representative_allocation, representative_withdrawal = _representative_policies(
         config.base_config
@@ -1718,18 +1742,25 @@ def _build_omy_retirement_plan(
     units: list[PlannedSimulationUnit] = []
     for cohort in cohorts:
         acc_portfolio = accumulation_cache[cohort.start_date]
+        retirement_start = retirement_start_by_cohort[cohort.start_date]
         for param_config in param_configs:
             horizon_months = retirement_horizon_months
             alloc_policy, withdrawal_policy = _make_policy_resolver(config.base_config)(
                 param_config
             )
             final_value_target = _make_target_resolver(config.base_config)(param_config)
-            cache_key = (cohort.start_date, horizon_months)
+            cache_key = (retirement_start, horizon_months)
             if cache_key not in dataset_cache:
-                # Use horizon_months snapshots (already includes pre-retirement + return periods)
-                dataset_cache[cache_key] = dataset.slice(
-                    cohort.start_date, horizon_months
+                retirement_dataset = dataset.slice(
+                    retirement_start, horizon_months
                 )
+                if len(retirement_dataset) != horizon_months:
+                    raise ValueError(
+                        "Dataset is too small for OMY retirement: "
+                        f"cohort={cohort.start_date.isoformat()}, "
+                        f"required={horizon_months}, got={len(retirement_dataset)}"
+                    )
+                dataset_cache[cache_key] = retirement_dataset
             units.append(
                 PlannedSimulationUnit(
                     cohort=cohort,
@@ -1738,9 +1769,9 @@ def _build_omy_retirement_plan(
                     withdrawal_policy=withdrawal_policy,
                     initial_portfolio=acc_portfolio,
                     dataset=dataset_cache[cache_key],
-                    # horizon_months already includes pre-retirement snapshot
                     horizon_months=horizon_months,
                     final_value_target=final_value_target,
+                    withdrawal_base=config.withdrawal_base,
                 )
             )
 

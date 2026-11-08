@@ -272,10 +272,10 @@ class FixedRealWithdrawalPolicy(WithdrawalPolicy):
     YAML params: withdrawal_rate (Decimal, 0.0-1.0 annual)
 
     The monthly withdrawal is computed once at the cohort start as
-    ``initial_wealth * withdrawal_rate / 12``, where ``initial_wealth``
-    is the experiment's fixed initial wealth (independent of cohort start
-    date or current market prices).  The amount stays constant in real
-    (index-level) units for the entire horizon.
+    ``withdrawal_base * withdrawal_rate / 12``.  ``withdrawal_base`` defaults
+    to ``initial_wealth`` and may be overridden explicitly by the execution
+    context.  The amount stays constant in real (index-level) units for the
+    entire horizon.
     """
 
     def __init__(
@@ -293,11 +293,13 @@ class FixedRealWithdrawalPolicy(WithdrawalPolicy):
             raise TypeError(
                 "FixedRealWithdrawalPolicy requires a DecisionContext with simulation_context"
             )
-        initial_wealth: Money = sim_context.initial_wealth
+        withdrawal_base: Money = getattr(
+            sim_context, "withdrawal_base", None
+        ) or sim_context.initial_wealth
         if self.frequency is WithdrawalFrequency.ANNUAL:
-            amount = initial_wealth.amount * self.withdrawal_rate
+            amount = withdrawal_base.amount * self.withdrawal_rate
         else:
-            amount = initial_wealth.amount * self.withdrawal_rate / Decimal("12")
+            amount = withdrawal_base.amount * self.withdrawal_rate / Decimal("12")
         return WithdrawalDecision(
             reason="FixedRealWithdrawalPolicy",
             nominal_amount=Money(amount, Currency.EUR),

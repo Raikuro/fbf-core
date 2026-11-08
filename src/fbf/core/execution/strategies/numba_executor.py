@@ -93,15 +93,16 @@ from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
 from fbf.core.execution.strategies.eligibility import (
     _dataset_token,
+    _effective_fixed_real_withdrawal_base,
     _group_key,
     _index_series,
+    _initial_portfolio_value,
     _trajectory_clusters,
     _weights_by_class,
     is_constant_allocation_eligible,
 )
 from fbf.core.execution.strategies.numba_kernel import (
     _compute_growth_factors_numpy,
-    _compute_workbook_scr,
     _materialize_price_float,
     _simulate_trajectory_buy_and_hold,
     _simulate_trajectory_constant_nominal,
@@ -122,7 +123,8 @@ GFKey = tuple[date, WeightIdentity, Decimal, int]
 
 # Glidepath trajectory-parameter key (no dataset identity):
 # (start_date, glidepath_type, start_equity, end_equity, slope, mode,
-#  cadence, expense_ratio, withdrawal_rate, initial_portfolio)
+#  cadence, expense_ratio, withdrawal_rate, initial_portfolio,
+#  effective_withdrawal_base)
 GlidepathGroupKey = tuple[
     date,
     str,
@@ -134,6 +136,7 @@ GlidepathGroupKey = tuple[
     Decimal,
     Decimal,
     object,
+    Decimal,
 ]
 
 # Glidepath growth-factor cache key:
@@ -416,14 +419,14 @@ def _numba_group_key(context: SimulationContext) -> tuple[object, ...] | None:
 
 
 def _buy_and_hold_group_key(context: SimulationContext) -> tuple[object, ...]:
-    """Trajectory key for buy-and-hold contexts: excludes initial_wealth.
+    """Trajectory key for buy-and-hold, fixed-real contexts.
 
     The path depends on the market trajectory (``start_date`` + dataset),
-    the target equity allocation, the withdrawal rate, the expense ratio, and
-    the initial portfolio.  ``initial_wealth`` does not enter the kernel (the
-    withdrawal base is ``v0``, derived from the initial portfolio), so it is
-    excluded; the FV check is applied per-target afterwards.  Dataset identity
-    is enforced separately by the identity-prefix clustering.
+    the target equity allocation, the withdrawal rate, the expense ratio, the
+    initial portfolio, and the effective withdrawal base.  The default base is
+    ``initial_wealth``; eligible contexts require it to equal ``v0``.  An
+    explicit override must split the group.  Dataset identity is enforced
+    separately by the identity-prefix clustering.
     """
     allocation = cast(BuyAndHoldAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
@@ -433,6 +436,9 @@ def _buy_and_hold_group_key(context: SimulationContext) -> tuple[object, ...]:
         withdrawal.withdrawal_rate,
         context.expense_ratio or Decimal("0"),
         context.initial_portfolio,
+        _effective_fixed_real_withdrawal_base(
+            context, context.initial_wealth.amount
+        ),
     )
 
 
@@ -505,10 +511,10 @@ def _escalating_group_key(context: SimulationContext) -> tuple[object, ...]:
 def _glidepath_group_key(context: SimulationContext) -> GlidepathGroupKey:
     """Trajectory-parameter key for fixed-real glidepath contexts.
 
-    Withdrawal rate, cadence, expense ratio, and the initial portfolio are
-    part of the key: contexts that differ in any of them cannot share one
-    evaluated trajectory.  Dataset identity is enforced separately by the
-    identity-prefix guard.
+    Withdrawal rate, cadence, expense ratio, the initial portfolio, and the
+    effective withdrawal base are part of the key: contexts that differ in any
+    of them cannot share one evaluated trajectory.  Dataset identity is
+    enforced separately by the identity-prefix guard.
     """
     allocation = cast(GlidepathAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
@@ -523,6 +529,9 @@ def _glidepath_group_key(context: SimulationContext) -> GlidepathGroupKey:
         context.expense_ratio or Decimal("0"),
         withdrawal.withdrawal_rate,
         context.initial_portfolio,
+        _effective_fixed_real_withdrawal_base(
+            context, context.initial_wealth.amount
+        ),
     )
 
 
@@ -998,20 +1007,27 @@ class NumbaSimulationExecutor(SimulationExecutor):
             horizon_to_ctxs.setdefault(ctx.horizon_months, []).append(ctx)
 
         sample_ctx = contexts[0]
-        initial_snapshot = sample_ctx.dataset[0]
-        v0 = float(sum(
-            holding.units * initial_snapshot.index_levels[holding.asset_class]
-            for holding in sample_ctx.initial_portfolio.holdings
-        ))
+        v0_decimal = _initial_portfolio_value(sample_ctx)
+        v0 = float(v0_decimal)
         withdrawal_policy = cast(FixedRealWithdrawalPolicy, sample_ctx.withdrawal_policy)
         rate_f = float(withdrawal_policy.withdrawal_rate)
-        c = v0 * rate_f / 12.0
-        fee_annual = float(sample_ctx.expense_ratio or Decimal("0"))
+        effective_base = _effective_fixed_real_withdrawal_base(
+            sample_ctx, v0_decimal
+        )
+        for ctx in contexts:
+            ctx_base = _effective_fixed_real_withdrawal_base(
+                ctx, _initial_portfolio_value(ctx)
+            )
+            if ctx_base != effective_base:
+                raise AssertionError(
+                    "static fixed-real group contains mixed withdrawal bases"
+                )
+        c = float(effective_base) * rate_f / 12.0
 
         gf_key = _gf_cache_key(sample_ctx)
         growth_factors_full = self._gf_cache[gf_key]
 
-        horizon_result_cache: dict[tuple[int, object], SimulationResult] = {}
+        horizon_result_cache: dict[tuple[int, object, object], SimulationResult] = {}
 
         for horizon, h_contexts in horizon_to_ctxs.items():
             stats["month_work"] += horizon
@@ -1022,22 +1038,21 @@ class NumbaSimulationExecutor(SimulationExecutor):
             # before growth in every period and compound the final month's
             # return, exactly as the workbook SCR model.
             #
-            # ``success`` is the SCR verdict (``scr >= rate``).  The
-            # operational terminal failure -- the month the trajectory
-            # reaches zero -- is taken from the trajectory itself and is
-            # never inferred from ``scr < rate``; the reported month uses
-            # the same convention as ``numba_executor._process_static_group``
-            # (0-based period index + 1, since month 0 is pre-retirement).
+            # ``success`` is the actual trajectory verdict.  The operational
+            # terminal failure -- the month the trajectory reaches zero -- is
+            # taken from the trajectory itself and is never inferred from an
+            # SCR rate, because the withdrawal base need not equal ``v0``.
+            # The reported month uses the same convention as the workbook
+            # recurrence (0-based period index + 1, since month 0 is
+            # pre-retirement).
             periods = horizon - 1
             growth_factors_arr = growth_factors_full[:periods]
-            scr = _compute_workbook_scr(growth_factors_arr, periods, fee_annual)
-            success = scr >= rate_f
             out_values = (
                 np.empty(periods + 1, dtype=np.float64)
                 if self._materialize_timeline
                 else None
             )
-            final_value, _traj_success, fail_month, _ = _simulate_trajectory_workbook(
+            final_value, success, fail_month, _ = _simulate_trajectory_workbook(
                 growth_factors_arr, v0, c, periods, out_values
             )
             failure_month = (
@@ -1061,7 +1076,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 )
 
             for ctx in h_contexts:
-                cache_key = (horizon, ctx.final_value_target)
+                cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
                 if cache_key in horizon_result_cache:
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue
@@ -1426,7 +1441,10 @@ class NumbaSimulationExecutor(SimulationExecutor):
         equity_weight = float(allocation.equity_allocation)
         withdrawal_policy = cast(FixedRealWithdrawalPolicy, sample_ctx.withdrawal_policy)
         rate_f = float(withdrawal_policy.withdrawal_rate)
-        c = float(sample_ctx.initial_wealth.amount) * rate_f / 12.0
+        effective_base = _effective_fixed_real_withdrawal_base(
+            sample_ctx, sample_ctx.initial_wealth.amount
+        )
+        c = float(effective_base) * rate_f / 12.0
         fee_annual = float(sample_ctx.expense_ratio or Decimal("0"))
 
         equity_growth_full, bond_growth_full = self._buy_and_hold_growth_factors(sample_ctx)
@@ -1568,12 +1586,15 @@ class NumbaSimulationExecutor(SimulationExecutor):
         ))
         withdrawal_policy = cast(FixedRealWithdrawalPolicy, sample_ctx.withdrawal_policy)
         rate_f = float(withdrawal_policy.withdrawal_rate)
-        c = float(sample_ctx.initial_wealth.amount) * rate_f / 12.0
+        effective_base = _effective_fixed_real_withdrawal_base(
+            sample_ctx, sample_ctx.initial_wealth.amount
+        )
+        c = float(effective_base) * rate_f / 12.0
 
         gf_key = _glidepath_gf_cache_key(sample_ctx)
         growth_factors_full = self._glidepath_gf_cache[gf_key]
 
-        horizon_result_cache: dict[tuple[int, object], SimulationResult] = {}
+        horizon_result_cache: dict[tuple[int, object, object], SimulationResult] = {}
 
         for horizon, h_contexts in horizon_to_ctxs.items():
             stats["month_work"] += horizon
@@ -1638,7 +1659,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 )
 
             for ctx in h_contexts:
-                cache_key = (horizon, ctx.final_value_target)
+                cache_key = (horizon, ctx.initial_wealth, ctx.final_value_target)
                 if cache_key in horizon_result_cache:
                     results[id(ctx)] = horizon_result_cache[cache_key]
                     continue

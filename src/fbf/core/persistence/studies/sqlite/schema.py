@@ -1,13 +1,14 @@
 """SQLite schema DDL constants (v0.5).
 
-Schema version 4 adds incremental execution state to ``execution_results``:
-``status``, ``attempt_id``, ``completed_units``, ``updated_at``,
-``completed_at``, and ``error``.  Incomplete executions are invisible to the
-completed-result loading API.  Schema version 2 added the ``deleted_at``
-soft-delete columns to ``experiments`` and ``research_plans``.
+Schema version 5 adds the optional ``withdrawal_base_json`` column to
+``planned_units``.  Schema version 4 adds incremental execution state to
+``execution_results``: ``status``, ``attempt_id``, ``completed_units``,
+``updated_at``, ``completed_at``, and ``error``.  Incomplete executions are
+invisible to the completed-result loading API.  Schema version 2 added the
+``deleted_at`` soft-delete columns to ``experiments`` and ``research_plans``.
 """
 
-SCHEMA_VERSION: int = 4
+SCHEMA_VERSION: int = 5
 
 PRAGMA_FOREIGN_KEYS = "PRAGMA foreign_keys = ON"
 PRAGMA_WAL = "PRAGMA journal_mode = WAL"
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS planned_units (
     withdrawal_policy_id TEXT NOT NULL REFERENCES policies(policy_id),
     initial_portfolio_json TEXT NOT NULL,
     final_value_target TEXT,
+    withdrawal_base_json TEXT,
     UNIQUE(plan_id, unit_index),
     UNIQUE(plan_id, cohort_id, param_config_id)
 );
@@ -169,6 +171,11 @@ MIGRATIONS = [
         "planned_units",
         "final_value_target",
         "ALTER TABLE planned_units ADD COLUMN final_value_target TEXT",
+    ),
+    (
+        "planned_units",
+        "withdrawal_base_json",
+        "ALTER TABLE planned_units ADD COLUMN withdrawal_base_json TEXT",
     ),
     (
         "execution_results",

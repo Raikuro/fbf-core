@@ -2,17 +2,17 @@
 
 Executes the canonical ERN Part 42 workload through the production path:
 
-    5 equity allocations × 9 SWR rates × 1 horizon × 2,087 cohorts = 93,915 units
+    5 equity allocations × 9 SWR rates × 1 horizon × 2,099 cohorts = 94,455 units
 
-The OMY horizon (12 months accumulation + 30 years retirement = 373 months)
-produces 2,087 cohorts from the ern_swr_h720 dataset (2,459 snapshots).
+The OMY horizon (12 months accumulation + 30 years retirement = 361 snapshots)
+produces 2,099 cohorts from the ern_swr_h720 dataset (2,459 snapshots).
 
 Validates at three levels:
 
-1. **Structural coverage** — 45 cells × 2,087 cohorts = 93,915 units
+1. **Structural coverage** — 45 cells × 2,099 cohorts = 94,455 units
    are represented in the parameter space.
 
-2. **Computational execution** — the 93,915 units are executed through
+2. **Computational execution** — the 94,455 units are executed through
    the real simulation path and produce real outcomes.
 
 3. **Directional validation** — aggregate and comparative invariants. The
@@ -89,8 +89,8 @@ CANONICAL_WEIGHTS = tuple(Decimal(str(w)) for w in PART42_WEIGHTS)
 CANONICAL_SWR = tuple(Decimal(str(s)) for s in PART42_SWR)
 CANONICAL_HORIZON = PART42_HORIZONS[0]  # 30
 CANONICAL_CELLS = PART42_GRID_CELLS  # 45
-CANONICAL_COHORTS = 2087  # ern_swr_h720: 2459 - (12 + 30*12 + 1) + 1 = 2087
-EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * CANONICAL_COHORTS  # 93,915
+CANONICAL_COHORTS = 2099  # ern_swr_h720: 2459 - (12 + 30*12) + 1 = 2099
+EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * CANONICAL_COHORTS  # 94,455
 
 # OMY parameters (from ern_part42.yaml)
 OMY_CONTRIBUTION = Money(Decimal("5000"), Currency.EUR)
@@ -110,7 +110,7 @@ def _make_canonical_config() -> OmyStudyConfiguration:
     base_config = StudyConfiguration(
         name="ERN Part 42 — Canonical Replication",
         description=(
-            "Canonical ERN Part 42 workload: 45 cells × 1,739 cohorts"
+            "Canonical ERN Part 42 workload: 45 cells × 2,099 cohorts"
         ),
         version="2.0",
         allocation_policy_type="ConstantAllocationPolicy",
@@ -127,6 +127,7 @@ def _make_canonical_config() -> OmyStudyConfiguration:
         bond_weight=OMY_BOND_WEIGHT,
         original_initial_wealth=OMY_ORIGINAL_INITIAL_WEALTH,
         fv_target_fraction=OMY_FV_TARGET_FRACTION,
+        withdrawal_base=OMY_ORIGINAL_INITIAL_WEALTH,
     )
 
 
@@ -229,14 +230,14 @@ def canonical_execution() -> CanonicalResult:
 
 @pytest.mark.ern_e2e
 def test_part42_canonical_replication(canonical_execution: CanonicalResult) -> None:
-    """Full Part 42 canonical E2E: 45 cells × 2,087 cohorts = 93,915 units.
+    """Full Part 42 canonical E2E: 45 cells × 2,099 cohorts = 94,455 units.
 
     Validates at three levels:
 
     **Level 1 — Structural coverage:**
     - 45 cells reported (5 equity × 9 SWR)
-    - 93,915 total units executed
-    - Every cell runs 2,087 cohorts
+    - 94,455 total units executed
+    - Every cell runs 2,099 cohorts
 
     **Level 2 — Computational execution:**
     - Every cell has a real success_rate in [0.0, 1.0]

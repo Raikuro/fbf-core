@@ -43,6 +43,7 @@ def _make_omy_config(
     *,
     withdrawal_rate: Decimal = Decimal("0.04"),
     horizon_years: int = 30,
+    withdrawal_base: Money | None = None,
 ) -> OmyStudyConfiguration:
     """Build an OMY study configuration for testing."""
     base = StudyConfiguration(
@@ -62,6 +63,7 @@ def _make_omy_config(
         bond_weight=Decimal("0.25"),
         original_initial_wealth=Money(Decimal("2000000"), Currency.EUR),
         fv_target_fraction=Decimal("0.25"),
+        withdrawal_base=withdrawal_base,
     )
 
 
@@ -82,9 +84,9 @@ class TestOmyPlanAccumulationCaching:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """With flat prices, accumulation produces same portfolio for all cohorts."""
-        config = _make_omy_config(horizon_years=1)
-        # 12 (acc) + 13 (ret: 12+1) = 25 snapshots minimum
-        small = _small_dataset(26)
+        config = _make_omy_config(horizon_years=2)
+        # 13 accumulation + 13 retirement snapshots = 26 minimum
+        small = _small_dataset(37)
         _patch_load_canonical(small, monkeypatch)
         result = build_omy_study_plan(config, data_dir=str(tmp_path))
         plan = result.plan
@@ -100,10 +102,10 @@ class TestOmyPlanAccumulationCaching:
     ) -> None:
         """1 cohort × M SWR = M retirement units, 1 accumulation."""
         config = _make_omy_config(
-            horizon_years=1,
+            horizon_years=2,
             withdrawal_rate=Decimal("0.03"),
         )
-        small = _small_dataset(26)
+        small = _small_dataset(37)
         _patch_load_canonical(small, monkeypatch)
         result = build_omy_study_plan(config, data_dir=str(tmp_path))
         plan = result.plan
@@ -131,11 +133,34 @@ class TestOmyPlanUnitStructure:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """Accumulation must produce a non-empty portfolio."""
-        config = _make_omy_config(horizon_years=1)
-        small = _small_dataset(26)
+        config = _make_omy_config(horizon_years=2)
+        small = _small_dataset(37)
         _patch_load_canonical(small, monkeypatch)
         result = build_omy_study_plan(config, data_dir=str(tmp_path))
         plan = result.plan
         for unit in plan.units:
             total = sum(h.units for h in unit.initial_portfolio.holdings)
             assert total > Decimal("0")
+
+    def test_unit_withdrawal_base_is_propagated(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Explicit withdrawal bases must reach every planned unit."""
+        base = Money(Decimal("2000000"), Currency.EUR)
+        config = _make_omy_config(horizon_years=2, withdrawal_base=base)
+        small = _small_dataset(37)
+        _patch_load_canonical(small, monkeypatch)
+        result = build_omy_study_plan(config, data_dir=str(tmp_path))
+        assert result.plan.units
+        assert all(unit.withdrawal_base == base for unit in result.plan.units)
+
+    def test_generic_omy_leaves_withdrawal_base_unset(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Generic OMY must not synthesize a withdrawal base."""
+        config = _make_omy_config(horizon_years=2)
+        small = _small_dataset(37)
+        _patch_load_canonical(small, monkeypatch)
+        result = build_omy_study_plan(config, data_dir=str(tmp_path))
+        assert result.plan.units
+        assert all(unit.withdrawal_base is None for unit in result.plan.units)

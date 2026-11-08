@@ -27,6 +27,7 @@ class SimulationContext:
     allocation_policy: AllocationPolicy
     withdrawal_policy: WithdrawalPolicy
     final_value_target: Decimal | None = None
+    withdrawal_base: Money | None = None
     loan_draw_rate: Decimal | None = None
     interest_rate: Decimal | None = None
     interest_rate_schedule: tuple[Decimal, ...] | None = None
@@ -34,3 +35,16 @@ class SimulationContext:
     ltv_enforcement: bool = True
     expense_ratio: Decimal | None = None
     debt_interest_rate_is_real: bool = False
+
+    def __post_init__(self) -> None:
+        if self.withdrawal_base is not None:
+            if not isinstance(self.withdrawal_base, Money):
+                raise TypeError(
+                    "SimulationContext.withdrawal_base must be a Money instance or None"
+                )
+            if self.withdrawal_base.amount <= 0:
+                raise ValueError("SimulationContext.withdrawal_base must be positive")
+            if self.withdrawal_base.currency != self.initial_wealth.currency:
+                raise ValueError(
+                    "SimulationContext.withdrawal_base currency must match initial_wealth"
+                )

@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from fbf.core.domain.model.dataset import Dataset
+from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
@@ -54,6 +55,11 @@ class PlannedSimulationUnit:
         falls back to the shared ``ExperimentDefinition.horizon_months``
         (the pre-grid behaviour); plans produced by the planner always set it
         explicitly so the executor reads the horizon from the unit.
+    withdrawal_base:
+        Optional explicit base for fixed-real withdrawals. When ``None`` each
+        execution family preserves its existing default; Part 42 sets the
+        original pre-OMY wealth so withdrawals do not scale with the
+        accumulated portfolio.
     """
 
     cohort: CohortSpecification
@@ -64,6 +70,7 @@ class PlannedSimulationUnit:
     dataset: Dataset
     horizon_months: int | None = None
     final_value_target: Decimal | None = None
+    withdrawal_base: Money | None = None
     # Part 49 debt parameters (None when leverage is not configured)
     interest_rate: Decimal | None = None
     interest_rate_schedule: tuple[Decimal, ...] | None = None
@@ -96,6 +103,15 @@ class PlannedSimulationUnit:
             raise ValueError(
                 "PlannedSimulationUnit.horizon_months must be a positive integer or None"
             )
+        if self.withdrawal_base is not None:
+            if not isinstance(self.withdrawal_base, Money):
+                raise TypeError(
+                    "PlannedSimulationUnit.withdrawal_base must be a Money instance or None"
+                )
+            if self.withdrawal_base.amount <= 0:
+                raise ValueError(
+                    "PlannedSimulationUnit.withdrawal_base must be positive"
+                )
         # Ensure the planner materialised an engine Portfolio value (ownership
         # belongs to the planning boundary). This prevents the executor from
         # inventing or coercing portfolio representations at execution time.

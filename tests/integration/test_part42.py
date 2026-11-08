@@ -2,7 +2,7 @@
 
 Validates that:
   - Small grid: 1 cohort × 1 SWR → completes
-  - HorizonMonths contract: horizon_months=348 produces 348 transitions
+  - HorizonMonths contract: 349 retirement snapshots produce 348 transitions
   - Portfolio handoff continuity
 """
 
@@ -45,6 +45,7 @@ class TestOmySmallGridExecution:
             build_omy_study_plan,
         )
 
+        original_wealth = Money(Decimal("2000000"), Currency.EUR)
         config = OmyStudyConfiguration(
             base_config=StudyConfiguration(
                 name="test-omy-e2e",
@@ -54,16 +55,17 @@ class TestOmySmallGridExecution:
                 allocation_policy_values=(Decimal("0.75"),),
                 withdrawal_policy_type="FixedRealWithdrawalPolicy",
                 withdrawal_policy_values=(Decimal("0.04"),),
-                horizon_years=(1,),
+                horizon_years=(2,),
             ),
             contribution_amount=Money(Decimal("5000"), Currency.EUR),
             equity_weight=Decimal("0.75"),
             bond_weight=Decimal("0.25"),
-            original_initial_wealth=Money(Decimal("2000000"), Currency.EUR),
+            original_initial_wealth=original_wealth,
             fv_target_fraction=Decimal("0.25"),
+            withdrawal_base=original_wealth,
         )
 
-        small = _small_omy_dataset(26)
+        small = _small_omy_dataset(37)
 
         monkeypatch.setattr(
             "fbf.core.study.builder.load_canonical_dataset",
@@ -79,19 +81,28 @@ class TestOmySmallGridExecution:
             assert unit.horizon_months is not None
             assert unit.dataset is not None
             assert len(unit.dataset) > 0
+            assert unit.withdrawal_base == original_wealth
+
+        from fbf.core.execution import ExecutionOptions, execute_study_plan
+
+        executed = execute_study_plan(
+            result,
+            options=ExecutionOptions(summary_only=True),
+        )
+        assert len(executed.experiment_result.simulation_results) == len(plan.units)
 
 
 class TestHorizonMonthsContract:
     """Regression test for the horizon_months contract.
 
-    horizon_months=348 must produce 348 transitions with 349 observations.
+    A 30-year retirement includes 349 observations and 348 transitions.
     """
 
-    def test_horizon_months_348_dataset_slice(self) -> None:
-        """Dataset.slice() with horizon_months=348 returns 348 snapshots."""
+    def test_horizon_months_349_dataset_slice(self) -> None:
+        """Dataset.slice() with horizon_months=349 returns 349 snapshots."""
         dataset = _small_omy_dataset(400)
-        sliced = dataset.slice(date(2020, 1, 1), 348)
-        assert len(sliced) == 348
+        sliced = dataset.slice(date(2020, 1, 1), 349)
+        assert len(sliced) == 349
         assert sliced[0].date == date(2020, 1, 1)
 
     def test_horizon_months_13_for_accumulation(self) -> None:

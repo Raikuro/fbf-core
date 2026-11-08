@@ -1,4 +1,4 @@
-"""Infrastructure persistence package (schema v4).
+"""Infrastructure persistence package (schema v5).
 
 Public API for the SQLite persistence layer.
 """

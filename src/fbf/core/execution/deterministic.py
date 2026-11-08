@@ -93,6 +93,7 @@ class DeterministicTrajectory:
     allocation_policy: AllocationPolicy
     withdrawal_policy: WithdrawalPolicy
     horizon_months: int
+    withdrawal_base: Money | None = None
     expense_ratio: Decimal = Decimal("0")
     schedule: ExecutionSchedule | None = None
     rebalance_cadence: StepCadence | None = None
@@ -102,6 +103,19 @@ class DeterministicTrajectory:
             raise ValueError("DeterministicTrajectory.name must be non-empty")
         if self.horizon_months <= 0:
             raise ValueError("DeterministicTrajectory.horizon_months must be positive")
+        if self.withdrawal_base is not None:
+            if not isinstance(self.withdrawal_base, Money):
+                raise TypeError(
+                    "DeterministicTrajectory.withdrawal_base must be a Money instance or None"
+                )
+            if self.withdrawal_base.amount <= 0:
+                raise ValueError(
+                    "DeterministicTrajectory.withdrawal_base must be positive"
+                )
+            if self.withdrawal_base.currency != self.initial_wealth.currency:
+                raise ValueError(
+                    "DeterministicTrajectory.withdrawal_base currency must match initial_wealth"
+                )
         if self.expense_ratio < 0:
             raise ValueError("DeterministicTrajectory.expense_ratio must be non-negative")
         if self.rebalance_cadence is not None and self.schedule is not None:
@@ -351,7 +365,11 @@ def _withdrawal_plan(
         )
 
     annual = policy.frequency is WithdrawalFrequency.ANNUAL
-    base = trajectory.initial_wealth.amount
+    base = (
+        trajectory.withdrawal_base.amount
+        if trajectory.withdrawal_base is not None
+        else trajectory.initial_wealth.amount
+    )
     exact: list[Decimal] = []
 
     if isinstance(policy, FixedRealWithdrawalPolicy):
@@ -439,6 +457,7 @@ def _build_context(trajectory: DeterministicTrajectory) -> SimulationContext:
         dataset=trajectory.dataset,
         allocation_policy=trajectory.allocation_policy,
         withdrawal_policy=trajectory.withdrawal_policy,
+        withdrawal_base=trajectory.withdrawal_base,
         expense_ratio=trajectory.expense_ratio if trajectory.expense_ratio > 0 else None,
     )
 

@@ -16,7 +16,11 @@ from typing import Any
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import Portfolio
-from fbf.core.execution import ExecutionOptions, execute_study_plan
+from fbf.core.execution import (
+    ExecutionOptions,
+    UnsupportedConfigurationError,
+    execute_study_plan,
+)
 from fbf.core.research.part3_planner import CohortManifest, load_manifest
 from fbf.core.research.part20_aggregation import percentile_swrs
 from fbf.core.research.part20_pipeline import (
@@ -26,6 +30,7 @@ from fbf.core.research.part20_pipeline import (
     bisect_per_pair,
 )
 from fbf.core.research.part42_plan import build_part42_study_plan
+from fbf.core.study.internal.omy_timeline import resolve_omy_timeline
 
 DEFAULT_DATA_DIR = os.path.join("data", "ern")
 
@@ -281,6 +286,11 @@ def _build_omy_evaluate(
     options: ExecutionOptions,
 ) -> BisectionEvaluate:
     """Build an evaluate function for batched OMY bisection."""
+    if experiment.social_security:
+        raise UnsupportedConfigurationError(
+            f"Part 42 experiment {experiment.id!r} requires Social Security, "
+            "which is unsupported in Phase 1"
+        )
     n_cohorts = len(cohort_dates)
 
     def evaluate(candidates: Sequence[BisectionCandidate]) -> Sequence[bool]:
@@ -335,11 +345,14 @@ def _build_omy_evaluate(
             retirement_horizon_years = base_config.horizon_years[0]
             omy_months = (
                 omy_config.omy_duration_months
-                if hasattr(omy_config, 'omy_duration_months')
+                if hasattr(omy_config, "omy_duration_months")
                 else 12
             )
-            total_horizon_months = omy_months + retirement_horizon_years * 12 + 1
-            all_cohorts = build_cohort_specs(dataset, total_horizon_months)
+            timeline = resolve_omy_timeline(
+                horizon_years=retirement_horizon_years,
+                omy_months=omy_months,
+            )
+            all_cohorts = build_cohort_specs(dataset, timeline.total_snapshots)
             # Filter to only the cohorts we need
             needed_cohort_set = set(needed_cohort_dates)
             filtered_cohorts = tuple(
@@ -347,7 +360,7 @@ def _build_omy_evaluate(
                 if c.start_date.isoformat() in needed_cohort_set
             )
 
-            # Build OMY study plan with SS using the Part 42 plan builder (with filtered cohorts)
+            # Build the Part 42 study plan with the filtered cohorts.
             built = build_part42_study_plan(
                 experiment_id=experiment.id,
                 base_config=base_config,
@@ -379,6 +392,11 @@ def run_failsafe_search(
     cache: SearchCache | None = None,
 ) -> Part42FailsafeResult:
     """Run failsafe SWR search for one Part 42 experiment."""
+    if experiment.social_security:
+        raise UnsupportedConfigurationError(
+            f"Part 42 experiment {experiment.id!r} requires Social Security, "
+            "which is unsupported in Phase 1"
+        )
     if not cohort_dates:
         raise ValueError("cohort_dates must be non-empty")
 
@@ -416,6 +434,11 @@ def run_fixed_swr(
     options: ExecutionOptions,
 ) -> Part42FixedSWRResult:
     """Run fixed-SWR experiment for one Part 42 scenario."""
+    if experiment.social_security:
+        raise UnsupportedConfigurationError(
+            f"Part 42 experiment {experiment.id!r} requires Social Security, "
+            "which is unsupported in Phase 1"
+        )
     if experiment.fixed_swr is None:
         raise ValueError("experiment.fixed_swr must be set for fixed-SWR run")
 
@@ -451,6 +474,8 @@ def run_fixed_swr(
             bond_weight=PART42_BOND_WEIGHT,
             original_initial_wealth=PART42_INITIAL_WEALTH,
             fv_target_fraction=experiment.fv_target,
+            omy_duration_months=experiment.omy_duration_months,
+            withdrawal_base=PART42_INITIAL_WEALTH,
         )
         built = build_omy_study_plan(omy_study_config, data_dir)
     else:

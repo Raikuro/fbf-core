@@ -1514,6 +1514,7 @@ class SQLiteRepository:
                     dataset=exp_def.dataset,
                     allocation_policy=unit.allocation_policy,
                     withdrawal_policy=unit.withdrawal_policy,
+                    withdrawal_base=unit.withdrawal_base,
                     loan_draw_rate=unit.loan_draw_rate,
                     interest_rate=unit.interest_rate,
                     ltv_limit=unit.ltv_limit,
@@ -2297,13 +2298,24 @@ class SQLiteRepository:
         # Save unit metadata
         fvt = unit.final_value_target
         final_value_target_str = serialize_decimal(fvt) if fvt is not None else None
+        withdrawal_base = unit.withdrawal_base
+        withdrawal_base_json = (
+            to_canonical_json(
+                {
+                    "amount": serialize_decimal(withdrawal_base.amount),
+                    "currency": withdrawal_base.currency.value,
+                }
+            )
+            if withdrawal_base is not None
+            else None
+        )
         conn.execute(
             """
             INSERT INTO planned_units (
                 unit_id, plan_id, unit_index, cohort_id, param_config_id,
                 allocation_policy_id, withdrawal_policy_id, initial_portfolio_json,
-                final_value_target
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                final_value_target, withdrawal_base_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 unit_id,
@@ -2325,6 +2337,7 @@ class SQLiteRepository:
                     }
                 ),
                 final_value_target_str,
+                withdrawal_base_json,
             ),
         )
 
@@ -2415,7 +2428,8 @@ class SQLiteRepository:
         rows = conn.execute(
             """
             SELECT unit_index, cohort_id, param_config_id, allocation_policy_id,
-                   withdrawal_policy_id, initial_portfolio_json, final_value_target
+                   withdrawal_policy_id, initial_portfolio_json, final_value_target,
+                   withdrawal_base_json
             FROM planned_units
             WHERE plan_id = ?
             ORDER BY unit_index
@@ -2433,9 +2447,11 @@ class SQLiteRepository:
             withdrawal_policy_id,
             initial_portfolio_json,
             final_value_target_raw,
+            withdrawal_base_raw,
         ) in rows:
             from decimal import Decimal
 
+            from fbf.core.domain.model.money import Currency, Money
             from fbf.core.study.plan import PlannedSimulationUnit
 
             cohort = self._load_cohort_by_id(conn, cohort_id)
@@ -2444,6 +2460,13 @@ class SQLiteRepository:
             withdrawal_policy = self._load_withdrawal_policy(conn, withdrawal_policy_id, context)
             portfolio = self._load_portfolio(conn, initial_portfolio_json)
             final_value_target = Decimal(final_value_target_raw) if final_value_target_raw else None
+            withdrawal_base = None
+            if withdrawal_base_raw:
+                raw = from_canonical_json(withdrawal_base_raw)
+                withdrawal_base = Money(
+                    deserialize_decimal(raw["amount"]),
+                    Currency(raw["currency"]),
+                )
 
             cohort_start = cohort.start_date
             if cohort_start not in dataset_cache:
@@ -2461,6 +2484,7 @@ class SQLiteRepository:
                     initial_portfolio=portfolio,
                     dataset=unit_dataset,
                     final_value_target=final_value_target,
+                    withdrawal_base=withdrawal_base,
                 )
             )
 

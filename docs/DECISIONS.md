@@ -161,24 +161,42 @@ values fail fast rather than defaulting to a regime.
 
 ## Part 42 Accumulation Temporal Semantics
 
-**Decision:** The Part 42 OMY study uses research-layer pre-processing. A
-12-month accumulation phase produces the retirement starting portfolio before
-the retirement simulation; no engine modification is required.
+**Decision:** The Part 42 OMY study uses research-layer pre-processing. The OMY
+accumulation consumes the first months of one fixed total horizon; it does not
+extend the study by an additional OMY period. The handoff snapshot is counted
+once and is not a retirement return/withdrawal month.
 
 ### Timing
 
-A 30-year horizon is 360 calendar months:
+The total horizon is `horizon_years * 12` return transitions. The canonical
+counts are:
 
-| Phase | Period indices | Months | Snapshots | Transitions |
+| Study | Total snapshots | Accumulation snapshots | Retirement snapshots | Retirement transitions |
 |---|---:|---:|---:|---:|
-| Accumulation | 0-11 | 12 | 13 | 12 |
-| Retirement | 12-359 | 348 | 349 | 348 |
+| 30Y + 12m OMY | 361 | 13 | 349 | 348 |
+| 50Y + 12m OMY | 601 | 13 | 589 | 588 |
+| 50Y + 24m OMY | 601 | 25 | 577 | 576 |
 
-`Dataset.slice(start, N)` returns N snapshots. `horizon_months` specifies the
-number of return transitions. Accumulation uses `slice(start, 13)` with
-`horizon_months=12`; retirement uses `slice(retirement_start, 349)` with
-`horizon_months=348`.
+For a 30-year study the unique snapshot indices are:
 
+| Phase | Snapshot indices | Months | Snapshots | Transitions |
+|---|---:|---:|---:|---:|
+| Accumulation | 0-12 | 12 | 13 | 12 |
+| Retirement | 12-360 | 348 | 349 | 348 |
+| Total | 0-360 | 360 | 361 | 360 |
+
+`Dataset.slice(start, N)` returns N snapshots. The canonical relations are:
+
+- `total_snapshots = horizon_years * 12 + 1`
+- `accumulation_snapshots = omy_months + 1`
+- `retirement_snapshots = total_snapshots - accumulation_snapshots + 1`
+- `retirement_transitions = retirement_snapshots - 1`
+- `PlannedSimulationUnit.horizon_months = retirement_snapshots`
+
+Accumulation executes for `omy_months` transitions over
+`accumulation_snapshots`. The retirement dataset starts at
+`acc_dataset.snapshots[-1].date`; do not index it as
+`dataset.snapshots[omy_months]`, because cohort start dates vary per cohort.
 Retirement contexts use local period indices starting at 0. The engine is not
 modified to preserve global study-level indices.
 
@@ -192,26 +210,34 @@ The `$5,000/month` contribution is constant in real terms and is not deflated.
 Each accumulation month: value the portfolio at current prices, add the
 contribution split by target weights, rebalance, then apply the market return.
 
-### Handoff and targets
+### Handoff, bases, and targets
 
-The accumulation phase ends at `dataset[12]` prices. That portfolio becomes
-`initial_portfolio` for retirement.
+Each cohort's accumulation starts from an initial portfolio worth the original
+study wealth at that cohort's first snapshot. The accumulation phase ends at
+the handoff snapshot, and that portfolio becomes `initial_portfolio` for
+retirement.
 
-- `original_initial_wealth`: study-level wealth (`$2M` for Part 42).
-- `retirement_initial_wealth`: post-OMY accumulation output.
-- `SimulationContext.initial_wealth` means `retirement_initial_wealth` during
-  retirement.
+- `original_initial_wealth` / `SimulationContext.initial_wealth`: study-level
+  wealth (`$2M` for Part 42), used as the final-value target base.
+- `initial_portfolio`: post-OMY accumulation output at the retirement start.
+- `SimulationContext.withdrawal_base`: fixed-real withdrawal basis. Part 42 sets
+  it explicitly to `$2M`; generic OMY studies leave it unset and preserve each
+  execution family's existing default.
 
-The Part 42 final-value target is 25% of `original_initial_wealth`, not 25% of
-`retirement_initial_wealth`.
+The Part 42 final-value target is 25% of the original `$2M`, not 25% of the
+post-OMY portfolio. Success is the trajectory verdict AND the final-value
+criterion; a final-value miss may only downgrade success, never upgrade a
+depleted trajectory.
 
 ### Accumulation uniqueness
 
 Accumulation depends only on `(cohort_start_date, contribution_amount,
 allocation_policy, initial_portfolio, dataset)`, not on retirement SWR, final
-target, or horizon. It is computed once per unique cohort and reused across
-retirement configurations. Total Part 42 time must not exceed 2× the measured
-retirement-only baseline on the same machine and output configuration.
+target, or horizon. The initial portfolio is built from the original wealth at
+the cohort's accumulation start. Accumulation is computed once per unique
+cohort and reused across retirement configurations. Total Part 42 time must not
+exceed 2× the measured retirement-only baseline on the same machine and output
+configuration.
 
 ---
 

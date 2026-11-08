@@ -209,12 +209,36 @@ def _trajectory_clusters(
     return clusters
 
 
+def _initial_portfolio_value(context: SimulationContext) -> Decimal:
+    """Return the portfolio value at the first dataset snapshot."""
+    snapshot = context.dataset[0]
+    return sum(
+        (
+            holding.units * snapshot.index_levels[holding.asset_class]
+            for holding in context.initial_portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+
+
+def _effective_fixed_real_withdrawal_base(
+    context: SimulationContext,
+    family_default: Decimal,
+) -> Decimal:
+    """Return the effective fixed-real withdrawal base for *context*."""
+    if context.withdrawal_base is not None:
+        return context.withdrawal_base.amount
+    return family_default
+
+
 def _group_key(context: SimulationContext) -> tuple[object, ...]:
     """Trajectory key for constant-allocation, fixed-real contexts.
 
     ``final_value_target`` is excluded because it is an evaluation dimension:
     contexts that differ only in the target share one trajectory path.  The
     expense ratio is included because fees are embedded in the growth factors.
+    The effective withdrawal base is included because the monthly withdrawal
+    amount is computed once per grouped trajectory.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
@@ -226,4 +250,7 @@ def _group_key(context: SimulationContext) -> tuple[object, ...]:
         withdrawal.withdrawal_rate,
         context.initial_wealth,
         context.initial_portfolio,
+        _effective_fixed_real_withdrawal_base(
+            context, _initial_portfolio_value(context)
+        ),
     )

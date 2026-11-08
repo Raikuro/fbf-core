@@ -229,6 +229,15 @@ class ResearchExecutor:
             else experiment_def.horizon_months
         )
 
+        if (
+            unit.withdrawal_base is not None
+            and unit.withdrawal_base.currency != experiment_def.initial_wealth.currency
+        ):
+            raise InvalidResearchPlanError(
+                "PlannedSimulationUnit.withdrawal_base currency must match the "
+                "experiment definition's initial_wealth"
+            )
+
         return SimulationContext(
             experiment_name=experiment_def.name,
             cohort=cohort_id,
@@ -241,6 +250,7 @@ class ResearchExecutor:
             allocation_policy=unit.allocation_policy,
             withdrawal_policy=unit.withdrawal_policy,
             final_value_target=unit.final_value_target,
+            withdrawal_base=unit.withdrawal_base,
             loan_draw_rate=unit.loan_draw_rate,
             interest_rate=unit.interest_rate,
             interest_rate_schedule=unit.interest_rate_schedule,

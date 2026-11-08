@@ -236,6 +236,7 @@ def _extract_simulation_contexts(
                 allocation_policy=unit.allocation_policy,
                 withdrawal_policy=unit.withdrawal_policy,
                 final_value_target=unit.final_value_target,
+                withdrawal_base=unit.withdrawal_base,
                 loan_draw_rate=unit.loan_draw_rate,
                 interest_rate=unit.interest_rate,
                 interest_rate_schedule=unit.interest_rate_schedule,

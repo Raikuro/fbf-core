@@ -134,6 +134,13 @@ an acceptance target. Current coverage is structural and oracle-based only.
 The article's approximate baseline failsafe (`~3.6%`) and OMY improvement
 (`just under 7.8%`) are research references, not hard gates.
 
+The canonical fixed-horizon timeline counts are 361 snapshots for 30Y + 12m
+(13 accumulation, 349 retirement, 348 retirement transitions), 601 for 50Y +
+12m (13/589/588), and 601 for 50Y + 24m (25/577/576). The 30Y cohort count is
+2,099 and the 45-cell grid has 94,455 units. Fixed-real withdrawals use the
+original `$2M` base, not the post-OMY portfolio. Social Security experiments
+are unsupported in Phase 1 and must fail closed before planning or execution.
+
 ### Part 49 — Using Leverage in Retirement
 
 Part 49.1 (Experiment A) reconstructs the published Table 01 analytically. The
