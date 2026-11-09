@@ -254,10 +254,11 @@ normalization is possible). All Decimal values stored as strings to avoid
 floating-point precision loss. Policy parameters stored as JSON. Dates as
 ISO 8601.
 
-**Schema evolution:** A version-tracking table records applied migrations.
-Schema changes create new versions with migration scripts; existing schema is
-never modified in place. Every persisted result stores simulator version,
-dataset version, and schema version for provenance.
+**Schema evolution:** A version-tracking table records the current schema
+version. Databases created by an older schema are rejected on open and their
+persisted studies must be regenerated; no in-place migration or legacy fallback
+is provided. Every persisted result stores simulator version, dataset version,
+and schema version for provenance.
 
 **Codec pattern:** New persisted types require a corresponding encoder/
 decoder. Lossless round-trip is mandatory: every domain object persisted and

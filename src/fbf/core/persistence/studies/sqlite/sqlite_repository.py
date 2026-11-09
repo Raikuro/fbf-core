@@ -22,6 +22,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol
 
 from .errors import (
+    CorruptedDatabaseError,
     DuplicateStudyError,
     ExecutionInProgressError,
     PersistenceError,
@@ -32,7 +33,7 @@ from .errors import (
     StudyNotFoundError,
     UnsupportedSerializationError,
 )
-from .schema import ALL_DDL, DATA_MIGRATIONS, SCHEMA_VERSION
+from .schema import ALL_DDL, SCHEMA_VERSION
 
 JSONScalar = None | bool | int | float | str
 JSONValue = JSONScalar | Mapping[str, JSONScalar]
@@ -451,50 +452,48 @@ class SQLiteRepository:
         return conn
 
     def _initialize_schema(self) -> None:
-        """Initialize database schema and version tracking."""
+        """Initialize database schema and reject incompatible databases."""
         from .schema import INDEX_DDL
 
         with self._connect() as conn:
+            existing_tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+            if existing_tables:
+                self._assert_compatible_schema(conn, existing_tables)
+
             for statement in ALL_DDL:
                 conn.execute(statement)
-            self._apply_migrations(conn)
-            for statement in DATA_MIGRATIONS:
-                conn.execute(statement)
-            # Indexes are created after migrations because some indexes added by
-            # a newer schema version reference columns that only exist after the
-            # migration has run on databases created by an older version.
             for statement in INDEX_DDL:
                 conn.execute(statement)
-            # Record the current schema version. A single row tracks the applied
-            # version; it is rewritten only when it differs (e.g. a legacy v1
-            # database was just migrated), keeping the row stable across
-            # repeated opens so schema initialization is fully idempotent.
-            row = conn.execute(
-                "SELECT version FROM schema_version"
-            ).fetchone()
-            if row is None or row[0] != SCHEMA_VERSION:
-                conn.execute("DELETE FROM schema_version")
+
+            if not existing_tables:
                 conn.execute(
                     "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
                     (SCHEMA_VERSION, utc_now_iso()),
                 )
 
     @staticmethod
-    def _apply_migrations(conn: sqlite3.Connection) -> None:
-        """Add columns introduced after the original schema for existing databases.
-
-        ``CREATE TABLE IF NOT EXISTS`` cannot alter an existing table, so any
-        columns added by a newer schema version are applied here when missing.
-        """
-        from .schema import MIGRATIONS
-
-        for table, column, ddl in MIGRATIONS:
-            columns = {
-                row[1]
-                for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-            }
-            if column not in columns:
-                conn.execute(ddl)
+    def _assert_compatible_schema(
+        conn: sqlite3.Connection, existing_tables: set[str]
+    ) -> None:
+        """Reject databases that were not created by the current schema version."""
+        if "schema_version" not in existing_tables:
+            raise CorruptedDatabaseError(
+                "Unsupported SQLite schema: missing schema_version table. "
+                f"Expected schema version {SCHEMA_VERSION}; persist studies again."
+            )
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        if row is None or int(row[0]) != SCHEMA_VERSION:
+            found = "none" if row is None else str(row[0])
+            raise CorruptedDatabaseError(
+                f"Unsupported SQLite schema version {found}; "
+                f"expected {SCHEMA_VERSION}. Persisted studies must be regenerated."
+            )
 
     def save_experiment(
         self,
@@ -2309,13 +2308,20 @@ class SQLiteRepository:
             if withdrawal_base is not None
             else None
         )
+        dataset_start_date = unit.dataset.start_date.isoformat()
+        horizon_months = (
+            unit.horizon_months
+            if unit.horizon_months is not None
+            else len(unit.dataset)
+        )
         conn.execute(
             """
             INSERT INTO planned_units (
                 unit_id, plan_id, unit_index, cohort_id, param_config_id,
                 allocation_policy_id, withdrawal_policy_id, initial_portfolio_json,
-                final_value_target, withdrawal_base_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                final_value_target, withdrawal_base_json, dataset_start_date,
+                horizon_months
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 unit_id,
@@ -2338,6 +2344,8 @@ class SQLiteRepository:
                 ),
                 final_value_target_str,
                 withdrawal_base_json,
+                dataset_start_date,
+                horizon_months,
             ),
         )
 
@@ -2419,9 +2427,9 @@ class SQLiteRepository:
     ) -> list[Any]:
         """Load all units for a plan in correct order.
 
-        Each unit's dataset is produced by slicing the experiment's full dataset
-        at the cohort's start_date for the experiment's horizon_months.
-        A local cache keyed by cohort start date prevents duplicate slices.
+        Each unit's dataset is reconstructed from its persisted dataset start
+        and effective horizon.  The local cache is keyed by that pair to avoid
+        duplicate slices while preserving distinct retirement windows.
         """
         from datetime import date as _date
 
@@ -2429,7 +2437,7 @@ class SQLiteRepository:
             """
             SELECT unit_index, cohort_id, param_config_id, allocation_policy_id,
                    withdrawal_policy_id, initial_portfolio_json, final_value_target,
-                   withdrawal_base_json
+                   withdrawal_base_json, dataset_start_date, horizon_months
             FROM planned_units
             WHERE plan_id = ?
             ORDER BY unit_index
@@ -2437,7 +2445,7 @@ class SQLiteRepository:
             (plan_id,),
         ).fetchall()
 
-        dataset_cache: dict[_date, Dataset] = {}
+        dataset_cache: dict[tuple[_date, int], Dataset] = {}
         units = []
         for (
             _unit_index,
@@ -2448,6 +2456,8 @@ class SQLiteRepository:
             initial_portfolio_json,
             final_value_target_raw,
             withdrawal_base_raw,
+            dataset_start_raw,
+            horizon_months_raw,
         ) in rows:
             from decimal import Decimal
 
@@ -2468,12 +2478,14 @@ class SQLiteRepository:
                     Currency(raw["currency"]),
                 )
 
-            cohort_start = cohort.start_date
-            if cohort_start not in dataset_cache:
-                dataset_cache[cohort_start] = experiment.dataset.slice(
-                    cohort_start, experiment.horizon_months
+            dataset_start = _date.fromisoformat(str(dataset_start_raw))
+            horizon_months = int(horizon_months_raw)
+            dataset_key = (dataset_start, horizon_months)
+            if dataset_key not in dataset_cache:
+                dataset_cache[dataset_key] = experiment.dataset.slice(
+                    dataset_start, horizon_months
                 )
-            unit_dataset = dataset_cache[cohort_start]
+            unit_dataset = dataset_cache[dataset_key]
 
             units.append(
                 PlannedSimulationUnit(
@@ -2483,6 +2495,7 @@ class SQLiteRepository:
                     withdrawal_policy=withdrawal_policy,
                     initial_portfolio=portfolio,
                     dataset=unit_dataset,
+                    horizon_months=horizon_months,
                     final_value_target=final_value_target,
                     withdrawal_base=withdrawal_base,
                 )

@@ -1,14 +1,12 @@
-"""SQLite schema DDL constants (v0.5).
+"""SQLite schema DDL constants (v0.6).
 
-Schema version 5 adds the optional ``withdrawal_base_json`` column to
-``planned_units``.  Schema version 4 adds incremental execution state to
-``execution_results``: ``status``, ``attempt_id``, ``completed_units``,
-``updated_at``, ``completed_at``, and ``error``.  Incomplete executions are
-invisible to the completed-result loading API.  Schema version 2 added the
-``deleted_at`` soft-delete columns to ``experiments`` and ``research_plans``.
+Schema version 6 persists each planned unit's dataset start and effective
+horizon so plans can be reconstructed without re-deriving the retirement
+handoff from the cohort date.  Databases created by older schema versions are
+rejected rather than migrated; persisted plans must be regenerated.
 """
 
-SCHEMA_VERSION: int = 5
+SCHEMA_VERSION: int = 6
 
 PRAGMA_FOREIGN_KEYS = "PRAGMA foreign_keys = ON"
 PRAGMA_WAL = "PRAGMA journal_mode = WAL"
@@ -103,6 +101,8 @@ CREATE TABLE IF NOT EXISTS planned_units (
     initial_portfolio_json TEXT NOT NULL,
     final_value_target TEXT,
     withdrawal_base_json TEXT,
+    dataset_start_date TEXT NOT NULL,
+    horizon_months INTEGER NOT NULL CHECK(horizon_months > 0),
     UNIQUE(plan_id, unit_index),
     UNIQUE(plan_id, cohort_id, param_config_id)
 );
@@ -154,75 +154,9 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_plans_deleted ON research_plans(deleted_at);",
 ]
 
-# Migrations applied after CREATE TABLE DDL for databases created by an older
-# schema version (CREATE TABLE IF NOT EXISTS cannot add columns).
-MIGRATIONS = [
-    (
-        "experiments",
-        "deleted_at",
-        "ALTER TABLE experiments ADD COLUMN deleted_at TEXT",
-    ),
-    (
-        "research_plans",
-        "deleted_at",
-        "ALTER TABLE research_plans ADD COLUMN deleted_at TEXT",
-    ),
-    (
-        "planned_units",
-        "final_value_target",
-        "ALTER TABLE planned_units ADD COLUMN final_value_target TEXT",
-    ),
-    (
-        "planned_units",
-        "withdrawal_base_json",
-        "ALTER TABLE planned_units ADD COLUMN withdrawal_base_json TEXT",
-    ),
-    (
-        "execution_results",
-        "attempt_id",
-        "ALTER TABLE execution_results ADD COLUMN attempt_id TEXT",
-    ),
-    (
-        "execution_results",
-        "status",
-        "ALTER TABLE execution_results ADD COLUMN status TEXT NOT NULL "
-        "DEFAULT 'completed'",
-    ),
-    (
-        "execution_results",
-        "updated_at",
-        "ALTER TABLE execution_results ADD COLUMN updated_at TEXT",
-    ),
-    (
-        "execution_results",
-        "completed_at",
-        "ALTER TABLE execution_results ADD COLUMN completed_at TEXT",
-    ),
-    (
-        "execution_results",
-        "completed_units",
-        "ALTER TABLE execution_results ADD COLUMN completed_units INTEGER "
-        "NOT NULL DEFAULT 0",
-    ),
-    (
-        "execution_results",
-        "error",
-        "ALTER TABLE execution_results ADD COLUMN error TEXT",
-    ),
-]
-
-# Data backfill applied after column migrations.  These statements are
-# idempotent and only ever promote legacy completed rows to the v4 shape; rows
-# written by the streaming API are left untouched.
-DATA_MIGRATIONS = [
-    "UPDATE execution_results SET attempt_id = result_id WHERE attempt_id IS NULL",
-    "UPDATE execution_results SET completed_units = total_units "
-    "WHERE status = 'completed' AND completed_units = 0",
-    "UPDATE execution_results SET completed_at = executed_at "
-    "WHERE status = 'completed' AND completed_at IS NULL",
-    "UPDATE execution_results SET updated_at = "
-    "COALESCE(completed_at, executed_at) WHERE updated_at IS NULL",
-]
+# Schema upgrades are not supported.  Opening a database created by an older
+# schema version raises ``CorruptedDatabaseError`` so persisted plans are
+# regenerated explicitly instead of being reconstructed with incomplete data.
 
 ALL_DDL = [
     CREATE_SCHEMA_VERSION_TABLE,
@@ -237,7 +171,4 @@ ALL_DDL = [
     CREATE_SIMULATION_RESULTS_TABLE,
 ]
 
-# Index DDL is applied separately, AFTER migrations, because indexes added by a
-# newer schema version may reference columns that do not exist yet on databases
-# created by an older version (e.g. idx_experiments_deleted on ``deleted_at``).
 INDEX_DDL = [*CREATE_INDEXES]

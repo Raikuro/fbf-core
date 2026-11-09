@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from fbf.core.persistence.studies.sqlite import (
+    CorruptedDatabaseError,
     ExecutionAttempt,
     ExecutionInProgressError,
     PersistenceError,
@@ -17,7 +18,6 @@ from fbf.core.persistence.studies.sqlite import (
     SQLiteRepository,
     StaleExecutionAttemptError,
 )
-from fbf.core.persistence.studies.sqlite.schema import SCHEMA_VERSION
 from fbf.core.persistence.studies.sqlite.sqlite_repository import ExperimentIdentity
 from tests.infrastructure.test_sqlite_persistence import (
     get_dummy_context,
@@ -344,7 +344,7 @@ def test_concurrent_append_of_same_slice_is_idempotent(tmp_path: Path) -> None:
     assert snapshot.success_count == 2
 
 
-def test_legacy_completed_execution_migrates_and_loads(tmp_path: Path) -> None:
+def test_legacy_completed_execution_is_rejected(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy_v3.db"
     repo = SQLiteRepository(str(db_path))
     ctx = get_dummy_context()
@@ -382,7 +382,7 @@ def test_legacy_completed_execution_migrates_and_loads(tmp_path: Path) -> None:
             definition=engine, simulation_results=results
         ),
     )
-    result_id = repo.save_execution_result(plan_id, result, ctx, 1.0)
+    repo.save_execution_result(plan_id, result, ctx, 1.0)
 
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute("DROP INDEX IF EXISTS idx_results_status")
@@ -402,23 +402,5 @@ def test_legacy_completed_execution_migrates_and_loads(tmp_path: Path) -> None:
         )
         conn.commit()
 
-    migrated = SQLiteRepository(str(db_path))
-    with sqlite3.connect(str(db_path)) as conn:
-        row = conn.execute(
-            "SELECT attempt_id, status, completed_units, updated_at, "
-            "completed_at FROM execution_results WHERE result_id = ?",
-            (result_id,),
-        ).fetchone()
-    assert row is not None
-    assert row[0] == result_id
-    assert row[1] == "completed"
-    assert row[2] == len(results)
-    assert row[3] is not None
-    assert row[4] is not None
-    with sqlite3.connect(str(db_path)) as conn:
-        version = conn.execute("SELECT version FROM schema_version").fetchone()
-    assert version is not None and version[0] == SCHEMA_VERSION
-    assert _statistics(
-        migrated.load_execution_result(plan_id, ctx).results
-    ) == _statistics(results)
-    assert migrated.get_execution_attempt(result_id) is not None
+    with pytest.raises(CorruptedDatabaseError, match="version 3"):
+        SQLiteRepository(str(db_path))

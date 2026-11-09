@@ -996,6 +996,66 @@ def test_plan_withdrawal_base_none_round_trip(repo: SQLiteRepository) -> None:
     assert loaded.units[0].withdrawal_base is None
 
 
+def test_plan_unit_dataset_start_and_horizon_round_trip(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment()
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    dataset_start = date(2001, 1, 1)
+    horizon_months = 12
+    withdrawal_base = Money(Decimal("2000000.00"), Currency.EUR)
+    unit = PlannedSimulationUnit(
+        cohort=CohortSpecification(start_date=date(2000, 1, 1)),
+        parameter_config=ParameterConfiguration(values={"withdrawal_rate": 0.04}),
+        allocation_policy=DummyAllocationPolicy(),
+        withdrawal_policy=DummyWithdrawalPolicy(),
+        initial_portfolio=make_portfolio(),
+        dataset=_TEST_DATASET.slice(dataset_start, horizon_months),
+        horizon_months=horizon_months,
+        final_value_target=Decimal("0.25"),
+        withdrawal_base=withdrawal_base,
+    )
+    plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+
+    loaded_unit = repo.load_plan(plan_id, ctx).units[0]
+
+    assert loaded_unit.cohort.start_date == date(2000, 1, 1)
+    assert loaded_unit.dataset.start_date == dataset_start
+    assert len(loaded_unit.dataset) == horizon_months
+    assert loaded_unit.horizon_months == horizon_months
+    assert loaded_unit.final_value_target == Decimal("0.25")
+    assert loaded_unit.withdrawal_base == withdrawal_base
+
+
+def test_plan_unit_without_explicit_horizon_persists_dataset_length(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment()
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    dataset_start = date(2001, 1, 1)
+    horizon_months = 24
+    unit = replace(
+        make_unit(month=1),
+        dataset=_TEST_DATASET.slice(dataset_start, horizon_months),
+        horizon_months=None,
+    )
+    plan = ResearchPlan(experiment_definition=experiment, units=(unit,))
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+
+    loaded_unit = repo.load_plan(plan_id, ctx).units[0]
+
+    assert loaded_unit.dataset.start_date == dataset_start
+    assert len(loaded_unit.dataset) == horizon_months
+    assert loaded_unit.horizon_months == horizon_months
+
+
 def test_plan_cohort_start_date_round_trip(repo: SQLiteRepository) -> None:
     ctx = get_dummy_context()
     experiment = make_experiment()

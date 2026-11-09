@@ -282,8 +282,9 @@ properties:
   explicitly, never by age.
 * **Soft deletion:** Entities are soft-deleted via `deleted_at` columns.
   Restoration requires semantic equivalence of content fields, not ID matching.
-* **Schema evolution:** A version-tracking table records applied migrations.
-  Schema changes create new versions; existing schema is never modified in place.
+* **Schema evolution:** A version-tracking table records the current schema
+  version. Databases created by an older schema are rejected on open; persisted
+  studies must be regenerated rather than migrated in place.
 * **Codec pattern:** New persisted types require encoder/decoders. Lossless
   round-trip is mandatory: every domain object persisted and retrieved must be
   field-for-field identical.

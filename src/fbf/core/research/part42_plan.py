@@ -30,14 +30,19 @@ from fbf.core.study.internal.omy_timeline import resolve_omy_timeline
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
+PART42_INITIAL_WEALTH = Money(Decimal("2000000"), Currency.EUR)
+
 
 def build_part42_study_plan(
     experiment_id: str,
     base_config: StudyConfiguration,
-    data_dir: str,
+    data_dir: str | None,
     omy_config: Any,  # Part42ExperimentConfig
     ss_config: dict[str, Any] | None = None,
     cohorts: tuple[CohortSpecification, ...] | None = None,
+    *,
+    dataset: Dataset | None = None,
+    initial_wealth: Money | None = None,
 ) -> BuiltStudy:
     """Build a Part 42 study plan with OMY accumulation.
 
@@ -47,7 +52,9 @@ def build_part42_study_plan(
 
     If `cohorts` is provided, uses those specific cohorts instead of generating
     all cohorts from the dataset. This is used by the bisection evaluate function
-    to run only specific cohort/rate pairs.
+    to run only specific cohort/rate pairs.  An explicit ``dataset`` bypasses
+    dataset loading, and an explicit ``initial_wealth`` overrides the Part 42
+    default for accumulation, the experiment definition, and the withdrawal base.
     """
     from fbf.core.study.builder import (
         _make_policy_resolver,
@@ -68,7 +75,14 @@ def build_part42_study_plan(
     equity_asset = AssetClass(id="equity", name="", description="")
     bond_asset = AssetClass(id="bond", name="", description="")
 
-    dataset = load_canonical_dataset(Path(data_dir))
+    if dataset is None:
+        if data_dir is None:
+            raise ValueError("Either data_dir or dataset must be provided")
+        dataset = load_canonical_dataset(Path(data_dir))
+
+    original_wealth = (
+        initial_wealth if initial_wealth is not None else PART42_INITIAL_WEALTH
+    )
 
     horizon_years = base_config.horizon_years[0]
     omy_months = (
@@ -91,7 +105,6 @@ def build_part42_study_plan(
         )
 
     param_configs = _build_unified_parameter_configs(base_config)
-    original_wealth = Money(Decimal("2000000"), Currency.EUR)
 
     # Accumulation: once per cohort, cached by start_date.
     accumulation_cache: dict[date, Portfolio] = {}

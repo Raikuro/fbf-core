@@ -179,10 +179,11 @@ def _seed_p11_database(
                         "(unit_id, plan_id, unit_index, cohort_id, "
                         "param_config_id, allocation_policy_id, "
                         "withdrawal_policy_id, initial_portfolio_json, "
-                        "final_value_target) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "final_value_target, dataset_start_date, horizon_months) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (uid, plan_id, unit_index, cid, pcid,
-                         alloc_pid, withdraw_pid, "{}", None),
+                         alloc_pid, withdraw_pid, "{}", None,
+                         cohorts[ci].isoformat(), hy * 12 + 1),
                     )
 
                     success = (hash(f"{ci}-{eq}-{wr}-{hy}") % 100) < 70
@@ -636,15 +637,20 @@ def _insert_unit(
     result_id: str,
     unit_index: int,
 ) -> None:
+    cohort_row = conn.execute(
+        "SELECT start_date FROM cohorts WHERE cohort_id = ?", (cohort_id,)
+    ).fetchone()
+    assert cohort_row is not None
     conn.execute(
         "INSERT INTO planned_units "
         "(unit_id, plan_id, unit_index, cohort_id, param_config_id, "
         "allocation_policy_id, withdrawal_policy_id, initial_portfolio_json, "
-        "final_value_target) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "final_value_target, dataset_start_date, horizon_months) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             _uuid(), plan_id, unit_index, cohort_id, param_config_id,
             _policy_id(conn, "allocation"), _policy_id(conn, "withdrawal"),
-            "{}", None,
+            "{}", None, cohort_row[0], 721,
         ),
     )
     conn.execute(

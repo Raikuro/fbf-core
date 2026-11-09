@@ -5,7 +5,6 @@ Implements Experiments A–G from the Part 42 audit specification.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -29,10 +28,11 @@ from fbf.core.research.part20_pipeline import (
     SearchCache,
     bisect_per_pair,
 )
-from fbf.core.research.part42_plan import build_part42_study_plan
+from fbf.core.research.part42_plan import (
+    PART42_INITIAL_WEALTH,
+    build_part42_study_plan,
+)
 from fbf.core.study.internal.omy_timeline import resolve_omy_timeline
-
-DEFAULT_DATA_DIR = os.path.join("data", "ern")
 
 __all__ = [
     "PART42_INITIAL_WEALTH",
@@ -57,7 +57,6 @@ __all__ = [
 ]
 
 # Part 42 constants
-PART42_INITIAL_WEALTH = Money(Decimal("2000000"), Currency.EUR)
 PART42_EQUITY_WEIGHT = Decimal("0.75")
 PART42_BOND_WEIGHT = Decimal("0.25")
 PART42_OMY_CONTRIBUTION = Money(Decimal("5000"), Currency.EUR)
@@ -146,7 +145,19 @@ class Part42ExecutionContext:
     _cohort_cache: dict[str, Any] = field(default_factory=dict)
     _dataset_cache: dict[tuple[str, int], Dataset] = field(default_factory=dict)
     _portfolio_cache: dict[tuple[str, int], Portfolio] = field(default_factory=dict)
-    _accumulation_cache: dict[str, Portfolio] = field(default_factory=dict)
+    _accumulation_cache: dict[
+        tuple[
+            str,
+            int,
+            bool,
+            Money,
+            Money,
+            Decimal,
+            Decimal,
+            int,
+        ],
+        Portfolio,
+    ] = field(default_factory=dict)
 
     @classmethod
     def create(
@@ -232,7 +243,30 @@ class Part42ExecutionContext:
         return cached
 
     def accumulation_portfolio(self, cohort_date: str, omy_config: Any) -> Portfolio:
-        cached = self._accumulation_cache.get(cohort_date)
+        acc_months = (
+            omy_config.omy_duration_months
+            if hasattr(omy_config, 'omy_duration_months')
+            else 12
+        )
+        contribution = (
+            omy_config.omy_contribution
+            if omy_config.omy
+            else Money(Decimal("0"), Currency.EUR)
+        )
+        # Each input that changes accumulation is part of the key.  The
+        # trajectory token distinguishes contexts that happen to share a cohort
+        # date but were built from different datasets.
+        cache_key = (
+            cohort_date,
+            acc_months,
+            bool(omy_config.omy),
+            contribution,
+            self.initial_wealth,
+            PART42_EQUITY_WEIGHT,
+            PART42_BOND_WEIGHT,
+            id(self.trajectory),
+        )
+        cached = self._accumulation_cache.get(cache_key)
         if cached is None:
             from fbf.core.domain.model.asset import AssetClass
             from fbf.core.study.internal.accumulation import run_accumulation_phase
@@ -240,11 +274,6 @@ class Part42ExecutionContext:
             equity_asset = AssetClass(id="equity", name="", description="")
             bond_asset = AssetClass(id="bond", name="", description="")
 
-            acc_months = (
-                omy_config.omy_duration_months
-                if hasattr(omy_config, 'omy_duration_months')
-                else 12
-            )
             acc_dataset = self.trajectory.slice(
                 date.fromisoformat(cohort_date), acc_months + 1
             )
@@ -255,11 +284,7 @@ class Part42ExecutionContext:
 
             result = run_accumulation_phase(
                 initial_portfolio=initial_portfolio,
-                contribution=(
-                    omy_config.omy_contribution
-                    if omy_config.omy
-                    else Money(Decimal("0"), Currency.EUR)
-                ),
+                contribution=contribution,
                 target_weights=target_weights,
                 dataset=acc_dataset,
                 equity_asset=equity_asset,
@@ -267,7 +292,7 @@ class Part42ExecutionContext:
                 months=acc_months,
             )
             cached = result.final_portfolio
-            self._accumulation_cache[cohort_date] = cached
+            self._accumulation_cache[cache_key] = cached
         return cached
 
 
@@ -312,9 +337,6 @@ def _build_omy_evaluate(
                 needed_cohort_dates.append(cohort_date)
 
             # Build and execute plan for this rate with only needed cohorts
-            from pathlib import Path
-
-            from fbf.core.datasets import load_canonical_dataset
             from fbf.core.research.part42_plan import build_cohort_specs
             from fbf.core.study.builder import StudyConfiguration
 
@@ -334,14 +356,14 @@ def _build_omy_evaluate(
                 omy_equity_weight=PART42_EQUITY_WEIGHT if experiment.omy else None,
                 omy_bond_weight=PART42_BOND_WEIGHT if experiment.omy else None,
                 omy_original_initial_wealth=(
-                    PART42_INITIAL_WEALTH.amount if experiment.omy else None
+                    ctx.initial_wealth.amount if experiment.omy else None
                 ),
             )
 
             omy_config = experiment  # Part42ExperimentConfig has the needed fields
 
-            # Build cohort specs for only the needed cohorts
-            dataset = load_canonical_dataset(Path(DEFAULT_DATA_DIR))
+            # Build cohort specs from the context trajectory.  Dataset loading is
+            # deliberately avoided so injected contexts are authoritative.
             retirement_horizon_years = base_config.horizon_years[0]
             omy_months = (
                 omy_config.omy_duration_months
@@ -352,7 +374,7 @@ def _build_omy_evaluate(
                 horizon_years=retirement_horizon_years,
                 omy_months=omy_months,
             )
-            all_cohorts = build_cohort_specs(dataset, timeline.total_snapshots)
+            all_cohorts = build_cohort_specs(ctx.trajectory, timeline.total_snapshots)
             # Filter to only the cohorts we need
             needed_cohort_set = set(needed_cohort_dates)
             filtered_cohorts = tuple(
@@ -364,9 +386,11 @@ def _build_omy_evaluate(
             built = build_part42_study_plan(
                 experiment_id=experiment.id,
                 base_config=base_config,
-                data_dir=DEFAULT_DATA_DIR,
+                data_dir=None,
                 omy_config=omy_config,
                 cohorts=filtered_cohorts,
+                dataset=ctx.trajectory,
+                initial_wealth=ctx.initial_wealth,
             )
 
             from fbf.core.execution import execute_study_plan
