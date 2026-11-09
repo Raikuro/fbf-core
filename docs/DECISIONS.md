@@ -253,7 +253,10 @@ retired validation target without current validation value.
 
 **Consequence:** Part 42 keeps structural and accumulation-oracle coverage but
 has no current published-table replication surface. The retired audit spec and
-fixture were removed; do not recreate them.
+fixture were removed; do not recreate them. The obsolete
+`part42_aggregation.py` module was deleted for the same reason: its only purpose
+was the retired published-table audit, it had no consumers, and it was not part
+of the public API.
 
 ---
 

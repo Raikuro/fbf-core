@@ -85,7 +85,7 @@ class TestOmyPlanAccumulationCaching:
     ) -> None:
         """With flat prices, accumulation produces same portfolio for all cohorts."""
         config = _make_omy_config(horizon_years=2)
-        # 13 accumulation + 13 retirement snapshots = 26 minimum
+        # 2Y + 12m OMY: 25 total snapshots (handoff shared by both phases).
         small = _small_dataset(37)
         _patch_load_canonical(small, monkeypatch)
         result = build_omy_study_plan(config, data_dir=str(tmp_path))

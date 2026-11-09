@@ -1,6 +1,6 @@
 """Part 42 research pipeline — One More Year Syndrome replication.
 
-Implements Experiments A–G from the Part 42 audit specification.
+Implements the canonical Part 42 scenario inventory (A–G_2yr).
 """
 
 from __future__ import annotations
@@ -646,16 +646,6 @@ def get_experiment_configs() -> list[Part42ExperimentConfig]:
             ss_start_year=PART42_SS_START_YEAR,
             ss_amount=PART42_SS_AMOUNT,
             fv_target=PART42_FV_50Y,
-            fixed_swr=PART42_TABLE01_SWR,
-        ),
-        Part42ExperimentConfig(
-            id="G",
-            name="Fixed 4% Failure Rates",
-            horizon_years=30,
-            omy=False,
-            omy_contribution=Money(Decimal("0"), Currency.EUR),
-            social_security=False,
-            fv_target=PART42_FV_30Y,
             fixed_swr=PART42_TABLE01_SWR,
         ),
     ]

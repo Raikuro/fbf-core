@@ -1,11 +1,16 @@
-"""Canonical E2E: Part 42 One More Year Syndrome.
+"""Canonical E2E: generic OMY replication on the Part 42 30Y+12m grid.
 
-Executes the canonical ERN Part 42 workload through the production path:
+Executes a generic OMY study through the production path:
 
     5 equity allocations × 9 SWR rates × 1 horizon × 2,099 cohorts = 94,455 units
 
-The OMY horizon (12 months accumulation + 30 years retirement = 361 snapshots)
-produces 2,099 cohorts from the ern_swr_h720 dataset (2,459 snapshots).
+The study keeps a fixed 30-year total horizon: the first 12 months are
+accumulation and the remaining 348 months are retirement.  The resulting 361
+snapshots produce 2,099 cohorts from the ern_swr_h720 dataset (2,459 snapshots).
+
+This E2E validates generic OMY methodology and production execution.  It does
+not validate the Part 42 scenario inventory or the Part 42 research pipeline;
+those paths are covered by unit and integration tests.
 
 Validates at three levels:
 
@@ -89,7 +94,7 @@ CANONICAL_WEIGHTS = tuple(Decimal(str(w)) for w in PART42_WEIGHTS)
 CANONICAL_SWR = tuple(Decimal(str(s)) for s in PART42_SWR)
 CANONICAL_HORIZON = PART42_HORIZONS[0]  # 30
 CANONICAL_CELLS = PART42_GRID_CELLS  # 45
-CANONICAL_COHORTS = 2099  # ern_swr_h720: 2459 - (12 + 30*12) + 1 = 2099
+CANONICAL_COHORTS = 2099  # ern_swr_h720: 2459 - (30*12 + 1) + 1 = 2099
 EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * CANONICAL_COHORTS  # 94,455
 
 # OMY parameters (from ern_part42.yaml)
@@ -106,11 +111,12 @@ OMY_FV_TARGET_FRACTION = Decimal("0.25")
 
 
 def _make_canonical_config() -> OmyStudyConfiguration:
-    """Canonical ERN Part 42: 5 equity × 9 SWR = 45 cells."""
+    """Canonical generic OMY grid: 5 equity × 9 SWR = 45 cells."""
     base_config = StudyConfiguration(
         name="ERN Part 42 — Canonical Replication",
         description=(
-            "Canonical ERN Part 42 workload: 45 cells × 2,099 cohorts"
+            "Canonical generic OMY grid (Part 42 30Y+12m): "
+            "45 cells × 2,099 cohorts"
         ),
         version="2.0",
         allocation_policy_type="ConstantAllocationPolicy",
@@ -230,9 +236,9 @@ def canonical_execution() -> CanonicalResult:
 
 @pytest.mark.ern_e2e
 def test_part42_canonical_replication(canonical_execution: CanonicalResult) -> None:
-    """Full Part 42 canonical E2E: 45 cells × 2,099 cohorts = 94,455 units.
+    """Canonical generic OMY E2E on the Part 42 30Y+12m grid.
 
-    Validates at three levels:
+    Runs 45 cells × 2,099 cohorts = 94,455 units and validates at three levels:
 
     **Level 1 — Structural coverage:**
     - 45 cells reported (5 equity × 9 SWR)

@@ -11,14 +11,32 @@ import pytest
 
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionOptions
+from fbf.core.execution import ExecutionOptions, UnsupportedConfigurationError
 from fbf.core.research.part42_pipeline import (
     Part42ExecutionContext,
     Part42ExperimentConfig,
     _build_omy_evaluate,
+    get_experiment_configs,
+    run_failsafe_search,
+    run_fixed_swr,
 )
 from fbf.core.study.builder import BuiltStudy
 from tests.fixtures.accumulation import _snapshot
+
+CANONICAL_PART42_EXPERIMENT_IDS = (
+    "A",
+    "B",
+    "C",
+    "D",
+    "E_delay",
+    "E_contrib",
+    "F_baseline",
+    "F_delay",
+    "F_contrib",
+    "G_2yr",
+)
+
+SOCIAL_SECURITY_EXPERIMENT_IDS = ("F_baseline", "F_delay", "F_contrib", "G_2yr")
 
 
 def _flat_dataset(num_snapshots: int) -> Dataset:
@@ -154,3 +172,39 @@ def test_omy_evaluate_uses_context_dataset_and_wealth(
     assert unit.withdrawal_base == wealth
     assert unit.dataset.start_date == retirement_start
     assert len(unit.dataset) == 13
+
+
+def test_experiment_inventory_is_canonical() -> None:
+    configs = get_experiment_configs()
+    ids = tuple(config.id for config in configs)
+
+    assert len(configs) == 10
+    assert len(ids) == len(set(ids))
+    assert ids == CANONICAL_PART42_EXPERIMENT_IDS
+    assert "G" not in ids
+    assert {
+        config.id for config in configs if config.social_security
+    } == set(SOCIAL_SECURITY_EXPERIMENT_IDS)
+
+
+@pytest.mark.parametrize("experiment_id", SOCIAL_SECURITY_EXPERIMENT_IDS)
+def test_social_security_scenarios_fail_closed(experiment_id: str) -> None:
+    experiment = next(
+        config for config in get_experiment_configs() if config.id == experiment_id
+    )
+
+    with pytest.raises(UnsupportedConfigurationError, match="Social Security"):
+        run_fixed_swr(
+            experiment,
+            cohort_dates=(),
+            data_dir="unused",
+            options=ExecutionOptions(summary_only=True),
+        )
+
+    with pytest.raises(UnsupportedConfigurationError, match="Social Security"):
+        run_failsafe_search(
+            cast(Any, None),
+            experiment,
+            cohort_dates=("1871-01-01",),
+            options=ExecutionOptions(summary_only=True),
+        )

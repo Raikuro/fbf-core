@@ -95,7 +95,8 @@ class TestOmySmallGridExecution:
 class TestHorizonMonthsContract:
     """Regression test for the horizon_months contract.
 
-    A 30-year retirement includes 349 observations and 348 transitions.
+    A 30-year study with 12-month OMY has a 349-snapshot retirement phase
+    after the accumulation handoff, producing 348 retirement transitions.
     """
 
     def test_horizon_months_349_dataset_slice(self) -> None:

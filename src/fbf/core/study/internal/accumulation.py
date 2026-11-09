@@ -1,11 +1,11 @@
-"""Production accumulation phase implementation for Part 42 OMY.
+"""Production accumulation phase implementation for OMY studies.
 
-Implements the 12-month accumulation phase using domain primitives only.
+Implements the accumulation phase using domain primitives only.
 No engine, pipeline, or execution logic is imported.
 
 This module produces the retirement starting portfolio from the initial
 portfolio by applying monthly contributions, rebalancing, and market
-evolution over 12 accumulation months.
+evolution over the configured accumulation months.
 """
 
 from __future__ import annotations
