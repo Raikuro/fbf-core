@@ -238,7 +238,8 @@ def _group_key(context: SimulationContext) -> tuple[object, ...]:
     contexts that differ only in the target share one trajectory path.  The
     expense ratio is included because fees are embedded in the growth factors.
     The effective withdrawal base is included because the monthly withdrawal
-    amount is computed once per grouped trajectory.
+    amount is computed once per grouped trajectory.  The external cash-flow
+    schedule is included because it changes the net cash-flow path.
     """
     allocation = cast(ConstantAllocationPolicy, context.allocation_policy)
     withdrawal = cast(FixedRealWithdrawalPolicy, context.withdrawal_policy)
@@ -253,4 +254,5 @@ def _group_key(context: SimulationContext) -> tuple[object, ...]:
         _effective_fixed_real_withdrawal_base(
             context, _initial_portfolio_value(context)
         ),
+        context.external_cash_flow_schedule,
     )

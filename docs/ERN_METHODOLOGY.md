@@ -138,8 +138,13 @@ The canonical fixed-horizon timeline counts are 361 snapshots for 30Y + 12m
 (13 accumulation, 349 retirement, 348 retirement transitions), 601 for 50Y +
 12m (13/589/588), and 601 for 50Y + 24m (25/577/576). The 30Y cohort count is
 2,099 and the 45-cell grid has 94,455 units. Fixed-real withdrawals use the
-original `$2M` base, not the post-OMY portfolio. Social Security experiments
-are unsupported in Phase 1 and must fail closed before planning or execution.
+original `$2M` base, not the post-OMY portfolio. Social Security is modeled as
+a signed external cash-flow schedule: a real `$3,000` monthly inflow starting
+in total simulation month 361 and continuing through the original 50-year
+horizon end. In retirement-transition space the payment interval is
+`[360, 600)` with no OMY, `[348, 588)` with 12-month OMY, and `[336, 576)` with
+24-month OMY, preserving the absolute payment dates. A 30-year horizon has no
+payment period and is rejected before planning or execution.
 
 ### Part 49 — Using Leverage in Retirement
 

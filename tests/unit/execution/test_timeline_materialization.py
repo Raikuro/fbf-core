@@ -14,6 +14,7 @@ from decimal import Decimal
 import pytest
 
 from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.cash_flow import ExternalCashFlowSchedule
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
@@ -288,3 +289,163 @@ def test_codec_roundtrip_preserves_failure_state_and_debt() -> None:
     assert restored_monthly.debt_snapshot.loan_balance == Decimal("250")
     assert restored_monthly.debt_snapshot.net_worth == Decimal("750")
     assert restored_monthly.debt_snapshot.is_repayment is True
+
+
+def test_scheduled_timeline_matches_decimal_oracle_and_records_net_flows() -> None:
+    horizon = 24
+    dataset = _dataset(horizon, Decimal("0.006"), Decimal("0.002"))
+    schedule = ExternalCashFlowSchedule(
+        start_period=3,
+        end_period=8,
+        monthly_amount=Money(Decimal("1000"), Currency.EUR),
+        horizon_transitions=horizon - 1,
+    )
+    context = replace(
+        _context(dataset, horizon), external_cash_flow_schedule=schedule
+    )
+    result = _run(context, materialize=True)
+    timeline = result.timeline.monthly_results
+
+    v0 = _initial_value(context)
+    c = v0 * Decimal("0.04") / Decimal("12")
+    growth = Decimal("0.6") * Decimal("1.006") + Decimal("0.4") * Decimal("1.002")
+    expected = [v0]
+    value = v0
+    for period in range(horizon - 1):
+        external = (
+            Decimal("1000") if schedule.start_period <= period < schedule.end_period
+            else Decimal("0")
+        )
+        value = (value - (c - external)) * growth
+        expected.append(value)
+
+    assert len(timeline) == horizon
+    for m, expected_value in enumerate(expected):
+        assert abs(_value(timeline[m]) - expected_value) < Decimal("0.01")
+    assert abs(result.statistics.final_wealth.amount - expected[-1]) < Decimal("0.01")
+
+    assert timeline[0].net_cash_flow == Money(Decimal("0"), Currency.EUR)
+    for m in range(1, horizon):
+        period = m - 1
+        expected_external = (
+            Money(Decimal("1000"), Currency.EUR)
+            if schedule.start_period <= period < schedule.end_period
+            else Money(Decimal("0"), Currency.EUR)
+        )
+        net = timeline[m].net_cash_flow
+        assert net is not None
+        assert abs(net.amount - (c - expected_external.amount)) < Decimal("0.01")
+
+
+def test_scheduled_negative_net_flow_is_a_contribution_before_growth() -> None:
+    horizon = 3
+    dataset = _dataset(horizon, Decimal("0"), Decimal("0"))
+    schedule = ExternalCashFlowSchedule(
+        start_period=0,
+        end_period=2,
+        monthly_amount=Money(Decimal("10000"), Currency.EUR),
+        horizon_transitions=horizon - 1,
+    )
+    context = replace(
+        _context(dataset, horizon), external_cash_flow_schedule=schedule
+    )
+    result = _run(context, materialize=True)
+    timeline = result.timeline.monthly_results
+
+    v0 = _initial_value(context)
+    c = v0 * Decimal("0.04") / Decimal("12")
+    expected = [v0, v0 - c + Decimal("10000"), v0 - 2 * c + Decimal("20000")]
+    for m, expected_value in enumerate(expected):
+        assert abs(_value(timeline[m]) - expected_value) < Decimal("0.01")
+    assert timeline[1].net_cash_flow is not None
+    assert abs(timeline[1].net_cash_flow.amount - (c - Decimal("10000"))) < Decimal(
+        "0.01"
+    )
+
+
+def test_unscheduled_timeline_has_no_net_cash_flow() -> None:
+    horizon = 12
+    dataset = _dataset(horizon, Decimal("0.006"), Decimal("0.002"))
+    result = _run(_context(dataset, horizon), materialize=True)
+
+    assert all(
+        mr.net_cash_flow is None for mr in result.timeline.monthly_results
+    )
+
+
+def test_context_rejects_schedule_horizon_mismatch() -> None:
+    horizon = 12
+    dataset = _dataset(horizon, Decimal("0.006"), Decimal("0.002"))
+    schedule = ExternalCashFlowSchedule(
+        start_period=0,
+        end_period=2,
+        monthly_amount=Money(Decimal("1000"), Currency.EUR),
+        horizon_transitions=horizon,
+    )
+    with pytest.raises(ValueError, match="horizon_transitions"):
+        replace(
+            _context(dataset, horizon),
+            external_cash_flow_schedule=schedule,
+        )
+
+
+def test_context_rejects_schedule_ending_after_horizon() -> None:
+    horizon = 5
+    dataset = _dataset(horizon, Decimal("0.006"), Decimal("0.002"))
+    schedule = ExternalCashFlowSchedule(
+        start_period=0,
+        end_period=100,
+        monthly_amount=Money(Decimal("1000"), Currency.EUR),
+    )
+
+    with pytest.raises(ValueError, match="end_period.*horizon_months - 1"):
+        replace(
+            _context(dataset, horizon),
+            external_cash_flow_schedule=schedule,
+        )
+
+
+def test_context_accepts_schedule_ending_at_horizon_minus_one() -> None:
+    horizon = 5
+    dataset = _dataset(horizon, Decimal("0.006"), Decimal("0.002"))
+    schedule = ExternalCashFlowSchedule(
+        start_period=0,
+        end_period=horizon - 1,
+        monthly_amount=Money(Decimal("1000"), Currency.EUR),
+    )
+
+    context = replace(
+        _context(dataset, horizon),
+        external_cash_flow_schedule=schedule,
+    )
+
+    assert context.external_cash_flow_schedule is schedule
+
+
+def test_scheduled_codec_roundtrip_preserves_net_cash_flow() -> None:
+    horizon = 6
+    dataset = _dataset(horizon, Decimal("0"), Decimal("0"))
+    schedule = ExternalCashFlowSchedule(
+        start_period=1,
+        end_period=3,
+        monthly_amount=Money(Decimal("500"), Currency.EUR),
+        horizon_transitions=horizon - 1,
+    )
+    context = replace(
+        _context(dataset, horizon), external_cash_flow_schedule=schedule
+    )
+    result = _run(context, materialize=True)
+
+    codec = SimulationResultCodec()
+    serialized = codec.dump(result)
+    restored = codec.load(
+        serialized.statistics_payload_json, serialized.monthly_payloads_json
+    )
+
+    original_flows = [
+        mr.net_cash_flow for mr in result.timeline.monthly_results
+    ]
+    restored_flows = [
+        mr.net_cash_flow for mr in restored.timeline.monthly_results
+    ]
+    assert restored_flows == original_flows

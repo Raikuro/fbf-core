@@ -1,7 +1,7 @@
 """Part 42 study plan builder.
 
-Extends the OMY study plan builder with the accumulation phase. Supplemental
-cash flows are not part of the optimized execution model.
+Extends the OMY study plan builder with the accumulation phase and the
+canonical Social Security external cash-flow schedule.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from typing import Any
 
 from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.cash_flow import ExternalCashFlowSchedule
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import Portfolio
@@ -31,6 +32,8 @@ from fbf.core.study.internal.parameter.configuration import ParameterConfigurati
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 
 PART42_INITIAL_WEALTH = Money(Decimal("2000000"), Currency.EUR)
+PART42_SS_AMOUNT = Money(Decimal("3000"), Currency.EUR)
+PART42_SS_START_YEAR = 31
 
 
 def _resolve_effective_omy_months(
@@ -44,6 +47,84 @@ def _resolve_effective_omy_months(
     duration is zero regardless of the configured duration.
     """
     return omy_duration_months if omy else 0
+
+
+def build_part42_social_security_schedule(
+    *,
+    total_horizon_months: int,
+    omy_months: int,
+    start_year: int = PART42_SS_START_YEAR,
+    monthly_amount: Money = PART42_SS_AMOUNT,
+) -> ExternalCashFlowSchedule:
+    """Build the canonical Part 42 Social Security schedule.
+
+    Benefits begin in total simulation month 361 (year 31) and continue
+    through the end of the original 50-year horizon.  The schedule is
+    expressed in retirement-transition indices, so the OMY accumulation
+    period shifts the interval earlier without shifting the absolute payment
+    dates.  A horizon with no payment period is rejected explicitly.
+    """
+    if total_horizon_months <= 0:
+        raise ValueError("total_horizon_months must be positive")
+    if omy_months < 0:
+        raise ValueError("omy_months must be non-negative")
+    if omy_months >= total_horizon_months:
+        raise UnsupportedConfigurationError(
+            "Part 42 Social Security requires at least one retirement transition"
+        )
+    if not isinstance(start_year, int) or isinstance(start_year, bool):
+        raise TypeError("start_year must be an int")
+    if not isinstance(monthly_amount, Money):
+        raise TypeError("monthly_amount must be a Money instance")
+
+    retirement_transitions = total_horizon_months - omy_months
+    absolute_start_transition = (start_year - 1) * 12
+    start_period = absolute_start_transition - omy_months
+    end_period = retirement_transitions
+    if start_period < 0 or start_period >= end_period:
+        raise UnsupportedConfigurationError(
+            "Part 42 Social Security has no payments in this horizon: "
+            f"total_horizon_months={total_horizon_months}, "
+            f"omy_months={omy_months}, start_year={start_year}"
+        )
+
+    return ExternalCashFlowSchedule(
+        start_period=start_period,
+        end_period=end_period,
+        monthly_amount=monthly_amount,
+        horizon_transitions=retirement_transitions,
+    )
+
+
+def _resolve_social_security_config(
+    omy_config: Any,
+    ss_config: dict[str, Any] | None,
+) -> tuple[bool, int, Money]:
+    """Resolve Social Security enablement and parameters from caller inputs."""
+    if ss_config is None:
+        enabled = bool(getattr(omy_config, "social_security", False))
+        start_year = int(getattr(omy_config, "ss_start_year", PART42_SS_START_YEAR))
+        amount = getattr(omy_config, "ss_amount", PART42_SS_AMOUNT)
+    else:
+        if not isinstance(ss_config, dict):
+            raise TypeError("ss_config must be a dict or None")
+        enabled = bool(ss_config.get("enabled", True))
+        start_year = int(
+            ss_config.get("start_year", getattr(
+                omy_config, "ss_start_year", PART42_SS_START_YEAR
+            ))
+        )
+        amount = ss_config.get(
+            "monthly_amount",
+            ss_config.get(
+                "amount",
+                getattr(omy_config, "ss_amount", PART42_SS_AMOUNT),
+            ),
+        )
+
+    if not isinstance(amount, Money):
+        amount = Money(Decimal(str(amount)), Currency.EUR)
+    return enabled, start_year, amount
 
 
 def build_part42_study_plan(
@@ -74,11 +155,6 @@ def build_part42_study_plan(
         _make_target_resolver,
     )
 
-    if ss_config is not None or getattr(omy_config, "social_security", False):
-        raise UnsupportedConfigurationError(
-            "Part 42 Social Security configuration is unsupported in Phase 1"
-        )
-
     if len(base_config.horizon_years) != 1:
         raise ValueError(
             "Part 42 requires exactly one configured horizon year, got "
@@ -87,11 +163,6 @@ def build_part42_study_plan(
 
     equity_asset = AssetClass(id="equity", name="", description="")
     bond_asset = AssetClass(id="bond", name="", description="")
-
-    if dataset is None:
-        if data_dir is None:
-            raise ValueError("Either data_dir or dataset must be provided")
-        dataset = load_canonical_dataset(Path(data_dir))
 
     original_wealth = (
         initial_wealth if initial_wealth is not None else PART42_INITIAL_WEALTH
@@ -114,6 +185,25 @@ def build_part42_study_plan(
         horizon_years=horizon_years,
         omy_months=omy_months,
     )
+
+    ss_enabled, ss_start_year, ss_monthly_amount = _resolve_social_security_config(
+        omy_config, ss_config
+    )
+    social_security_schedule = (
+        build_part42_social_security_schedule(
+            total_horizon_months=horizon_years * 12,
+            omy_months=omy_months,
+            start_year=ss_start_year,
+            monthly_amount=ss_monthly_amount,
+        )
+        if ss_enabled
+        else None
+    )
+
+    if dataset is None:
+        if data_dir is None:
+            raise ValueError("Either data_dir or dataset must be provided")
+        dataset = load_canonical_dataset(Path(data_dir))
 
     if cohorts is None:
         cohorts = build_cohort_specs(dataset, timeline.total_snapshots)
@@ -209,6 +299,7 @@ def build_part42_study_plan(
                     horizon_months=horizon_months,
                     final_value_target=final_value_target,
                     withdrawal_base=original_wealth,
+                    external_cash_flow_schedule=social_security_schedule,
                 )
             )
 

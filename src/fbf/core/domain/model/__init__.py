@@ -5,6 +5,7 @@ Contains core domain concepts and value objects such as assets, allocations, por
 
 from .allocation import Allocation, AllocationTarget
 from .asset import AssetClass, AssetSeries
+from .cash_flow import ExternalCashFlowSchedule
 from .dataset import Dataset
 from .decision_context import DecisionContext
 from .market_snapshot import MarketSnapshot
@@ -30,6 +31,7 @@ __all__ = [
     "AllocationTarget",
     "AssetClass",
     "AssetSeries",
+    "ExternalCashFlowSchedule",
     "Dataset",
     "MarketSnapshot",
     "Money",

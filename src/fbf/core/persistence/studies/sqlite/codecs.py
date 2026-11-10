@@ -285,6 +285,11 @@ class SimulationResultCodec:
         payload["events"] = [str(e) for e in mr.events]
 
         payload["is_repayment"] = mr.is_repayment
+        if mr.net_cash_flow is not None:
+            payload["net_cash_flow"] = {
+                "amount": str(mr.net_cash_flow.amount),
+                "currency": mr.net_cash_flow.currency.value,
+            }
         if mr.debt_snapshot is not None:
             payload["debt_snapshot"] = {
                 "loan_balance": str(mr.debt_snapshot.loan_balance),
@@ -363,6 +368,16 @@ class SimulationResultCodec:
                     weights=target_weights
                 )
 
+        net_cash_flow = None
+        if "net_cash_flow" in data:
+            from fbf.core.domain.model.money import Currency, Money
+
+            ncf = data["net_cash_flow"]
+            net_cash_flow = Money(
+                amount=Decimal(ncf["amount"]),
+                currency=Currency(ncf["currency"]),
+            )
+
         debt_snapshot = None
         if "debt_snapshot" in data:
             ds = data["debt_snapshot"]
@@ -391,4 +406,5 @@ class SimulationResultCodec:
             events=data.get("events", []),
             debt_snapshot=debt_snapshot,
             is_repayment=data.get("is_repayment", False),
+            net_cash_flow=net_cash_flow,
         )

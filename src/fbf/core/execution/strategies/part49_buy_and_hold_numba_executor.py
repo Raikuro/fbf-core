@@ -99,6 +99,8 @@ def is_part49_buy_and_hold_eligible(context: SimulationContext) -> bool:
     - An interest-rate source covering the full horizon: either a schedule at
       least ``horizon_months`` long, or a fixed scalar ``interest_rate``.
     """
+    if context.external_cash_flow_schedule is not None:
+        return False
     if not isinstance(context.allocation_policy, BuyAndHoldAllocationPolicy):
         return False
     if not isinstance(context.withdrawal_policy, Part49WithdrawalPolicy):

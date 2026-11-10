@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fbf.core.domain.model.allocation import Allocation, AllocationTarget
 from fbf.core.domain.model.asset import AssetClass, AssetSeries
+from fbf.core.domain.model.cash_flow import ExternalCashFlowSchedule
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
@@ -33,6 +34,7 @@ __all__ = [
     "AssetHolding",
     "AssetClass",
     "AssetSeries",
+    "ExternalCashFlowSchedule",
     "Dataset",
     "MarketSnapshot",
     "Allocation",

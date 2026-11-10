@@ -31,6 +31,7 @@ import pytest
 
 from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.cash_flow import ExternalCashFlowSchedule
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
@@ -54,6 +55,7 @@ from fbf.core.persistence.studies.sqlite import (
     ResultsNotFoundError,
     SQLiteRepository,
     StudyNotFoundError,
+    UnsupportedSerializationError,
 )
 from fbf.core.persistence.studies.sqlite.codecs import (
     AllocationPolicyCodec,
@@ -904,6 +906,35 @@ def test_plan_save_and_load_unit_count(repo: SQLiteRepository) -> None:
     plan_id = repo.save_plan(plan, exp_id, ctx)
     loaded = repo.load_plan(plan_id, ctx)
     assert len(loaded.units) == 6
+
+
+def test_save_plan_rejects_external_cash_flow_schedule(
+    repo: SQLiteRepository,
+) -> None:
+    ctx = get_dummy_context()
+    experiment = make_experiment()
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"), experiment, ctx
+    )
+    scheduled_unit = replace(
+        make_unit(),
+        external_cash_flow_schedule=ExternalCashFlowSchedule(
+            start_period=0,
+            end_period=2,
+            monthly_amount=Money(Decimal("3000"), Currency.EUR),
+        ),
+    )
+    plan = ResearchPlan(
+        experiment_definition=experiment, units=(scheduled_unit,)
+    )
+    before = repo.list_plans_for_experiment(exp_id)
+
+    with pytest.raises(
+        UnsupportedSerializationError, match="external cash-flow"
+    ):
+        repo.save_plan(plan, exp_id, ctx)
+
+    assert repo.list_plans_for_experiment(exp_id) == before
 
 
 def test_plan_unit_order_preserved(repo: SQLiteRepository) -> None:

@@ -45,7 +45,8 @@ Limitations
 -----------
 - Float64 precision (~1e-15 per step) — not bit-exact with the independent Decimal oracle
 - FixedRealWithdrawalPolicy only
-- No additional cash flows, costs, or taxes
+- External cash flows are supported only by the dedicated workbook
+  net-cash-flow kernel; no costs or taxes
 - Portfolio state after rebalancing is completely determined by total value
   and target weights.
 """
@@ -154,6 +155,44 @@ def _simulate_trajectory_workbook(
             return 0.0, False, m, 0.0
 
         value -= withdrawal_monthly
+        value *= growth_factors[m]
+        if out_values is not None:
+            out_values[m + 1] = value
+
+    return value, True, -1, value
+
+
+@numba.njit(cache=True)
+def _simulate_trajectory_workbook_net_flows(
+    growth_factors: NDArray[np.float64],
+    initial_value: float,
+    withdrawal_monthly: float,
+    flow_start_period: int,
+    flow_end_period: int,
+    external_monthly: float,
+    horizon: int,
+    out_values: NDArray[np.float64] | None = None,
+) -> tuple[float, bool, int, float]:
+    """Simulate the workbook recurrence with a signed external cash flow.
+
+    The base withdrawal ``C`` is unchanged.  During the external interval the
+    net cash flow is ``N = C - external_monthly``.  A positive ``N`` is a net
+    withdrawal; a negative ``N`` is a net contribution.  The signed amount is
+    applied before growth, and it is never clamped.  Depletion occurs only when
+    a positive ``N`` exceeds the available portfolio value.
+    """
+    value = initial_value
+    if out_values is not None:
+        out_values[0] = value
+
+    for m in range(horizon):
+        external = external_monthly if flow_start_period <= m < flow_end_period else 0.0
+        net_cash_flow = withdrawal_monthly - external
+
+        if net_cash_flow > value:
+            return 0.0, False, m, 0.0
+
+        value -= net_cash_flow
         value *= growth_factors[m]
         if out_values is not None:
             out_values[m + 1] = value

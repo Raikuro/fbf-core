@@ -157,6 +157,7 @@ def build_simulation_timeline(
     n_months: int,
     withdrawal_reason: str,
     withdrawal_amounts: Sequence[Decimal] | None = None,
+    net_cash_flows: Sequence[Money | None] | None = None,
     loan_draw_amount: Decimal = Decimal("0"),
     loan_draw_amounts: Sequence[Decimal] | None = None,
     is_repayment_default: bool = False,
@@ -241,6 +242,9 @@ def build_simulation_timeline(
                 events=(),
                 debt_snapshot=debt_snapshot,
                 is_repayment=is_repayment,
+                net_cash_flow=(
+                    net_cash_flows[m] if net_cash_flows is not None else None
+                ),
             )
         )
 

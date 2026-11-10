@@ -108,6 +108,7 @@ from fbf.core.execution.strategies.numba_kernel import (
     _simulate_trajectory_constant_nominal,
     _simulate_trajectory_escalating,
     _simulate_trajectory_workbook,
+    _simulate_trajectory_workbook_net_flows,
     compute_growth_factors_varying_weights_batch,
 )
 from fbf.core.execution.strategies.trajectory import build_simulation_timeline
@@ -209,6 +210,8 @@ def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
     Eligibility criteria: ConstantAllocationPolicy + ConstantWithdrawalPolicy,
     monthly frequency, sufficient dataset, two-asset portfolio.
     """
+    if context.external_cash_flow_schedule is not None:
+        return False
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
     if context.allocation_policy.allocations is not None:
@@ -240,6 +243,8 @@ def _is_escalating_eligible(context: SimulationContext) -> bool:
     Eligibility criteria: ConstantAllocationPolicy + EscalatingWithdrawalPolicy,
     sufficient dataset, two-asset portfolio.
     """
+    if context.external_cash_flow_schedule is not None:
+        return False
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
     if context.allocation_policy.allocations is not None:
@@ -276,6 +281,8 @@ def _is_glidepath_escalating_eligible(context: SimulationContext) -> bool:
     glidepath target weight advances according to its own cadence.  It is a
     separate contract from the workbook fixed-real glidepath path.
     """
+    if context.external_cash_flow_schedule is not None:
+        return False
     if not isinstance(context.allocation_policy, GlidepathAllocationPolicy):
         return False
     if not isinstance(context.withdrawal_policy, EscalatingWithdrawalPolicy):
@@ -306,6 +313,8 @@ def _is_glidepath_eligible(context: SimulationContext) -> bool:
     - Sufficient dataset (horizon months of prices)
     - Two-asset portfolio (equity + bond)
     """
+    if context.external_cash_flow_schedule is not None:
+        return False
     if not isinstance(context.allocation_policy, GlidepathAllocationPolicy):
         return False
     if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
@@ -341,6 +350,8 @@ def _is_buy_and_hold_eligible(context: SimulationContext) -> bool:
     (``v0``) while the withdrawal amount is derived from ``initial_wealth``;
     the two must agree in float64 (see ``_initial_value_equals_wealth``).
     """
+    if context.external_cash_flow_schedule is not None:
+        return False
     if not isinstance(context.allocation_policy, BuyAndHoldAllocationPolicy):
         return False
     if not isinstance(context.withdrawal_policy, FixedRealWithdrawalPolicy):
@@ -1023,6 +1034,11 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     "static fixed-real group contains mixed withdrawal bases"
                 )
         c = float(effective_base) * rate_f / 12.0
+        cash_flow_schedule = sample_ctx.external_cash_flow_schedule
+        if cash_flow_schedule is not None:
+            flow_start_period = cash_flow_schedule.start_period
+            flow_end_period = cash_flow_schedule.end_period
+            external_monthly = float(cash_flow_schedule.monthly_amount.amount)
 
         gf_key = _gf_cache_key(sample_ctx)
         growth_factors_full = self._gf_cache[gf_key]
@@ -1052,9 +1068,23 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 if self._materialize_timeline
                 else None
             )
-            final_value, success, fail_month, _ = _simulate_trajectory_workbook(
-                growth_factors_arr, v0, c, periods, out_values
-            )
+            if cash_flow_schedule is None:
+                final_value, success, fail_month, _ = _simulate_trajectory_workbook(
+                    growth_factors_arr, v0, c, periods, out_values
+                )
+            else:
+                final_value, success, fail_month, _ = (
+                    _simulate_trajectory_workbook_net_flows(
+                        growth_factors_arr,
+                        v0,
+                        c,
+                        flow_start_period,
+                        flow_end_period,
+                        external_monthly,
+                        periods,
+                        out_values,
+                    )
+                )
             failure_month = (
                 fail_month + 1 if 0 <= fail_month < periods else None
             )
@@ -1067,12 +1097,22 @@ class NumbaSimulationExecutor(SimulationExecutor):
             if captured is not None:
                 c_decimal = Decimal(str(c))
                 amounts = [Decimal("0")] + [c_decimal] * (months_simulated - 1)
+                net_cash_flows = None
+                if cash_flow_schedule is not None:
+                    currency = sample_ctx.initial_wealth.currency
+                    base_withdrawal = Money(c_decimal, currency)
+                    net_cash_flows = [Money(Decimal("0"), currency)]
+                    net_cash_flows.extend(
+                        base_withdrawal - cash_flow_schedule.amount_at(period)
+                        for period in range(months_simulated - 1)
+                    )
                 timeline = build_simulation_timeline(
                     sample_ctx,
                     captured,
                     n_months=months_simulated,
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
                     withdrawal_amounts=amounts,
+                    net_cash_flows=net_cash_flows,
                 )
 
             for ctx in h_contexts:

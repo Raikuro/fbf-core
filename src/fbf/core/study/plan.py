@@ -16,6 +16,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from fbf.core.domain.model.cash_flow import ExternalCashFlowSchedule
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Money
 from fbf.core.domain.model.portfolio import Portfolio
@@ -71,6 +72,7 @@ class PlannedSimulationUnit:
     horizon_months: int | None = None
     final_value_target: Decimal | None = None
     withdrawal_base: Money | None = None
+    external_cash_flow_schedule: ExternalCashFlowSchedule | None = None
     # Part 49 debt parameters (None when leverage is not configured)
     interest_rate: Decimal | None = None
     interest_rate_schedule: tuple[Decimal, ...] | None = None
@@ -112,6 +114,30 @@ class PlannedSimulationUnit:
                 raise ValueError(
                     "PlannedSimulationUnit.withdrawal_base must be positive"
                 )
+        if self.external_cash_flow_schedule is not None:
+            if not isinstance(
+                self.external_cash_flow_schedule, ExternalCashFlowSchedule
+            ):
+                raise TypeError(
+                    "PlannedSimulationUnit.external_cash_flow_schedule must be an "
+                    "ExternalCashFlowSchedule instance or None"
+                )
+            if self.horizon_months is not None:
+                effective_horizon = self.horizon_months - 1
+                if self.external_cash_flow_schedule.end_period > effective_horizon:
+                    raise ValueError(
+                        "PlannedSimulationUnit.external_cash_flow_schedule.end_period "
+                        "must not exceed horizon_months - 1"
+                    )
+                if (
+                    self.external_cash_flow_schedule.horizon_transitions is not None
+                    and self.external_cash_flow_schedule.horizon_transitions
+                    != effective_horizon
+                ):
+                    raise ValueError(
+                        "PlannedSimulationUnit.external_cash_flow_schedule "
+                        "horizon_transitions must match horizon_months - 1"
+                    )
         # Ensure the planner materialised an engine Portfolio value (ownership
         # belongs to the planning boundary). This prevents the executor from
         # inventing or coercing portfolio representations at execution time.

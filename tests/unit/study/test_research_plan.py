@@ -8,7 +8,7 @@ Covers:
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import date
 from decimal import Decimal
 
@@ -16,6 +16,7 @@ import pytest
 
 from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.cash_flow import ExternalCashFlowSchedule
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
@@ -199,6 +200,20 @@ class TestPlannedSimulationUnitConstruction:
                 withdrawal_policy=StubWithdrawalPolicy(),
                 initial_portfolio=make_portfolio(),
                 dataset=None,  # type: ignore[arg-type]
+            )
+
+    def test_rejects_schedule_ending_after_declared_horizon(self) -> None:
+        schedule = ExternalCashFlowSchedule(
+            start_period=0,
+            end_period=100,
+            monthly_amount=Money(Decimal("1000"), Currency.EUR),
+        )
+
+        with pytest.raises(ValueError, match="end_period.*horizon_months - 1"):
+            replace(
+                make_unit(),
+                horizon_months=5,
+                external_cash_flow_schedule=schedule,
             )
 
 

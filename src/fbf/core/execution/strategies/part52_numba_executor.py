@@ -93,6 +93,8 @@ def is_part52_eligible(context: SimulationContext) -> bool:
       ``interest_rate`` (the schedule-less fixed-rate / pre-1928 path).
     - expense_ratio is supported (additive fee embedded in growth factors)
     """
+    if context.external_cash_flow_schedule is not None:
+        return False
     if not isinstance(context.allocation_policy, ConstantAllocationPolicy):
         return False
     if context.allocation_policy.allocations is not None:

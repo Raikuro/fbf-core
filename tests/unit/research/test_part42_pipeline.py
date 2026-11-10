@@ -11,14 +11,16 @@ import pytest
 
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionOptions, UnsupportedConfigurationError
+from fbf.core.execution import ExecutionOptions
 from fbf.core.research.part42_pipeline import (
     Part42ExecutionContext,
     Part42ExperimentConfig,
     _build_omy_evaluate,
     get_experiment_configs,
-    run_failsafe_search,
-    run_fixed_swr,
+)
+from fbf.core.research.part42_plan import (
+    _resolve_effective_omy_months,
+    build_part42_social_security_schedule,
 )
 from fbf.core.study.builder import BuiltStudy, build_initial_portfolio
 from tests.fixtures.accumulation import _snapshot
@@ -236,23 +238,24 @@ def test_experiment_inventory_is_canonical() -> None:
 
 
 @pytest.mark.parametrize("experiment_id", SOCIAL_SECURITY_EXPERIMENT_IDS)
-def test_social_security_scenarios_fail_closed(experiment_id: str) -> None:
+def test_social_security_scenarios_have_valid_schedule(
+    experiment_id: str,
+) -> None:
     experiment = next(
         config for config in get_experiment_configs() if config.id == experiment_id
     )
+    omy_months = _resolve_effective_omy_months(
+        omy=experiment.omy,
+        omy_duration_months=experiment.omy_duration_months,
+    )
+    schedule = build_part42_social_security_schedule(
+        total_horizon_months=experiment.horizon_years * 12,
+        omy_months=omy_months,
+        start_year=experiment.ss_start_year,
+        monthly_amount=experiment.ss_amount,
+    )
 
-    with pytest.raises(UnsupportedConfigurationError, match="Social Security"):
-        run_fixed_swr(
-            experiment,
-            cohort_dates=(),
-            data_dir="unused",
-            options=ExecutionOptions(summary_only=True),
-        )
-
-    with pytest.raises(UnsupportedConfigurationError, match="Social Security"):
-        run_failsafe_search(
-            cast(Any, None),
-            experiment,
-            cohort_dates=("1871-01-01",),
-            options=ExecutionOptions(summary_only=True),
-        )
+    assert schedule.start_period == 360 - omy_months
+    assert schedule.end_period == 600 - omy_months
+    assert schedule.end_period - schedule.start_period == 240
+    assert schedule.monthly_amount == Money(Decimal("3000"), Currency.EUR)

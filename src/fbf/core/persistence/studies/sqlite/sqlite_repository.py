@@ -790,6 +790,14 @@ class SQLiteRepository:
         """
         validate_context(context)
 
+        if any(
+            unit.external_cash_flow_schedule is not None for unit in plan.units
+        ):
+            raise UnsupportedSerializationError(
+                "Research plans with external cash-flow schedules cannot be "
+                "persisted; the plan schema does not represent them."
+            )
+
         # Verify experiment exists
         self.load_experiment(experiment_id, context)
 

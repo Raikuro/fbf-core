@@ -94,6 +94,10 @@ class MonthlyResult:
     events: Sequence[object]
     debt_snapshot: DebtSnapshot | None = None
     is_repayment: bool = False
+    # Signed net portfolio cash flow for the transition ending at this
+    # snapshot (positive withdrawal, negative contribution).  ``None`` when no
+    # external cash-flow schedule was applied.
+    net_cash_flow: Money | None = None
 
 
 @dataclass(frozen=True)

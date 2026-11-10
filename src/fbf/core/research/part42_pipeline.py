@@ -17,7 +17,6 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.execution import (
     ExecutionOptions,
-    UnsupportedConfigurationError,
     execute_study_plan,
 )
 from fbf.core.research.part3_planner import CohortManifest, load_manifest
@@ -30,7 +29,10 @@ from fbf.core.research.part20_pipeline import (
 )
 from fbf.core.research.part42_plan import (
     PART42_INITIAL_WEALTH,
+    PART42_SS_AMOUNT,
+    PART42_SS_START_YEAR,
     _resolve_effective_omy_months,
+    build_part42_social_security_schedule,
     build_part42_study_plan,
 )
 from fbf.core.study.internal.omy_timeline import resolve_omy_timeline
@@ -61,8 +63,6 @@ __all__ = [
 PART42_EQUITY_WEIGHT = Decimal("0.75")
 PART42_BOND_WEIGHT = Decimal("0.25")
 PART42_OMY_CONTRIBUTION = Money(Decimal("5000"), Currency.EUR)
-PART42_SS_AMOUNT = Money(Decimal("3000"), Currency.EUR)
-PART42_SS_START_YEAR = 31
 PART42_FV_30Y = Decimal("0.25")
 PART42_FV_50Y = Decimal("0.0")
 
@@ -310,6 +310,22 @@ def build_part42_context(
     return Part42ExecutionContext.create(manifest_path, trajectory, initial_wealth)
 
 
+def _validate_social_security(experiment: Part42ExperimentConfig) -> None:
+    """Fail early when a Social Security scenario has no payment period."""
+    if not experiment.social_security:
+        return
+    omy_months = _resolve_effective_omy_months(
+        omy=experiment.omy,
+        omy_duration_months=experiment.omy_duration_months,
+    )
+    build_part42_social_security_schedule(
+        total_horizon_months=experiment.horizon_years * 12,
+        omy_months=omy_months,
+        start_year=experiment.ss_start_year,
+        monthly_amount=experiment.ss_amount,
+    )
+
+
 def _build_omy_evaluate(
     ctx: Part42ExecutionContext,
     experiment: Part42ExperimentConfig,
@@ -317,11 +333,7 @@ def _build_omy_evaluate(
     options: ExecutionOptions,
 ) -> BisectionEvaluate:
     """Build an evaluate function for batched OMY bisection."""
-    if experiment.social_security:
-        raise UnsupportedConfigurationError(
-            f"Part 42 experiment {experiment.id!r} requires Social Security, "
-            "which is unsupported in Phase 1"
-        )
+    _validate_social_security(experiment)
     n_cohorts = len(cohort_dates)
 
     def evaluate(candidates: Sequence[BisectionCandidate]) -> Sequence[bool]:
@@ -421,11 +433,7 @@ def run_failsafe_search(
     cache: SearchCache | None = None,
 ) -> Part42FailsafeResult:
     """Run failsafe SWR search for one Part 42 experiment."""
-    if experiment.social_security:
-        raise UnsupportedConfigurationError(
-            f"Part 42 experiment {experiment.id!r} requires Social Security, "
-            "which is unsupported in Phase 1"
-        )
+    _validate_social_security(experiment)
     if not cohort_dates:
         raise ValueError("cohort_dates must be non-empty")
 
@@ -463,11 +471,7 @@ def run_fixed_swr(
     options: ExecutionOptions,
 ) -> Part42FixedSWRResult:
     """Run fixed-SWR experiment for one Part 42 scenario."""
-    if experiment.social_security:
-        raise UnsupportedConfigurationError(
-            f"Part 42 experiment {experiment.id!r} requires Social Security, "
-            "which is unsupported in Phase 1"
-        )
+    _validate_social_security(experiment)
     if experiment.fixed_swr is None:
         raise ValueError("experiment.fixed_swr must be set for fixed-SWR run")
 
@@ -494,7 +498,16 @@ def run_fixed_swr(
         omy_original_initial_wealth=PART42_INITIAL_WEALTH.amount if experiment.omy else None,
     )
 
-    if experiment.omy:
+    if experiment.social_security:
+        # Social Security experiments require the schedule-aware Part 42
+        # retirement plan builder.
+        built = build_part42_study_plan(
+            experiment_id=experiment.id,
+            base_config=base_config,
+            data_dir=data_dir,
+            omy_config=experiment,
+        )
+    elif experiment.omy:
         # OMY experiment: use OMY study plan
         omy_study_config = OmyStudyConfiguration(
             base_config=base_config,

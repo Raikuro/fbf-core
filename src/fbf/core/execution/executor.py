@@ -237,6 +237,15 @@ class ResearchExecutor:
                 "PlannedSimulationUnit.withdrawal_base currency must match the "
                 "experiment definition's initial_wealth"
             )
+        if (
+            unit.external_cash_flow_schedule is not None
+            and unit.external_cash_flow_schedule.monthly_amount.currency
+            != experiment_def.initial_wealth.currency
+        ):
+            raise InvalidResearchPlanError(
+                "PlannedSimulationUnit.external_cash_flow_schedule currency must "
+                "match the experiment definition's initial_wealth"
+            )
 
         return SimulationContext(
             experiment_name=experiment_def.name,
@@ -251,6 +260,7 @@ class ResearchExecutor:
             withdrawal_policy=unit.withdrawal_policy,
             final_value_target=unit.final_value_target,
             withdrawal_base=unit.withdrawal_base,
+            external_cash_flow_schedule=unit.external_cash_flow_schedule,
             loan_draw_rate=unit.loan_draw_rate,
             interest_rate=unit.interest_rate,
             interest_rate_schedule=unit.interest_rate_schedule,

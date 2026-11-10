@@ -253,8 +253,8 @@ configuration.
 not be ported to the Numba path.
 
 **Why:** The historical audit is not a clean oracle for the current path: it is
-data-vintage dependent and would require supplemental cash-flow support for the
-Social Security scenarios. Recreating it would add execution capability for a
+data-vintage dependent, and its Social Security scenarios do not validate the
+current signed external-cash-flow semantics. Recreating it would revive a
 retired validation target without current validation value.
 
 **Consequence:** Part 42 keeps structural and accumulation-oracle coverage but
