@@ -20,7 +20,7 @@ from fbf.core.research.part42_pipeline import (
     run_failsafe_search,
     run_fixed_swr,
 )
-from fbf.core.study.builder import BuiltStudy
+from fbf.core.study.builder import BuiltStudy, build_initial_portfolio
 from tests.fixtures.accumulation import _snapshot
 
 CANONICAL_PART42_EXPERIMENT_IDS = (
@@ -67,12 +67,13 @@ def _experiment(
     *,
     omy_months: int = 12,
     contribution: str = "5000",
+    omy: bool = True,
 ) -> Part42ExperimentConfig:
     return Part42ExperimentConfig(
         id="test",
         name="test",
         horizon_years=2,
-        omy=True,
+        omy=omy,
         omy_contribution=Money(Decimal(contribution), Currency.EUR),
         omy_duration_months=omy_months,
     )
@@ -126,6 +127,17 @@ def test_accumulation_cache_distinguishes_initial_wealth() -> None:
     assert low_result != high_result
 
 
+def test_accumulation_portfolio_skips_accumulation_when_omy_disabled() -> None:
+    ctx = _context(_flat_dataset(40))
+    experiment = _experiment(omy=False)
+    expected = build_initial_portfolio(
+        ctx.initial_wealth,
+        ctx.dataset_for("2020-01-01", 1),
+    )
+
+    assert ctx.accumulation_portfolio("2020-01-01", experiment) == expected
+
+
 def test_omy_evaluate_uses_context_dataset_and_wealth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -172,6 +184,42 @@ def test_omy_evaluate_uses_context_dataset_and_wealth(
     assert unit.withdrawal_base == wealth
     assert unit.dataset.start_date == retirement_start
     assert len(unit.dataset) == 13
+
+
+def test_omy_evaluate_disables_accumulation_when_omy_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trajectory = _flat_dataset(50)
+    ctx = _context(trajectory)
+    experiment = _experiment(omy=False)
+    captured: list[BuiltStudy] = []
+
+    def fake_execute(built: BuiltStudy, _options: ExecutionOptions) -> Any:
+        captured.append(built)
+        statistics = SimpleNamespace(success=True)
+        return SimpleNamespace(
+            experiment_result=SimpleNamespace(
+                simulation_results=(SimpleNamespace(statistics=statistics),)
+            )
+        )
+
+    monkeypatch.setattr("fbf.core.execution.execute_study_plan", fake_execute)
+
+    evaluate = _build_omy_evaluate(
+        ctx,
+        experiment,
+        cohort_dates=("2020-01-01",),
+        options=ExecutionOptions(summary_only=True),
+    )
+
+    assert evaluate([(0, Decimal("0.04"))]) == (True,)
+
+    plan = captured[0].plan
+    unit = plan.units[0]
+    assert plan.experiment_definition.horizon_months == 25
+    assert unit.horizon_months == 25
+    assert len(unit.dataset) == 25
+    assert unit.dataset.snapshots[0].date == unit.cohort.start_date
 
 
 def test_experiment_inventory_is_canonical() -> None:

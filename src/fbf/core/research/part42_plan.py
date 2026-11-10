@@ -33,6 +33,19 @@ from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 PART42_INITIAL_WEALTH = Money(Decimal("2000000"), Currency.EUR)
 
 
+def _resolve_effective_omy_months(
+    *,
+    omy: bool,
+    omy_duration_months: int,
+) -> int:
+    """Return the accumulation duration consumed from the fixed horizon.
+
+    A disabled OMY scenario performs no accumulation, so its effective
+    duration is zero regardless of the configured duration.
+    """
+    return omy_duration_months if omy else 0
+
+
 def build_part42_study_plan(
     experiment_id: str,
     base_config: StudyConfiguration,
@@ -85,13 +98,18 @@ def build_part42_study_plan(
     )
 
     horizon_years = base_config.horizon_years[0]
-    omy_months = (
-        omy_config.omy_duration_months
+    omy_enabled = bool(getattr(omy_config, "omy", True))
+    configured_omy_months = (
+        int(omy_config.omy_duration_months)
         if hasattr(omy_config, "omy_duration_months")
         else 12
     )
-    if omy_months < 1:
+    if omy_enabled and configured_omy_months < 1:
         raise ValueError("Part 42 OMY duration must be positive")
+    omy_months = _resolve_effective_omy_months(
+        omy=omy_enabled,
+        omy_duration_months=configured_omy_months,
+    )
     timeline = resolve_omy_timeline(
         horizon_years=horizon_years,
         omy_months=omy_months,

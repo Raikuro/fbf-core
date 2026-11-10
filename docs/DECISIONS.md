@@ -173,9 +173,15 @@ counts are:
 
 | Study | Total snapshots | Accumulation snapshots | Retirement snapshots | Retirement transitions |
 |---|---:|---:|---:|---:|
+| 30Y no OMY | 361 | 1 | 361 | 360 |
 | 30Y + 12m OMY | 361 | 13 | 349 | 348 |
+| 50Y no OMY | 601 | 1 | 601 | 600 |
 | 50Y + 12m OMY | 601 | 13 | 589 | 588 |
 | 50Y + 24m OMY | 601 | 25 | 577 | 576 |
+
+When OMY is disabled, the configured OMY duration is ignored and the
+effective accumulation duration is zero; retirement spans the full fixed
+horizon.
 
 For a 30-year study the unique snapshot indices are:
 

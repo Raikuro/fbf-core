@@ -48,12 +48,13 @@ def _experiment(
     horizon_years: int,
     omy_duration_months: int,
     social_security: bool = False,
+    omy: bool = True,
 ) -> Part42ExperimentConfig:
     return Part42ExperimentConfig(
         id="test",
         name="test",
         horizon_years=horizon_years,
-        omy=True,
+        omy=omy,
         omy_contribution=Money(Decimal("5000"), Currency.EUR),
         omy_duration_months=omy_duration_months,
         social_security=social_security,
@@ -66,6 +67,7 @@ def _build(
     *,
     horizon_years: int,
     omy_duration_months: int,
+    omy: bool = True,
 ) -> BuiltStudy:
     from fbf.core.research.part42_plan import build_part42_study_plan
 
@@ -81,6 +83,7 @@ def _build(
         omy_config=_experiment(
             horizon_years=horizon_years,
             omy_duration_months=omy_duration_months,
+            omy=omy,
         ),
     )
 
@@ -92,6 +95,21 @@ def test_part42_30y_12m_counts(monkeypatch: pytest.MonkeyPatch) -> None:
     assert unit.horizon_months == 349
     assert len(unit.dataset) == 349
     assert unit.dataset.snapshots[0].date == unit.cohort.start_date + timedelta(days=30 * 12)
+    assert unit.withdrawal_base == Money(Decimal("2000000"), Currency.EUR)
+
+
+def test_part42_30y_no_omy_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    built = _build(
+        monkeypatch,
+        horizon_years=30,
+        omy_duration_months=12,
+        omy=False,
+    )
+    assert len(built.cohorts) == 2099
+    unit = built.plan.units[0]
+    assert unit.horizon_months == 361
+    assert len(unit.dataset) == 361
+    assert unit.dataset.snapshots[0].date == unit.cohort.start_date
     assert unit.withdrawal_base == Money(Decimal("2000000"), Currency.EUR)
 
 

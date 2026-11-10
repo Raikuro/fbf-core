@@ -30,6 +30,7 @@ from fbf.core.research.part20_pipeline import (
 )
 from fbf.core.research.part42_plan import (
     PART42_INITIAL_WEALTH,
+    _resolve_effective_omy_months,
     build_part42_study_plan,
 )
 from fbf.core.study.internal.omy_timeline import resolve_omy_timeline
@@ -243,14 +244,19 @@ class Part42ExecutionContext:
         return cached
 
     def accumulation_portfolio(self, cohort_date: str, omy_config: Any) -> Portfolio:
-        acc_months = (
-            omy_config.omy_duration_months
-            if hasattr(omy_config, 'omy_duration_months')
+        omy_enabled = bool(getattr(omy_config, "omy", True))
+        configured_omy_months = (
+            int(omy_config.omy_duration_months)
+            if hasattr(omy_config, "omy_duration_months")
             else 12
+        )
+        acc_months = _resolve_effective_omy_months(
+            omy=omy_enabled,
+            omy_duration_months=configured_omy_months,
         )
         contribution = (
             omy_config.omy_contribution
-            if omy_config.omy
+            if omy_enabled
             else Money(Decimal("0"), Currency.EUR)
         )
         # Each input that changes accumulation is part of the key.  The
@@ -259,7 +265,7 @@ class Part42ExecutionContext:
         cache_key = (
             cohort_date,
             acc_months,
-            bool(omy_config.omy),
+            omy_enabled,
             contribution,
             self.initial_wealth,
             PART42_EQUITY_WEIGHT,
@@ -365,10 +371,9 @@ def _build_omy_evaluate(
             # Build cohort specs from the context trajectory.  Dataset loading is
             # deliberately avoided so injected contexts are authoritative.
             retirement_horizon_years = base_config.horizon_years[0]
-            omy_months = (
-                omy_config.omy_duration_months
-                if hasattr(omy_config, "omy_duration_months")
-                else 12
+            omy_months = _resolve_effective_omy_months(
+                omy=experiment.omy,
+                omy_duration_months=experiment.omy_duration_months,
             )
             timeline = resolve_omy_timeline(
                 horizon_years=retirement_horizon_years,
