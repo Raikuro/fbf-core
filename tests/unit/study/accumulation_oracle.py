@@ -66,8 +66,9 @@ def oracle_accumulate(
     dataset: Dataset,
     equity_asset: AssetClass,
     bond_asset: AssetClass,
+    months: int = 12,
 ) -> AccumulationResult:
-    """Run 12-month accumulation independently.
+    """Run accumulation independently for a fixed number of months.
 
     Parameters
     ----------
@@ -78,11 +79,14 @@ def oracle_accumulate(
     target_weights :
         Target allocation weights (must sum to 1).
     dataset :
-        Dataset with exactly 13 snapshots (indices 0..12).
+        Dataset with exactly ``months + 1`` snapshots (indices 0..months).
     equity_asset :
         Equity AssetClass identifier.
     bond_asset :
         Bond AssetClass identifier.
+    months :
+        Number of accumulation months.  Defaults to 12 so existing 12-month
+        callers retain their original contract.
 
     Returns
     -------
@@ -92,11 +96,15 @@ def oracle_accumulate(
     Raises
     ------
     ValueError
-        If dataset does not contain exactly 13 snapshots.
+        If dataset does not contain exactly ``months + 1`` snapshots.
     """
-    if len(dataset.snapshots) != 13:
+    if months < 0:
+        raise ValueError("Accumulation months must be non-negative")
+    expected_snapshots = months + 1
+    if len(dataset.snapshots) != expected_snapshots:
         raise ValueError(
-            f"Accumulation requires 13 snapshots, got {len(dataset.snapshots)}"
+            f"Accumulation requires {expected_snapshots} snapshots, "
+            f"got {len(dataset.snapshots)}"
         )
 
     eq_units = _find_holding(initial_portfolio, equity_asset)
@@ -106,7 +114,7 @@ def oracle_accumulate(
 
     month_portfolios: list[Portfolio] = []
 
-    for m in range(12):
+    for m in range(months):
         eq_price_m = _price_at(dataset.snapshots[m], equity_asset)
         bd_price_m = _price_at(dataset.snapshots[m], bond_asset)
 

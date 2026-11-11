@@ -24,7 +24,9 @@ from tests.fixtures.accumulation import (
     EQUITY,
     ERN_REALISTIC_DATASET,
     FLAT_DATASET,
+    FLAT_DATASET_24M,
     GROWTH_DATASET,
+    GROWTH_DATASET_24M,
     KNOWN_PORTFOLIO,
     TARGET_WEIGHTS,
 )
@@ -127,7 +129,7 @@ class TestOracleKnownAnswers:
         assert total == initial_total + Decimal("12") * Decimal("5000")
 
     def test_month_count(self) -> None:
-        """Oracle must produce exactly 12 month-by-month snapshots."""
+        """Oracle must produce exactly 12 month-by-month snapshots by default."""
         result = oracle_accumulate(
             initial_portfolio=KNOWN_PORTFOLIO,
             contribution=CONTRIBUTION,
@@ -137,6 +139,38 @@ class TestOracleKnownAnswers:
             bond_asset=BOND,
         )
         assert len(result.month_by_month) == 12
+
+    def test_twenty_four_month_flat_known_answer(self) -> None:
+        """24-month flat accumulation adds 24 contributions before rebalancing."""
+        result = oracle_accumulate(
+            initial_portfolio=KNOWN_PORTFOLIO,
+            contribution=CONTRIBUTION,
+            target_weights=TARGET_WEIGHTS,
+            dataset=FLAT_DATASET_24M,
+            equity_asset=EQUITY,
+            bond_asset=BOND,
+            months=24,
+        )
+        assert len(result.month_by_month) == 24
+        assert result.final_portfolio.holdings[0].units == Decimal("90225")
+        assert result.final_portfolio.holdings[1].units == Decimal("30075")
+        total = sum(h.units for h in result.final_portfolio.holdings)
+        assert total == Decimal("300") + Decimal("24") * Decimal("5000")
+
+    def test_twenty_four_month_growth_known_answer(self) -> None:
+        """24-month growth accumulation produces a positive evolving portfolio."""
+        result = oracle_accumulate(
+            initial_portfolio=KNOWN_PORTFOLIO,
+            contribution=CONTRIBUTION,
+            target_weights=TARGET_WEIGHTS,
+            dataset=GROWTH_DATASET_24M,
+            equity_asset=EQUITY,
+            bond_asset=BOND,
+            months=24,
+        )
+        assert len(result.month_by_month) == 24
+        total = sum(h.units for h in result.final_portfolio.holdings)
+        assert total > Decimal("0")
 
     def test_growth_dataset_total_wealth(self) -> None:
         """With positive returns, total wealth > initial + contributions."""
@@ -213,4 +247,17 @@ class TestOracleEdgeCases:
                 dataset=bad_dataset,
                 equity_asset=EQUITY,
                 bond_asset=BOND,
+            )
+
+    def test_invalid_twenty_four_month_dataset_length(self) -> None:
+        """Oracle rejects a dataset that does not contain months + 1 snapshots."""
+        with pytest.raises(ValueError, match="25 snapshots"):
+            oracle_accumulate(
+                initial_portfolio=KNOWN_PORTFOLIO,
+                contribution=CONTRIBUTION,
+                target_weights=TARGET_WEIGHTS,
+                dataset=FLAT_DATASET,
+                equity_asset=EQUITY,
+                bond_asset=BOND,
+                months=24,
             )

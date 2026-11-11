@@ -18,7 +18,9 @@ from fbf.core.research.part42_pipeline import (
     run_failsafe_search,
     run_fixed_swr,
 )
+from fbf.core.research.part42_plan import build_part42_study_plan
 from fbf.core.study.builder import BuiltStudy, StudyConfiguration
+from fbf.core.study.internal.cohort.specification import CohortSpecification
 from tests.fixtures.accumulation import _snapshot
 
 
@@ -391,5 +393,99 @@ def test_part42_social_security_autoselects_numba_and_materializes_flows() -> No
     assert (
         timeline[360].net_cash_flow.amount
         - timeline[361].net_cash_flow.amount
+        == Decimal("3000")
+    )
+
+
+@pytest.mark.parametrize(
+    ("omy", "omy_duration_months", "expected_start", "expected_end", "expected_len"),
+    [
+        (False, 12, 360, 600, 601),
+        (True, 12, 348, 588, 589),
+        (True, 24, 336, 576, 577),
+    ],
+)
+def test_canonical_social_security_materializes_240_payments(
+    omy: bool,
+    omy_duration_months: int,
+    expected_start: int,
+    expected_end: int,
+    expected_len: int,
+) -> None:
+    from fbf.core.execution import execute_study_plan
+
+    dataset = _growing_dataset(601)
+    built = build_part42_study_plan(
+        experiment_id="test",
+        base_config=_base_config(horizon_years=50),
+        data_dir=None,
+        omy_config=_experiment(
+            horizon_years=50,
+            omy_duration_months=omy_duration_months,
+            social_security=True,
+            omy=omy,
+        ),
+        cohorts=(CohortSpecification(start_date=dataset[0].date),),
+        dataset=dataset,
+    )
+
+    result = execute_study_plan(
+        built, ExecutionOptions(materialize_timeline=True)
+    )
+    timeline = result.experiment_result.simulation_results[0].timeline.monthly_results
+
+    assert len(timeline) == expected_len
+    assert timeline[0].net_cash_flow == Money(Decimal("0"), Currency.EUR)
+    base = timeline[1].net_cash_flow
+    assert base is not None
+    payment_indices = [
+        index
+        for index in range(1, len(timeline))
+        if (flow := timeline[index].net_cash_flow) is not None
+        and abs(flow.amount - (base.amount - Decimal("3000"))) < Decimal("0.01")
+    ]
+    assert len(payment_indices) == 240
+    assert payment_indices[0] == expected_start + 1
+    assert payment_indices[-1] == expected_end
+
+
+def test_plan_unit_without_explicit_horizon_uses_experiment_horizon() -> None:
+    from dataclasses import replace
+
+    from fbf.core.execution.executor import ResearchExecutor
+    from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
+    from fbf.core.study.plan import ResearchPlan
+
+    dataset = _growing_dataset(601)
+    built = build_part42_study_plan(
+        experiment_id="test",
+        base_config=_base_config(horizon_years=50),
+        data_dir=None,
+        omy_config=_experiment(
+            horizon_years=50,
+            omy_duration_months=12,
+            social_security=True,
+            omy=False,
+        ),
+        cohorts=(CohortSpecification(start_date=dataset[0].date),),
+        dataset=dataset,
+    )
+    explicit_unit = built.plan.units[0]
+    fallback_unit = replace(explicit_unit, horizon_months=None)
+    fallback_plan = ResearchPlan(
+        experiment_definition=built.plan.experiment_definition,
+        units=(fallback_unit,),
+    )
+
+    result = ResearchExecutor(
+        NumbaSimulationExecutor(materialize_timeline=True)
+    ).execute(fallback_plan)
+    timeline = result.results[0].timeline.monthly_results
+
+    assert len(timeline) == built.plan.experiment_definition.horizon_months == 601
+    assert timeline[360].net_cash_flow is not None
+    assert timeline[361].net_cash_flow is not None
+    assert (
+        timeline[360].net_cash_flow.amount - timeline[361].net_cash_flow.amount
         == Decimal("3000")
     )

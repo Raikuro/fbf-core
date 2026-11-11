@@ -53,6 +53,18 @@ FLAT_DATASET = Dataset(
 
 
 # ---------------------------------------------------------------------------
+# 24-month flat dataset: 25 snapshots for the canonical two-year OMY phase
+# ---------------------------------------------------------------------------
+
+_FLAT_DATES_24M = [date(2020, 1, 1 + m) for m in range(25)]
+_FLAT_SNAPSHOTS_24M = [_snapshot(d, Decimal("1"), Decimal("1")) for d in _FLAT_DATES_24M]
+FLAT_DATASET_24M = Dataset(
+    snapshots=_FLAT_SNAPSHOTS_24M,
+    frequency="monthly",
+)
+
+
+# ---------------------------------------------------------------------------
 # Growth dataset: constant 1% monthly equity return, 0.5% bond return
 # ---------------------------------------------------------------------------
 
@@ -68,6 +80,28 @@ _GROWTH_SNAPSHOTS = [
 ]
 GROWTH_DATASET = Dataset(
     snapshots=_GROWTH_SNAPSHOTS,
+    frequency="monthly",
+)
+
+
+# ---------------------------------------------------------------------------
+# 24-month growth dataset: 25 snapshots, 1% monthly equity / 0.5% bond
+# ---------------------------------------------------------------------------
+
+_GROWTH_DATES_24M = [date(2020, 1, 1 + m) for m in range(25)]
+_GROWTH_EQUITY_24M = [Decimal("100")]
+_GROWTH_BOND_24M = [Decimal("50")]
+for _ in range(24):
+    _GROWTH_EQUITY_24M.append(_GROWTH_EQUITY_24M[-1] * Decimal("1.01"))
+    _GROWTH_BOND_24M.append(_GROWTH_BOND_24M[-1] * Decimal("1.005"))
+_GROWTH_SNAPSHOTS_24M = [
+    _snapshot(d, eq, bd)
+    for d, eq, bd in zip(
+        _GROWTH_DATES_24M, _GROWTH_EQUITY_24M, _GROWTH_BOND_24M, strict=True
+    )
+]
+GROWTH_DATASET_24M = Dataset(
+    snapshots=_GROWTH_SNAPSHOTS_24M,
     frequency="monthly",
 )
 

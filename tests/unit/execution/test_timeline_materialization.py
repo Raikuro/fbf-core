@@ -218,6 +218,31 @@ def test_depleted_timeline_length_equals_months_simulated() -> None:
     assert len(result.timeline.monthly_results) == result.statistics.months_simulated
 
 
+def test_scheduled_depletion_records_failure_and_short_timeline() -> None:
+    horizon = 12
+    dataset = _dataset(horizon, Decimal("0"), Decimal("0"))
+    schedule = ExternalCashFlowSchedule(
+        start_period=0,
+        end_period=5,
+        monthly_amount=Money(Decimal("-500000"), Currency.EUR),
+        horizon_transitions=horizon - 1,
+    )
+    context = replace(
+        _context(dataset, horizon), external_cash_flow_schedule=schedule
+    )
+    result = _run(context, materialize=True)
+
+    assert result.statistics.success is False
+    assert result.statistics.failure_month == 2
+    assert result.statistics.final_wealth == Money(Decimal("0"), Currency.EUR)
+    assert len(result.timeline.monthly_results) == 2
+    assert result.timeline.monthly_results[1].net_cash_flow is not None
+    assert (
+        result.timeline.monthly_results[1].net_cash_flow.amount
+        > Decimal("400000")
+    )
+
+
 def test_statistics_only_path_is_unchanged() -> None:
     horizon = 36
     dataset = _dataset(horizon, Decimal("0.006"), Decimal("0.002"))

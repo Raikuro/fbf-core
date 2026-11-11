@@ -21,7 +21,9 @@ from tests.fixtures.accumulation import (
     EQUITY,
     ERN_REALISTIC_DATASET,
     FLAT_DATASET,
+    FLAT_DATASET_24M,
     GROWTH_DATASET,
+    GROWTH_DATASET_24M,
     KNOWN_PORTFOLIO,
     TARGET_WEIGHTS,
 )
@@ -101,6 +103,50 @@ class TestProductionVsOracle:
         return prod, orc
 
     @pytest.fixture()
+    def _flat_24m_result(self) -> _ResultPair:
+        prod = run_accumulation_phase(
+            initial_portfolio=KNOWN_PORTFOLIO,
+            contribution=CONTRIBUTION,
+            target_weights=TARGET_WEIGHTS,
+            dataset=FLAT_DATASET_24M,
+            equity_asset=EQUITY,
+            bond_asset=BOND,
+            months=24,
+        )
+        orc = oracle_accumulate(
+            initial_portfolio=KNOWN_PORTFOLIO,
+            contribution=CONTRIBUTION,
+            target_weights=TARGET_WEIGHTS,
+            dataset=FLAT_DATASET_24M,
+            equity_asset=EQUITY,
+            bond_asset=BOND,
+            months=24,
+        )
+        return prod, orc
+
+    @pytest.fixture()
+    def _growth_24m_result(self) -> _ResultPair:
+        prod = run_accumulation_phase(
+            initial_portfolio=KNOWN_PORTFOLIO,
+            contribution=CONTRIBUTION,
+            target_weights=TARGET_WEIGHTS,
+            dataset=GROWTH_DATASET_24M,
+            equity_asset=EQUITY,
+            bond_asset=BOND,
+            months=24,
+        )
+        orc = oracle_accumulate(
+            initial_portfolio=KNOWN_PORTFOLIO,
+            contribution=CONTRIBUTION,
+            target_weights=TARGET_WEIGHTS,
+            dataset=GROWTH_DATASET_24M,
+            equity_asset=EQUITY,
+            bond_asset=BOND,
+            months=24,
+        )
+        return prod, orc
+
+    @pytest.fixture()
     def _ern_result(self) -> _ResultPair:
         prod = run_accumulation_phase(
             initial_portfolio=KNOWN_PORTFOLIO,
@@ -153,6 +199,34 @@ class TestProductionVsOracle:
             zip(prod.month_by_month, orc.month_by_month, strict=True)
         ):
             _assert_portfolios_equal(p, o, f"ern-month-{i}")
+
+    def test_flat_24m_final_portfolio(self, _flat_24m_result: _ResultPair) -> None:
+        prod, orc = _flat_24m_result
+        _assert_portfolios_equal(
+            prod.final_portfolio, orc.final_portfolio, "flat-24m-final"
+        )
+
+    def test_flat_24m_month_by_month(self, _flat_24m_result: _ResultPair) -> None:
+        prod, orc = _flat_24m_result
+        assert len(prod.month_by_month) == len(orc.month_by_month) == 24
+        for i, (p, o) in enumerate(
+            zip(prod.month_by_month, orc.month_by_month, strict=True)
+        ):
+            _assert_portfolios_equal(p, o, f"flat-24m-month-{i}")
+
+    def test_growth_24m_final_portfolio(self, _growth_24m_result: _ResultPair) -> None:
+        prod, orc = _growth_24m_result
+        _assert_portfolios_equal(
+            prod.final_portfolio, orc.final_portfolio, "growth-24m-final"
+        )
+
+    def test_growth_24m_month_by_month(self, _growth_24m_result: _ResultPair) -> None:
+        prod, orc = _growth_24m_result
+        assert len(prod.month_by_month) == len(orc.month_by_month) == 24
+        for i, (p, o) in enumerate(
+            zip(prod.month_by_month, orc.month_by_month, strict=True)
+        ):
+            _assert_portfolios_equal(p, o, f"growth-24m-month-{i}")
 
 
 class TestProductionDeterminism:
