@@ -42,6 +42,7 @@ from fbf.core.domain.policies.cape_regime import CapeRegime
 from fbf.core.execution import ExecutionOptions, ExecutionStrategy
 from fbf.core.research.part3_pipeline import execute_part3_pipeline
 from fbf.core.research.part3_planner import (
+    PART3_EXPENSE_RATIO,
     Part3PlannerConfig,
     load_manifest,
     materialize_part3_plan,
@@ -179,6 +180,7 @@ class TestPart3CanonicalERNReplication:
             final_value_targets=_ERN_FV,
             allocation_policy_type="ConstantAllocationPolicy",
             withdrawal_policy_type="FixedRealWithdrawalPolicy",
+            expense_ratio=PART3_EXPENSE_RATIO,
         )
 
         plan_result = materialize_part3_plan(
@@ -202,6 +204,17 @@ class TestPart3CanonicalERNReplication:
         n_params = len(plan_result.param_configs)
         expected_units = n_cohorts * n_params
         assert pipeline_result.total_units == expected_units
+
+    def test_all_units_use_canonical_expense_ratio(
+        self, execution_result: tuple[Any, Any]
+    ) -> None:
+        """The canonical 0.05% annual fee reaches every planned unit."""
+        plan_result, _ = execution_result
+        assert Decimal("0.0005") == PART3_EXPENSE_RATIO
+        assert all(
+            unit.expense_ratio == PART3_EXPENSE_RATIO
+            for unit in plan_result.plan
+        )
 
     def test_manifest_cohort_count(
         self, execution_result: tuple[Any, Any]

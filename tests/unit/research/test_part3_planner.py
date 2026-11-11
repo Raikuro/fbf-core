@@ -18,7 +18,10 @@ from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Money
+from fbf.core.execution import ExecutionOptions
+from fbf.core.research.part3_pipeline import execute_part3_pipeline
 from fbf.core.research.part3_planner import (
+    PART3_EXPENSE_RATIO,
     CohortManifest,
     CohortManifestEntry,
     Part3PlannerConfig,
@@ -160,6 +163,11 @@ class TestManifestLoading:
         m2 = load_manifest(MANIFEST_PATH)
         assert m1.cohorts == m2.cohorts
         assert m1.statistics == m2.statistics
+
+    @pytest.mark.skipif(not MANIFEST_PATH.is_file(), reason="Manifest not present")
+    def test_manifest_fee_matches_planner_expense_ratio(self) -> None:
+        manifest = load_manifest(MANIFEST_PATH)
+        assert Decimal(str(manifest.fee)) == PART3_EXPENSE_RATIO
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +390,62 @@ class TestPart3PlanMaterialization:
         )
         with pytest.raises(ValueError, match="No market-available cohorts"):
             materialize_part3_plan(manifest, trajectory, config, WEALTH)
+
+
+class TestPart3ExpenseRatio:
+    def test_default_canonical_expense_ratio_propagates_to_units(self) -> None:
+        manifest = _make_minimal_manifest()
+        trajectory = _make_minimal_trajectory(24)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("1.0"),),
+            withdrawal_rates=(Decimal("0.04"),),
+            horizon_years=(1,),
+            final_value_targets=(Decimal("0"),),
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        )
+        result = materialize_part3_plan(manifest, trajectory, config, WEALTH)
+
+        assert config.expense_ratio == PART3_EXPENSE_RATIO == Decimal("0.0005")
+        assert all(
+            unit.expense_ratio == PART3_EXPENSE_RATIO for unit in result.plan
+        )
+
+    def test_expense_ratio_reaches_execution(self) -> None:
+        manifest = _make_minimal_manifest()
+        trajectory = _make_minimal_trajectory(24)
+
+        def run(expense_ratio: Decimal) -> tuple[Any, Any]:
+            config = Part3PlannerConfig(
+                equity_allocations=(Decimal("1.0"),),
+                withdrawal_rates=(Decimal("0.04"),),
+                horizon_years=(1,),
+                final_value_targets=(Decimal("0"),),
+                allocation_policy_type="ConstantAllocationPolicy",
+                withdrawal_policy_type="FixedRealWithdrawalPolicy",
+                expense_ratio=expense_ratio,
+            )
+            plan_result = materialize_part3_plan(
+                manifest, trajectory, config, WEALTH
+            )
+            pipeline_result = execute_part3_pipeline(
+                plan_result, ExecutionOptions()
+            )
+            return plan_result, pipeline_result
+
+        zero_plan, zero_pipeline = run(Decimal("0"))
+        fee_plan, fee_pipeline = run(PART3_EXPENSE_RATIO)
+
+        assert all(unit.expense_ratio == Decimal("0") for unit in zero_plan.plan)
+        assert all(
+            unit.expense_ratio == PART3_EXPENSE_RATIO for unit in fee_plan.plan
+        )
+
+        zero_stats = zero_pipeline.results[0].statistics
+        fee_stats = fee_pipeline.results[0].statistics
+        assert zero_stats is not None
+        assert fee_stats is not None
+        assert fee_stats.final_wealth < zero_stats.final_wealth
 
 
 # ---------------------------------------------------------------------------

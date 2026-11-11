@@ -129,6 +129,9 @@ def build_cape_registry(
 # ---------------------------------------------------------------------------
 
 
+PART3_EXPENSE_RATIO = Decimal("0.0005")
+
+
 @dataclass(frozen=True)
 class Part3PlannerConfig:
     """Configuration for the Part 3 research planner."""
@@ -139,6 +142,7 @@ class Part3PlannerConfig:
     final_value_targets: tuple[Decimal, ...] | None
     allocation_policy_type: str
     withdrawal_policy_type: str
+    expense_ratio: Decimal = PART3_EXPENSE_RATIO
 
 
 @dataclass(frozen=True)
@@ -289,6 +293,7 @@ def materialize_part3_plan(
                     dataset=cohort_dataset,
                     horizon_months=effective_horizon,
                     final_value_target=final_value_target,
+                    expense_ratio=config.expense_ratio,
                 )
             )
 
