@@ -7,7 +7,6 @@ import weakref
 from collections.abc import Iterator
 from dataclasses import replace
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -29,9 +28,10 @@ from fbf.core.research.part20_planner import (
 )
 from fbf.core.study.builder import BuiltStudy, build_initial_portfolio
 from fbf.core.study.plan import ResearchPlan
+from tests.support.ern.verified_manifest import verified_manifest_path
 from tests.unit.execution.conftest import make_plan
 
-MANIFEST_PATH = Path("data/ern/cohort_manifest_part3.json")
+MANIFEST_PATH = verified_manifest_path()
 
 
 def _mixed_plan() -> ResearchPlan:

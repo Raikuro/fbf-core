@@ -1,3 +1,9 @@
+"""Part 49 canonical application E2E on current canonical data.
+
+The Level 3 comparison uses the pinned published-ERN table as a fixed
+reference; it is not a 2016-vintage data replication.
+"""
+
 from __future__ import annotations
 
 import time
@@ -11,6 +17,7 @@ import pytest
 import yaml
 
 from fbf.core.application import run_study
+from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionBackend, ExecutionOptions
@@ -19,7 +26,6 @@ from fbf.core.execution.strategies.part49_numba_executor import (
 )
 from fbf.core.study import StudyConfiguration
 from tests.support.ern.constants import OracleTable, load_oracle_table
-from tests.support.ern.published_dataset import load_published_ern_dataset
 
 
 class CanonicalResult(TypedDict):
@@ -77,15 +83,15 @@ def oracle() -> OracleTable:
 
 
 @pytest.fixture(scope="session")
-def published_dataset() -> Dataset:
-    """Frozen published-ERN dataset (September 2016 cutoff)."""
-    return load_published_ern_dataset()
+def canonical_dataset() -> Dataset:
+    """Verified canonical dataset."""
+    return load_canonical_dataset(DATA_DIR)
 
 
 @pytest.fixture(scope="session")
 def canonical_execution(
     data_dir: Path,
-    published_dataset: Dataset,
+    canonical_dataset: Dataset,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> CanonicalResult:
     """Execute the full canonical workload through the public application boundary."""
@@ -121,7 +127,7 @@ def canonical_execution(
                 summary_only=True,
                 workers=None,  # Auto-detect
             ),
-            dataset=published_dataset,
+            dataset=canonical_dataset,
         )
     t_exec_end = time.perf_counter()
     exec_time = t_exec_end - t_exec_start
@@ -196,8 +202,10 @@ def canonical_execution(
 
 
 @pytest.mark.ern_e2e
-def test_part49_canonical_replication(canonical_execution: CanonicalResult) -> None:
-    """Full Part 49 canonical E2E: 6 cells × 1,739 cohorts = 10,434 units.
+def test_part49_canonical_app_current_data(
+    canonical_execution: CanonicalResult,
+) -> None:
+    """Full Part 49 canonical E2E on current data: 6 × 1,739 = 10,434 units.
 
     Validates at three levels:
 
@@ -211,14 +219,15 @@ def test_part49_canonical_replication(canonical_execution: CanonicalResult) -> N
     - Success rates vary across cells
     - Not trivially all-pass or all-fail
 
-    **Level 3 — Historical published-ERN comparison:**
+    **Level 3 — Pinned published-ERN oracle comparison:**
     - Non-leverage cells (interest_rate=0) compared against the pinned
-      historical published-ERN oracle table
+      published-ERN oracle table on current canonical data
     - Leverage cells validated with directional assertions
       (higher interest = lower success)
 
+    The pinned table is a fixed reference, not a 2016-vintage data replication.
     Production conformance is validated separately against the workbook-derived
-    oracle; this test retains the published-ERN historical comparison.
+    oracle.
     """
     # === Level 1: Structural coverage ===
     assert canonical_execution["actual_cells"] == CANONICAL_CELLS, (
@@ -261,9 +270,9 @@ def test_part49_canonical_replication(canonical_execution: CanonicalResult) -> N
     # We only assert that results are real and finite.
     assert all(isinstance(r, float) for r in rates)
 
-    # === Level 3: Canonical replication ===
+    # === Level 3: Pinned oracle comparison on current canonical data ===
 
-    # 3a: Non-leverage cells compared against the historical published oracle
+    # 3a: Non-leverage cells compared against the pinned published oracle
     oracle = load_oracle_table()
     for eq in CANONICAL_EQUITY:
         eq_f = float(eq)

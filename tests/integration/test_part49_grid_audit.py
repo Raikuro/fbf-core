@@ -42,7 +42,7 @@ class TestDatasetAudit:
     """Verify dataset properties and cohort coverage."""
 
     def test_dataset_has_expected_snapshots(self, ern_dataset: Dataset) -> None:
-        """ern_swr_h720.json should have 2,459 snapshots."""
+        """The canonical dataset should have 2,459 snapshots."""
         assert len(ern_dataset.snapshots) == 2459
 
     def test_dataset_start_date(self, ern_dataset: Dataset) -> None:
@@ -74,7 +74,7 @@ class TestCohortAudit:
     cohort population: 2,459 snapshots - 721 + 1 = 1,739. This same set is used
     for Part 49 even though it only studies 30-year horizons.
 
-    Source: tools/ern/reference_oracle.py (START_FIRST=1, START_LAST=1739)
+    Source: pinned published-ERN oracle cohort census (START_FIRST=1, START_LAST=1739)
     """
 
     def test_1739_cohorts_for_60yr_horizon(self, ern_dataset: Dataset) -> None:

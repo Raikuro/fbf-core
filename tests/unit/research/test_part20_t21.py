@@ -57,8 +57,9 @@ from fbf.core.research.part20_strategies import (
     part20_strategy_universe,
 )
 from fbf.core.study.builder import BuiltStudy
+from tests.support.ern.verified_manifest import verified_manifest_path
 
-MANIFEST_PATH = Path("data/ern/cohort_manifest_part3.json")
+MANIFEST_PATH = verified_manifest_path()
 AUDIT_SPEC_PATH = Path("tests/fixtures/ern_part20_e2e_audit.yaml")
 
 
@@ -127,7 +128,7 @@ class TestAuditSpec:
         spec = load_part20_audit_spec(AUDIT_SPEC_PATH)
         assert sorted(exp.id for exp in spec.experiments) == ["A", "B", "C", "D", "E"]
         assert spec.structural_counts.total_cohorts == 1739
-        assert spec.structural_counts.cape_high == 415
+        assert spec.structural_counts.cape_high == 416
         assert spec.structural_counts.strategy_count == 53
 
     def test_anchor_counts(self) -> None:
@@ -241,8 +242,8 @@ class TestCohortPopulations:
 
     def test_real_manifest_lagged_counts(self) -> None:
         pops = build_cohort_populations(load_part20_manifest(MANIFEST_PATH))
-        assert len(pops.high_dates) == 415
-        assert len(pops.low_dates) == 1324
+        assert len(pops.high_dates) == 416
+        assert len(pops.low_dates) == 1323
         assert pops.high_dates[0] == "1898-09-01"
 
     def test_effective_horizon_and_prior_month_base(self) -> None:

@@ -2,9 +2,9 @@
 """Standalone workbook-conformance SCR oracle.
 
 This tool implements the SWR Toolbox v2.0 workbook methodology for an
-independent workbook-conformance oracle. It is intentionally distinct from
-``tools/ern/reference_oracle.py``, which preserves the frozen published-ERN
-replication methodology and is not re-baselined by this tool.
+independent workbook-conformance oracle. It is intentionally distinct from the
+pinned published-ERN replication oracle in ``data/ern/p49_oracle_table.csv``,
+which is not re-baselined by this tool.
 
 It imports NO framework modules and is NEVER called by production code.
 Focused unit tests exercise it directly as a standalone data-processing utility.
@@ -257,8 +257,8 @@ def build_workbook_oracle_table(
 ) -> list[list[object]]:
     """Build the workbook-conformance matrix using workbook SCR methodology.
 
-    This is independent of the production loader and of the frozen published-ERN
-    replication oracle in ``tools/ern/reference_oracle.py``.
+    This is independent of the production loader and of the pinned published-ERN
+    replication oracle in ``data/ern/p49_oracle_table.csv``.
     """
     r_eq, r_bd = load_real_returns(data_dir)
     eq, bd = build_extended(r_eq, r_bd)

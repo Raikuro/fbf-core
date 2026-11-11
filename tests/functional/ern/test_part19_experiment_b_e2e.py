@@ -38,13 +38,14 @@ from fbf.core.research.part19_strategies import (
 )
 from fbf.core.research.part20_planner import Part20ExecutionContext
 from fbf.core.research.part20_strategies import part20_strategy_universe
+from tests.support.ern.verified_manifest import verified_manifest_path
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 DATA_DIR = Path("data/ern")
-MANIFEST_PATH = DATA_DIR / "cohort_manifest_part3.json"
+MANIFEST_PATH = verified_manifest_path()
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +180,7 @@ class TestPart19ExperimentB:
         assert fv_targets_seen == {Decimal("0")}
 
     def test_cohort_counts(self, experiment_b_cells: tuple[Part19ExperimentBCell, ...]) -> None:
-        """ALL CAPE condition uses 1,739 cohorts; lagged HIGH uses 415."""
+        """ALL CAPE condition uses 1,739 cohorts; lagged HIGH uses 416."""
         for cell in experiment_b_cells:
             if cell.cape_condition == "ALL":
                 expected = 1739
@@ -188,7 +189,7 @@ class TestPart19ExperimentB:
                     f"got {cell.cohort_count}"
                 )
             elif cell.cape_condition == "HIGH":
-                expected = 415
+                expected = 416
                 assert cell.cohort_count == expected, (
                     f"{cell.strategy_id}: HIGH CAPE should have {expected} cohorts, "
                     f"got {cell.cohort_count}"
@@ -530,7 +531,7 @@ class TestPart19ExperimentB:
         print(f"Total cells: {len(experiment_b_cells)}")
         print("Strategies: 45 (21 static + 24 glidepath)")
         print(f"FV target: {PART19_EXPERIMENT_B_FV_TARGET}")
-        print("CAPE conditions: ALL (1739), HIGH (415)")
+        print("CAPE conditions: ALL (1739), HIGH (416)")
         print(f"Horizon: {PART19_EXPERIMENT_B_HORIZON_YEARS}Y")
         print(f"Metrics: {[str(p) for p in PART19_EXPERIMENT_B_PERCENTILES]}")
 

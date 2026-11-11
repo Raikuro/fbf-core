@@ -17,9 +17,9 @@ Validates at three levels:
    oracle table (``data/ern/workbook_oracle_table.csv``) with exact Decimal
    equality.  The oracle uses the workbook's T cohort terms and additive fee.
 
-The published-ERN historical target is separate: ``p49_oracle_table.csv`` and
-``tools/ern/reference_oracle.py`` use T+1 terms and a multiplicative fee.  They
-must not determine production expected values.
+The published-ERN historical target is separate: ``p49_oracle_table.csv`` uses
+T+1 terms and a multiplicative fee.  It must not determine production expected
+values.
 
 The grid runs in summary-only mode: no SQLite study database is created and
 per-month timelines are never materialized.

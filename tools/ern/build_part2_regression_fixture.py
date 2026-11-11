@@ -11,7 +11,7 @@ It is generated from ``examples/studies/ern_part2.yaml`` using the current
 production dataset in ``data/ern`` and the public ``run_study`` application
 path. It is explicitly a regression fixture, not an independent ERN
 replication oracle. The published article anchors are validated separately
-against the frozen ``data/ern/published_2016`` dataset.
+against the verified canonical dataset with the article's cohort window.
 """
 
 from __future__ import annotations

@@ -46,13 +46,14 @@ from fbf.core.research.part3_planner import (
     load_manifest,
     materialize_part3_plan,
 )
+from tests.support.ern.verified_manifest import verified_manifest_path
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 DATA_DIR = Path("data/ern")
-MANIFEST_PATH = DATA_DIR / "cohort_manifest_part3.json"
+MANIFEST_PATH = verified_manifest_path()
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 # Tolerance for anchor comparison: 1 percentage point.

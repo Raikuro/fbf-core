@@ -6,7 +6,7 @@ Executes a generic OMY study through the production path:
 
 The study keeps a fixed 30-year total horizon: the first 12 months are
 accumulation and the remaining 348 months are retirement.  The resulting 361
-snapshots produce 2,099 cohorts from the ern_swr_h720 dataset (2,459 snapshots).
+snapshots produce 2,099 cohorts from the canonical dataset (2,459 snapshots).
 
 This E2E validates generic OMY methodology and production execution.  It does
 not validate the Part 42 scenario inventory or the Part 42 research pipeline;
@@ -94,7 +94,7 @@ CANONICAL_WEIGHTS = tuple(Decimal(str(w)) for w in PART42_WEIGHTS)
 CANONICAL_SWR = tuple(Decimal(str(s)) for s in PART42_SWR)
 CANONICAL_HORIZON = PART42_HORIZONS[0]  # 30
 CANONICAL_CELLS = PART42_GRID_CELLS  # 45
-CANONICAL_COHORTS = 2099  # ern_swr_h720: 2459 - (30*12 + 1) + 1 = 2099
+CANONICAL_COHORTS = 2099  # canonical dataset: 2459 - (30*12 + 1) + 1 = 2099
 EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * CANONICAL_COHORTS  # 94,455
 
 # OMY parameters (from ern_part42.yaml)

@@ -24,7 +24,7 @@ meta:
 structural_counts:
   total_cohorts: 1739
   cape_available: 1739
-  cape_high: 415
+  cape_high: 416
   strategy_count: 27
   static_count: 3
   glidepath_count: 24

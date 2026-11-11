@@ -50,9 +50,10 @@ from fbf.core.research.part20_pipeline import (
 )
 from fbf.core.research.part20_planner import Part20ExecutionContext
 from fbf.core.research.part20_strategies import Part20Strategy, part20_strategy_universe
+from tests.support.ern.verified_manifest import verified_manifest_path
 
 DATA_DIR = Path("data/ern")
-MANIFEST_PATH = DATA_DIR / "cohort_manifest_part3.json"
+MANIFEST_PATH = verified_manifest_path()
 AUDIT_SPEC_PATH = Path("tests/fixtures/ern_part20_e2e_audit.yaml")
 
 # Metric name → PART20_FAILURE_PROBABILITIES index.

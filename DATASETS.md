@@ -133,8 +133,10 @@ source, fallback, or extension.
 - `data/ern/raw/ie_data.csv` and Shiller JSON archives are not canonical CAPE
   sources.
 - `data/ern/ffr_monthly.json` is research-only.
-- `data/ern/published_2016/` is a frozen historical replication fixture for the
-  published-ERN oracle. It is not current production data.
+- The former 2016-vintage published-replication fixture has been retired; only
+  the pinned `data/ern/p49_oracle_table.csv` remains. That table can no longer
+  be regenerated or independently re-derived because its regeneration tool was
+  retired with the fixture.
 
 Euro-area reference rates are research-only; no euro dataset, loader, or Part
 52 path exists. See [`TODO.md`](TODO.md).
@@ -147,15 +149,16 @@ Keep these targets distinct:
 
 | Target | Dataset | Pinned result |
 |---|---|---|
-| Published-ERN historical replication | `data/ern/published_2016/` | `data/ern/p49_oracle_table.csv` (T+1 terms, multiplicative fee) |
+| Published-ERN historical replication | pinned table only (source fixture retired) | `data/ern/p49_oracle_table.csv` (T+1 terms, multiplicative fee) |
 | Current workbook conformance | canonical workbook output | `data/ern/workbook_oracle_table.csv` (T terms, additive fee) |
 | Part 2 regression | current production data | `data/ern/part2_regression_fixture.csv` |
 
 The production E2E compares the engine to the workbook matrix, not the
 published oracle. `part2_regression_fixture.csv` is regression coverage only.
 Changing production data requires re-certifying the workbook oracle and
-regenerating the Part 2 fixture; it does not re-baseline the published-ERN
-fixture. Published anchors must never be updated to match a new run.
+regenerating the Part 2 fixture; it does not re-baseline the pinned
+published-ERN oracle table. Published anchors must never be updated to match a
+new run.
 
 ---
 
@@ -167,7 +170,6 @@ Do not modify without separate explicit authorization:
 - `data/ern/ffr.provenance.json`
 - `data/ern/raw/FEDFUNDS.csv`
 - the Timing workbook historical FFR segment
-- `data/ern/published_2016/`
 - `data/ern/p49_oracle_table.csv`
 - `data/ern/workbook_oracle_table.csv`
 - `data/ern/part2_regression_fixture.csv`

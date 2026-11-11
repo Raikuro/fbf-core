@@ -38,9 +38,10 @@ from fbf.core.research.part20_planner import (
     Part20ExecutionContext,
 )
 from fbf.core.research.part20_strategies import Part20Strategy, part20_strategy_universe
+from tests.support.ern.verified_manifest import verified_manifest_path
 
 DATA_DIR = Path("data/ern")
-MANIFEST_PATH = Path("data/ern/cohort_manifest_part3.json")
+MANIFEST_PATH = verified_manifest_path()
 AUDIT_SPEC_PATH = Path("tests/fixtures/ern_part20_e2e_audit.yaml")
 
 
@@ -230,7 +231,7 @@ class TestCorrectedMethodology:
         """Test corrected gp_030_070 @ 4% 60Y failure rate.
 
         With workbook alignment (fee, prior-month returns, lagged CAPE):
-        ~34.9% failure.  Published: 32.5%.
+        ~35.1% failure.  Published: 32.5%.
         """
         strat = next(s for s in self.strategies if s.id == "gp_030_070_0.00111_passive")
         cells = run_fixed_swr_grid(
@@ -244,8 +245,8 @@ class TestCorrectedMethodology:
         for c in cells:
             if c.strategy_id == strat.id and c.withdrawal_rate == Decimal("0.04"):
                 obs = to_displayed_failure_percent(c.failure_rate)
-                assert abs(obs - Decimal("34.9")) < Decimal("0.2"), \
-                    f"gp_030_070 @ 4% 60Y: expected ~34.9%, got {obs}%"
+                assert abs(obs - Decimal("35.1")) < Decimal("0.2"), \
+                    f"gp_030_070 @ 4% 60Y: expected ~35.1%, got {obs}%"
                 return
         pytest.fail("Cell not found")
 

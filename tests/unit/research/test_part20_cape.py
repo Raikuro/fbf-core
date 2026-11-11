@@ -18,6 +18,7 @@ from fbf.core.domain.policies.cape_regime import (
     classify_cape_binary,
     classify_cape_regime,
 )
+from tests.support.ern.verified_manifest import verified_manifest_data
 
 
 class TestCapeBinaryClassification:
@@ -84,11 +85,7 @@ class TestCapeBinaryFromManifest:
     """Tests using the Part 3 cohort manifest to verify cohort-start CAPE."""
 
     def _load_manifest(self) -> dict[str, Any]:
-        import json
-        from pathlib import Path
-
-        with open(Path("data/ern/cohort_manifest_part3.json")) as f:
-            return json.load(f)  # type: ignore[no-any-return]
+        return verified_manifest_data()
 
     def test_cape_available_cohorts_classifiable(self) -> None:
         """All CAPE-available cohorts must be classifiable into binary regime."""
@@ -159,11 +156,7 @@ class TestCapeBinaryCohortStart:
 
     def test_cohort_start_index_matches_manifest(self) -> None:
         """Cohort start_month_index matches manifest entry."""
-        import json
-        from pathlib import Path
-
-        with open(Path("data/ern/cohort_manifest_part3.json")) as f:
-            manifest = json.load(f)
+        manifest = verified_manifest_data()
 
         # First cohort with CAPE: 1871-02-01 (now all cohorts have CAPE)
         cape_cohorts = [c for c in manifest["cohorts"] if c["cape_available"]]

@@ -105,9 +105,12 @@ Review all differences before replacing it.
 
 ### Published-ERN reference oracle
 
-`tools/ern/reference_oracle.py` regenerates the frozen published-ERN matrix
-(`data/ern/p49_oracle_table.csv`). It is retained for historical comparison and
-must not be used to produce production expected values.
+`data/ern/p49_oracle_table.csv` is the pinned published-ERN matrix. It is
+retained for historical comparison and must not be used to produce production
+expected values. Its 2016-vintage source fixture and regeneration tool have
+been retired, so the table can no longer be regenerated or independently
+re-derived. Treat it as frozen evidence; independent verification of changes to
+that table is no longer available.
 
 ---
 

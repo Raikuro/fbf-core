@@ -1,20 +1,17 @@
-"""P1.12R remediation regression: workbook timeline and published-ERN oracle.
+"""P1.12R remediation regression: workbook timeline and pinned oracle targets.
 
 The engine remediation changed the cohort window from ``d_c..d_{c+T-1}`` (old,
 defective: initial withdrawal deferred until d_c, T observations) to the literal
 ERN window ``d_{c-1}..d_{c+T-1}`` (initial withdrawal at the previous month's
 closing price, T+1 observations, T return intervals).  These tests pin the
-production timeline and keep the two methodology targets distinct:
-
-* production follows the workbook: additive monthly fee, withdrawal before
-  growth, historical returns through June 2026 and workbook projection rates;
-* ``tools/ern/reference_oracle.py`` remains the published-ERN oracle:
-  multiplicative monthly fee, but also withdrawal before growth.
+production timeline against the workbook methodology: additive monthly fee,
+withdrawal before growth, historical returns through June 2026 and workbook
+projection rates.
 
 The boundary cell 0% equity / 3.25% / 30y is 77% under workbook methodology and
-79% under the published-ERN oracle.  The production engine must match the
-workbook cell percentage and agree with the workbook calculation cohort by
-cohort.  The published-ERN oracle is retained as a separate comparison target.
+79% in the pinned published-ERN oracle table.  The production engine must match
+the workbook cell percentage and agree with the workbook calculation cohort by
+cohort.  The pinned published-ERN table remains a separate comparison target.
 """
 
 from __future__ import annotations
@@ -38,13 +35,7 @@ from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 from fbf.core.study.builder import build_interest_rate_schedule, load_ffr_rates
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
-from tests.support.ern.constants import COHORTS_PER_CELL, RATES, RETURNS_DIR
-from tools.ern.reference_oracle import (
-    build_extended,
-    cohort_annual_swr,
-    load_real_returns,
-    prefix_tables,
-)
+from tests.support.ern.constants import COHORTS_PER_CELL, RATES, load_oracle_table
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
 HORIZON_MONTHS = {30: 361, 40: 481, 50: 601, 60: 721}
@@ -83,17 +74,6 @@ def _units_by_horizon(plan: ResearchPlan) -> dict[int, list[PlannedSimulationUni
         if unit.horizon_months is not None:
             by_horizon[unit.horizon_months].append(unit)
     return by_horizon
-
-
-def _oracle_success(weight: float, rate: float, horizon_years: int) -> list[bool]:
-    """Per-cohort oracle success for a cell (cohort start 1..1739)."""
-    T = HORIZON_MONTHS[horizon_years] - 1
-    r_eq, r_bd = load_real_returns(RETURNS_DIR)
-    P, pre = prefix_tables(*build_extended(r_eq, r_bd), Decimal(str(weight)))
-    return [
-        cohort_annual_swr(P, pre, start, T) >= Decimal(str(rate))
-        for start in range(1, COHORTS_PER_CELL + 1)
-    ]
 
 
 def _workbook_cell_ok(weight: float, rate: float, horizon_years: int) -> list[bool]:
@@ -290,7 +270,7 @@ def test_ffr_lag_uses_pre_retirement_snapshot() -> None:
     assert schedule[1] != rate_map[date(1965, 11, 1)] + spread
 
 
-def test_boundary_cohort_306_matches_workbook_not_published_oracle(
+def test_boundary_cohort_306_matches_workbook(
     grid_plan: BuiltStudy,
 ) -> None:
     """Cohort 306 (0% / 3.25% / 30y) is a precision boundary.
@@ -298,14 +278,13 @@ def test_boundary_cohort_306_matches_workbook_not_published_oracle(
     The engine's cohort 306 retires in July-1896 (base snapshot 1896-07-01).
     With exact workbook returns the closed-form SCR is 3.2506386%, marginally
     above the 3.25% withdrawal rate.  The Numba engine follows the workbook and
-    classifies the cohort as a success; the published-ERN oracle classifies it
-    as a failure.  The published-ERN cell is 79%; the workbook cell is 77%.
+    classifies the cohort as a success.  The pinned published-ERN cell is 79%;
+    the workbook cell is 77%.
     """
     by_horizon = _units_by_horizon(grid_plan.plan)
     unit = by_horizon[HORIZON_MONTHS[30]][306]
     assert unit.cohort.start_date.isoformat() == "1896-07-01"  # old d_305 = base for c=306
 
-    oracle_ok = _oracle_success(0.0, 0.0325, 30)[306]  # oracle start 307 -> index 306
     context = _engine_contexts(
         grid_plan.plan, by_horizon, 0.0, 0.0325, 30, {306}
     )[0]
@@ -318,7 +297,6 @@ def test_boundary_cohort_306_matches_workbook_not_published_oracle(
     )
     result = run.simulation_results[0]
 
-    assert oracle_ok is False
     assert _workbook_cell_ok(0.0, 0.0325, 30)[306] is True
     assert result.statistics.success is True
     assert result.statistics.failure_month is None
@@ -331,12 +309,10 @@ def test_boundary_cell_306_engine_percentage_matches_workbook(
     """The 0% / 3.25% / 30y cell is 77% under workbook, 79% under published ERN.
 
     Production and the workbook oracle use the additive monthly fee.  The
-    published-ERN reference oracle uses a multiplicative fee.  Both withdraw
+    pinned published-ERN table uses a multiplicative fee.  Both withdraw
     before growth; the fee convention is the methodological difference.
     """
-    oracle_pct = round(
-        100 * sum(_oracle_success(0.0, 0.0325, 30)) / COHORTS_PER_CELL
-    )
+    oracle_pct = load_oracle_table()[(0.0, 30)][0.0325]
     workbook_pct = _workbook_cell_pct(0.0, 0.0325, 30)
 
     assert oracle_pct == 79

@@ -27,6 +27,7 @@ from fbf.core.research.part3_planner import (
     materialize_part3_plan,
 )
 from fbf.core.study.internal.cohort.specification import CohortSpecification
+from tests.support.ern.verified_manifest import verified_manifest_path
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -35,8 +36,7 @@ from fbf.core.study.internal.cohort.specification import CohortSpecification
 EQ = AssetClass(id="equity", name="", description="")
 BD = AssetClass(id="bond", name="", description="")
 
-MANIFEST_PATH = Path("data/ern/cohort_manifest_part3.json")
-H720_PATH = Path("data/ern/ern_swr_h720.json")
+MANIFEST_PATH = verified_manifest_path()
 
 
 def _snapshot(
@@ -390,7 +390,6 @@ class TestPart3PlanMaterialization:
 
 
 @pytest.mark.skipif(not MANIFEST_PATH.is_file(), reason="Manifest not present")
-@pytest.mark.skipif(not H720_PATH.is_file(), reason="h720 not present")
 class TestPart3ErnIntegration:
     def test_manifest_cohort_count(self) -> None:
         manifest = load_manifest(MANIFEST_PATH)
@@ -411,11 +410,11 @@ class TestPart3ErnIntegration:
         manifest = load_manifest(MANIFEST_PATH)
         from collections import Counter
         regimes = Counter(c.cape_regime for c in manifest.cohorts if c.cape_available)
-        # Updated counts with workbook Shiller CAPE semantics
-        assert regimes["BELOW_15"] == 799
-        assert regimes["MODERATE"] == 524
+        # Verified v2.0 manifest built from the canonical CSV artifacts
+        assert regimes["BELOW_15"] == 802
+        assert regimes["MODERATE"] == 520
         assert regimes["HIGH"] == 359
-        assert regimes["EXTREME"] == 57
+        assert regimes["EXTREME"] == 58
 
 
 # ---------------------------------------------------------------------------
@@ -424,7 +423,6 @@ class TestPart3ErnIntegration:
 
 
 @pytest.mark.skipif(not MANIFEST_PATH.is_file(), reason="Manifest not present")
-@pytest.mark.skipif(not H720_PATH.is_file(), reason="h720 not present")
 class TestManifestIndexConvention:
     """Regression tests proving the manifest's start_month_index convention
     and corrected max_horizon computation.

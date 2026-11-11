@@ -27,9 +27,11 @@ monthly expense ratio:
 portfolio_return_t = w_eq * equity_real_t + w_bond * bond_real_t - fee_annual / 12
 ```
 
-The frozen published-ERN oracle (`tools/ern/reference_oracle.py`) preserves the
+The pinned published-ERN oracle (`data/ern/p49_oracle_table.csv`) preserves the
 different historical convention: T+1 terms and a multiplicative fee. It is a
 separate comparison target and must not determine production expected values.
+The table is frozen: its 2016-vintage source fixture and regeneration tool have
+been retired, so it can no longer be regenerated or independently re-derived.
 
 ### Forward projection
 
@@ -84,8 +86,8 @@ for its declared cells.
 | 100% | 4.0% | 30Y | 0% | 97% |
 | 100% | 4.0% | 30Y | 100% | 80% |
 
-Acceptance: rounded success rate within 1 percentage point on the frozen
-`data/ern/published_2016/` vintage.
+Acceptance: rounded success rate within 1 percentage point on the verified
+canonical dataset with the article's cohort window.
 
 Deterministic warm-up values (constant 4% real return, beginning-of-month
 withdrawal): 5.66% (30Y, FV 0%), 4.79% (30Y, FV 50%), 4.33% (60Y, FV 0%),

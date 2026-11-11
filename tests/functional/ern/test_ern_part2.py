@@ -10,11 +10,10 @@ The full grid is compared cell-by-cell against
 the production path by ``tools/ern/build_part2_regression_fixture.py`` and is
 regression evidence only.
 
-Independent replication evidence is provided by the four Part 2 success-rate
-anchors stated in the article. Those anchors are evaluated on the frozen
-``data/ern/published_2016`` dataset because the original article uses the
-September 2016 data vintage; the current production dataset extends through
-June 2026 and is covered by the regression grid instead.
+The four Part 2 success-rate anchors stated in the article are checked against
+the current verified canonical dataset. The cohort window ends at the article's
+September 2016 boundary, but the run uses current canonical data and is not a
+2016-vintage replication.
 """
 
 from __future__ import annotations
@@ -30,6 +29,7 @@ import pytest
 import yaml
 
 from fbf.core.application import run_study
+from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import ExecutionBackend, ExecutionOptions
@@ -39,7 +39,6 @@ from tests.support.ern.constants import (
     OracleTable,
     load_oracle_table,
 )
-from tests.support.ern.published_dataset import load_published_ern_dataset
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = _REPO_ROOT / "data" / "ern"
@@ -157,8 +156,8 @@ def part1_workbook_oracle() -> OracleTable:
 
 
 @pytest.fixture(scope="session")
-def published_dataset() -> Dataset:
-    return load_published_ern_dataset()
+def canonical_dataset() -> Dataset:
+    return load_canonical_dataset(DATA_DIR)
 
 
 @pytest.mark.ern_e2e
@@ -202,11 +201,15 @@ def test_part2_fv0_matches_part1_workbook_oracle(
 
 
 @pytest.mark.ern_e2e
-def test_part2_published_anchors(
-    published_dataset: Dataset,
+def test_part2_anchors_current_canonical_data(
+    canonical_dataset: Dataset,
 ) -> None:
+    """Check the article anchors against current canonical data.
+
+    This is an applicability check, not a 2016-vintage replication.
+    """
     config = StudyConfiguration(
-        name="part2-published-anchors",
+        name="part2-anchors-current-canonical-data",
         description="",
         version="",
         allocation_policy_type="ConstantAllocationPolicy",
@@ -229,7 +232,7 @@ def test_part2_published_anchors(
             summary_only=True,
             workers=None,
         ),
-        dataset=published_dataset,
+        dataset=canonical_dataset,
     )
 
     totals: dict[CellKey, int] = {}

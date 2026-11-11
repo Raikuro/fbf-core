@@ -36,13 +36,14 @@ from fbf.core.research.part19_strategies import (
 )
 from fbf.core.research.part20_planner import Part20ExecutionContext
 from fbf.core.research.part20_strategies import part20_strategy_universe
+from tests.support.ern.verified_manifest import verified_manifest_path
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 DATA_DIR = Path("data/ern")
-MANIFEST_PATH = DATA_DIR / "cohort_manifest_part3.json"
+MANIFEST_PATH = verified_manifest_path()
 EXPERIMENT_A_AUDIT_PATH = Path(
     "tests/fixtures/ern_part19_experiment_a_e2e_audit.yaml"
 )
@@ -189,7 +190,7 @@ class TestPart19ExperimentA:
         assert swrs_seen == {Decimal("0.035")}
 
     def test_cohort_counts(self, experiment_a_cells: tuple[Part19ExperimentACell, ...]) -> None:
-        """ALL CAPE condition uses 1,739 cohorts; lagged HIGH uses 415."""
+        """ALL CAPE condition uses 1,739 cohorts; lagged HIGH uses 416."""
         for cell in experiment_a_cells:
             if cell.cape_condition == "ALL":
                 expected = 1739
@@ -198,7 +199,7 @@ class TestPart19ExperimentA:
                     f"got {cell.total_cohorts}"
                 )
             elif cell.cape_condition == "HIGH":
-                expected = 415
+                expected = 416
                 assert cell.total_cohorts == expected, (
                     f"{cell.strategy_id}: HIGH CAPE should have {expected} cohorts, "
                     f"got {cell.total_cohorts}"
@@ -467,7 +468,7 @@ class TestPart19ExperimentA:
         print(f"Total cells: {len(experiment_a_cells)}")
         print("Strategies: 27 (3 static + 24 glidepath)")
         print(f"FV targets: {[str(fv) for fv in PART19_EXPERIMENT_A_FV_TARGETS]}")
-        print("CAPE conditions: ALL (1739), HIGH (415)")
+        print("CAPE conditions: ALL (1739), HIGH (416)")
         print(f"Horizon: {PART19_EXPERIMENT_A_HORIZON_YEARS}Y")
         print(f"SWR: {PART19_EXPERIMENT_A_SWR}")
 
