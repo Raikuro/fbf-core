@@ -22,6 +22,10 @@ from fbf.core.research.part3_planner import (
     load_manifest,
     materialize_part3_plan,
 )
+from fbf.core.research.part3_study import (
+    build_part3_plan_from_configuration,
+    load_packaged_part3_configuration,
+)
 
 __all__ = [
     "CohortManifest",
@@ -31,7 +35,9 @@ __all__ = [
     "Part3PlanResult",
     "Part3PlannerConfig",
     "RegimeAggregation",
+    "build_part3_plan_from_configuration",
     "execute_part3_pipeline",
     "load_manifest",
+    "load_packaged_part3_configuration",
     "materialize_part3_plan",
 ]

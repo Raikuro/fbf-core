@@ -40,8 +40,10 @@ EXPECTED_PUBLIC_SYMBOLS = {
     "Part3PlanResult",
     "Part3PlannerConfig",
     "RegimeAggregation",
+    "build_part3_plan_from_configuration",
     "execute_part3_pipeline",
     "load_manifest",
+    "load_packaged_part3_configuration",
     "materialize_part3_plan",
 }
 

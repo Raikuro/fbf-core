@@ -13,11 +13,14 @@ import csv
 import hashlib
 import json
 import os
+from datetime import date
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
+from fbf.core.datasets.ern import load_cape_rows, prepare_ern_dataset
+from fbf.core.research.cohort_manifest import build_effective_manifest
 from tools.ern import extract_workbook_returns as workbook_returns
 
 _DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "ern"
@@ -250,3 +253,33 @@ def test_ffr_provenance_defines_separate_segments() -> None:
     assert rows[history_count - 1]["date"] == "2021-12-01"
     assert rows[history_count]["date"] == "2022-01-01"
     assert provenance["date_range"] == f"{rows[0]['date']} to {rows[-1]['date']}"
+
+
+def test_part3_effective_metadata_retains_all_source_fingerprints() -> None:
+    prepared = prepare_ern_dataset(_DATA_DIR)
+    fingerprints = dict(prepared.metadata.source_sha256)
+    expected = {
+        "spx_tr_real.csv",
+        "bond_10y_tr_real.csv",
+        "cpi.csv",
+        "cape_shiller.csv",
+        "ffr.csv",
+    }
+
+    assert set(fingerprints) == expected
+    for source_name in expected:
+        assert fingerprints[source_name] == _sha256(_DATA_DIR / source_name)
+
+    manifest = build_effective_manifest(
+        dataset=prepared.dataset,
+        metadata=prepared.metadata,
+        cape_rows=load_cape_rows(_DATA_DIR),
+        cohort_start=date(1871, 2, 1),
+        cohort_end=date(2015, 12, 1),
+        require_cape=True,
+    )
+
+    source_metadata = manifest.statistics["source_metadata"]
+    assert source_metadata["source_sha256"] == fingerprints
+    assert source_metadata["historical_data_cutoff"] == "2026-06-01"
+    assert source_metadata["projection_end"] == "2075-12-01"

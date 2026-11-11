@@ -1,4 +1,4 @@
-"""Focused tests for the canonical Part 3 cohort manifest builder."""
+"""Focused tests for the runtime effective Part 3 manifest builder."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from fbf.core.datasets import ern as ern_loader
 from tools.ern import (
     build_cohort_manifest as manifest_builder,
     extract_workbook_returns as workbook_returns,
@@ -68,176 +67,7 @@ def _write_provenance(
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _small_inputs() -> tuple[list[tuple[str, Decimal]], list[str], list[str]]:
-    index_dates = _months(date(1871, 1, 1), 6)
-    cape_rows = [
-        ("1871-01-01", Decimal("10")),
-        ("1871-02-01", Decimal("25")),
-        ("1871-03-01", Decimal("12")),
-        ("1871-04-01", Decimal("20")),
-        ("1871-05-01", Decimal("30")),
-        ("1871-06-01", Decimal("15")),
-    ]
-    return cape_rows, index_dates[1:], index_dates
-
-
-def test_authorized_workbook_hash_matches_extractor() -> None:
-    assert (
-        manifest_builder.AUTHORIZED_SWR_WORKBOOK_SHA256
-        == workbook_returns.AUTHORIZED_SWR_WORKBOOK_SHA256
-    )
-
-
-def test_build_manifest_derives_lagged_binary_regimes_and_horizons() -> None:
-    cape_rows, market_dates, index_dates = _small_inputs()
-
-    manifest = manifest_builder.build_manifest(
-        cape_rows=cape_rows,
-        market_dates=market_dates,
-        index_dates=index_dates,
-        cape_source_sha256=_AUTHORIZED_SHA,
-        market_source_sha256=_AUTHORIZED_SHA,
-        first_cohort="1871-02-01",
-        last_cohort="1871-05-01",
-        projection_start=date(1871, 7, 1),
-        projection_end=date(1871, 9, 1),
-    )
-
-    assert manifest["version"] == "2.0"
-    assert manifest["snapshot_count"] == 9
-    assert manifest["cohort_range"] == {
-        "first": "1871-02-01",
-        "last": "1871-05-01",
-        "total": 4,
-    }
-    assert manifest["statistics"]["cape_regimes"] == {
-        "HIGH": 2,
-        "MODERATE": 0,
-        "LOW": 0,
-        "BELOW_15": 1,
-        "EXTREME": 1,
-    }
-    assert manifest["statistics"]["binary_cape_regimes"] == {
-        "HIGH": 1,
-        "LOW": 3,
-    }
-    assert manifest["statistics"]["binary_cape_semantics"].startswith(
-        "CAPE at t-1 > 20"
-    )
-    assert manifest["statistics"]["horizon_eligibility"]["h12"] == 0
-    assert manifest["statistics"]["horizon_eligibility"]["h60"] == 0
-
-    first = manifest["cohorts"][0]
-    assert first == {
-        "cohort_date": "1871-02-01",
-        "market_available": True,
-        "cape_available": True,
-        "cape_value": 25.0,
-        "cape_regime": "HIGH",
-        "start_month_index": 0,
-        "max_horizon_months": 8,
-    }
-    assert manifest["cohorts"][-1]["start_month_index"] == 3
-    assert manifest["cohorts"][-1]["max_horizon_months"] == 5
-
-
-def test_build_manifest_first_cohort_uses_own_cape_when_prior_missing() -> None:
-    cape_rows, market_dates, index_dates = _small_inputs()
-    cape_rows = cape_rows[1:]
-
-    manifest = manifest_builder.build_manifest(
-        cape_rows=cape_rows,
-        market_dates=market_dates,
-        index_dates=index_dates,
-        cape_source_sha256=_AUTHORIZED_SHA,
-        market_source_sha256=_AUTHORIZED_SHA,
-        first_cohort="1871-02-01",
-        last_cohort="1871-02-01",
-        projection_start=date(1871, 7, 1),
-        projection_end=date(1871, 9, 1),
-    )
-
-    assert manifest["statistics"]["binary_cape_regimes"] == {
-        "HIGH": 1,
-        "LOW": 0,
-    }
-
-
-def test_build_manifest_rejects_non_contiguous_or_mismatched_sources() -> None:
-    cape_rows, market_dates, index_dates = _small_inputs()
-
-    with pytest.raises(ValueError, match="contiguous"):
-        manifest_builder.build_manifest(
-            cape_rows=cape_rows,
-            market_dates=market_dates,
-            index_dates=["1871-01-01", "1871-03-01"],
-            cape_source_sha256=_AUTHORIZED_SHA,
-            market_source_sha256=_AUTHORIZED_SHA,
-            first_cohort="1871-02-01",
-            last_cohort="1871-02-01",
-            projection_start=date(1871, 4, 1),
-            projection_end=date(1871, 9, 1),
-        )
-
-    with pytest.raises(ValueError, match="same canonical workbook"):
-        manifest_builder.build_manifest(
-            cape_rows=cape_rows,
-            market_dates=market_dates,
-            index_dates=index_dates,
-            cape_source_sha256=_AUTHORIZED_SHA,
-            market_source_sha256="different",
-            first_cohort="1871-02-01",
-            last_cohort="1871-02-01",
-            projection_start=date(1871, 7, 1),
-            projection_end=date(1871, 9, 1),
-        )
-
-    with pytest.raises(ValueError, match="Projection start"):
-        manifest_builder.build_manifest(
-            cape_rows=cape_rows,
-            market_dates=market_dates,
-            index_dates=index_dates,
-            cape_source_sha256=_AUTHORIZED_SHA,
-            market_source_sha256=_AUTHORIZED_SHA,
-            first_cohort="1871-02-01",
-            last_cohort="1871-02-01",
-            projection_start=date(1871, 8, 1),
-            projection_end=date(1871, 9, 1),
-        )
-
-
-def test_projection_metadata_matches_production_loader() -> None:
-    cape_rows, market_dates, index_dates = _small_inputs()
-
-    manifest = manifest_builder.build_manifest(
-        cape_rows=cape_rows,
-        market_dates=market_dates,
-        index_dates=index_dates,
-        cape_source_sha256=_AUTHORIZED_SHA,
-        market_source_sha256=_AUTHORIZED_SHA,
-        first_cohort="1871-02-01",
-        last_cohort="1871-02-01",
-        projection_start=date(1871, 7, 1),
-        projection_end=date(1871, 9, 1),
-    )
-
-    projection = manifest["forward_projection"]
-    assert projection["equity_annual_months_1_120"] == str(
-        ern_loader._EQUITY_FORWARD_ANNUAL
-    )
-    assert projection["equity_annual_months_121_plus"] == str(
-        ern_loader._EQUITY_FORWARD_ANNUAL_AFTER
-    )
-    assert projection["bond_annual_months_1_120"] == str(
-        ern_loader._BOND_FORWARD_ANNUAL
-    )
-    assert projection["bond_annual_months_121_plus"] == str(
-        ern_loader._BOND_FORWARD_ANNUAL_AFTER
-    )
-    assert projection["phase_months"] == ern_loader._FORWARD_PHASE_MONTHS
-
-
-def test_build_manifest_file_reads_only_workbook_provenance(tmp_path: Path) -> None:
+def _write_canonical_inputs(tmp_path: Path) -> None:
     index_dates = _months(date(1871, 1, 1), 1866)
     cape_rows = [
         (value, str(Decimal(10) + Decimal(index % 30)))
@@ -247,6 +77,7 @@ def test_build_manifest_file_reads_only_workbook_provenance(tmp_path: Path) -> N
     _write_series(tmp_path / "cpi.csv", cape_rows)
     _write_series(tmp_path / "cape_shiller.csv", cape_rows)
     _write_series(tmp_path / "spx_tr_real.csv", market_rows)
+    _write_series(tmp_path / "bond_10y_tr_real.csv", market_rows)
     _write_provenance(
         tmp_path / "cpi.provenance.json",
         source_field="E",
@@ -267,17 +98,37 @@ def test_build_manifest_file_reads_only_workbook_provenance(tmp_path: Path) -> N
         rows=market_rows,
     )
 
+
+def test_authorized_workbook_hash_matches_extractor() -> None:
+    assert (
+        manifest_builder.AUTHORIZED_SWR_WORKBOOK_SHA256
+        == workbook_returns.AUTHORIZED_SWR_WORKBOOK_SHA256
+    )
+
+
+def test_build_manifest_file_builds_effective_manifest(tmp_path: Path) -> None:
+    _write_canonical_inputs(tmp_path)
+
     manifest = manifest_builder.build_manifest_file(tmp_path)
 
+    assert manifest["version"] == "2.0"
     assert manifest["cohort_range"]["total"] == 1739
-    assert manifest["snapshot_count"] == 2459
+    assert manifest["snapshot_count"] == 2460
     assert manifest["statistics"]["market_available"] == 1739
     assert manifest["statistics"]["cape_available"] == 1739
+    assert manifest["statistics"]["horizon_eligibility"]["h720"] == 1739
     assert manifest["cohorts"][0]["cohort_date"] == "1871-02-01"
     assert manifest["cohorts"][-1]["cohort_date"] == "2015-12-01"
+    assert manifest["cohorts"][-1]["max_horizon_months"] == 721
     assert manifest["forward_projection"]["historical_end"] == "2026-06-01"
     assert manifest["forward_projection"]["projection_start"] == "2026-07-01"
-    assert manifest["forward_projection"]["projection_end"] == "2075-11-01"
+    assert manifest["forward_projection"]["projection_end"] == "2075-12-01"
+
+
+def test_manifest_output_is_deterministic() -> None:
+    first = manifest_builder.build_manifest_file(Path("data/ern"))
+    second = manifest_builder.build_manifest_file(Path("data/ern"))
+    assert first == second
 
 
 def test_validate_cape_provenance_requires_tool_identity() -> None:
@@ -313,6 +164,7 @@ def test_build_manifest_file_rejects_missing_provenance(tmp_path: Path) -> None:
     _write_series(tmp_path / "cpi.csv", cape_rows)
     _write_series(tmp_path / "cape_shiller.csv", cape_rows)
     _write_series(tmp_path / "spx_tr_real.csv", cape_rows[1:])
+    _write_series(tmp_path / "bond_10y_tr_real.csv", cape_rows[1:])
 
     with pytest.raises(FileNotFoundError, match="Missing workbook provenance"):
         manifest_builder.build_manifest_file(tmp_path)
@@ -321,32 +173,11 @@ def test_build_manifest_file_rejects_missing_provenance(tmp_path: Path) -> None:
 def test_build_manifest_file_rejects_unauthorized_provenance(
     tmp_path: Path,
 ) -> None:
-    index_dates = _months(date(1871, 1, 1), 1866)
-    cape_rows = [(value, "10") for value in index_dates]
-    market_rows = cape_rows[1:]
-    _write_series(tmp_path / "cpi.csv", cape_rows)
-    _write_series(tmp_path / "cape_shiller.csv", cape_rows)
-    _write_series(tmp_path / "spx_tr_real.csv", market_rows)
-    _write_provenance(
-        tmp_path / "cpi.provenance.json",
-        source_field="E",
-        source_cells="E6:E1871",
-        rows=cape_rows,
-    )
-    _write_provenance(
-        tmp_path / "cape_shiller.provenance.json",
-        source_field="O",
-        source_cells="O6:O1871",
-        rows=cape_rows,
-        source_sha256="not-the-authorized-workbook",
-        include_tool_identity=True,
-    )
-    _write_provenance(
-        tmp_path / "spx_tr_real.provenance.json",
-        source_field="Q",
-        source_cells="Q7:Q1871",
-        rows=market_rows,
-    )
+    _write_canonical_inputs(tmp_path)
+    provenance_path = tmp_path / "cape_shiller.provenance.json"
+    payload = json.loads(provenance_path.read_text(encoding="utf-8"))
+    payload["source_sha256"] = "not-the-authorized-workbook"
+    provenance_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match="authorized workbook"):
         manifest_builder.build_manifest_file(tmp_path)
@@ -366,7 +197,7 @@ def test_real_workbook_pipeline_reports_canonical_migration_counts(
     workbook_returns.write_outputs(data, tmp_path)
     manifest = manifest_builder.build_manifest_file(tmp_path)
 
-    assert manifest["snapshot_count"] == 2459
+    assert manifest["snapshot_count"] == 2460
     assert manifest["statistics"]["total_cohorts"] == 1739
     assert manifest["statistics"]["cape_available"] == 1739
     assert manifest["statistics"]["cape_regimes"] == {
@@ -385,23 +216,3 @@ def test_real_workbook_pipeline_reports_canonical_migration_counts(
     assert manifest["cape_source_sha256"] == (
         workbook_returns.AUTHORIZED_SWR_WORKBOOK_SHA256
     )
-
-
-def test_manifest_output_is_deterministic() -> None:
-    cape_rows, market_dates, index_dates = _small_inputs()
-    kwargs: dict[str, object] = {
-        "cape_rows": cape_rows,
-        "market_dates": market_dates,
-        "index_dates": index_dates,
-        "cape_source_sha256": _AUTHORIZED_SHA,
-        "market_source_sha256": _AUTHORIZED_SHA,
-        "first_cohort": "1871-02-01",
-        "last_cohort": "1871-05-01",
-        "projection_start": date(1871, 7, 1),
-        "projection_end": date(1871, 9, 1),
-    }
-
-    first = manifest_builder.build_manifest(**kwargs)  # type: ignore[arg-type]
-    second = manifest_builder.build_manifest(**kwargs)  # type: ignore[arg-type]
-
-    assert first == second

@@ -1,12 +1,12 @@
 """Part 52 coverage-layer semantics.
 
-The 1,739-row distribution sheet, the 1,506 historical-market layer, the 1,453
-workbook-FFR layer, and the 1,452 legacy-terminal subset describe different
+The 1,739-row distribution sheet, the 1,505 historical-market layer, the 1,452
+workbook-FFR layer, and the 1,451 legacy-terminal subset describe different
 data-availability boundaries. They are not interchangeable.
 
-The resolved Part 52 policy uses the 1,506 historical-market layer as the
-primary historical diagnostic, the 1,453 workbook-FFR layer as the mandatory
-sensitivity, and the 1,739 distribution layer as projection-only. The 1,452
+The resolved Part 52 policy uses the 1,505 historical-market layer as the
+primary historical diagnostic, the 1,452 workbook-FFR layer as the mandatory
+sensitivity, and the 1,739 distribution layer as projection-only. The 1,451
 legacy terminal filter is retired from eligibility policy.
 
 These tests pin the layer membership, boundaries, and data dependencies. They do
@@ -24,7 +24,7 @@ import pytest
 
 from fbf.core.datasets import load_canonical_dataset
 from fbf.core.study import CohortSpecification
-from fbf.core.study.internal.cohort.generator import CohortGenerator
+from fbf.core.study.builder import build_cohort_specs
 
 DATA_DIR = Path("data/ern")
 COHORT_HORIZON_MONTHS = 60 * 12 + 1
@@ -82,7 +82,7 @@ def _counts(
 @pytest.fixture(scope="module")
 def coverage_layers() -> dict[str, frozenset[date]]:
     dataset = load_canonical_dataset(DATA_DIR)
-    cohorts = CohortGenerator.generate_rolling_monthly(dataset, COHORT_HORIZON_MONTHS)
+    cohorts = build_cohort_specs(dataset, COHORT_HORIZON_MONTHS)
     starts = frozenset(_start_month(cohort) for cohort in cohorts)
     return {
         "distribution": starts,
@@ -109,14 +109,14 @@ def test_coverage_layers_are_nested_with_known_sizes(
     legacy_terminal = coverage_layers["legacy_terminal_2021_12"]
 
     assert len(distribution) == 1739
-    assert len(historical_market) == 1506
-    assert len(workbook_ffr) == 1453
-    assert len(legacy_terminal) == 1452
+    assert len(historical_market) == 1505
+    assert len(workbook_ffr) == 1452
+    assert len(legacy_terminal) == 1451
 
     assert legacy_terminal < workbook_ffr < historical_market < distribution
 
-    assert min(distribution) == date(1871, 1, 1)
-    assert max(distribution) == date(2015, 11, 1)
+    assert min(distribution) == date(1871, 2, 1)
+    assert max(distribution) == date(2015, 12, 1)
     assert max(historical_market) == date(1996, 6, 1)
     assert max(workbook_ffr) == date(1992, 1, 1)
     assert max(legacy_terminal) == date(1991, 12, 1)
@@ -143,9 +143,9 @@ def test_layer_differences_have_precise_date_boundaries(
     assert max(market_without_legacy) == date(1996, 6, 1)
 
     projected_asset_cpi = distribution - historical_market
-    assert len(projected_asset_cpi) == 233
+    assert len(projected_asset_cpi) == 234
     assert min(projected_asset_cpi) == date(1996, 7, 1)
-    assert max(projected_asset_cpi) == date(2015, 11, 1)
+    assert max(projected_asset_cpi) == date(2015, 12, 1)
 
 
 def test_legacy_and_workbook_ffr_layers_are_fully_historical(
@@ -153,23 +153,23 @@ def test_legacy_and_workbook_ffr_layers_are_fully_historical(
 ) -> None:
     """Both full-history layers differ only by the legacy terminal boundary.
 
-    The 1,452-cohort layer is one cohort stricter than the 1,453-cohort layer.
+    The 1,451-cohort layer is one cohort stricter than the 1,452-cohort layer.
     That cohort (1992-01) consumes workbook-native FFR through 2021-12 but has a
     2022-01 terminal snapshot, which is still historical market/CPI data.
     """
     legacy_terminal = coverage_layers["legacy_terminal_2021_12"]
     workbook_ffr = coverage_layers["workbook_ffr"]
 
-    assert _counts(legacy_terminal, _classify_market_data) == {HISTORICAL: 1452}
-    assert _counts(legacy_terminal, _classify_ffr_data) == {WORKBOOK_NATIVE: 1452}
-    assert _counts(workbook_ffr, _classify_market_data) == {HISTORICAL: 1453}
-    assert _counts(workbook_ffr, _classify_ffr_data) == {WORKBOOK_NATIVE: 1453}
+    assert _counts(legacy_terminal, _classify_market_data) == {HISTORICAL: 1451}
+    assert _counts(legacy_terminal, _classify_ffr_data) == {WORKBOOK_NATIVE: 1451}
+    assert _counts(workbook_ffr, _classify_market_data) == {HISTORICAL: 1452}
+    assert _counts(workbook_ffr, _classify_ffr_data) == {WORKBOOK_NATIVE: 1452}
 
 
 def test_historical_market_layer_uses_fred_extension_not_forward_fill(
     coverage_layers: dict[str, frozenset[date]],
 ) -> None:
-    """The 1,506 layer is historical market/CPI but not fully workbook-native FFR.
+    """The 1,505 layer is historical market/CPI but not fully workbook-native FFR.
 
     Its extra 53 cohorts consume actual FRED FFR through 2026-08, not the
     workbook series through 2021-12. No cohort in this layer requires
@@ -177,9 +177,9 @@ def test_historical_market_layer_uses_fred_extension_not_forward_fill(
     """
     historical_market = coverage_layers["historical_market"]
 
-    assert _counts(historical_market, _classify_market_data) == {HISTORICAL: 1506}
+    assert _counts(historical_market, _classify_market_data) == {HISTORICAL: 1505}
     assert _counts(historical_market, _classify_ffr_data) == {
-        WORKBOOK_NATIVE: 1453,
+        WORKBOOK_NATIVE: 1452,
         FRED_EXTENSION: 53,
     }
 
@@ -189,24 +189,24 @@ def test_distribution_layer_includes_projection_only_cohorts(
 ) -> None:
     """The 1,739 layer is a projection diagnostic, not a historical universe.
 
-    The 233 cohorts outside historical market/CPI coverage require projected
+    The 234 cohorts outside historical market/CPI coverage require projected
     asset/CPI after 2026-06. Three of them still use actual FFR through 2026-08;
-    the other 230 also require forward-filled FFR after 2026-08.
+    the other 231 also require forward-filled FFR after 2026-08.
     """
     distribution = coverage_layers["distribution"]
     projected = distribution - coverage_layers["historical_market"]
 
     assert _counts(distribution, _classify_market_data) == {
-        HISTORICAL: 1506,
-        PROJECTED: 233,
+        HISTORICAL: 1505,
+        PROJECTED: 234,
     }
     assert _counts(distribution, _classify_ffr_data) == {
-        WORKBOOK_NATIVE: 1453,
+        WORKBOOK_NATIVE: 1452,
         FRED_EXTENSION: 56,
-        FORWARD_FILLED: 230,
+        FORWARD_FILLED: 231,
     }
-    assert _counts(projected, _classify_market_data) == {PROJECTED: 233}
+    assert _counts(projected, _classify_market_data) == {PROJECTED: 234}
     assert _counts(projected, _classify_ffr_data) == {
         FRED_EXTENSION: 3,
-        FORWARD_FILLED: 230,
+        FORWARD_FILLED: 231,
     }

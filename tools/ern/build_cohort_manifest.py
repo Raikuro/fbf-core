@@ -11,9 +11,10 @@ No external Shiller series, legacy canonical master, or reconstructed market
 series is consulted.  Every input must have workbook provenance that identifies
 the authorized SWR workbook and the approved source cells.
 
-Projection metadata is read from the production loader constants so the
-manifest cannot drift from the actual runtime projection rules.  The builder
-does not overwrite an existing manifest unless ``--force`` is supplied.
+The manifest is built through the same runtime preparation and effective
+manifest pipeline as production studies.  It is projection-dependent and must
+not be committed as canonical dataset data.  The builder does not overwrite an
+existing file unless ``--force`` is supplied.
 """
 
 from __future__ import annotations
@@ -30,9 +31,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from fbf.core.datasets import ern as ern_loader
-from fbf.core.domain.policies.cape_regime import (
-    classify_cape_binary,
-    classify_cape_regime,
+from fbf.core.research.cohort_manifest import (
+    build_effective_manifest,
+    manifest_to_dict,
 )
 
 _TOOL_DIR = Path(__file__).resolve().parent
@@ -49,11 +50,6 @@ _FIRST_COHORT = "1871-02-01"
 _LAST_COHORT = "2015-12-01"
 _BASE_SNAPSHOT_DATE = "1871-01-31"
 _FEE = Decimal("0.0005")
-_HORIZON_MONTHS = (12, 60, 120, 240, 360, 480, 600, 720)
-_CAPE_MANIFEST_QUANTUM = Decimal("0.00000001")
-
-_PROJECTION_START = ern_loader._HISTORICAL_END.date()
-_PROJECTION_END = ern_loader._PROJECTION_END.date()
 
 
 def _parse_month(value: str) -> date:
@@ -63,53 +59,10 @@ def _parse_month(value: str) -> date:
     return parsed
 
 
-def _next_month(value: date) -> date:
-    if value.month == 12:
-        return date(value.year + 1, 1, 1)
-    return date(value.year, value.month + 1, 1)
-
-
-def _previous_month(value: date) -> date:
-    if value.month == 1:
-        return date(value.year - 1, 12, 1)
-    return date(value.year, value.month - 1, 1)
-
-
-def _month_count(start: date, end: date) -> int:
-    if end < start:
-        raise ValueError(f"End month {end} precedes start month {start}")
-    return (end.year - start.year) * 12 + (end.month - start.month) + 1
-
-
 def _add_months(value: date, months: int) -> date:
     total = value.year * 12 + (value.month - 1) + months
     year, month_index = divmod(total, 12)
     return date(year, month_index + 1, 1)
-
-
-def _month_range(start: date, end: date) -> tuple[date, ...]:
-    return tuple(
-        _add_months(start, index) for index in range(_month_count(start, end))
-    )
-
-
-def _validate_contiguous_monthly(
-    dates: Sequence[str],
-    *,
-    label: str,
-) -> None:
-    if not dates:
-        raise ValueError(f"{label} is empty")
-    previous = _parse_month(dates[0])
-    for raw_date in dates[1:]:
-        current = _parse_month(raw_date)
-        expected = _next_month(previous)
-        if current != expected:
-            raise ValueError(
-                f"{label} dates must be contiguous monthly dates: "
-                f"{previous.isoformat()} -> {current.isoformat()}"
-            )
-        previous = current
 
 
 def _load_series(path: Path) -> tuple[tuple[str, Decimal], ...]:
@@ -232,200 +185,8 @@ def _validate_provenance_series(
         )
 
 
-def _manifest_cape_number(value: Decimal) -> float:
-    return float(value.quantize(_CAPE_MANIFEST_QUANTUM))
-
-
-def build_manifest(
-    *,
-    cape_rows: Sequence[tuple[str, Decimal]],
-    market_dates: Sequence[str],
-    index_dates: Sequence[str],
-    cape_source_sha256: str,
-    market_source_sha256: str,
-    first_cohort: str = _FIRST_COHORT,
-    last_cohort: str = _LAST_COHORT,
-    projection_start: date = _PROJECTION_START,
-    projection_end: date = _PROJECTION_END,
-    fee: Decimal = _FEE,
-) -> dict[str, Any]:
-    """Build the deterministic Part 3 cohort manifest."""
-    if cape_source_sha256 != market_source_sha256:
-        raise ValueError(
-            "CAPE and market inputs must come from the same canonical workbook"
-        )
-    if cape_source_sha256 != AUTHORIZED_SWR_WORKBOOK_SHA256:
-        raise ValueError("Inputs do not come from the authorized SWR workbook")
-
-    cape_dates = [date for date, _value in cape_rows]
-    _validate_contiguous_monthly(cape_dates, label="CAPE")
-    _validate_contiguous_monthly(market_dates, label="Market")
-    _validate_contiguous_monthly(index_dates, label="Index")
-    if len(set(cape_dates)) != len(cape_dates):
-        raise ValueError("CAPE rows contain duplicate dates")
-    if len(set(index_dates)) != len(index_dates):
-        raise ValueError("Index rows contain duplicate dates")
-
-    index_date_set = set(index_dates)
-    if index_dates[0] != "1871-01-01":
-        raise ValueError("Index dates must start at 1871-01-01")
-    if len(index_dates) < 2:
-        raise ValueError("Index dates must include at least two months")
-    if first_cohort != index_dates[1]:
-        raise ValueError(
-            f"First cohort must be the first return month {index_dates[1]!r}"
-        )
-    if not set(cape_dates).issubset(index_date_set):
-        raise ValueError("CAPE dates must be a subset of canonical index dates")
-    if not all(market_date in index_date_set for market_date in market_dates):
-        raise ValueError("Market dates must be a subset of canonical index dates")
-
-    last_index = _parse_month(index_dates[-1])
-    if projection_start != _next_month(last_index):
-        raise ValueError(
-            "Projection start must be the month after the last historical index "
-            f"date: expected {_next_month(last_index).isoformat()}, "
-            f"got {projection_start.isoformat()}"
-        )
-    projection_months = _month_count(projection_start, projection_end)
-    snapshot_count = len(index_dates) + projection_months
-
-    first = _parse_month(first_cohort)
-    last = _parse_month(last_cohort)
-    if last < first:
-        raise ValueError("Last cohort must not precede first cohort")
-    cohort_dates = [value.isoformat() for value in _month_range(first, last)]
-
-    index_position = {value: position for position, value in enumerate(index_dates)}
-    for cohort_date in cohort_dates:
-        if cohort_date not in index_position:
-            raise ValueError(f"Cohort date {cohort_date} is not in the index")
-        if index_position[cohort_date] == 0:
-            raise ValueError(
-                f"Cohort date {cohort_date} would start before the first return"
-            )
-
-    cape_map = dict(cape_rows)
-    market_set = set(market_dates)
-    cape_regime_counts = {
-        "HIGH": 0,
-        "MODERATE": 0,
-        "LOW": 0,
-        "BELOW_15": 0,
-        "EXTREME": 0,
-    }
-    binary_counts = {"HIGH": 0, "LOW": 0}
-    cohorts: list[dict[str, Any]] = []
-
-    for cohort_date in cohort_dates:
-        cape_value = cape_map.get(cohort_date)
-        cape_available = cape_value is not None
-        regime_name: str | None = None
-        if cape_value is not None:
-            regime = classify_cape_regime(cape_value)
-            regime_name = regime.name
-            cape_regime_counts[regime_name] += 1
-
-        prior_cape = cape_map.get(_previous_month(_parse_month(cohort_date)).isoformat())
-        if prior_cape is None and cohort_date == first_cohort:
-            prior_cape = cape_value
-        if prior_cape is not None:
-            binary = classify_cape_binary(prior_cape)
-            binary_counts[binary.value] += 1
-
-        start_month_index = index_position[cohort_date] - 1
-        max_horizon_months = snapshot_count - (start_month_index + 1)
-        if max_horizon_months < 0:
-            raise ValueError(f"Negative horizon for cohort {cohort_date}")
-
-        cohorts.append(
-            {
-                "cohort_date": cohort_date,
-                "market_available": cohort_date in market_set,
-                "cape_available": cape_available,
-                "cape_value": _manifest_cape_number(cape_value)
-                if cape_value is not None
-                else None,
-                "cape_regime": regime_name,
-                "start_month_index": start_month_index,
-                "max_horizon_months": max_horizon_months,
-            }
-        )
-
-    horizon_eligibility = {
-        f"h{months}": sum(
-            1
-            for cohort in cohorts
-            if int(cohort["max_horizon_months"]) >= months
-        )
-        for months in _HORIZON_MONTHS
-    }
-
-    return {
-        "version": "2.0",
-        "description": (
-            "Part 3 cohort manifest - workbook-only Shiller CAPE "
-            "(Asset Returns!O) and canonical market data"
-        ),
-        "cohort_range": {
-            "first": first_cohort,
-            "last": last_cohort,
-            "total": len(cohorts),
-        },
-        "snapshot_count": snapshot_count,
-        "market_source": (
-            "SWR_Toolbox_v2.0.xlsx Asset Returns!Q (spx_tr_real.csv)"
-        ),
-        "market_source_sha256": market_source_sha256,
-        "cape_source": (
-            "SWR_Toolbox_v2.0.xlsx Asset Returns!O (cape_shiller.csv)"
-        ),
-        "cape_source_sha256": cape_source_sha256,
-        "horizon_note": (
-            f"Canonical dataset provides {snapshot_count} snapshots "
-            f"({_BASE_SNAPSHOT_DATE} to {projection_end.isoformat()}). "
-            "Horizon eligibility is computed from each cohort's "
-            "max_horizon_months."
-        ),
-        "fee": float(fee),
-        "forward_projection": {
-            "equity_annual_months_1_120": str(
-                ern_loader._EQUITY_FORWARD_ANNUAL
-            ),
-            "equity_annual_months_121_plus": str(
-                ern_loader._EQUITY_FORWARD_ANNUAL_AFTER
-            ),
-            "bond_annual_months_1_120": str(ern_loader._BOND_FORWARD_ANNUAL),
-            "bond_annual_months_121_plus": str(
-                ern_loader._BOND_FORWARD_ANNUAL_AFTER
-            ),
-            "phase_months": ern_loader._FORWARD_PHASE_MONTHS,
-            "historical_end": last_index.isoformat(),
-            "projection_start": projection_start.isoformat(),
-            "projection_end": projection_end.isoformat(),
-            "monthly_formula": "(1 + annual_rate) ** (1 / 12) - 1",
-        },
-        "statistics": {
-            "total_cohorts": len(cohorts),
-            "market_available": sum(
-                1 for cohort in cohorts if cohort["market_available"]
-            ),
-            "cape_available": sum(
-                1 for cohort in cohorts if cohort["cape_available"]
-            ),
-            "cape_regimes": cape_regime_counts,
-            "horizon_eligibility": horizon_eligibility,
-            "binary_cape_regimes": binary_counts,
-            "binary_cape_semantics": (
-                "CAPE at t-1 > 20; first cohort falls back to its own CAPE"
-            ),
-        },
-        "cohorts": cohorts,
-    }
-
-
-def build_manifest_file(data_dir: Path) -> dict[str, Any]:
-    """Load canonical extraction artifacts and build the manifest."""
+def _effective_manifest_payload(data_dir: Path) -> dict[str, Any]:
+    """Build the runtime effective manifest and compatible top-level fields."""
     cape_rows = _load_series(data_dir / "cape_shiller.csv")
     market_rows = _load_series(data_dir / "spx_tr_real.csv")
     index_rows = _load_series(data_dir / "cpi.csv")
@@ -471,13 +232,58 @@ def build_manifest_file(data_dir: Path) -> dict[str, Any]:
     if index_provenance.get("source_sha256") != source_sha256:
         raise ValueError("Index and CAPE provenance identify different workbooks")
 
-    return build_manifest(
-        cape_rows=cape_rows,
-        market_dates=[date for date, _value in market_rows],
-        index_dates=[date for date, _value in index_rows],
-        cape_source_sha256=source_sha256,
-        market_source_sha256=cast(str, market_provenance["source_sha256"]),
+    historical_cutoff = _parse_month(index_rows[-1][0])
+    prepared = ern_loader.prepare_ern_dataset(
+        data_dir,
+        config=ern_loader.ProjectionConfig(
+            historical_data_cutoff=historical_cutoff
+        ),
+        required_through=_add_months(_parse_month(_LAST_COHORT), 60 * 12),
     )
+    manifest = build_effective_manifest(
+        dataset=prepared.dataset,
+        metadata=prepared.metadata,
+        cape_rows=cape_rows,
+        cohort_start=_parse_month(_FIRST_COHORT),
+        cohort_end=_parse_month(_LAST_COHORT),
+        fee=_FEE,
+        require_cape=True,
+    )
+    payload = manifest_to_dict(manifest)
+    payload["cohort_range"] = {
+        "first": _FIRST_COHORT,
+        "last": _LAST_COHORT,
+        "total": len(manifest.cohorts),
+    }
+    payload["snapshot_count"] = prepared.metadata.snapshot_count
+    payload["market_source_sha256"] = cast(
+        str, market_provenance["source_sha256"]
+    )
+    payload["cape_source_sha256"] = source_sha256
+    payload["horizon_note"] = (
+        f"Runtime projection provides {prepared.metadata.snapshot_count} "
+        f"snapshots ({_BASE_SNAPSHOT_DATE} to "
+        f"{prepared.metadata.projection_end.isoformat()})."
+    )
+    payload["forward_projection"] = {
+        "equity_annual_months_1_120": str(prepared.metadata.equity_annual),
+        "equity_annual_months_121_plus": str(
+            prepared.metadata.equity_annual_after
+        ),
+        "bond_annual_months_1_120": str(prepared.metadata.bond_annual),
+        "bond_annual_months_121_plus": str(prepared.metadata.bond_annual_after),
+        "phase_months": prepared.metadata.phase_months,
+        "historical_end": prepared.metadata.historical_data_cutoff.isoformat(),
+        "projection_start": prepared.metadata.projection_start.isoformat(),
+        "projection_end": prepared.metadata.projection_end.isoformat(),
+        "monthly_formula": "(1 + annual_rate) ** (1 / 12) - 1",
+    }
+    return payload
+
+
+def build_manifest_file(data_dir: Path) -> dict[str, Any]:
+    """Load canonical formats and return the runtime effective manifest."""
+    return _effective_manifest_payload(data_dir)
 
 
 def write_manifest(manifest: dict[str, Any], output_path: Path) -> None:

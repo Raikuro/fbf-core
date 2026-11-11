@@ -32,18 +32,20 @@ def test_no_dataset_json_under_src() -> None:
     )
 
 
-def test_package_data_declares_only_py_typed() -> None:
-    """Wheel package-data must be exactly the py.typed marker.
+def test_package_data_declares_no_datasets() -> None:
+    """Wheel package-data may contain py.typed and packaged study YAML only.
 
-    If a dataset were ever added to package-data, this test fails by design:
-    dataset distribution must be decided deliberately (DATASETS.md).
+    Datasets remain external (DATASETS.md); canonical study configuration is
+    code-adjacent presentation-free YAML, not dataset data.
     """
     with _PYPROJECT.open("rb") as fh:
         pyproject = tomllib.load(fh)
     package_data = pyproject["tool"]["setuptools"].get("package-data", {})
-    assert package_data == {"fbf.core": ["py.typed"]}, (
-        f"Unexpected package-data: {package_data}. Expected exactly "
-        f"{{'fbf.core': ['py.typed']}} so datasets stay out of the wheel."
+    assert package_data == {
+        "fbf.core": ["py.typed", "research/config/*.yaml"]
+    }, (
+        f"Unexpected package-data: {package_data}. Expected py.typed and "
+        "packaged study configuration only so datasets stay out of the wheel."
     )
 
 

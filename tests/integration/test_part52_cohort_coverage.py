@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from fbf.core.datasets import load_canonical_dataset
+from fbf.core.datasets import ProjectionConfig, load_canonical_dataset
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.study import (
@@ -28,8 +28,11 @@ from fbf.core.study import (
     StudyConfiguration,
     build_study_plan,
 )
-from fbf.core.study.builder import build_interest_rate_schedule, load_ffr_rates
-from fbf.core.study.internal.cohort.generator import CohortGenerator
+from fbf.core.study.builder import (
+    build_cohort_specs,
+    build_interest_rate_schedule,
+    load_ffr_rates,
+)
 
 DATA_DIR = Path("data/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
@@ -41,13 +44,13 @@ FORWARD_FILL_START = date(2026, 9, 1)
 N_END = date(1954, 6, 1)
 M_START = date(1954, 7, 1)
 
-HISTORICAL_MARKET_COVERAGE_COUNT = 1506
-FFR_HISTORY_COVERAGE_COUNT = 1453
-LEGACY_TERMINAL_2021_12_COUNT = 1452
-LEGACY_TERMINAL_OUTSIDE_COUNT = 287
-POST_2021_FFR_COUNT = 286
-FORWARD_FILLED_COUNT = 230
-NO_FORWARD_FILL_COUNT = 1509
+HISTORICAL_MARKET_COVERAGE_COUNT = 1505
+FFR_HISTORY_COVERAGE_COUNT = 1452
+LEGACY_TERMINAL_2021_12_COUNT = 1451
+LEGACY_TERMINAL_OUTSIDE_COUNT = 288
+POST_2021_FFR_COUNT = 287
+FORWARD_FILLED_COUNT = 231
+NO_FORWARD_FILL_COUNT = 1508
 
 
 def _add_months(value: date, months: int) -> date:
@@ -108,6 +111,9 @@ def _part52_config(*, ffr_spread: Decimal | None = None) -> StudyConfiguration:
         "debt_borrow_pct": Decimal("0"),
         "debt_drawdown_threshold": None,
         "ffr_spread": ffr_spread,
+        "projection_config": ProjectionConfig(
+            historical_data_cutoff=date(2026, 6, 1)
+        ),
     }
     if ffr_spread is None:
         values["debt_interest_rate"] = Decimal("0.015")
@@ -133,7 +139,7 @@ def canonical_dataset() -> Dataset:
 
 @pytest.fixture(scope="module")
 def full_cohorts(canonical_dataset: Dataset) -> tuple[CohortSpecification, ...]:
-    return CohortGenerator.generate_rolling_monthly(canonical_dataset, 721)
+    return build_cohort_specs(canonical_dataset, 721)
 
 
 @pytest.fixture(scope="module")
@@ -161,7 +167,7 @@ def test_legacy_2021_12_filter_applies_at_caller(
 
     assert len(built.cohorts) == LEGACY_TERMINAL_2021_12_COUNT
     assert len(built.plan.units) == LEGACY_TERMINAL_2021_12_COUNT
-    assert built.cohorts[0].start_date == date(1871, 1, 31)
+    assert built.cohorts[0].start_date == date(1871, 2, 1)
     assert built.cohorts[-1].start_date == date(1991, 12, 1)
 
 
@@ -171,12 +177,11 @@ def test_legacy_2021_12_and_outside_cohort_counts(
 ) -> None:
     """The full 60-year set maps to the workbook's 1,739 retirement labels.
 
-    Workbook retirement labels 1871-02..2015-12 map to runtime cohort starts
-    1871-01..2015-11 because the runtime start is the pre-retirement snapshot.
+    Runtime cohort starts follow the canonical 1871-02..2015-12 set.
     """
     assert len(full_cohorts) == 1739
-    assert full_cohorts[0].start_date == date(1871, 1, 31)
-    assert full_cohorts[-1].start_date == date(2015, 11, 1)
+    assert full_cohorts[0].start_date == date(1871, 2, 1)
+    assert full_cohorts[-1].start_date == date(2015, 12, 1)
     assert len(legacy_terminal_cohorts) == LEGACY_TERMINAL_2021_12_COUNT
     assert len(full_cohorts) - len(legacy_terminal_cohorts) == LEGACY_TERMINAL_OUTSIDE_COUNT
 
@@ -212,9 +217,9 @@ def test_historical_market_coverage_layers(
     full_cohorts: tuple[CohortSpecification, ...],
     legacy_terminal_cohorts: tuple[CohortSpecification, ...],
 ) -> None:
-    """Historical market/CPI coverage is 1,506 cohorts, not the legacy 1,452.
+    """Historical market/CPI coverage is 1,505 cohorts, not the legacy 1,451.
 
-    The SWR Toolbox historical series end at 2026-06.  The 1,452 subset is a
+    The SWR Toolbox historical series end at 2026-06.  The 1,451 subset is a
     one-month-stricter legacy filter tied to the separate FFR workbook end.
     """
     market_covered = tuple(
@@ -253,8 +258,8 @@ def test_legacy_2021_12_n_exposure(
     )
     mixed = tuple(cohort for cohort in any_n if cohort not in only_n)
 
-    assert (len(any_n), len(only_n), len(mixed)) == (1002, 643, 359)
-    assert sum(_n_consumed_months(cohort) for cohort in legacy_terminal_cohorts) == 296100
+    assert (len(any_n), len(only_n), len(mixed)) == (1001, 642, 359)
+    assert sum(_n_consumed_months(cohort) for cohort in legacy_terminal_cohorts) == 295740
 
 
 def test_a10_a11_loan_rate_schedule_uses_n_for_299_months() -> None:

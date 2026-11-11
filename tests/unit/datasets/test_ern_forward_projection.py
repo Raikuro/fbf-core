@@ -93,10 +93,10 @@ class TestForwardConstants:
         assert _HISTORICAL_END.year == 2026
         assert _HISTORICAL_END.month == 7
 
-    def test_projection_end_is_november_2075(self) -> None:
-        """Projection extends through November 2075."""
+    def test_projection_end_is_december_2075(self) -> None:
+        """Canonical full coverage extends through December 2075."""
         assert _PROJECTION_END.year == 2075
-        assert _PROJECTION_END.month == 11
+        assert _PROJECTION_END.month == 12
 
 
 # ---------------------------------------------------------------------------
@@ -299,17 +299,17 @@ class TestDatasetStructure:
     def dataset(self) -> Dataset:
         return load_ern_dataset(_DATA_DIR)
 
-    def test_snapshot_count_unchanged(self, dataset: Dataset) -> None:
-        """2459 snapshots (unchanged by forward-projection fix)."""
-        assert len(dataset.snapshots) == 2459
+    def test_snapshot_count_covers_60y(self, dataset: Dataset) -> None:
+        """2460 snapshots provide full 60-year coverage for 2015-12 cohorts."""
+        assert len(dataset.snapshots) == 2460
 
     def test_start_date_unchanged(self, dataset: Dataset) -> None:
         """First snapshot is 1871-01-31."""
         assert str(dataset.snapshots[0].date) == "1871-01-31"
 
-    def test_end_date_unchanged(self, dataset: Dataset) -> None:
-        """Last snapshot is 2075-11-01."""
-        assert str(dataset.snapshots[-1].date) == "2075-11-01"
+    def test_end_date_covers_60y(self, dataset: Dataset) -> None:
+        """Last snapshot is 2075-12-01."""
+        assert str(dataset.snapshots[-1].date) == "2075-12-01"
 
 
 # ---------------------------------------------------------------------------

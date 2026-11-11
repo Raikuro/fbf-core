@@ -12,7 +12,8 @@ The 4 experiments are specific (WR, FV) pairs - NOT a Cartesian product:
 
 Each experiment runs 21 equity allocations (0-100% in 5% steps) x 2 horizons
 (30Y, 60Y) x 1,739 canonical cohorts = 168 ERN parameter cells total.
-The full YAML Cartesian product yields 252 cells (3 WR x 2 FV x 21 eq x 2 H).
+Experiments are explicit A-D pairs; the planner does not expand WR/FV
+Cartesian combinations.
 
 Published anchors (see docs/ERN_METHODOLOGY.md section 4):
 
@@ -36,54 +37,36 @@ from typing import Any
 
 import pytest
 
-from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies.cape_regime import CapeRegime
 from fbf.core.execution import ExecutionOptions, ExecutionStrategy
 from fbf.core.research.part3_pipeline import execute_part3_pipeline
-from fbf.core.research.part3_planner import (
-    PART3_EXPENSE_RATIO,
-    Part3PlannerConfig,
-    load_manifest,
-    materialize_part3_plan,
+from fbf.core.research.part3_planner import PART3_EXPENSE_RATIO
+from fbf.core.research.part3_study import (
+    build_part3_plan_from_configuration,
+    load_packaged_part3_configuration,
 )
-from tests.support.ern.verified_manifest import verified_manifest_path
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 DATA_DIR = Path("data/ern")
-MANIFEST_PATH = verified_manifest_path()
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 # Tolerance for anchor comparison: 1 percentage point.
 ANCHOR_TOLERANCE = Decimal("0.01")
 
-# The canonical 21 equity weights (0% to 100% in 5% steps)
-EQUITY_WEIGHTS: tuple[Decimal, ...] = tuple(
-    Decimal(str(i)) / Decimal("20") for i in range(21)
-)
+_CANONICAL_CONFIG = load_packaged_part3_configuration()
+if _CANONICAL_CONFIG.experiments is None:
+    raise RuntimeError("Packaged Part 3 configuration must define experiments")
 
-# ---------------------------------------------------------------------------
-# ERN experiment definitions (specific WR/FV pairs, not Cartesian)
-# ---------------------------------------------------------------------------
-
+# The canonical equity weights and experiment pairs come from the YAML config.
+EQUITY_WEIGHTS = _CANONICAL_CONFIG.allocation_policy_values
 ERN_EXPERIMENTS: dict[str, tuple[Decimal, Decimal]] = {
-    "A": (Decimal("0.04"), Decimal("0.0")),
-    "B": (Decimal("0.04"), Decimal("0.5")),
-    "C": (Decimal("0.035"), Decimal("0.5")),
-    "D": (Decimal("0.0325"), Decimal("0.5")),
+    experiment.id: (experiment.withdrawal_rate, experiment.final_value_target)
+    for experiment in _CANONICAL_CONFIG.experiments
 }
-
-# Unique WR and FV values for the planner config (deduplicated, order-preserved)
-_ERN_WR: tuple[Decimal, ...] = tuple(
-    dict.fromkeys(wr for wr, _ in ERN_EXPERIMENTS.values())
-)
-_ERN_FV: tuple[Decimal, ...] = tuple(
-    dict.fromkeys(fv for _, fv in ERN_EXPERIMENTS.values())
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -158,9 +141,6 @@ def _find_cape_row(
 
 
 @pytest.mark.ern_e2e
-@pytest.mark.skipif(
-    not MANIFEST_PATH.is_file(), reason="Canonical manifest not present"
-)
 class TestPart3CanonicalERNReplication:
     """Canonical ERN Part 3 replication — 4 experiments, 6 published anchors."""
 
@@ -170,24 +150,10 @@ class TestPart3CanonicalERNReplication:
 
         Returns (plan_result, pipeline_result).
         """
-        manifest = load_manifest(MANIFEST_PATH)
-        trajectory = load_canonical_dataset(DATA_DIR)
-
-        config = Part3PlannerConfig(
-            equity_allocations=EQUITY_WEIGHTS,
-            withdrawal_rates=_ERN_WR,
-            horizon_years=(30, 60),
-            final_value_targets=_ERN_FV,
-            allocation_policy_type="ConstantAllocationPolicy",
-            withdrawal_policy_type="FixedRealWithdrawalPolicy",
-            expense_ratio=PART3_EXPENSE_RATIO,
-        )
-
-        plan_result = materialize_part3_plan(
-            manifest=manifest,
-            canonical_trajectory=trajectory,
-            config=config,
-            initial_wealth=INITIAL_WEALTH,
+        plan_result = build_part3_plan_from_configuration(
+            DATA_DIR,
+            INITIAL_WEALTH,
+            configuration=_CANONICAL_CONFIG,
         )
 
         options = ExecutionOptions(strategy=ExecutionStrategy.AUTO)
@@ -250,10 +216,10 @@ class TestPart3CanonicalERNReplication:
     def test_experiment_cell_count(
         self, execution_result: tuple[Any, Any]
     ) -> None:
-        """3 WR x 2 FV x 21 equity x 2 H = 252 param configs (full Cartesian)."""
+        """4 explicit A-D pairs x 21 equity x 2 H = 168 param configs."""
         plan_result, _ = execution_result
         n_params = len(plan_result.param_configs)
-        assert n_params == 252
+        assert n_params == 168
 
     def test_ern_experiment_params_present(
         self, execution_result: tuple[Any, Any]

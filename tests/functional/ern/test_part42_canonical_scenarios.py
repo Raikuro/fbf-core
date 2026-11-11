@@ -25,6 +25,7 @@ The workload is gated by ``RUN_ERN_E2E=1`` through the centralized skip hook in
 
 from __future__ import annotations
 
+import gc
 import time
 from dataclasses import dataclass
 from datetime import date
@@ -66,7 +67,7 @@ CONTRIBUTION = Decimal("5000")
 SS_AMOUNT = Decimal("3000")
 SS_START_YEAR = 31
 SS_PAYMENTS = 240
-EXPECTED_TOTAL_UNITS = 19310
+EXPECTED_TOTAL_UNITS = 19314
 
 
 @dataclass(frozen=True)
@@ -88,17 +89,52 @@ class ScenarioExpectation:
 
 
 @dataclass(frozen=True)
-class ScenarioRun:
-    summary: Part42FixedSWRResult
-    execution: ResearchExecutionResult
+class ScheduleContract:
+    start_period: int
+    end_period: int
+    horizon_transitions: int
+    monthly_amount: Money
+
+
+@dataclass(frozen=True)
+class CohortContract:
+    cohort_date: date
+    dataset_start_date: date
+    dataset_length: int
+    horizon_months: int
+    final_value_target: Decimal
+    equity_allocation: Decimal
+    withdrawal_rate: Decimal
+    effective_base: Decimal
+    schedule: ScheduleContract | None
+    production_handoff: Decimal
+    expected_handoff: Decimal
+    success: bool
+    expected_success: bool
+    failure_month: int | None
+    expected_failure_month: int | None
+    final_wealth: Decimal
+    expected_final_wealth: Decimal
+    ss_payments_applied: int
+
+
+@dataclass(frozen=True)
+class ScenarioContract:
+    unit_count: int
+    result_count: int
+    summary_cohort_count: int
+    experiment_cohort_count: int
+    actual_dates: tuple[date, ...]
+    cohorts: tuple[CohortContract, ...]
+    summary_per_cohort_success: tuple[bool, ...]
+    summary_failures: int
 
 
 @dataclass(frozen=True)
 class CanonicalInventory:
     dataset: Dataset
     date_index: dict[date, int]
-    runs: dict[str, ScenarioRun]
-    oracle: dict[str, dict[date, Part42RecurrenceResult]]
+    scenarios: dict[str, ScenarioContract]
     execution_time_s: float
 
 
@@ -112,16 +148,16 @@ EXPECTATIONS: tuple[ScenarioExpectation, ...] = (
         "E_contrib", 1859, 601, 13, 12, CONTRIBUTION, Decimal("0"), False
     ),
     ScenarioExpectation(
-        "F_baseline", 1859, 601, 1, 0, Decimal("0"), Decimal("0"), True, 360, 600
+        "F_baseline", 1860, 601, 1, 0, Decimal("0"), Decimal("0"), True, 360, 600
     ),
     ScenarioExpectation(
-        "F_delay", 1859, 601, 13, 12, Decimal("0"), Decimal("0"), True, 348, 588
+        "F_delay", 1860, 601, 13, 12, Decimal("0"), Decimal("0"), True, 348, 588
     ),
     ScenarioExpectation(
-        "F_contrib", 1859, 601, 13, 12, CONTRIBUTION, Decimal("0"), True, 348, 588
+        "F_contrib", 1860, 601, 13, 12, CONTRIBUTION, Decimal("0"), True, 348, 588
     ),
     ScenarioExpectation(
-        "G_2yr", 1859, 601, 25, 24, CONTRIBUTION, Decimal("0"), True, 336, 576
+        "G_2yr", 1860, 601, 25, 24, CONTRIBUTION, Decimal("0"), True, 336, 576
     ),
 )
 
@@ -178,14 +214,107 @@ def _simulate(
     )
 
 
+def _expected_cohort_dates(
+    dataset: Dataset,
+    expectation: ScenarioExpectation,
+) -> tuple[date, ...]:
+    """Derive the feasible cohort dates for the scenario's production path.
+
+    Non-Social-Security scenarios use ``build_cohort_specs``, which starts at
+    the first return (1871-02-01) rather than the inflation-only anchor snapshot
+    (1871-01-31).  Social Security scenarios use the Part 42 plan's rolling
+    generator over the full prepared dataset.
+    """
+    first_index = 0 if expectation.social_security else 1
+    end_index = len(dataset.snapshots) - expectation.total_snapshots + 1
+    return tuple(
+        snapshot.date for snapshot in dataset.snapshots[first_index:end_index]
+    )
+
+
+def _build_scenario_contract(
+    dataset: Dataset,
+    date_index: dict[date, int],
+    expectation: ScenarioExpectation,
+    summary: Part42FixedSWRResult,
+    execution: ResearchExecutionResult,
+) -> ScenarioContract:
+    cohorts: list[CohortContract] = []
+    for unit, result in zip(
+        execution.plan.units, execution.results, strict=True
+    ):
+        cohort_date = unit.cohort.start_date
+        assert isinstance(unit.allocation_policy, ConstantAllocationPolicy)
+        assert isinstance(unit.withdrawal_policy, FixedRealWithdrawalPolicy)
+        schedule = unit.external_cash_flow_schedule
+        if schedule is None:
+            schedule_contract = None
+        else:
+            assert schedule.horizon_transitions is not None
+            schedule_contract = ScheduleContract(
+                start_period=schedule.start_period,
+                end_period=schedule.end_period,
+                horizon_transitions=schedule.horizon_transitions,
+                monthly_amount=schedule.monthly_amount,
+            )
+        equity_allocation = unit.allocation_policy.equity_allocation
+        assert equity_allocation is not None
+        effective_base = (
+            unit.withdrawal_base.amount
+            if unit.withdrawal_base is not None
+            else _value(unit.initial_portfolio, unit.dataset[0])
+        )
+        assert unit.horizon_months is not None
+        assert unit.final_value_target is not None
+        statistics = result.statistics
+        assert statistics is not None
+        expected = _simulate(dataset, date_index, unit, expectation)
+        cohorts.append(
+            CohortContract(
+                cohort_date=cohort_date,
+                dataset_start_date=unit.dataset.snapshots[0].date,
+                dataset_length=len(unit.dataset),
+                horizon_months=unit.horizon_months,
+                final_value_target=unit.final_value_target,
+                equity_allocation=equity_allocation,
+                withdrawal_rate=unit.withdrawal_policy.withdrawal_rate,
+                effective_base=effective_base,
+                schedule=schedule_contract,
+                production_handoff=_value(
+                    unit.initial_portfolio, unit.dataset[0]
+                ),
+                expected_handoff=expected.handoff_wealth,
+                success=statistics.success,
+                expected_success=expected.success,
+                failure_month=statistics.failure_month,
+                expected_failure_month=expected.failure_month,
+                final_wealth=statistics.final_wealth.amount,
+                expected_final_wealth=expected.final_wealth,
+                ss_payments_applied=expected.ss_payments_applied,
+            )
+        )
+
+    return ScenarioContract(
+        unit_count=len(execution.plan.units),
+        result_count=len(execution.results),
+        summary_cohort_count=summary.cohort_count,
+        experiment_cohort_count=len(
+            execution.plan.experiment_definition.cohorts
+        ),
+        actual_dates=tuple(cohort.cohort_date for cohort in cohorts),
+        cohorts=tuple(cohorts),
+        summary_per_cohort_success=summary.per_cohort_success,
+        summary_failures=summary.failures,
+    )
+
+
 @pytest.fixture(scope="session")
 def canonical_inventory() -> CanonicalInventory:
     dataset = load_canonical_dataset(Path(DATA_DIR))
     date_index = {
         snapshot.date: index for index, snapshot in enumerate(dataset.snapshots)
     }
-    runs: dict[str, ScenarioRun] = {}
-    oracle: dict[str, dict[date, Part42RecurrenceResult]] = {}
+    scenarios: dict[str, ScenarioContract] = {}
     real_execute = execute_study_plan
     captured: list[ResearchExecutionResult] = []
 
@@ -207,15 +336,14 @@ def canonical_inventory() -> CanonicalInventory:
             )
             assert len(captured) == 1
             execution = captured.pop()
-            runs[expectation.experiment_id] = ScenarioRun(summary, execution)
-            oracle[expectation.experiment_id] = {
-                unit.cohort.start_date: _simulate(
-                    dataset, date_index, unit, expectation
-                )
-                for unit in execution.plan.units
-            }
+            scenarios[expectation.experiment_id] = _build_scenario_contract(
+                dataset, date_index, expectation, summary, execution
+            )
+            del execution
+            del summary
+            gc.collect()
     elapsed = time.perf_counter() - start
-    return CanonicalInventory(dataset, date_index, runs, oracle, elapsed)
+    return CanonicalInventory(dataset, date_index, scenarios, elapsed)
 
 
 @pytest.mark.ern_e2e
@@ -241,50 +369,33 @@ def test_part42_canonical_executed_population_and_plan_contract(
     date_index = canonical_inventory.date_index
     total_units = 0
     for expectation in EXPECTATIONS:
-        run = canonical_inventory.runs[expectation.experiment_id]
-        units = run.execution.plan.units
-        results = run.execution.results
-        total_units += len(units)
+        scenario = canonical_inventory.scenarios[expectation.experiment_id]
+        total_units += scenario.unit_count
 
-        expected_dates = tuple(
-            snapshot.date
-            for snapshot in dataset.snapshots[
-                : len(dataset.snapshots) - expectation.total_snapshots + 1
-            ]
+        assert scenario.unit_count == expectation.cohort_count
+        assert scenario.result_count == expectation.cohort_count
+        assert scenario.summary_cohort_count == expectation.cohort_count
+        assert scenario.experiment_cohort_count == expectation.cohort_count
+        assert scenario.actual_dates == _expected_cohort_dates(
+            dataset, expectation
         )
-        assert len(units) == expectation.cohort_count
-        assert len(results) == expectation.cohort_count
-        assert run.summary.cohort_count == expectation.cohort_count
-        assert (
-            len(run.execution.plan.experiment_definition.cohorts)
-            == expectation.cohort_count
-        )
-        assert tuple(unit.cohort.start_date for unit in units) == expected_dates
 
-        for unit in units:
-            start_index = date_index[unit.cohort.start_date]
+        for cohort in scenario.cohorts:
+            start_index = date_index[cohort.cohort_date]
             retirement_index = start_index + expectation.omy_months
             assert (
-                unit.dataset.snapshots[0].date
+                cohort.dataset_start_date
                 == dataset.snapshots[retirement_index].date
             )
-            assert len(unit.dataset) == expectation.horizon_months
-            assert unit.horizon_months == expectation.horizon_months
-            assert unit.final_value_target == expectation.final_value_target
+            assert cohort.dataset_length == expectation.horizon_months
+            assert cohort.horizon_months == expectation.horizon_months
+            assert cohort.final_value_target == expectation.final_value_target
 
-            assert isinstance(unit.allocation_policy, ConstantAllocationPolicy)
-            assert unit.allocation_policy.equity_allocation == EQUITY_WEIGHT
-            assert isinstance(unit.withdrawal_policy, FixedRealWithdrawalPolicy)
-            assert unit.withdrawal_policy.withdrawal_rate == WITHDRAWAL_RATE
+            assert cohort.equity_allocation == EQUITY_WEIGHT
+            assert cohort.withdrawal_rate == WITHDRAWAL_RATE
+            assert abs(cohort.effective_base - INITIAL_WEALTH) < Decimal("0.01")
 
-            effective_base = (
-                unit.withdrawal_base.amount
-                if unit.withdrawal_base is not None
-                else _value(unit.initial_portfolio, unit.dataset[0])
-            )
-            assert abs(effective_base - INITIAL_WEALTH) < Decimal("0.01")
-
-            schedule = unit.external_cash_flow_schedule
+            schedule = cohort.schedule
             if not expectation.social_security:
                 assert schedule is None
                 continue
@@ -303,33 +414,31 @@ def test_part42_canonical_independent_recurrence_matches_every_cohort(
     canonical_inventory: CanonicalInventory,
 ) -> None:
     for expectation in EXPECTATIONS:
-        run = canonical_inventory.runs[expectation.experiment_id]
-        oracle = canonical_inventory.oracle[expectation.experiment_id]
-        for unit, result in zip(
-            run.execution.plan.units, run.execution.results, strict=True
-        ):
-            expected = oracle[unit.cohort.start_date]
-            production_handoff = _value(unit.initial_portfolio, unit.dataset[0])
-            assert abs(production_handoff - expected.handoff_wealth) < Decimal("0.01")
+        scenario = canonical_inventory.scenarios[expectation.experiment_id]
+        for cohort in scenario.cohorts:
+            assert (
+                abs(cohort.production_handoff - cohort.expected_handoff)
+                < Decimal("0.01")
+            )
 
-            statistics = result.statistics
-            assert statistics.success is expected.success
-            assert statistics.failure_month == expected.failure_month
-            assert abs(statistics.final_wealth.amount - expected.final_wealth) < Decimal(
-                "0.01"
+            assert cohort.success is cohort.expected_success
+            assert cohort.failure_month == cohort.expected_failure_month
+            assert (
+                abs(cohort.final_wealth - cohort.expected_final_wealth)
+                < Decimal("0.01")
             )
 
             if expectation.social_security:
-                if expected.failure_month is None:
-                    assert expected.ss_payments_applied == SS_PAYMENTS
+                if cohort.expected_failure_month is None:
+                    assert cohort.ss_payments_applied == SS_PAYMENTS
             else:
-                assert expected.ss_payments_applied == 0
+                assert cohort.ss_payments_applied == 0
 
-        assert run.summary.per_cohort_success == tuple(
-            result.statistics.success for result in run.execution.results
+        assert scenario.summary_per_cohort_success == tuple(
+            cohort.success for cohort in scenario.cohorts
         )
-        assert run.summary.failures == sum(
-            1 for result in run.execution.results if not result.statistics.success
+        assert scenario.summary_failures == sum(
+            1 for cohort in scenario.cohorts if not cohort.success
         )
 
 
@@ -339,12 +448,9 @@ def test_part42_canonical_directional_success_invariants(
 ) -> None:
     successes: dict[str, dict[date, bool]] = {}
     for expectation in EXPECTATIONS:
-        run = canonical_inventory.runs[expectation.experiment_id]
+        scenario = canonical_inventory.scenarios[expectation.experiment_id]
         successes[expectation.experiment_id] = {
-            unit.cohort.start_date: result.statistics.success
-            for unit, result in zip(
-                run.execution.plan.units, run.execution.results, strict=True
-            )
+            cohort.cohort_date: cohort.success for cohort in scenario.cohorts
         }
 
     relationships = (

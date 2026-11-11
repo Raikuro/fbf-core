@@ -14,7 +14,13 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from fbf.core.datasets import load_canonical_dataset
+from fbf.core.datasets import prepare_ern_dataset
+from fbf.core.datasets.ern import (
+    FfrFuturePolicy,
+    InflationProjectionPolicy,
+    PreparedDatasetMetadata,
+    ProjectionConfig,
+)
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Money
@@ -123,6 +129,8 @@ def build_interest_rate_schedule(
     *,
     lag_months: int = 0,
     inflation_adjustment: Decimal | None = None,
+    forward_fill: bool = True,
+    forward_rate: Decimal | None = None,
 ) -> tuple[Decimal, ...]:
     """Build an interest rate schedule from FFR data + spread.
 
@@ -197,8 +205,16 @@ def build_interest_rate_schedule(
             rate = rate_map.get(lagged_date_ms)
             if rate is None:
                 if latest is not None and lagged_date > latest:
-                    # Forward-fill: use last known FFR for periods beyond dataset end
-                    rate = rate_map[latest]
+                    if forward_rate is not None:
+                        rate = forward_rate
+                    elif forward_fill:
+                        # Forward-fill: use last known FFR for periods beyond end
+                        rate = rate_map[latest]
+                    else:
+                        raise ValueError(
+                            "No FFR observation beyond "
+                            f"{latest.isoformat()} and forward filling is disabled"
+                        )
                 elif month_idx == 0 and earliest is not None:
                     # T=0 boundary: the ERN workbook never accrues interest at T=0
                     # (loan_balance=0), so the rate at index 0 is never consumed.
@@ -217,9 +233,16 @@ def build_interest_rate_schedule(
             period_date_ms = date(year, month, 1)
             rate = rate_map.get(period_date_ms)
             if rate is None:
-                # Forward-fill: use last known FFR for periods beyond dataset end
                 if latest is not None and period_date > latest:
-                    rate = rate_map[latest]
+                    if forward_rate is not None:
+                        rate = forward_rate
+                    elif forward_fill:
+                        rate = rate_map[latest]
+                    else:
+                        raise ValueError(
+                            "No FFR observation for "
+                            f"{period_date.isoformat()} and forward filling is disabled"
+                        )
                 else:
                     raise ValueError(
                         f"No FFR rate available for {period_date}. "
@@ -242,8 +265,37 @@ def build_interest_rate_schedule(
     return tuple(schedule)
 
 
+def _prepare_ffr_rates(
+    ffr_rates: tuple[tuple[date, Decimal], ...],
+    *,
+    cutoff: date | None,
+    policy: FfrFuturePolicy,
+    legacy_mode: bool,
+) -> tuple[tuple[tuple[date, Decimal], ...], bool, Decimal | None]:
+    """Apply cutoff and explicit future policy to FFR observations."""
+    if cutoff is None:
+        raise ValueError(
+            "FFR historical cutoff is required when FFR rates are enabled; "
+            "provide prepared dataset metadata or dataset.historical_data_cutoff"
+        )
+
+    filtered = tuple((when, rate) for when, rate in ffr_rates if when <= cutoff)
+    if not filtered:
+        raise ValueError(
+            f"No FFR observation at or before historical cutoff {cutoff.isoformat()}"
+        )
+    if legacy_mode:
+        return filtered, True, None
+    if policy.mode == "fail":
+        return filtered, False, None
+    if policy.mode == "constant_rate":
+        assert policy.constant_rate is not None
+        return filtered, False, policy.constant_rate
+    return filtered, True, None
+
+
 def _parse_optional_date(
-    mapping: Mapping[str, Any], key: str
+    mapping: Mapping[str, Any], key: str, *, prefix: str = "cohorts"
 ) -> date | None:
     """Parse an optional monthly ISO date (``YYYY-MM`` or ``YYYY-MM-DD``)."""
     raw = mapping.get(key)
@@ -251,13 +303,13 @@ def _parse_optional_date(
         return None
     if isinstance(raw, datetime):
         raise ValueError(
-            f"cohorts.{key} must be a date without a time component"
+            f"{prefix}.{key} must be a date without a time component"
         )
     if isinstance(raw, date):
         return raw
     if not isinstance(raw, str):
         raise ValueError(
-            f"cohorts.{key} must be an ISO date (YYYY-MM or YYYY-MM-DD)"
+            f"{prefix}.{key} must be an ISO date (YYYY-MM or YYYY-MM-DD)"
         )
 
     parts = raw.split("-")
@@ -269,7 +321,7 @@ def _parse_optional_date(
     )
     if not valid_shape:
         raise ValueError(
-            f"cohorts.{key} must be an ISO date (YYYY-MM or YYYY-MM-DD), "
+            f"{prefix}.{key} must be an ISO date (YYYY-MM or YYYY-MM-DD), "
             f"got {raw!r}"
         )
 
@@ -278,8 +330,150 @@ def _parse_optional_date(
         return date.fromisoformat(normalised)
     except ValueError as exc:
         raise ValueError(
-            f"cohorts.{key} is not a valid calendar date: {raw!r}"
+            f"{prefix}.{key} is not a valid calendar date: {raw!r}"
         ) from exc
+
+
+def _parse_legacy_mode(data: Mapping[str, Any]) -> bool:
+    compatibility = data.get("compatibility")
+    if compatibility is not None:
+        if not isinstance(compatibility, Mapping):
+            raise ValueError("compatibility must be a mapping")
+        mode = compatibility.get("mode", "standard")
+        if not isinstance(mode, str) or mode not in ("standard", "legacy"):
+            raise ValueError("compatibility.mode must be 'standard' or 'legacy'")
+        return mode == "legacy"
+    raw_legacy = data.get("legacy_mode", False)
+    if not isinstance(raw_legacy, bool):
+        raise ValueError("legacy_mode must be a boolean")
+    return raw_legacy
+
+
+def _parse_experiments(data: Mapping[str, Any]) -> tuple[StudyExperiment, ...] | None:
+    raw = data.get("experiments")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("experiments must be a non-empty list of mappings")
+    experiments: list[StudyExperiment] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"experiments[{index}] must be a mapping")
+        experiment_id = entry.get("id")
+        if not isinstance(experiment_id, str) or not experiment_id:
+            raise ValueError(f"experiments[{index}].id must be a non-empty string")
+        if experiment_id in seen:
+            raise ValueError(f"Duplicate experiment id {experiment_id!r}")
+        seen.add(experiment_id)
+        raw_rate = entry.get("withdrawal_rate")
+        raw_target = entry.get("final_value_target")
+        try:
+            withdrawal_rate = Decimal(str(raw_rate))
+            final_value_target = Decimal(str(raw_target))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError(
+                f"experiments[{index}] must declare decimal withdrawal_rate "
+                "and final_value_target"
+            ) from None
+        experiments.append(
+            StudyExperiment(
+                id=experiment_id,
+                withdrawal_rate=withdrawal_rate,
+                final_value_target=final_value_target,
+            )
+        )
+    return tuple(experiments)
+
+
+def _parse_dataset_configuration(
+    data: Mapping[str, Any],
+) -> ProjectionConfig | None:
+    raw_dataset = data.get("dataset")
+    if raw_dataset is None:
+        return None
+    if not isinstance(raw_dataset, Mapping):
+        raise ValueError("dataset must be a mapping")
+
+    identifier = raw_dataset.get("identifier")
+    if identifier is not None and not isinstance(identifier, str):
+        raise ValueError("dataset.identifier must be a string when provided")
+
+    cutoff = _parse_optional_date(
+        raw_dataset, "historical_data_cutoff", prefix="dataset"
+    )
+    raw_projection = raw_dataset.get("projection")
+    if raw_projection is None:
+        raw_projection = {}
+    if not isinstance(raw_projection, Mapping):
+        raise ValueError("dataset.projection must be a mapping")
+
+    end_date = _parse_optional_date(
+        raw_projection, "end_date", prefix="dataset.projection"
+    )
+    phase_months = raw_projection.get("phase_months", 120)
+    if not isinstance(phase_months, int) or isinstance(phase_months, bool):
+        raise ValueError("dataset.projection.phase_months must be an integer")
+    if phase_months < 0:
+        raise ValueError("dataset.projection.phase_months must be non-negative")
+
+    def _rate(mapping: Mapping[str, Any], key: str, default: Decimal) -> Decimal:
+        raw = mapping.get(key, default)
+        try:
+            return Decimal(str(raw))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError(
+                f"dataset.projection rate {key!r} must be a decimal number"
+            ) from None
+
+    raw_equity = raw_projection.get("equity", {})
+    raw_bonds = raw_projection.get("bonds", {})
+    if not isinstance(raw_equity, Mapping):
+        raise ValueError("dataset.projection.equity must be a mapping")
+    if not isinstance(raw_bonds, Mapping):
+        raise ValueError("dataset.projection.bonds must be a mapping")
+
+    raw_inflation = raw_projection.get("inflation", {})
+    if not isinstance(raw_inflation, Mapping):
+        raise ValueError("dataset.projection.inflation must be a mapping")
+    inflation_mode = raw_inflation.get("mode", "zero")
+    if inflation_mode not in ("zero", "constant"):
+        raise ValueError("dataset.projection.inflation.mode must be 'zero' or 'constant'")
+    inflation_rate = _rate(raw_inflation, "annual_rate", Decimal("0"))
+    inflation = InflationProjectionPolicy(
+        mode=inflation_mode, annual_rate=inflation_rate
+    )
+
+    raw_ffr = raw_projection.get("ffr", {})
+    if not isinstance(raw_ffr, Mapping):
+        raise ValueError("dataset.projection.ffr must be a mapping")
+    ffr_mode = raw_ffr.get("policy", raw_ffr.get("mode", "last_observed_at_cutoff"))
+    if ffr_mode not in ("fail", "constant_rate", "last_observed_at_cutoff"):
+        raise ValueError(
+            "dataset.projection.ffr.policy must be 'fail', 'constant_rate', or "
+            "'last_observed_at_cutoff'"
+        )
+    raw_ffr_rate = raw_ffr.get("constant_rate", raw_ffr.get("rate"))
+    ffr_rate = None if raw_ffr_rate is None else Decimal(str(raw_ffr_rate))
+    ffr = FfrFuturePolicy(mode=ffr_mode, constant_rate=ffr_rate)
+
+    return ProjectionConfig(
+        historical_data_cutoff=cutoff,
+        end_date=end_date,
+        phase_months=phase_months,
+        equity_annual=_rate(
+            raw_equity, "annual_real_return", Decimal("0.04")
+        ),
+        equity_annual_after=_rate(
+            raw_equity, "annual_real_return_after", Decimal("0.055")
+        ),
+        bond_annual=_rate(raw_bonds, "annual_real_return", Decimal("0.025")),
+        bond_annual_after=_rate(
+            raw_bonds, "annual_real_return_after", Decimal("0.0225")
+        ),
+        inflation=inflation,
+        ffr=ffr,
+    )
 
 
 def build_cohort_specs(
@@ -295,10 +489,22 @@ def build_cohort_specs(
     bound is omitted, the corresponding dataset boundary is used, so a single
     bound narrows the existing universe from that side.
     """
+    first_return_date = dataset.snapshots[1].date if len(dataset) > 1 else None
     if start_date is None and end_date is None:
-        return CohortGenerator.generate_rolling_monthly(dataset, horizon_months)
+        if first_return_date is None:
+            return ()
+        return CohortGenerator.generate_range(
+            dataset,
+            horizon_months,
+            first_return_date,
+            dataset.end_date,
+        )
 
-    effective_start = start_date if start_date is not None else dataset.start_date
+    effective_start = (
+        start_date
+        if start_date is not None
+        else (first_return_date or dataset.start_date)
+    )
     effective_end = end_date if end_date is not None else dataset.end_date
     return CohortGenerator.generate_range(
         dataset,
@@ -566,6 +772,29 @@ def build_part52_withdrawal_policy(
 
 
 @dataclass(frozen=True)
+class StudyExperiment:
+    """One explicit study experiment (for example a canonical Part 3 pair)."""
+
+    id: str
+    withdrawal_rate: Decimal
+    final_value_target: Decimal
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("experiment id must be a non-empty string")
+        if self.withdrawal_rate < 0:
+            raise ValueError("experiment withdrawal_rate must be non-negative")
+        if self.final_value_target < 0:
+            raise ValueError("experiment final_value_target must be non-negative")
+
+
+def _add_months(value: date, months: int) -> date:
+    total = value.year * 12 + (value.month - 1) + months
+    year, month_index = divmod(total, 12)
+    return date(year, month_index + 1, 1)
+
+
+@dataclass(frozen=True)
 class StudyConfiguration:
     """The normalized study configuration — the single YAML interpretation layer.
 
@@ -632,6 +861,9 @@ class StudyConfiguration:
     # its historical/projection boundary, or the simulation horizon.
     cohort_start_date: date | None = None
     cohort_end_date: date | None = None
+    projection_config: ProjectionConfig | None = None
+    experiments: tuple[StudyExperiment, ...] | None = None
+    legacy_mode: bool = False
     final_value_target_values: tuple[Decimal, ...] | None = None
     glidepath_start_values: tuple[Decimal, ...] | None = None
     glidepath_end_values: tuple[Decimal, ...] | None = None
@@ -679,8 +911,8 @@ class StudyConfiguration:
         if not isinstance(metadata, dict):
             raise ValueError("metadata must be a mapping")
 
-        # dataset block is optional — canonical data is resolved from --data-dir
-        data.get("dataset")
+        projection_config = _parse_dataset_configuration(data)
+        legacy_mode = _parse_legacy_mode(data)
 
         if "parameters" in data:
             raise ValueError(
@@ -836,15 +1068,31 @@ class StudyConfiguration:
         if not isinstance(withdrawal_policy_type, str):
             raise ValueError("withdrawal_policy.type must be a string")
         WithdrawalPolicyType.from_yaml_name(withdrawal_policy_type)
-        withdrawal_policy_values = _parse_decimal_values(
-            withdrawal_policy, "withdrawal_rate"
-        )
+        experiments = _parse_experiments(data)
+        if experiments is None:
+            withdrawal_policy_values = _parse_decimal_values(
+                withdrawal_policy, "withdrawal_rate"
+            )
+            final_value_target_values = _parse_optional_decimal_array(
+                data, "final_value_target"
+            )
+        else:
+            if "withdrawal_rate" in withdrawal_policy:
+                raise ValueError(
+                    "withdrawal_policy.withdrawal_rate must not be combined with "
+                    "explicit experiments; declare each rate in experiments"
+                )
+            if "final_value_target" in data:
+                raise ValueError(
+                    "final_value_target must not be combined with explicit "
+                    "experiments; declare each target in experiments"
+                )
+            withdrawal_policy_values = tuple(
+                dict.fromkeys(experiment.withdrawal_rate for experiment in experiments)
+            )
+            final_value_target_values = None
         withdrawal_frequency_raw = withdrawal_policy.get("frequency", "monthly")
         _validate_withdrawal_frequency(withdrawal_frequency_raw)
-
-        final_value_target_values = _parse_optional_decimal_array(
-            data, "final_value_target"
-        )
 
         # Parse optional expense_ratio (annual, ERN Part 52)
         expense_ratio = _parse_optional_decimal_scalar(data, "expense_ratio")
@@ -967,6 +1215,9 @@ class StudyConfiguration:
             cohort_horizon_years=cohort_horizon_years,
             cohort_start_date=cohort_start_date,
             cohort_end_date=cohort_end_date,
+            projection_config=projection_config,
+            experiments=experiments,
+            legacy_mode=legacy_mode,
             final_value_target_values=final_value_target_values,
             glidepath_start_values=glidepath_start_values,
             glidepath_end_values=glidepath_end_values,
@@ -1028,6 +1279,8 @@ def _build_unified_parameter_configs(
     ``withdrawal_rate`` and ``horizon_years`` axes.  The ``final_value_target``
     axis is also crossed when present.
     """
+    if config.experiments is not None:
+        return _build_configs_from_experiments(config)
     if config.explicit_configurations is not None:
         return _build_configs_from_explicit(config)
 
@@ -1223,6 +1476,38 @@ def _build_configs_from_explicit(
     return tuple(result)
 
 
+def _build_configs_from_experiments(
+    config: StudyConfiguration,
+) -> tuple[ParameterConfiguration, ...]:
+    """Build parameter configurations from explicit experiment pairs.
+
+    Each experiment contributes one withdrawal-rate/final-value-target pair.
+    Only the allocation and horizon axes are expanded within an experiment;
+    rates and targets are never crossed with one another.
+    """
+    assert config.experiments is not None
+    equity_values: tuple[Decimal | None, ...]
+    if config.allocation_weights is None:
+        equity_values = tuple(config.allocation_policy_values)
+    else:
+        equity_values = (None,)
+
+    configs: list[ParameterConfiguration] = []
+    for experiment in config.experiments:
+        for equity in equity_values:
+            for horizon_years in config.horizon_years:
+                values: dict[str, Any] = {
+                    "experiment_id": experiment.id,
+                    "withdrawal_rate": float(experiment.withdrawal_rate),
+                    "final_value_target": float(experiment.final_value_target),
+                    "horizon_years": horizon_years,
+                }
+                if equity is not None:
+                    values["equity_allocation"] = float(equity)
+                configs.append(ParameterConfiguration(values))
+    return tuple(configs)
+
+
 def _longest_horizon_years(config: StudyConfiguration) -> int:
     """The longest declared horizon — makes every cohort feasible for every unit."""
     return max(config.horizon_years)
@@ -1345,7 +1630,7 @@ def _make_target_resolver(
 
     Returns ``None`` when no ``final_value_target`` axis is declared.
     """
-    if config.final_value_target_values is None:
+    if config.final_value_target_values is None and config.experiments is None:
         return lambda param_config: None
 
     def resolve(param_config: ParameterConfiguration) -> Decimal | None:
@@ -1445,6 +1730,7 @@ class BuiltStudy:
     experiment_definition: ExperimentDefinition
     cohorts: tuple[CohortSpecification, ...]
     param_configs: tuple[ParameterConfiguration, ...]
+    dataset_metadata: PreparedDatasetMetadata | None = None
 
 
 def build_study_plan(
@@ -1470,8 +1756,25 @@ def build_study_plan(
     before the experiment and plan are materialized.  It is applied by the
     caller; the default ``None`` preserves the full generated universe.
     """
+    dataset_metadata: PreparedDatasetMetadata | None = None
     if dataset is None:
-        dataset = load_canonical_dataset(Path(data_dir))
+        longest_horizon_years = _longest_horizon_years(config)
+        coverage_years = max(
+            longest_horizon_years, config.cohort_horizon_years or 0
+        )
+        required_through = (
+            _add_months(config.cohort_end_date, coverage_years * 12)
+            if config.cohort_end_date is not None
+            else None
+        )
+        prepared = prepare_ern_dataset(
+            Path(data_dir),
+            config=config.projection_config,
+            required_through=required_through,
+            legacy_mode=config.legacy_mode,
+        )
+        dataset = prepared.dataset
+        dataset_metadata = prepared.metadata
     # Cohort horizon: use cohort_horizon_years if set, otherwise longest horizon.
     # ERN uses a fixed cohort set determined by the longest horizon (60y) across
     # ALL studies for comparability. When cohort_horizon_years is set, cohorts
@@ -1498,6 +1801,19 @@ def build_study_plan(
         if not cohorts:
             raise ValueError("cohort_filter excluded all horizon-feasible cohorts")
 
+    max_horizon_months = _longest_horizon_years(config) * 12 + 1
+    required_last_date = _add_months(
+        cohorts[-1].start_date, max_horizon_months - 1
+    )
+    if required_last_date > dataset.end_date:
+        raise ValueError(
+            "Prepared dataset does not cover the full requested horizon: "
+            f"last cohort={cohorts[-1].start_date.isoformat()}, "
+            f"horizon={max_horizon_months - 1} months, "
+            f"required_through={required_last_date.isoformat()}, "
+            f"dataset_end={dataset.end_date.isoformat()}"
+        )
+
     # Load FFR rates early to filter cohorts that predate or exceed FFR
     # coverage (S6.2).  ERN lag convention: month T uses FFR from month
     # T-1, so the earliest feasible cohort is the one whose
@@ -1506,8 +1822,36 @@ def build_study_plan(
     # in build_interest_rate_schedule handles periods beyond FFR dataset end.
     ffr_rates: tuple[tuple[date, Decimal], ...] | None = None
     ffr_spread: Decimal | None = None
+    ffr_forward_fill = True
+    ffr_forward_rate: Decimal | None = None
     if config.ffr_spread is not None:
-        ffr_rates = load_ffr_rates(data_dir)
+        ffr_policy = (
+            config.projection_config.ffr
+            if config.projection_config is not None
+            else FfrFuturePolicy()
+        )
+        cutoff = (
+            dataset_metadata.historical_data_cutoff
+            if dataset_metadata is not None
+            else (
+                config.projection_config.historical_data_cutoff
+                if config.projection_config is not None
+                else None
+            )
+        )
+        if cutoff is None:
+            raise ValueError(
+                "FFR historical cutoff is required when using an injected "
+                "dataset without prepared metadata; set "
+                "dataset.historical_data_cutoff"
+            )
+        raw_ffr_rates = load_ffr_rates(data_dir)
+        ffr_rates, ffr_forward_fill, ffr_forward_rate = _prepare_ffr_rates(
+            raw_ffr_rates,
+            cutoff=cutoff,
+            policy=ffr_policy,
+            legacy_mode=config.legacy_mode,
+        )
         ffr_spread = config.ffr_spread
 
     param_configs = _build_unified_parameter_configs(config)
@@ -1544,6 +1888,8 @@ def build_study_plan(
         ffr_rates=ffr_rates,
         ffr_spread=ffr_spread,
         ffr_inflation_adjustment=config.ffr_inflation_adjustment,
+        ffr_forward_fill=ffr_forward_fill,
+        ffr_forward_rate=ffr_forward_rate,
         ltv_limit=config.debt_ltv_limit,
         ltv_enforcement=config.debt_ltv_enforcement,
         loan_draw_rate=config.debt_loan_draw_rate,
@@ -1555,6 +1901,7 @@ def build_study_plan(
         experiment_definition=experiment_def,
         cohorts=cohorts,
         param_configs=param_configs,
+        dataset_metadata=dataset_metadata,
     )
 
 # ---------------------------------------------------------------------------
@@ -1639,9 +1986,26 @@ def build_omy_study_plan(
     equity_asset = AssetClass(id="equity", name="", description="")
     bond_asset = AssetClass(id="bond", name="", description="")
 
-    dataset = load_canonical_dataset(Path(data_dir))
+    base_config = config.base_config
+    horizon_years = max(base_config.horizon_years)
+    coverage_years = max(horizon_years, base_config.cohort_horizon_years or 0)
+    required_through = (
+        _add_months(
+            base_config.cohort_end_date,
+            coverage_years * 12 + config.omy_duration_months,
+        )
+        if base_config.cohort_end_date is not None
+        else None
+    )
+    prepared = prepare_ern_dataset(
+        Path(data_dir),
+        config=base_config.projection_config,
+        required_through=required_through,
+        legacy_mode=base_config.legacy_mode,
+    )
+    dataset = prepared.dataset
+    dataset_metadata = prepared.metadata
 
-    horizon_years = max(config.base_config.horizon_years)
     timeline = resolve_omy_timeline(
         horizon_years=horizon_years,
         omy_months=config.omy_duration_months,
@@ -1703,6 +2067,7 @@ def build_omy_study_plan(
         accumulation_cache=accumulation_cache,
         retirement_start_by_cohort=retirement_start_by_cohort,
         timeline=timeline,
+        dataset_metadata=dataset_metadata,
     )
 
 
@@ -1715,6 +2080,7 @@ def _build_omy_retirement_plan(
     accumulation_cache: dict[date, Portfolio],
     retirement_start_by_cohort: dict[date, date],
     timeline: OmyTimeline,
+    dataset_metadata: PreparedDatasetMetadata,
 ) -> BuiltStudy:
     """Build the retirement phase plan using accumulated portfolios."""
     from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
@@ -1781,4 +2147,5 @@ def _build_omy_retirement_plan(
         experiment_definition=experiment_def,
         cohorts=cohorts,
         param_configs=param_configs,
+        dataset_metadata=dataset_metadata,
     )

@@ -67,9 +67,11 @@ class TestOmySmallGridExecution:
 
         small = _small_omy_dataset(37)
 
+        from tests.support.prepared import prepared_dataset
+
         monkeypatch.setattr(
-            "fbf.core.study.builder.load_canonical_dataset",
-            lambda _p: small,
+            "fbf.core.study.builder.prepare_ern_dataset",
+            lambda *_args, **_kwargs: prepared_dataset(small),
         )
 
         result = build_omy_study_plan(config, data_dir=str(tmp_path))

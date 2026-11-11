@@ -1152,8 +1152,8 @@ class TestCohortFilter:
             cohort_filter=lambda cohort: cohort.start_date.year == 2000,
         )
 
-        assert len(built.cohorts) == 12
-        assert len(built.plan.units) == 12
+        assert len(built.cohorts) == 11
+        assert len(built.plan.units) == 11
         assert built.experiment_definition.cohorts == built.cohorts
         assert all(cohort.start_date.year == 2000 for cohort in built.cohorts)
 
@@ -1163,7 +1163,7 @@ class TestCohortFilter:
         from fbf.core.study.internal.cohort.generator import CohortGenerator
 
         dataset = _make_monthly_dataset()
-        expected = CohortGenerator.generate_rolling_monthly(dataset, 61)
+        expected = CohortGenerator.generate_rolling_monthly(dataset, 61)[1:]
         built = build_study_plan(
             _make_filter_config(),
             "data/ern",
@@ -1172,8 +1172,8 @@ class TestCohortFilter:
         )
 
         assert built.cohorts == expected
-        assert len(built.cohorts) == 60
-        assert len(built.plan.units) == 60
+        assert len(built.cohorts) == 59
+        assert len(built.plan.units) == 59
 
     def test_filter_excluding_every_cohort_raises(self) -> None:
         from fbf.core.domain.model.money import Currency, Money
@@ -1200,7 +1200,7 @@ class TestCohortFilter:
             cohort_filter=lambda cohort: cohort.start_date.year == 2000,
         )
 
-        assert len(result.experiment_result.simulation_results) == 12
+        assert len(result.experiment_result.simulation_results) == 11
 
 
 class TestCohortDateConfiguration:
@@ -1308,7 +1308,7 @@ class TestCohortDateConfiguration:
         from fbf.core.study.internal.cohort.generator import CohortGenerator
 
         dataset = _make_monthly_dataset()
-        expected = CohortGenerator.generate_rolling_monthly(dataset, 61)
+        expected = CohortGenerator.generate_rolling_monthly(dataset, 61)[1:]
         built = build_study_plan(
             self._config(),
             "data/ern",
@@ -1317,7 +1317,7 @@ class TestCohortDateConfiguration:
         )
 
         assert built.cohorts == expected
-        assert len(built.cohorts) == 60
+        assert len(built.cohorts) == 59
 
     def test_start_bound_without_end_uses_dataset_end(self) -> None:
         from fbf.core.domain.model.money import Currency, Money
@@ -1344,9 +1344,9 @@ class TestCohortDateConfiguration:
             dataset=_make_monthly_dataset(),
         )
 
-        assert built.cohorts[0].start_date == date(2000, 1, 1)
+        assert built.cohorts[0].start_date == date(2000, 2, 1)
         assert built.cohorts[-1].start_date == date(2000, 6, 1)
-        assert len(built.cohorts) == 6
+        assert len(built.cohorts) == 5
 
     def test_explicit_end_does_not_override_horizon_feasibility(self) -> None:
         from fbf.core.domain.model.money import Currency, Money
@@ -1360,7 +1360,7 @@ class TestCohortDateConfiguration:
         )
 
         assert built.cohorts[-1].start_date == date(2004, 12, 1)
-        assert len(built.cohorts) == 60
+        assert len(built.cohorts) == 59
 
     def test_infeasible_range_raises(self) -> None:
         from fbf.core.domain.model.money import Currency, Money
@@ -1372,6 +1372,33 @@ class TestCohortDateConfiguration:
                     start_date=date(2005, 1, 1),
                     end_date=date(2005, 6, 1),
                 ),
+                "data/ern",
+                Money(Decimal("1000000"), Currency.EUR),
+                dataset=_make_monthly_dataset(),
+            )
+
+
+class TestInjectedDatasetCutoff:
+    def test_ffr_requires_historical_cutoff_for_injected_dataset(self) -> None:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.study import build_study_plan
+
+        config = StudyConfiguration(
+            name="injected-ffr-cutoff",
+            description="",
+            version="1.0",
+            allocation_policy_type="ConstantAllocationPolicy",
+            allocation_policy_values=(Decimal("0.5"),),
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+            withdrawal_policy_values=(Decimal("0.04"),),
+            horizon_years=(5,),
+            cohort_horizon_years=5,
+            ffr_spread=Decimal("0.005"),
+        )
+
+        with pytest.raises(ValueError, match="FFR historical cutoff is required"):
+            build_study_plan(
+                config,
                 "data/ern",
                 Money(Decimal("1000000"), Currency.EUR),
                 dataset=_make_monthly_dataset(),

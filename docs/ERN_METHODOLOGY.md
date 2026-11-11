@@ -35,9 +35,12 @@ been retired, so it can no longer be regenerated or independently re-derived.
 
 ### Forward projection
 
-Historical market/CPI data end at `2026-06`; projection begins `2026-07` and
-extends through `2075-11` (`2,459` snapshots total). Monthly forward rates use
-`(1 + annual_rate) ** (1/12) - 1`:
+Persisted market/CPI data are historical only and end at `2026-06` by default;
+projection begins `2026-07`. Runtime coverage is derived from the latest
+included cohort plus its maximum horizon, so canonical Part 3 (last cohort
+`2015-12`, 60-year horizon) extends through `2075-12` (`2,460` snapshots).
+Studies may configure an earlier historical cutoff and their own forward
+assumptions. Monthly forward rates use `(1 + annual_rate) ** (1/12) - 1`:
 
 | Asset | Months 1-120 | Month 121 onward |
 |---|---:|---:|

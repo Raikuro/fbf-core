@@ -70,10 +70,12 @@ def _make_omy_config(
 def _patch_load_canonical(
     small_dataset: Dataset, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Monkeypatch load_canonical_dataset to return small_dataset."""
+    """Monkeypatch runtime preparation to return small_dataset."""
+    from tests.support.prepared import prepared_dataset
+
     monkeypatch.setattr(
-        "fbf.core.study.builder.load_canonical_dataset",
-        lambda _p: small_dataset,
+        "fbf.core.study.builder.prepare_ern_dataset",
+        lambda *_args, **_kwargs: prepared_dataset(small_dataset),
     )
 
 

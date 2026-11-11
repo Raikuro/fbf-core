@@ -29,6 +29,7 @@ from fbf.core.research.part3_planner import (
     load_manifest,
     materialize_part3_plan,
 )
+from fbf.core.study.builder import StudyExperiment
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from tests.support.ern.verified_manifest import verified_manifest_path
 
@@ -260,8 +261,79 @@ class TestPart3PlanMaterialization:
         # 2 cohorts x 2 allocations x 1 rate x 1 horizon = 4 units
         assert len(result.plan) == 4
 
-    def test_horizon_constraint_applied(self) -> None:
-        """Cohort with max_horizon_months=12 gets capped even if config requests 24."""
+    def test_explicit_experiments_avoid_wr_fv_cartesian(self) -> None:
+        manifest = _make_minimal_manifest()
+        trajectory = _make_minimal_trajectory(24)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("0.5"), Decimal("1.0")),
+            withdrawal_rates=(Decimal("0.04"), Decimal("0.035")),
+            horizon_years=(1,),
+            final_value_targets=None,
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+            experiments=(
+                StudyExperiment("A", Decimal("0.04"), Decimal("0.0")),
+                StudyExperiment("C", Decimal("0.035"), Decimal("0.5")),
+            ),
+        )
+        result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=config,
+            initial_wealth=WEALTH,
+        )
+        pairs = {
+            (
+                pc.values["experiment_id"],
+                Decimal(str(pc.values["withdrawal_rate"])),
+                Decimal(str(pc.values["final_value_target"])),
+            )
+            for pc in result.param_configs
+        }
+        assert pairs == {
+            ("A", Decimal("0.04"), Decimal("0.0")),
+            ("C", Decimal("0.035"), Decimal("0.5")),
+        }
+        assert len(result.param_configs) == 4
+
+    def test_legacy_cartesian_requires_explicit_opt_in(self) -> None:
+        manifest = _make_minimal_manifest()
+        trajectory = _make_minimal_trajectory(24)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("0.5"),),
+            withdrawal_rates=(Decimal("0.04"), Decimal("0.035")),
+            horizon_years=(1,),
+            final_value_targets=None,
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        )
+        with pytest.raises(ValueError, match="legacy behaviour"):
+            materialize_part3_plan(
+                manifest=manifest,
+                canonical_trajectory=trajectory,
+                config=config,
+                initial_wealth=WEALTH,
+            )
+
+        legacy_config = Part3PlannerConfig(
+            equity_allocations=(Decimal("0.5"),),
+            withdrawal_rates=(Decimal("0.04"), Decimal("0.035")),
+            horizon_years=(1,),
+            final_value_targets=None,
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+            legacy_cartesian=True,
+        )
+        result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=legacy_config,
+            initial_wealth=WEALTH,
+        )
+        assert len(result.param_configs) == 2
+
+    def test_horizon_shortfall_raises(self) -> None:
+        """Insufficient manifest coverage must fail, never silently cap."""
         cohorts = [
             {
                 "cohort_date": "2000-01-01",
@@ -278,19 +350,18 @@ class TestPart3PlanMaterialization:
         config = Part3PlannerConfig(
             equity_allocations=(Decimal("0.5"),),
             withdrawal_rates=(Decimal("0.04"),),
-            horizon_years=(2,),  # requests 24 months
+            horizon_years=(2,),  # requests 25 months
             final_value_targets=None,
             allocation_policy_type="ConstantAllocationPolicy",
             withdrawal_policy_type="FixedRealWithdrawalPolicy",
         )
-        result = materialize_part3_plan(
-            manifest=manifest,
-            canonical_trajectory=trajectory,
-            config=config,
-            initial_wealth=WEALTH,
-        )
-        # Effective horizon should be min(25, 12) = 12
-        assert result.plan[0].horizon_months == 12
+        with pytest.raises(ValueError, match="does not provide the requested horizon"):
+            materialize_part3_plan(
+                manifest=manifest,
+                canonical_trajectory=trajectory,
+                config=config,
+                initial_wealth=WEALTH,
+            )
 
     def test_no_cape_in_planned_units(self) -> None:
         """PlannedSimulationUnit must not contain CAPE state."""
@@ -532,42 +603,42 @@ class TestManifestIndexConvention:
             )
 
     def test_first_cohort_max_horizon(self) -> None:
-        """1871-02-01: trajectory index 1, max_horizon = 2459 - 1 = 2458."""
+        """1871-02-01: trajectory index 1, max_horizon = 2460 - 1 = 2459."""
         manifest = load_manifest(MANIFEST_PATH)
         first = manifest.cohorts[0]
         assert first.cohort_date == "1871-02-01"
-        assert first.max_horizon_months == 2458
+        assert first.max_horizon_months == 2459
 
     def test_2015_10_01_max_horizon(self) -> None:
-        """2015-10-01: trajectory index 1737, max_horizon = 2459 - 1737 = 722."""
+        """2015-10-01: trajectory index 1737, max_horizon = 2460 - 1737 = 723."""
         manifest = load_manifest(MANIFEST_PATH)
         entry = [c for c in manifest.cohorts if c.cohort_date == "2015-10-01"][0]
-        assert entry.max_horizon_months == 722
+        assert entry.max_horizon_months == 723
 
     def test_2015_11_01_max_horizon(self) -> None:
-        """2015-11-01: trajectory index 1738, max_horizon = 2459 - 1738 = 721."""
+        """2015-11-01: trajectory index 1738, max_horizon = 2460 - 1738 = 722."""
         manifest = load_manifest(MANIFEST_PATH)
         entry = [c for c in manifest.cohorts if c.cohort_date == "2015-11-01"][0]
-        assert entry.max_horizon_months == 721
+        assert entry.max_horizon_months == 722
 
     def test_2015_12_01_max_horizon(self) -> None:
-        """2015-12-01: trajectory index 1739, max_horizon = 2459 - 1739 = 720."""
+        """2015-12-01: trajectory index 1739, max_horizon = 2460 - 1739 = 721."""
         manifest = load_manifest(MANIFEST_PATH)
         entry = [c for c in manifest.cohorts if c.cohort_date == "2015-12-01"][0]
-        assert entry.max_horizon_months == 720
+        assert entry.max_horizon_months == 721
 
     def test_60y_eligibility_count(self) -> None:
-        """1,738 cohorts have max_horizon >= 721 (full 60-year eligibility)."""
+        """All 1,739 cohorts have max_horizon >= 721 (full 60-year coverage)."""
         manifest = load_manifest(MANIFEST_PATH)
         eligible = sum(1 for c in manifest.cohorts if c.max_horizon_months >= 721)
-        assert eligible == 1738
+        assert eligible == 1739
 
-    def test_2015_12_01_truncated_for_60y(self) -> None:
-        """2015-12-01 has max_horizon=720, one month short of 721 (60-year)."""
+    def test_2015_12_01_covers_60y(self) -> None:
+        """2015-12-01 has max_horizon=721 (full 60-year coverage)."""
         manifest = load_manifest(MANIFEST_PATH)
         entry = [c for c in manifest.cohorts if c.cohort_date == "2015-12-01"][0]
-        assert entry.max_horizon_months == 720
-        assert entry.max_horizon_months < 721
+        assert entry.max_horizon_months == 721
+        assert entry.max_horizon_months >= 721
 
     def test_no_systematic_offset(self) -> None:
         """max_horizon - (n_snapshots - trajectory_index) == 0 for all cohorts."""

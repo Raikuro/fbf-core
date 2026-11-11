@@ -22,6 +22,7 @@ from typing import Any
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Money
 from fbf.core.study.builder import (
+    StudyExperiment,
     build_allocation_policy,
     build_initial_portfolio,
     build_withdrawal_policy,
@@ -143,6 +144,8 @@ class Part3PlannerConfig:
     allocation_policy_type: str
     withdrawal_policy_type: str
     expense_ratio: Decimal = PART3_EXPENSE_RATIO
+    experiments: tuple[StudyExperiment, ...] | None = None
+    legacy_cartesian: bool = False
 
 
 @dataclass(frozen=True)
@@ -153,6 +156,31 @@ class Part3PlanResult:
     get_cape_metadata: Callable[[CohortSpecification], CapeMetadata]
     cohorts: tuple[CohortSpecification, ...]
     param_configs: tuple[ParameterConfiguration, ...]
+
+
+def _explicit_experiment_configs(
+    config: Part3PlannerConfig,
+) -> tuple[ParameterConfiguration, ...]:
+    """Expand each explicit experiment only across equity and horizon axes."""
+    assert config.experiments is not None
+    configs: list[ParameterConfiguration] = []
+    for experiment in config.experiments:
+        for equity in config.equity_allocations:
+            for horizon_years in config.horizon_years:
+                configs.append(
+                    ParameterConfiguration(
+                        {
+                            "experiment_id": experiment.id,
+                            "equity_allocation": float(equity),
+                            "withdrawal_rate": float(experiment.withdrawal_rate),
+                            "final_value_target": float(
+                                experiment.final_value_target
+                            ),
+                            "horizon_years": int(horizon_years),
+                        }
+                    )
+                )
+    return tuple(configs)
 
 
 def materialize_part3_plan(
@@ -198,29 +226,42 @@ def materialize_part3_plan(
         for entry in market_cohorts
     }
 
-    # Step 4: Generate parameter configurations
-    axes = [
-        ParameterAxis(
-            name="equity_allocation",
-            values=tuple(float(v) for v in config.equity_allocations),
-        ),
-        ParameterAxis(
-            name="withdrawal_rate",
-            values=tuple(float(v) for v in config.withdrawal_rates),
-        ),
-        ParameterAxis(
-            name="horizon_years",
-            values=tuple(int(v) for v in config.horizon_years),
-        ),
-    ]
-    if config.final_value_targets is not None:
-        axes.append(
-            ParameterAxis(
-                name="final_value_target",
-                values=tuple(float(v) for v in config.final_value_targets),
+    # Step 4: Generate parameter configurations.  Explicit experiment pairs
+    # are authoritative; the legacy WR/FV Cartesian product is opt-in only.
+    if config.experiments is not None:
+        param_configs = _explicit_experiment_configs(config)
+    else:
+        if (
+            len(config.withdrawal_rates) > 1
+            or len(config.final_value_targets or ()) > 1
+        ) and not config.legacy_cartesian:
+            raise ValueError(
+                "Part 3 withdrawal-rate/final-value Cartesian expansion is "
+                "legacy behaviour; provide explicit experiments or set "
+                "legacy_cartesian=True"
             )
-        )
-    param_configs = ParameterSweepEngine.cartesian_product(axes)
+        axes = [
+            ParameterAxis(
+                name="equity_allocation",
+                values=tuple(float(v) for v in config.equity_allocations),
+            ),
+            ParameterAxis(
+                name="withdrawal_rate",
+                values=tuple(float(v) for v in config.withdrawal_rates),
+            ),
+            ParameterAxis(
+                name="horizon_years",
+                values=tuple(int(v) for v in config.horizon_years),
+            ),
+        ]
+        if config.final_value_targets is not None:
+            axes.append(
+                ParameterAxis(
+                    name="final_value_target",
+                    values=tuple(float(v) for v in config.final_value_targets),
+                )
+            )
+        param_configs = ParameterSweepEngine.cartesian_product(axes)
 
     # Step 5: Build resolvers
     def horizon_resolver(param_config: ParameterConfiguration) -> int:
@@ -245,18 +286,21 @@ def materialize_part3_plan(
             return None
         return Decimal(str(raw))
 
-    # Step 7: Build a horizon resolver that respects per-cohort constraints.
-    # For each cohort, the effective horizon is:
-    #   min(requested_horizon, cohort_max_horizon)
-    # This ensures cohorts with insufficient forward data are not
-    # assigned an impossible horizon.
+    # Step 7: Validate full horizon coverage.  Configured studies must never
+    # silently shorten a requested horizon.
     def cohort_aware_horizon_resolver(
         param_config: ParameterConfiguration,
         cohort: CohortSpecification,
     ) -> int:
         requested = horizon_resolver(param_config)
         max_h = cohort_max_horizon.get(cohort.start_date.isoformat(), 0)
-        return min(requested, max_h)
+        if max_h < requested:
+            raise ValueError(
+                "Manifest does not provide the requested horizon for cohort "
+                f"{cohort.start_date.isoformat()}: requested={requested}, "
+                f"available={max_h}"
+            )
+        return requested
 
     # Step 8: Materialize the plan using per-cohorizon-aware slicing.
     # We cannot use the generic materialize_research_plan directly because

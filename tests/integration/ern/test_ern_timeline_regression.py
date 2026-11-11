@@ -61,8 +61,8 @@ def grid_plan() -> BuiltStudy:
     """The grid-shaped plan (all four horizons): 1739 cohorts, 6956 units.
 
     The cohort set is fixed by the longest horizon (721 observations -> 1739
-    cohorts on the 2459-snapshot h720 dataset), exactly matching the oracle's
-    cohort census START_FIRST=1..START_LAST=1739.
+    cohorts on the 2460-snapshot h720 runtime dataset), spanning 1871-02 through
+    2015-12.
     """
     config = _make_study_config(0.5, 0.04, (30, 40, 50, 60))
     return build_study_plan(config, str(DATA_DIR), Money(Decimal("1000000"), Currency.EUR))
@@ -79,8 +79,9 @@ def _units_by_horizon(plan: ResearchPlan) -> dict[int, list[PlannedSimulationUni
 def _workbook_cell_ok(weight: float, rate: float, horizon_years: int) -> list[bool]:
     """Per-cohort workbook success for a cell using the canonical dataset.
 
-    The cohort windows are 0-based and match the production plan: window
-    ``start`` uses returns from snapshots ``start`` through ``start + T``.
+    The cohort windows are 0-based and match the production plan: cohort
+    ``start`` begins at dataset snapshot ``start + 1`` (excluding the
+    1871-01-31 base snapshot) and uses returns through ``start + T + 1``.
     """
     T = HORIZON_MONTHS[horizon_years] - 1
     w_eq = Decimal(str(weight))
@@ -96,13 +97,13 @@ def _workbook_cell_ok(weight: float, rate: float, horizon_years: int) -> list[bo
         wb_returns: list[Decimal] = []
         for m in range(T):
             eq_ret = (
-                dataset.snapshots[start + m + 1].index_levels[eq_class]
-                / dataset.snapshots[start + m].index_levels[eq_class]
+                dataset.snapshots[start + m + 2].index_levels[eq_class]
+                / dataset.snapshots[start + m + 1].index_levels[eq_class]
                 - 1
             )
             bd_ret = (
-                dataset.snapshots[start + m + 1].index_levels[bd_class]
-                / dataset.snapshots[start + m].index_levels[bd_class]
+                dataset.snapshots[start + m + 2].index_levels[bd_class]
+                / dataset.snapshots[start + m + 1].index_levels[bd_class]
                 - 1
             )
             wb_returns.append(
@@ -209,7 +210,7 @@ def test_plan_exposes_pre_retirement_snapshot(grid_plan: BuiltStudy) -> None:
     """The corrected plan anchors every cohort at its pre-retirement snapshot."""
     by_horizon = _units_by_horizon(grid_plan.plan)
     first = by_horizon[HORIZON_MONTHS[30]][0]
-    assert first.cohort.start_date.isoformat() == "1871-01-31"  # d_{-1}
+    assert first.cohort.start_date.isoformat() == "1871-02-01"
     assert first.dataset[0].date == first.cohort.start_date
     assert len(first.dataset) == HORIZON_MONTHS[30]  # T+1 observations
     assert first.horizon_months == HORIZON_MONTHS[30]
@@ -275,7 +276,7 @@ def test_boundary_cohort_306_matches_workbook(
 ) -> None:
     """Cohort 306 (0% / 3.25% / 30y) is a precision boundary.
 
-    The engine's cohort 306 retires in July-1896 (base snapshot 1896-07-01).
+    The engine's cohort 306 retires in August-1896 (base snapshot 1896-08-01).
     With exact workbook returns the closed-form SCR is 3.2506386%, marginally
     above the 3.25% withdrawal rate.  The Numba engine follows the workbook and
     classifies the cohort as a success.  The pinned published-ERN cell is 79%;
@@ -283,7 +284,7 @@ def test_boundary_cohort_306_matches_workbook(
     """
     by_horizon = _units_by_horizon(grid_plan.plan)
     unit = by_horizon[HORIZON_MONTHS[30]][306]
-    assert unit.cohort.start_date.isoformat() == "1896-07-01"  # old d_305 = base for c=306
+    assert unit.cohort.start_date.isoformat() == "1896-08-01"
 
     context = _engine_contexts(
         grid_plan.plan, by_horizon, 0.0, 0.0325, 30, {306}

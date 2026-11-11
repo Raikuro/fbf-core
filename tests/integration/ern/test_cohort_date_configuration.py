@@ -34,8 +34,8 @@ def test_default_production_cohort_universe_remains_1739() -> None:
     )
 
     assert len(built.cohorts) == 1739
-    assert built.cohorts[0].start_date == date(1871, 1, 31)
-    assert built.cohorts[-1].start_date == date(2015, 11, 1)
+    assert built.cohorts[0].start_date == date(1871, 2, 1)
+    assert built.cohorts[-1].start_date == date(2015, 12, 1)
     assert len(built.plan.units) == 1739
 
 

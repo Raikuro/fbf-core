@@ -20,6 +20,7 @@ import pytest
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.study import StudyConfiguration, build_study_plan, load_yaml
+from tests.support.prepared import prepared_dataset
 
 from .helpers import make_dataset
 
@@ -64,8 +65,8 @@ class TestCanonicalDatasetLoading:
         dataset = make_dataset(num_months=40, start_year=2000)
 
         monkeypatch.setattr(
-            "fbf.core.study.builder.load_canonical_dataset",
-            lambda data_dir: dataset,
+            "fbf.core.study.builder.prepare_ern_dataset",
+            lambda *_args, **_kwargs: prepared_dataset(dataset),
         )
 
         study = StudyConfiguration.from_yaml(load_yaml(_simple_study(tmp_path)))
@@ -83,8 +84,8 @@ class TestCanonicalDatasetLoading:
         dataset = make_dataset(num_months=40, start_year=2000)
 
         monkeypatch.setattr(
-            "fbf.core.study.builder.load_canonical_dataset",
-            lambda data_dir: dataset,
+            "fbf.core.study.builder.prepare_ern_dataset",
+            lambda *_args, **_kwargs: prepared_dataset(dataset),
         )
 
         study = StudyConfiguration.from_yaml(load_yaml(_simple_study(tmp_path)))
@@ -99,8 +100,8 @@ class TestCanonicalDatasetLoading:
         dataset = make_dataset(num_months=40, start_year=2000)
 
         monkeypatch.setattr(
-            "fbf.core.study.builder.load_canonical_dataset",
-            lambda data_dir: dataset,
+            "fbf.core.study.builder.prepare_ern_dataset",
+            lambda *_args, **_kwargs: prepared_dataset(dataset),
         )
 
         study = StudyConfiguration.from_yaml(load_yaml(_simple_study(tmp_path)))

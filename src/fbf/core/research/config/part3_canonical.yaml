@@ -1,0 +1,71 @@
+metadata:
+  name: "ERN Part 3 — Canonical"
+  version: "1.0"
+  description: >
+    Equity valuation using CAPE regimes. Four explicit experiments A-D,
+    21 equity weights, 30-year and 60-year horizons.
+
+cohorts:
+  start_date: "1871-02-01"
+  end_date: "2015-12-01"
+  horizon_years: [30, 60]
+  cohort_horizon_years: 60
+
+allocation_policy:
+  type: ConstantAllocationPolicy
+  equity_allocation:
+    - 0.0
+    - 0.05
+    - 0.10
+    - 0.15
+    - 0.20
+    - 0.25
+    - 0.30
+    - 0.35
+    - 0.40
+    - 0.45
+    - 0.50
+    - 0.55
+    - 0.60
+    - 0.65
+    - 0.70
+    - 0.75
+    - 0.80
+    - 0.85
+    - 0.90
+    - 0.95
+    - 1.0
+
+withdrawal_policy:
+  type: FixedRealWithdrawalPolicy
+
+experiments:
+  - id: A
+    withdrawal_rate: 0.04
+    final_value_target: 0.0
+  - id: B
+    withdrawal_rate: 0.04
+    final_value_target: 0.5
+  - id: C
+    withdrawal_rate: 0.035
+    final_value_target: 0.5
+  - id: D
+    withdrawal_rate: 0.0325
+    final_value_target: 0.5
+
+dataset:
+  historical_data_cutoff: "2026-06-01"
+  projection:
+    phase_months: 120
+    equity:
+      annual_real_return: 0.04
+      annual_real_return_after: 0.055
+    bonds:
+      annual_real_return: 0.025
+      annual_real_return_after: 0.0225
+    inflation:
+      mode: zero
+    ffr:
+      policy: last_observed_at_cutoff
+
+expense_ratio: 0.0005

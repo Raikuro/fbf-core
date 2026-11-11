@@ -223,6 +223,8 @@ def materialize_research_plan(
     ffr_rates: tuple[tuple[date, Decimal], ...] | None = None,
     ffr_spread: Decimal | None = None,
     ffr_inflation_adjustment: Decimal | None = None,
+    ffr_forward_fill: bool = True,
+    ffr_forward_rate: Decimal | None = None,
     ltv_limit: Decimal | None = None,
     ltv_enforcement: bool = True,
     loan_draw_rate: Decimal | None = None,
@@ -338,6 +340,8 @@ def materialize_research_plan(
                     horizon_months=horizon_months,
                     lag_months=1,  # ERN Part 52: month T uses FFR from month T-1
                     inflation_adjustment=ffr_inflation_adjustment,
+                    forward_fill=ffr_forward_fill,
+                    forward_rate=ffr_forward_rate,
                 )
             units.append(
                 PlannedSimulationUnit(

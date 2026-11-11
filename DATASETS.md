@@ -17,9 +17,9 @@ regeneration commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
    the CLI `--data-dir` option or the `data_dir` Core API parameter. Core owns
    dataset loading; consumers only supply the path.
 3. The canonical ERN loader expects the fixed CSV filenames listed in
-   [§2](#2-ern-dataset-files). It reconstructs an immutable `Dataset` from those
-   series, including the workbook-defined forward projection and derived market
-   state.
+   [§2](#2-ern-dataset-files). Persisted market/CPI series are historical-only;
+   the loader reconstructs an immutable `Dataset` and generates any required
+   forward projection in memory under explicit cutoff and projection rules.
 4. There is no generic JSON dataset discovery, identifier/version resolver, or
    process-local dataset cache. `build_study_plan` calls
    `load_canonical_dataset(Path(data_dir))` unless the caller supplies an
@@ -46,7 +46,7 @@ repeat this mapping.
 | `spx_tr.csv` | S&P 500 total-return nominal index | auxiliary |
 | `bm10.csv` | 10-year bond cumulative nominal index | auxiliary |
 | `cpi.csv` | CPI index level | `fbf.core.datasets.ern` |
-| `cape_shiller.csv` | Canonical Shiller CAPE used by cohort manifests | research manifest only |
+| `cape_shiller.csv` | Canonical Shiller CAPE used for runtime cohort conditioning | research manifest only |
 | `ffr.csv` | Federal Funds Rate time series | `fbf.core.study.builder.load_ffr_rates` |
 
 Equity and bond CSV roles are fixed by the canonical loader: weight `w` means
@@ -129,7 +129,10 @@ source, fallback, or extension.
 
 ### Non-canonical and research-only artifacts
 
-- `canonical/ern_asset_returns.csv` is legacy and non-canonical.
+- The former `canonical/ern_asset_returns.csv` legacy artifact has been removed
+  and must not be reintroduced.
+- Persisted projected manifests such as `data/ern/cohort_manifest_part3.json`
+  and `data/ern/ern_swr_h720.json` are obsolete; manifests are built at runtime.
 - `data/ern/raw/ie_data.csv` and Shiller JSON archives are not canonical CAPE
   sources.
 - `data/ern/ffr_monthly.json` is research-only.

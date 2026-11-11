@@ -100,4 +100,4 @@ where = ["src"]
 namespaces = true
 
 [tool.setuptools.package-data]
-"fbf.core" = ["py.typed"]
+"fbf.core" = ["py.typed", "research/config/*.yaml"]

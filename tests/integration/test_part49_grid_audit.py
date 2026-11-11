@@ -42,16 +42,16 @@ class TestDatasetAudit:
     """Verify dataset properties and cohort coverage."""
 
     def test_dataset_has_expected_snapshots(self, ern_dataset: Dataset) -> None:
-        """The canonical dataset should have 2,459 snapshots."""
-        assert len(ern_dataset.snapshots) == 2459
+        """The canonical dataset should have 2,460 snapshots."""
+        assert len(ern_dataset.snapshots) == 2460
 
     def test_dataset_start_date(self, ern_dataset: Dataset) -> None:
         """Dataset should start at 1871-01-31."""
         assert str(ern_dataset.start_date) == "1871-01-31"
 
     def test_dataset_end_date(self, ern_dataset: Dataset) -> None:
-        """Dataset should end at 2075-11-01."""
-        assert str(ern_dataset.end_date) == "2075-11-01"
+        """Dataset should end at 2075-12-01."""
+        assert str(ern_dataset.end_date) == "2075-12-01"
 
     def test_dataset_has_equity_and_bond(self, ern_dataset: Dataset) -> None:
         """Dataset should contain equity and bond asset classes."""
@@ -71,20 +71,19 @@ class TestCohortAudit:
 
     ERN uses a FIXED cohort set of 1,739 across ALL horizons (30y, 40y, 50y, 60y)
     to ensure comparability. The longest horizon (60y = 721 months) determines the
-    cohort population: 2,459 snapshots - 721 + 1 = 1,739. This same set is used
-    for Part 49 even though it only studies 30-year horizons.
+    cohort population: 2,460 snapshots minus the excluded 1871-01-31 base
+    snapshot, 721-month window = 1,739 cohorts (1871-02..2015-12). This same
+    set is used for Part 49 even though it only studies 30-year horizons.
 
     Source: pinned published-ERN oracle cohort census (START_FIRST=1, START_LAST=1739)
     """
 
     def test_1739_cohorts_for_60yr_horizon(self, ern_dataset: Dataset) -> None:
-        """1,739 cohorts = 2,459 snapshots - 721 months + 1 (60yr horizon)."""
-        from fbf.core.study.internal.cohort.generator import CohortGenerator
+        """1,739 cohorts span 1871-02..2015-12 for the 60-year horizon."""
+        from fbf.core.study.builder import build_cohort_specs
 
         horizon_months_60y = 60 * 12 + 1  # = 721
-        cohorts = CohortGenerator.generate_rolling_monthly(
-            ern_dataset, horizon_months_60y
-        )
+        cohorts = build_cohort_specs(ern_dataset, horizon_months_60y)
         assert len(cohorts) == 1739
 
     def test_2099_cohorts_for_30yr_horizon(self, ern_dataset: Dataset) -> None:
@@ -92,33 +91,28 @@ class TestCohortAudit:
 
         ERN restricts to 1,739 cohorts for cross-horizon comparability.
         """
-        from fbf.core.study.internal.cohort.generator import CohortGenerator
+        from fbf.core.study.builder import build_cohort_specs
 
         horizon_months_30y = 30 * 12 + 1  # = 361
-        cohorts = CohortGenerator.generate_rolling_monthly(
-            ern_dataset, horizon_months_30y
-        )
+        cohorts = build_cohort_specs(ern_dataset, horizon_months_30y)
         assert len(cohorts) == 2099
 
     def test_1739_cohorts_are_ern_standard(self, ern_dataset: Dataset) -> None:
-        """1,739 cohorts match ERN's fixed cohort set (Jan 1871 .. Nov 2015).
+        """1,739 cohorts match ERN's fixed cohort set (Feb 1871 .. Dec 2015).
 
         This is the canonical ERN cohort population used across ALL studies
         (Parts 19, 20, 42, 49) and ALL horizons. The set is defined by the
         longest horizon (60y) to ensure that success rates are comparable
         across different horizon lengths.
         """
-        from fbf.core.study.internal.cohort.generator import CohortGenerator
+        from fbf.core.study.builder import build_cohort_specs
 
         horizon_months_60y = 60 * 12 + 1
-        cohorts = CohortGenerator.generate_rolling_monthly(
-            ern_dataset, horizon_months_60y
-        )
-        # First cohort is the base snapshot date (1871-01-31)
-        assert str(cohorts[0].start_date) == "1871-01-31"
-        # Last cohort is the last feasible date for 60yr horizon
-        # 2,459 snapshots - 721 months = index 1,738 (0-based) = 2015-11-01
-        assert str(cohorts[-1].start_date) == "2015-11-01"
+        cohorts = build_cohort_specs(ern_dataset, horizon_months_60y)
+        # First cohort is the first return month after the excluded base snapshot
+        assert str(cohorts[0].start_date) == "1871-02-01"
+        # Last cohort is the last feasible date for full 60yr coverage
+        assert str(cohorts[-1].start_date) == "2015-12-01"
 
 
 # ---------------------------------------------------------------------------

@@ -71,14 +71,16 @@ authorization.
 
 ### Cohort manifest
 
-`tools/ern/build_cohort_manifest.py` derives the Part 3/19/20 manifest from the
-canonical CAPE, market, and CPI artifacts. It requires workbook provenance and
-refuses to replace an existing file without `--force`:
+`tools/ern/build_cohort_manifest.py` builds the runtime effective Part 3/19/20
+manifest from canonical historical CAPE, market, and CPI artifacts. It requires
+workbook provenance and uses the same preparation pipeline as production. The
+manifest is projection-dependent and must not be committed; `--output` is for
+temporary inspection only:
 
 ```bash
 .venv/bin/python tools/ern/build_cohort_manifest.py \
   --data-dir /tmp/ern-canonical-review \
-  --output /tmp/ern-canonical-review/cohort_manifest_part3.json
+  --output /tmp/ern-canonical-review/effective_manifest.json
 ```
 
 ### Workbook conformance oracle
@@ -148,7 +150,7 @@ changing any expected value.
 Only after explicit authorization:
 
 1. Extract to a temporary directory and review CSV/provenance output.
-2. Build the manifest to a temporary path and review the diff.
+2. Build the runtime effective manifest to a temporary path and review it.
 3. Replace only approved artifacts. Do not delete legacy/research artifacts.
 4. Re-derive structural populations and review published-anchor differences.
 5. Run focused unit, integration, contract, and functional tests.
