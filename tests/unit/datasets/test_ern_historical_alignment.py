@@ -25,7 +25,7 @@ from tools.ern import workbook_oracle as wo
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CANONICAL_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
-_FIXTURE_DATA_DIR = _REPO_ROOT / "data" / "ern"
+_FIXTURE_DATA_DIR = _REPO_ROOT / "tests" / "fixtures" / "ern"
 _DEFAULT_TOLERANCE = Decimal("1e-24")
 _FEE_ANNUAL = Decimal("0.0005")
 _HORIZON_MONTHS = 360

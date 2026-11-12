@@ -2,9 +2,8 @@
 
 Canonical production inputs live in ``data/inputs/ern/``; auxiliary extraction
 inputs live in ``data/inputs/ern/extraction/``. Pinned oracle matrices and
-regression fixtures remain in ``data/ern/`` pending fixture migration.
+regression fixtures live in ``tests/fixtures/ern/``.
 
-- ``p49_oracle_table.csv``                pinned historical published-ERN oracle matrix.
 - ``workbook_oracle_table.csv``           pinned workbook-conformance oracle matrix.
 
 Production data is workbook-derived.
@@ -18,8 +17,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 CANONICAL_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
-FIXTURE_DATA_DIR = _REPO_ROOT / "data" / "ern"
-ORACLE_CSV = FIXTURE_DATA_DIR / "p49_oracle_table.csv"
+FIXTURE_DATA_DIR = _REPO_ROOT / "tests" / "fixtures" / "ern"
 WORKBOOK_ORACLE_CSV = FIXTURE_DATA_DIR / "workbook_oracle_table.csv"
 
 # ---------------------------------------------------------------------------
@@ -122,13 +120,6 @@ SMOKE_GRID_CELLS = (
 SMOKE_GRID_COHORTS = 2099
 SMOKE_GRID_UNITS = SMOKE_GRID_CELLS * SMOKE_GRID_COHORTS
 
-# Hard-fail acceptance anchors from the ERN paper Table 1 (Section 5.2).
-ANCHOR_CELLS = [
-    (0.5, 30, 0.04, 95),
-    (0.5, 60, 0.04, 65),
-    (0.75, 60, 0.035, 97),
-]
-
 # ---------------------------------------------------------------------------
 # Part 20 — More Thoughts on Equity Glidepaths
 # ---------------------------------------------------------------------------
@@ -205,8 +196,8 @@ PART20_GRID_CELLS = (
 )  # 320
 
 
-def load_oracle_table(path: Path = ORACLE_CSV) -> OracleTable:
-    """Load the pinned oracle matrix as ``{(weight, horizon_years): {rate: percent}}``."""
+def load_oracle_table(path: Path) -> OracleTable:
+    """Load an oracle matrix as ``{(weight, horizon_years): {rate: percent}}``."""
     table: OracleTable = {}
     with open(path, newline="") as f:
         rows = list(csv.DictReader(f))

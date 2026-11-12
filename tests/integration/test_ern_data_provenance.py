@@ -26,7 +26,7 @@ from tools.ern import extract_workbook_returns as workbook_returns
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
 _EXTRACTION_DIR = _DATA_DIR / "extraction"
-_FIXTURE_DIR = _REPO_ROOT / "data" / "ern"
+_FIXTURE_DIR = _REPO_ROOT / "tests" / "fixtures" / "ern"
 
 _EXTRACTION_CSVS = frozenset({"spx_tr.csv", "bm10.csv"})
 _FIXTURE_CSVS = frozenset({"workbook_returns.csv"})

@@ -7,9 +7,9 @@ regeneration commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
 **Status:** adopted. The canonical ERN production data lives in
 `data/inputs/ern/`; auxiliary extraction inputs live in
-`data/inputs/ern/extraction/`. Pinned test fixtures and oracles remain in
-`data/ern/` pending fixture migration, and generated outputs belong in the
-gitignored `data/outputs/` directory.
+`data/inputs/ern/extraction/`. Pinned test fixtures and oracles live in
+`tests/fixtures/ern/`, and generated outputs belong in the gitignored
+`data/outputs/` directory.
 
 ---
 
@@ -42,14 +42,13 @@ The loaded dataset is immutable and shared across simulations.
 |---|---|---|
 | `data/inputs/ern/` | Five canonical simulation CSVs and provenance sidecars | Production inputs |
 | `data/inputs/ern/extraction/` | `spx_tr.csv`, `bm10.csv`, `FEDFUNDS.csv` and sidecars | Auxiliary extraction inputs; not loader inputs |
-| `data/ern/` | Oracle tables, `workbook_returns.csv`, Part 2 regression fixture, deferred `raw/ie_data.*` | Test fixtures and pinned oracles |
+| `tests/fixtures/ern/` | `workbook_returns.csv`, its provenance sidecar, and `workbook_oracle_table.csv` | Test fixtures and pinned oracles |
 | `data/outputs/` | Generated run artifacts | Gitignored scratch output; never canonical input |
 
 Canonical files are the five series consumed by the production loader in
 `data/inputs/ern/`. Auxiliary extraction files support provenance and
 regeneration but are not production loader inputs. Fixtures and oracles under
-`data/ern/` are test-only and may move to `tests/fixtures/ern/` in a later
-phase; they are not canonical production data.
+`tests/fixtures/ern/` are test-only and are not canonical production data.
 
 ---
 
@@ -67,7 +66,7 @@ repeat this mapping.
 | `cpi.csv` | CPI index level | `data/inputs/ern/` | `fbf.core.datasets.ern` |
 | `cape_shiller.csv` | Canonical Shiller CAPE used for runtime cohort conditioning | `data/inputs/ern/` | research manifest only |
 | `ffr.csv` | Federal Funds Rate time series | `data/inputs/ern/` | `fbf.core.study.builder.load_ffr_rates` |
-| `workbook_returns.csv` | Exact combined oracle fixture | `data/ern/` | test fixtures only |
+| `workbook_returns.csv` | Exact combined oracle fixture | `tests/fixtures/ern/` | test fixtures only |
 
 Equity and bond CSV roles are fixed by the canonical loader: weight `w` means
 `w` equity and `1 - w` bond. Equity-derived state (ATH, underwater, drawdown)
@@ -108,11 +107,12 @@ below is the only documented exception.
 | `workbook_returns.csv` | `Q` and `R` | Exact combined oracle fixture |
 
 CAPE is **workbook-only**: `SWR_Toolbox_v2.0.xlsx`, sheet `Asset Returns`,
-column `O` (`O6:O1871`; 1,866 observations; `1871-01..2026-06`). Raw
-`data/ern/raw/ie_data.csv`, Shiller JSON sources,
-`canonical/ern_asset_returns.csv`, and any prior hybrid CAPE composition are
-not canonical CAPE sources. The committed `cape_shiller.csv` is the exact
-workbook-only extraction.
+column `O` (`O6:O1871`; 1,866 observations; `1871-01..2026-06`). Raw Shiller
+CSV snapshots, Shiller JSON sources, `canonical/ern_asset_returns.csv`, and any
+prior hybrid CAPE composition are not canonical CAPE sources. No raw
+`ie_data.csv` artifact is retained in the repository. The committed
+`cape_shiller.csv` is the exact workbook-only extraction; historical provenance
+records that no merge with `ie_data.csv` occurred.
 
 Each workbook-generated canonical output has a sibling
 `<name>.provenance.json` recording source workbook, sheet, column/cells,
@@ -155,16 +155,16 @@ source, fallback, or extension.
 - Persisted projected manifests such as
   `data/inputs/ern/cohort_manifest_part3.json` and
   `data/inputs/ern/ern_swr_h720.json` are obsolete; manifests are built at runtime.
-- `data/ern/raw/ie_data.csv` and Shiller JSON archives are not canonical CAPE
-  sources; `ie_data` remains deferred fixture-adjacent research input pending a
-  later migration phase.
+- `ie_data.csv` and Shiller JSON archives are not canonical CAPE sources and
+  are not retained as repository artifacts. Historical CAPE provenance may
+  still document the no-merge decision.
 - The research-only reconstructed FFR artifact and its raw FFH* inputs are not
   retained; the raw daily series remain available from FRED category 33951
   (Anbil et al., 1928–1954).
-- The former 2016-vintage published-replication fixture has been retired; only
-  the pinned `data/ern/p49_oracle_table.csv` remains. That table can no longer
-  be regenerated or independently re-derived because its regeneration tool was
-  retired with the fixture.
+- The former 2016-vintage published-replication fixture and its pinned p49
+  oracle table have been retired and removed. They must not be reintroduced;
+  the published target can no longer be regenerated or independently
+  re-derived.
 
 Euro-area reference rates are research-only; no euro dataset, loader, or Part
 52 path exists. See [`TODO.md`](TODO.md).
@@ -177,16 +177,15 @@ Keep these targets distinct:
 
 | Target | Dataset | Pinned result |
 |---|---|---|
-| Published-ERN historical replication | pinned table only (source fixture retired) | `data/ern/p49_oracle_table.csv` (T+1 terms, multiplicative fee) |
-| Current workbook conformance | canonical workbook output | `data/ern/workbook_oracle_table.csv` (T terms, additive fee) |
-| Part 2 regression | current production data | `data/ern/part2_regression_fixture.csv` |
+| Current workbook conformance | canonical workbook output | `tests/fixtures/ern/workbook_oracle_table.csv` (T terms, additive fee) |
 
-The production E2E compares the engine to the workbook matrix, not the
-published oracle. `part2_regression_fixture.csv` is regression coverage only.
-Changing production data requires re-certifying the workbook oracle and
-regenerating the Part 2 fixture; it does not re-baseline the pinned
-published-ERN oracle table. Published anchors must never be updated to match a
-new run.
+The published-ERN historical replication comparison is retired and is not an
+active current validation target. Its T+1/multiplicative-fee convention remains
+a historical methodology distinction, but it must not determine production
+expected values. The production E2E compares the engine to the workbook matrix
+only. Changing production data requires re-certifying the workbook oracle; it
+does not re-baseline published anchors. Published anchors must never be updated
+to match a new run.
 
 ---
 
@@ -198,9 +197,9 @@ Do not modify without separate explicit authorization:
 - `data/inputs/ern/ffr.provenance.json`
 - `data/inputs/ern/extraction/FEDFUNDS.csv`
 - the Timing workbook historical FFR segment
-- `data/ern/p49_oracle_table.csv`
-- `data/ern/workbook_oracle_table.csv`
-- `data/ern/part2_regression_fixture.csv`
-- `tests/functional/ern/constants.py`
+- `tests/fixtures/ern/workbook_returns.csv`
+- `tests/fixtures/ern/workbook_returns.provenance.json`
+- `tests/fixtures/ern/workbook_oracle_table.csv`
+- `tests/support/ern/constants.py`
 - published anchors in tests and YAML
-- any pinned Part 49/Part 52 oracle constant
+- any remaining pinned Part 49/Part 52 test constant

@@ -3,8 +3,7 @@
 
 This tool implements the SWR Toolbox v2.0 workbook methodology for an
 independent workbook-conformance oracle. It is intentionally distinct from the
-pinned published-ERN replication oracle in ``data/ern/p49_oracle_table.csv``,
-which is not re-baselined by this tool.
+retired published-ERN comparison, which is not re-baselined by this tool.
 
 It imports NO framework modules and is NEVER called by production code.
 Focused unit tests exercise it directly as a standalone data-processing utility.
@@ -54,7 +53,7 @@ from pathlib import Path
 
 _TOOL_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOL_DIR.parents[1]
-_DATA_DIR = _REPO_ROOT / "data" / "ern"
+_FIXTURE_DIR = _REPO_ROOT / "tests" / "fixtures" / "ern"
 
 # Workbook constants (matching SWR_Toolbox_v2.0.xlsx default config)
 FEE_ANNUAL = Decimal("0.0005")  # 0.05% annual expense ratio
@@ -257,8 +256,8 @@ def build_workbook_oracle_table(
 ) -> list[list[object]]:
     """Build the workbook-conformance matrix using workbook SCR methodology.
 
-    This is independent of the production loader and of the pinned published-ERN
-    replication oracle in ``data/ern/p49_oracle_table.csv``.
+    This is independent of the production loader and of the retired published-ERN
+    comparison.
     """
     r_eq, r_bd = load_real_returns(data_dir)
     eq, bd = build_extended(r_eq, r_bd)
@@ -284,7 +283,7 @@ def validate_hand_cases() -> list[tuple[str, bool, str]]:
 
     Returns list of (case_name, passed, details).
     """
-    r_eq, r_bd = load_real_returns(_DATA_DIR)
+    r_eq, r_bd = load_real_returns(_FIXTURE_DIR)
     eq, bd = build_extended(r_eq, r_bd)
 
     results = []
@@ -320,13 +319,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--source",
         type=Path,
-        default=_DATA_DIR,
+        default=_FIXTURE_DIR,
         help="Directory containing workbook_returns.csv",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=_DATA_DIR / "workbook_oracle_table.csv",
+        default=_FIXTURE_DIR / "workbook_oracle_table.csv",
         help="Output path for the workbook oracle matrix CSV",
     )
     parser.add_argument(

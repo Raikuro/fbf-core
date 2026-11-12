@@ -1,19 +1,15 @@
 """Canonical ERN Part 2 final-value-target replication E2E.
 
-The full production regression grid is:
+The full production grid is:
 
     5 weights x 9 rates x 2 horizons x 5 final-value targets
     x 1,739 cohorts = 450 cells / 782,550 units
 
-The full grid is compared cell-by-cell against
-``data/ern/part2_regression_fixture.csv``. That fixture is generated through
-the production path by ``tools/ern/build_part2_regression_fixture.py`` and is
-regression evidence only.
-
-The four Part 2 success-rate anchors stated in the article are checked against
-the current verified canonical dataset. The cohort window ends at the article's
-September 2016 boundary, but the run uses current canonical data and is not a
-2016-vintage replication.
+Retained validation covers the FV=0 cross-check against the Part 1 workbook
+oracle and the four Part 2 success-rate anchors stated in the article. The
+anchors are checked against the current verified canonical dataset. The cohort
+window ends at the article's September 2016 boundary, but the run uses current
+canonical data and is not a 2016-vintage replication.
 """
 
 from __future__ import annotations

@@ -52,7 +52,8 @@ The default output is a gitignored review bundle under
 `data/outputs/ern-extraction/`. After review and explicit authorization, place
 the five canonical CSVs and their sidecars in `data/inputs/ern/`, auxiliary
 nominal inputs in `data/inputs/ern/extraction/`, and fixture/oracle files in
-`data/ern/`. Do not overwrite datasets as part of routine development.
+`tests/fixtures/ern/`. Do not overwrite datasets as part of routine
+development.
 
 ### Historical FFR
 
@@ -88,33 +89,20 @@ temporary inspection only:
 ### Workbook conformance oracle
 
 `tools/ern/workbook_oracle.py` regenerates the workbook-derived conformance
-matrix from `workbook_returns.csv`:
+matrix from `workbook_returns.csv` in `tests/fixtures/ern/`:
 
 ```bash
 .venv/bin/python tools/ern/workbook_oracle.py
 .venv/bin/python tools/ern/workbook_oracle.py --validate
 ```
 
-### Part 2 regression fixture
+### Retired validation artifacts
 
-`tools/ern/build_part2_regression_fixture.py` regenerates the production-path
-Part 2 regression fixture through the public `run_study` application boundary:
-
-```bash
-.venv/bin/python tools/ern/build_part2_regression_fixture.py
-```
-
-This fixture is regression evidence, not an independent published oracle.
-Review all differences before replacing it.
-
-### Published-ERN reference oracle
-
-`data/ern/p49_oracle_table.csv` is the pinned published-ERN matrix. It is
-retained for historical comparison and must not be used to produce production
-expected values. Its 2016-vintage source fixture and regeneration tool have
-been retired, so the table can no longer be regenerated or independently
-re-derived. Treat it as frozen evidence; independent verification of changes to
-that table is no longer available.
+The published-ERN p49 oracle and the production-derived Part 2 regression
+fixture are retired and have been removed. Do not recreate either artifact or
+reinstate a generator for them. The historical T+1/multiplicative-fee
+distinction remains documented in
+[`ERN_METHODOLOGY.md`](ERN_METHODOLOGY.md).
 
 ---
 

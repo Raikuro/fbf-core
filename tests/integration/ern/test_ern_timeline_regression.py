@@ -1,4 +1,4 @@
-"""P1.12R remediation regression: workbook timeline and pinned oracle targets.
+"""P1.12R remediation regression: workbook timeline and conformance targets.
 
 The engine remediation changed the cohort window from ``d_c..d_{c+T-1}`` (old,
 defective: initial withdrawal deferred until d_c, T observations) to the literal
@@ -8,10 +8,10 @@ production timeline against the workbook methodology: additive monthly fee,
 withdrawal before growth, historical returns through June 2026 and workbook
 projection rates.
 
-The boundary cell 0% equity / 3.25% / 30y is 77% under workbook methodology and
-79% in the pinned published-ERN oracle table.  The production engine must match
-the workbook cell percentage and agree with the workbook calculation cohort by
-cohort.  The pinned published-ERN table remains a separate comparison target.
+The boundary cell 0% equity / 3.25% / 30y is 77% under workbook methodology.
+The retired published-ERN target was 79%, but it is not an active validation
+target.  The production engine must match the workbook cell percentage and
+agree with the workbook calculation cohort by cohort.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 from fbf.core.study.builder import build_interest_rate_schedule, load_ffr_rates
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
-from tests.support.ern.constants import COHORTS_PER_CELL, RATES, load_oracle_table
+from tests.support.ern.constants import COHORTS_PER_CELL, RATES
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "inputs" / "ern"
 HORIZON_MONTHS = {30: 361, 40: 481, 50: 601, 60: 721}
@@ -279,8 +279,7 @@ def test_boundary_cohort_306_matches_workbook(
     The engine's cohort 306 retires in August-1896 (base snapshot 1896-08-01).
     With exact workbook returns the closed-form SCR is 3.2506386%, marginally
     above the 3.25% withdrawal rate.  The Numba engine follows the workbook and
-    classifies the cohort as a success.  The pinned published-ERN cell is 79%;
-    the workbook cell is 77%.
+    classifies the cohort as a success.  The workbook cell is 77%.
     """
     by_horizon = _units_by_horizon(grid_plan.plan)
     unit = by_horizon[HORIZON_MONTHS[30]][306]
@@ -307,16 +306,14 @@ def test_boundary_cohort_306_matches_workbook(
 def test_boundary_cell_306_engine_percentage_matches_workbook(
     grid_plan: BuiltStudy,
 ) -> None:
-    """The 0% / 3.25% / 30y cell is 77% under workbook, 79% under published ERN.
+    """The 0% / 3.25% / 30y cell is 77% under workbook methodology.
 
-    Production and the workbook oracle use the additive monthly fee.  The
-    pinned published-ERN table uses a multiplicative fee.  Both withdraw
-    before growth; the fee convention is the methodological difference.
+    Production and the workbook oracle use the additive monthly fee and
+    beginning-of-month withdrawals. The retired published-ERN comparison used
+    a multiplicative fee and is not an active validation target.
     """
-    oracle_pct = load_oracle_table()[(0.0, 30)][0.0325]
     workbook_pct = _workbook_cell_pct(0.0, 0.0325, 30)
 
-    assert oracle_pct == 79
     assert workbook_pct == 77
 
     engine_ok = _engine_success(

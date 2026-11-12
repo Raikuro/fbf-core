@@ -75,7 +75,7 @@ class TestCohortAudit:
     snapshot, 721-month window = 1,739 cohorts (1871-02..2015-12). This same
     set is used for Part 49 even though it only studies 30-year horizons.
 
-    Source: pinned published-ERN oracle cohort census (START_FIRST=1, START_LAST=1739)
+    Source: ERN fixed cohort census (START_FIRST=1, START_LAST=1739).
     """
 
     def test_1739_cohorts_for_60yr_horizon(self, ern_dataset: Dataset) -> None:

@@ -36,7 +36,7 @@ from fbf.core.study.builder import (
 
 DATA_DIR = Path("data/inputs/ern")
 EXTRACTION_DIR = DATA_DIR / "extraction"
-FIXTURE_DIR = Path("data/ern")
+FIXTURE_DIR = Path("tests/fixtures/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 MARKET_HISTORY_END = date(2026, 6, 1)
 FFR_WORKBOOK_END = date(2021, 12, 1)

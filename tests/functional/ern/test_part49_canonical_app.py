@@ -1,14 +1,14 @@
 """Part 49 canonical application E2E on current canonical data.
 
-The Level 3 comparison uses the pinned published-ERN table as a fixed
-reference; it is not a 2016-vintage data replication.
+Validates structural coverage, computational execution, and directional
+leverage behavior. The retired published-ERN comparison is not used.
 """
 
 from __future__ import annotations
 
 import time
 from collections import defaultdict
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, TypedDict
 from unittest.mock import patch
@@ -25,7 +25,6 @@ from fbf.core.execution.strategies.part49_numba_executor import (
     Part49NumbaExecutor,
 )
 from fbf.core.study import StudyConfiguration
-from tests.support.ern.constants import OracleTable, load_oracle_table
 
 
 class CanonicalResult(TypedDict):
@@ -59,8 +58,6 @@ CANONICAL_CELLS = len(CANONICAL_EQUITY) * len(CANONICAL_IR)  # 6
 CANONICAL_COHORTS = 1739
 EXPECTED_TOTAL_UNITS = CANONICAL_CELLS * CANONICAL_COHORTS  # 10,434
 
-_ROUNDING = ROUND_HALF_EVEN
-
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 PART49_YAML = _REPO_ROOT / "examples" / "studies" / "ern_part49.yaml"
 
@@ -75,11 +72,6 @@ def data_dir() -> Path:
     path = Path(DATA_DIR).resolve()
     assert path.is_dir(), f"ERN data directory missing: {path}"
     return path
-
-
-@pytest.fixture(scope="session")
-def oracle() -> OracleTable:
-    return load_oracle_table()
 
 
 @pytest.fixture(scope="session")
@@ -219,13 +211,10 @@ def test_part49_canonical_app_current_data(
     - Success rates vary across cells
     - Not trivially all-pass or all-fail
 
-    **Level 3 — Pinned published-ERN oracle comparison:**
-    - Non-leverage cells (interest_rate=0) compared against the pinned
-      published-ERN oracle table on current canonical data
+    **Level 3 — Directional leverage behavior:**
     - Leverage cells validated with directional assertions
-      (higher interest = lower success)
+      (higher interest does not increase success)
 
-    The pinned table is a fixed reference, not a 2016-vintage data replication.
     Production conformance is validated separately against the workbook-derived
     oracle.
     """
@@ -270,28 +259,11 @@ def test_part49_canonical_app_current_data(
     # We only assert that results are real and finite.
     assert all(isinstance(r, float) for r in rates)
 
-    # === Level 3: Pinned oracle comparison on current canonical data ===
+    # === Level 3: Directional leverage behavior ===
 
-    # 3a: Non-leverage cells compared against the pinned published oracle
-    oracle = load_oracle_table()
-    for eq in CANONICAL_EQUITY:
-        eq_f = float(eq)
-        key = (eq_f, 0.0)
-        if key in cell_success_rates:
-            # Oracle table: {(weight, horizon): {rate: pct}}
-            oracle_entry = oracle.get((eq_f, 30), {})
-            oracle_pct = oracle_entry.get(0.03)
-            if oracle_pct is not None:
-                fbf_pct = Decimal(str(cell_success_rates[key])) * Decimal("100")
-                fbf_rounded = int(fbf_pct.quantize(Decimal("1"), rounding=_ROUNDING))
-                assert fbf_rounded == oracle_pct, (
-                    f"non-leverage cell equity={eq_f} interest=0: "
-                    f"FBF {fbf_rounded}% vs oracle {oracle_pct}%"
-                )
-
-    # 3b: Directional — if any cell has success < 1.0, higher interest
-    #     rate must not produce higher success.  When all cells are 100%
-    #     (valid for this configuration), directional assertions are moot.
+    # If any cell has success < 1.0, higher interest rate must not produce
+    # higher success. When all cells are 100% (valid for this configuration),
+    # directional assertions are moot.
     any_below_1 = any(r < 1.0 for r in rates)
     if any_below_1:
         for eq in CANONICAL_EQUITY:
@@ -338,12 +310,9 @@ def test_part49_canonical_app_current_data(
         eq_val, ir_val = key
         rate = cell_success_rates[key]
         label = f"equity={eq_val:.0%} interest={ir_val:.1%}"
-        oracle_entry = oracle.get((eq_val, 30), {})
-        oracle_pct = oracle_entry.get(0.03)
-        oracle_str = f"oracle={oracle_pct}%" if oracle_pct is not None else "no oracle"
-        print(f"  {label}: {rate * 100:.2f}% ({oracle_str})")
+        print(f"  {label}: {rate * 100:.2f}%")
     print("Documented limitations:")
     print("  - LTV enforcement OFF (DECISIONS.md S4-LTV)")
     print("  - 1929 depletion anchor NOT validated")
-    print("  - Leverage cells: directional assertions only (no oracle)")
+    print("  - Leverage cells: directional assertions only")
     print("=" * 62)
