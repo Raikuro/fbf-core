@@ -52,7 +52,7 @@ from fbf.core.research.part20_planner import Part20ExecutionContext
 from fbf.core.research.part20_strategies import Part20Strategy, part20_strategy_universe
 from tests.support.ern.verified_manifest import verified_manifest_path
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 MANIFEST_PATH = verified_manifest_path()
 AUDIT_SPEC_PATH = Path("tests/fixtures/ern_part20_e2e_audit.yaml")
 

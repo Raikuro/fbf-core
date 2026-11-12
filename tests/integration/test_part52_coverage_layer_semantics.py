@@ -26,7 +26,7 @@ from fbf.core.datasets import load_canonical_dataset
 from fbf.core.study import CohortSpecification
 from fbf.core.study.builder import build_cohort_specs
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 COHORT_HORIZON_MONTHS = 60 * 12 + 1
 SIMULATION_HORIZON_MONTHS = 30 * 12
 MARKET_HISTORY_END = date(2026, 6, 1)

@@ -87,7 +87,7 @@ class CanonicalResult(TypedDict):
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 
 # Canonical ERN Part 42 grid: 5 equity × 9 SWR = 45 cells
 CANONICAL_WEIGHTS = tuple(Decimal(str(w)) for w in PART42_WEIGHTS)

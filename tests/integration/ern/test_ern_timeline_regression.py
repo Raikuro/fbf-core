@@ -37,7 +37,7 @@ from fbf.core.study.builder import build_interest_rate_schedule, load_ffr_rates
 from fbf.core.study.plan import PlannedSimulationUnit, ResearchPlan
 from tests.support.ern.constants import COHORTS_PER_CELL, RATES, load_oracle_table
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
+DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "inputs" / "ern"
 HORIZON_MONTHS = {30: 361, 40: 481, 50: 601, 60: 721}
 WEIGHT = 0.0
 DIVERGENT_CELLS = [(WEIGHT, rate, 30) for rate in RATES]

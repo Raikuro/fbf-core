@@ -8,8 +8,8 @@ reproduction subset:
     x 1,739 cohorts = 782,550 units
 
 It is generated from ``examples/studies/ern_part2.yaml`` using the current
-production dataset in ``data/ern`` and the public ``run_study`` application
-path. It is explicitly a regression fixture, not an independent ERN
+production dataset in ``data/inputs/ern`` and the public ``run_study``
+application path. It is explicitly a regression fixture, not an independent ERN
 replication oracle. The published article anchors are validated separately
 against the verified canonical dataset with the article's cohort window.
 """
@@ -31,8 +31,9 @@ from fbf.core.study import StudyConfiguration
 
 _TOOL_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOL_DIR.parents[1]
-_DEFAULT_DATA_DIR = _REPO_ROOT / "data" / "ern"
-_DEFAULT_OUTPUT = _DEFAULT_DATA_DIR / "part2_regression_fixture.csv"
+_DEFAULT_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
+_FIXTURE_DIR = _REPO_ROOT / "data" / "ern"
+_DEFAULT_OUTPUT = _FIXTURE_DIR / "part2_regression_fixture.csv"
 _PART2_YAML = _REPO_ROOT / "examples" / "studies" / "ern_part2.yaml"
 
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)

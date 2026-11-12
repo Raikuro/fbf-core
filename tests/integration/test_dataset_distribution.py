@@ -71,7 +71,7 @@ class TestCanonicalDatasetLoading:
 
         study = StudyConfiguration.from_yaml(load_yaml(_simple_study(tmp_path)))
         built = build_study_plan(
-            study, data_dir="data/ern", initial_wealth=_capital()
+            study, data_dir="data/inputs/ern", initial_wealth=_capital()
         )
 
         assert len(built.plan) > 0
@@ -89,8 +89,8 @@ class TestCanonicalDatasetLoading:
         )
 
         study = StudyConfiguration.from_yaml(load_yaml(_simple_study(tmp_path)))
-        first = build_study_plan(study, data_dir="data/ern", initial_wealth=_capital())
-        second = build_study_plan(study, data_dir="data/ern", initial_wealth=_capital())
+        first = build_study_plan(study, data_dir="data/inputs/ern", initial_wealth=_capital())
+        second = build_study_plan(study, data_dir="data/inputs/ern", initial_wealth=_capital())
 
         assert first.experiment_definition.dataset is second.experiment_definition.dataset
 
@@ -105,7 +105,7 @@ class TestCanonicalDatasetLoading:
         )
 
         study = StudyConfiguration.from_yaml(load_yaml(_simple_study(tmp_path)))
-        built = build_study_plan(study, data_dir="data/ern", initial_wealth=_capital())
+        built = build_study_plan(study, data_dir="data/inputs/ern", initial_wealth=_capital())
 
         assert built.experiment_definition.dataset is not None
 

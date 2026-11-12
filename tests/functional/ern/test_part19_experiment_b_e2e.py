@@ -44,7 +44,7 @@ from tests.support.ern.verified_manifest import verified_manifest_path
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 MANIFEST_PATH = verified_manifest_path()
 
 

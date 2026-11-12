@@ -5,7 +5,11 @@ provenance. Methodology and acceptance anchors are in
 [`docs/ERN_METHODOLOGY.md`](docs/ERN_METHODOLOGY.md); extraction and
 regeneration commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
-**Status:** adopted. The canonical ERN production data lives in `data/ern/`.
+**Status:** adopted. The canonical ERN production data lives in
+`data/inputs/ern/`; auxiliary extraction inputs live in
+`data/inputs/ern/extraction/`. Pinned test fixtures and oracles remain in
+`data/ern/` pending fixture migration, and generated outputs belong in the
+gitignored `data/outputs/` directory.
 
 ---
 
@@ -32,6 +36,21 @@ regeneration commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 `Dataset` requires at least one snapshot, chronological order, and unique dates.
 The loaded dataset is immutable and shared across simulations.
 
+### Repository data layout
+
+| Location | Contents | Status |
+|---|---|---|
+| `data/inputs/ern/` | Five canonical simulation CSVs and provenance sidecars | Production inputs |
+| `data/inputs/ern/extraction/` | `spx_tr.csv`, `bm10.csv`, `FEDFUNDS.csv` and sidecars | Auxiliary extraction inputs; not loader inputs |
+| `data/ern/` | Oracle tables, `workbook_returns.csv`, Part 2 regression fixture, deferred `raw/ie_data.*` | Test fixtures and pinned oracles |
+| `data/outputs/` | Generated run artifacts | Gitignored scratch output; never canonical input |
+
+Canonical files are the five series consumed by the production loader in
+`data/inputs/ern/`. Auxiliary extraction files support provenance and
+regeneration but are not production loader inputs. Fixtures and oracles under
+`data/ern/` are test-only and may move to `tests/fixtures/ern/` in a later
+phase; they are not canonical production data.
+
 ---
 
 ## 2. ERN Dataset Files
@@ -39,15 +58,16 @@ The loaded dataset is immutable and shared across simulations.
 Canonical filenames define each series' semantic role. Study YAML does not
 repeat this mapping.
 
-| File | Role | Loader |
-|---|---|---|
-| `spx_tr_real.csv` | S&P 500 total-return real returns | `fbf.core.datasets.ern` → equity asset |
-| `bond_10y_tr_real.csv` | 10-year bond total-return real returns | `fbf.core.datasets.ern` → bond asset |
-| `spx_tr.csv` | S&P 500 total-return nominal index | auxiliary |
-| `bm10.csv` | 10-year bond cumulative nominal index | auxiliary |
-| `cpi.csv` | CPI index level | `fbf.core.datasets.ern` |
-| `cape_shiller.csv` | Canonical Shiller CAPE used for runtime cohort conditioning | research manifest only |
-| `ffr.csv` | Federal Funds Rate time series | `fbf.core.study.builder.load_ffr_rates` |
+| File | Role | Location | Loader |
+|---|---|---|---|
+| `spx_tr_real.csv` | S&P 500 total-return real returns | `data/inputs/ern/` | `fbf.core.datasets.ern` → equity asset |
+| `bond_10y_tr_real.csv` | 10-year bond total-return real returns | `data/inputs/ern/` | `fbf.core.datasets.ern` → bond asset |
+| `spx_tr.csv` | S&P 500 total-return nominal index | `data/inputs/ern/extraction/` | auxiliary |
+| `bm10.csv` | 10-year bond cumulative nominal index | `data/inputs/ern/extraction/` | auxiliary |
+| `cpi.csv` | CPI index level | `data/inputs/ern/` | `fbf.core.datasets.ern` |
+| `cape_shiller.csv` | Canonical Shiller CAPE used for runtime cohort conditioning | `data/inputs/ern/` | research manifest only |
+| `ffr.csv` | Federal Funds Rate time series | `data/inputs/ern/` | `fbf.core.study.builder.load_ffr_rates` |
+| `workbook_returns.csv` | Exact combined oracle fixture | `data/ern/` | test fixtures only |
 
 Equity and bond CSV roles are fixed by the canonical loader: weight `w` means
 `w` equity and `1 - w` bond. Equity-derived state (ATH, underwater, drawdown)
@@ -109,8 +129,8 @@ Column `K` is the workbook splice `IF(ISNUMBER(M),M,N)`: Federal Funds Rate
 where available, otherwise the short-term yield.
 
 The `2022-01..2026-08` extension comes from the frozen FRED `FEDFUNDS`
-snapshot at `data/ern/raw/FEDFUNDS.csv`, recorded separately in
-`data/ern/ffr.provenance.json`. This extension is admissible only as the
+snapshot at `data/inputs/ern/extraction/FEDFUNDS.csv`, recorded separately in
+`data/inputs/ern/ffr.provenance.json`. This extension is admissible only as the
 documented Part 52 historical-diagnostic exception. It does not permit using
 external sources for new canonical datasets, and it must not be refreshed
 during a run.
@@ -120,8 +140,9 @@ during a run.
 Workbook `M` matches the raw FRED series after `/100` for all 810 overlapping
 months (`1954-07..2021-12`). The workbook's pre-1954 short-term-yield fallback
 column `N` has no documented upstream vintage; accepting it is a recorded
-fidelity limitation. `ffr_monthly.json` is a reconstructed research series and
-must not replace the historical segment.
+fidelity limitation. The former `ffr_monthly.json` reconstructed research
+series and its raw FFH* inputs have been removed; reconstructed FFR must not
+replace the historical segment.
 
 The SWR workbook's cash-return index (`Asset Returns!I`) is a T-bill
 total-return series, not a federal funds rate. It must not be used as an FFR
@@ -129,13 +150,17 @@ source, fallback, or extension.
 
 ### Non-canonical and research-only artifacts
 
-- The former `canonical/ern_asset_returns.csv` legacy artifact has been removed
-  and must not be reintroduced.
-- Persisted projected manifests such as `data/ern/cohort_manifest_part3.json`
-  and `data/ern/ern_swr_h720.json` are obsolete; manifests are built at runtime.
+- The former `canonical/ern_asset_returns.csv` legacy artifact and its
+  provenance sidecar have been removed and must not be reintroduced.
+- Persisted projected manifests such as
+  `data/inputs/ern/cohort_manifest_part3.json` and
+  `data/inputs/ern/ern_swr_h720.json` are obsolete; manifests are built at runtime.
 - `data/ern/raw/ie_data.csv` and Shiller JSON archives are not canonical CAPE
-  sources.
-- `data/ern/ffr_monthly.json` is research-only.
+  sources; `ie_data` remains deferred fixture-adjacent research input pending a
+  later migration phase.
+- The research-only reconstructed FFR artifact and its raw FFH* inputs are not
+  retained; the raw daily series remain available from FRED category 33951
+  (Anbil et al., 1928–1954).
 - The former 2016-vintage published-replication fixture has been retired; only
   the pinned `data/ern/p49_oracle_table.csv` remains. That table can no longer
   be regenerated or independently re-derived because its regeneration tool was
@@ -169,9 +194,9 @@ new run.
 
 Do not modify without separate explicit authorization:
 
-- `data/ern/ffr.csv`
-- `data/ern/ffr.provenance.json`
-- `data/ern/raw/FEDFUNDS.csv`
+- `data/inputs/ern/ffr.csv`
+- `data/inputs/ern/ffr.provenance.json`
+- `data/inputs/ern/extraction/FEDFUNDS.csv`
 - the Timing workbook historical FFR segment
 - `data/ern/p49_oracle_table.csv`
 - `data/ern/workbook_oracle_table.csv`

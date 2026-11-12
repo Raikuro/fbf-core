@@ -33,9 +33,9 @@ from fbf.core.execution import ExecutionBackend, ExecutionOptions
 from fbf.core.study import StudyConfiguration
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = _REPO_ROOT / "data" / "ern"
+DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
 PART2_YAML = _REPO_ROOT / "examples" / "studies" / "ern_part2.yaml"
-FIXTURE_CSV = DATA_DIR / "part2_regression_fixture.csv"
+FIXTURE_CSV = _REPO_ROOT / "data" / "ern" / "part2_regression_fixture.csv"
 
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 COHORTS_PER_CELL = 1739

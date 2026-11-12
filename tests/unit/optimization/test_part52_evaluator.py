@@ -24,7 +24,7 @@ from fbf.core.optimization.part52_evaluator import (
 )
 from fbf.core.optimization.swr_optimizer import EvaluationOutcome, SWROptimizer
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 

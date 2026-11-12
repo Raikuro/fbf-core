@@ -37,7 +37,7 @@ AggResult = tuple[Part49AggregationResult, dict[str, Any]]
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 CANONICAL_EQUITY = (Decimal("0.75"), Decimal("1.0"))

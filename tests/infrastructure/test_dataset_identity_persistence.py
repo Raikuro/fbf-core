@@ -111,7 +111,7 @@ def test_save_experiment_persists_null_dataset_identifier(tmp_path: Path) -> Non
         def load(self) -> Dataset:
             return dataset
 
-    ref_ctx = create_persistence_context("data/ern")
+    ref_ctx = create_persistence_context("data/inputs/ern")
     ctx = PersistenceReconstructionContext(
         dataset_loader=_TestLoader(),
         policy_codecs=ref_ctx.policy_codecs,
@@ -151,7 +151,7 @@ def test_full_round_trip_with_synthetic_dataset(tmp_path: Path) -> None:
         def load(self) -> Dataset:
             return dataset
 
-    ref_ctx = create_persistence_context("data/ern")
+    ref_ctx = create_persistence_context("data/inputs/ern")
     ctx = PersistenceReconstructionContext(
         dataset_loader=_TestLoader(),
         policy_codecs=ref_ctx.policy_codecs,

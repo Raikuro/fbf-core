@@ -51,7 +51,7 @@ from fbf.core.research.part3_study import (
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 # Tolerance for anchor comparison: 1 percentage point.

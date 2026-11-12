@@ -38,7 +38,7 @@ from fbf.core.research.cohort_manifest import (
 
 _TOOL_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOL_DIR.parents[1]
-_DEFAULT_DATA_DIR = _REPO_ROOT / "data" / "ern"
+_DEFAULT_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
 
 AUTHORIZED_SWR_WORKBOOK_SHA256 = (
     "d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6"

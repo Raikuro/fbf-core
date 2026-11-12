@@ -39,8 +39,10 @@ _HISTORY_END = date(2021, 12, 1)
 _HISTORY_ROWS = 1812
 EXTENSION_START = date(2022, 1, 1)
 EXTENSION_END = date(2026, 8, 1)
-_DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "ern"
-_DEFAULT_EXTENSION_SOURCE = _DEFAULT_OUTPUT_DIR / "raw" / "FEDFUNDS.csv"
+_DEFAULT_OUTPUT_DIR = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "inputs" / "ern"
+)
+_DEFAULT_EXTENSION_SOURCE = _DEFAULT_OUTPUT_DIR / "extraction" / "FEDFUNDS.csv"
 _FALLBACK_METADATA: dict[str, str] = {
     "source_column": "N",
     "header": "Short-term Yield (p.a.)",

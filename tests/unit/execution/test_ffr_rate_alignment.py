@@ -227,7 +227,7 @@ def test_load_ffr_rates_empty_dataset(tmp_path: Path) -> None:
 
 def test_real_ffr_dataset_loads() -> None:
     """Verify the committed FFR dataset loads and covers the expected range."""
-    ffr_path = Path(__file__).parent.parent.parent.parent / "data" / "ern" / "ffr.csv"
+    ffr_path = Path(__file__).parent.parent.parent.parent / "data" / "inputs" / "ern" / "ffr.csv"
     if not ffr_path.exists():
         import pytest
         pytest.skip("FFR dataset not found")
@@ -253,7 +253,7 @@ def test_real_ffr_known_values() -> None:
     artifacts from the original data pipeline. We verify approximate equality
     to 4 decimal places for affected values.
     """
-    ffr_path = Path(__file__).parent.parent.parent.parent / "data" / "ern" / "ffr.csv"
+    ffr_path = Path(__file__).parent.parent.parent.parent / "data" / "inputs" / "ern" / "ffr.csv"
     if not ffr_path.exists():
         import pytest
         pytest.skip("FFR dataset not found")

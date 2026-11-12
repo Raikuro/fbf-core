@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from fbf.core.domain.model.dataset import Dataset
     from fbf.core.domain.model.market_snapshot import MarketSnapshot
 
-_DATA_DIR = Path("data/ern")
+_DATA_DIR = Path("data/inputs/ern")
 
 
 # ---------------------------------------------------------------------------

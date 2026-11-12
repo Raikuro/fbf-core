@@ -29,7 +29,7 @@ def _config(*, start_date: date | None = None, end_date: date | None = None) -> 
 def test_default_production_cohort_universe_remains_1739() -> None:
     built = build_study_plan(
         _config(),
-        "data/ern",
+        "data/inputs/ern",
         Money(Decimal("1000000"), Currency.EUR),
     )
 
@@ -42,7 +42,7 @@ def test_default_production_cohort_universe_remains_1739() -> None:
 def test_explicit_range_selects_1925_through_1990_cohorts() -> None:
     built = build_study_plan(
         _config(start_date=date(1925, 1, 1), end_date=date(1990, 12, 1)),
-        "data/ern",
+        "data/inputs/ern",
         Money(Decimal("1000000"), Currency.EUR),
     )
 

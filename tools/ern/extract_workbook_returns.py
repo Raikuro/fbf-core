@@ -36,7 +36,7 @@ from xml.etree import ElementTree
 
 _TOOL_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOL_DIR.parents[1]
-_DEFAULT_OUTPUT_DIR = _REPO_ROOT / "data" / "ern"
+_DEFAULT_OUTPUT_DIR = _REPO_ROOT / "data" / "outputs" / "ern-extraction"
 
 _ASSET_RETURNS = "Asset Returns"
 _FIRST_INDEX_ROW = 6  # 1871-01
@@ -501,7 +501,10 @@ def main(argv: list[str] | None = None) -> int:
         "--output-dir",
         type=Path,
         default=_DEFAULT_OUTPUT_DIR,
-        help="Directory for extracted canonical CSVs (default: data/ern)",
+        help=(
+            "Directory for the extracted review bundle "
+            "(default: data/outputs/ern-extraction)"
+        ),
     )
     args = parser.parse_args(argv)
 

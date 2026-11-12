@@ -37,7 +37,7 @@ def test_worker_count_passes_through_to_cli_argv(
     monkeypatch.setattr(CliHarness, "run", fake_run)
     harness = CliHarness(
         cli=Path("__no_such_cli__"),
-        data_dir=Path("data/ern"),
+        data_dir=Path("data/inputs/ern"),
         home_dir=tmp_path,
     )
 

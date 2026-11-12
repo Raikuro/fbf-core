@@ -43,7 +43,7 @@ from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 
 pytestmark = pytest.mark.research_validation
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 EXPECTED_UNITS = 1739
 SIMULATION_HORIZON_MONTHS = 30 * 12

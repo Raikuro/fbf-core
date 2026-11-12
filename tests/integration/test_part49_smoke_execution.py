@@ -44,7 +44,7 @@ from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 # Deliberately small smoke subset: 2 equity × 2 SWR × 2 IR = 8 cells

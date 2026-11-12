@@ -573,7 +573,7 @@ class TestManifestIndexConvention:
         from fbf.core.datasets import load_canonical_dataset
 
         manifest = load_manifest(MANIFEST_PATH)
-        dataset = load_canonical_dataset(Path("data/ern"))
+        dataset = load_canonical_dataset(Path("data/inputs/ern"))
         traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
 
         for entry in manifest.cohorts:
@@ -590,7 +590,7 @@ class TestManifestIndexConvention:
         from fbf.core.datasets import load_canonical_dataset
 
         manifest = load_manifest(MANIFEST_PATH)
-        dataset = load_canonical_dataset(Path("data/ern"))
+        dataset = load_canonical_dataset(Path("data/inputs/ern"))
         n = len(dataset)
         traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
 
@@ -647,7 +647,7 @@ class TestManifestIndexConvention:
         from fbf.core.datasets import load_canonical_dataset
 
         manifest = load_manifest(MANIFEST_PATH)
-        dataset = load_canonical_dataset(Path("data/ern"))
+        dataset = load_canonical_dataset(Path("data/inputs/ern"))
         n = len(dataset)
         traj_date_to_idx = {s.date.isoformat(): i for i, s in enumerate(dataset)}
 
@@ -683,7 +683,7 @@ class TestPerCohortPortfolioNormalization:
         from fbf.core.domain.model.money import Currency
 
         manifest = load_manifest(MANIFEST_PATH)
-        trajectory = load_canonical_dataset(Path("data/ern"))
+        trajectory = load_canonical_dataset(Path("data/inputs/ern"))
         initial_wealth = Money(Decimal("1000000"), Currency.EUR)
         config = Part3PlannerConfig(
             equity_allocations=(Decimal("1.0"),),
@@ -722,7 +722,7 @@ class TestPerCohortPortfolioNormalization:
         from fbf.core.domain.model.money import Currency
 
         manifest = load_manifest(MANIFEST_PATH)
-        trajectory = load_canonical_dataset(Path("data/ern"))
+        trajectory = load_canonical_dataset(Path("data/inputs/ern"))
         initial_wealth = Money(Decimal("1000000"), Currency.EUR)
         config = Part3PlannerConfig(
             equity_allocations=(Decimal("1.0"),),
@@ -759,7 +759,7 @@ class TestPerCohortPortfolioNormalization:
         from fbf.core.domain.model.money import Currency
 
         manifest = load_manifest(MANIFEST_PATH)
-        trajectory = load_canonical_dataset(Path("data/ern"))
+        trajectory = load_canonical_dataset(Path("data/inputs/ern"))
         initial_wealth = Money(Decimal("1000000"), Currency.EUR)
         config = Part3PlannerConfig(
             equity_allocations=(Decimal("1.0"),),
@@ -815,7 +815,7 @@ class TestPerCohortPortfolioNormalization:
         from fbf.core.domain.model.money import Currency
 
         manifest = load_manifest(MANIFEST_PATH)
-        trajectory = load_canonical_dataset(Path("data/ern"))
+        trajectory = load_canonical_dataset(Path("data/inputs/ern"))
         initial_wealth = Money(Decimal("1000000"), Currency.EUR)
         config = Part3PlannerConfig(
             equity_allocations=(Decimal("1.0"),),

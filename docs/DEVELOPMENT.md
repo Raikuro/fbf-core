@@ -48,9 +48,11 @@ reads cached values only, and writes the canonical CSVs plus provenance:
   --output-dir /tmp/ern-canonical-review
 ```
 
-To regenerate production data, point `--output-dir` at `data/ern` only after
-the temporary output has been reviewed and replacement is explicitly
-authorized. Do not overwrite datasets as part of routine development.
+The default output is a gitignored review bundle under
+`data/outputs/ern-extraction/`. After review and explicit authorization, place
+the five canonical CSVs and their sidecars in `data/inputs/ern/`, auxiliary
+nominal inputs in `data/inputs/ern/extraction/`, and fixture/oracle files in
+`data/ern/`. Do not overwrite datasets as part of routine development.
 
 ### Historical FFR
 
@@ -62,7 +64,7 @@ historical segment and appends the frozen FRED extension:
   --workbook /path/to/Timing-Leverage-Calc.xlsx
 ```
 
-`data/ern/ffr.csv` is frozen. Do not regenerate it without explicit
+`data/inputs/ern/ffr.csv` is frozen. Do not regenerate it without explicit
 authorization.
 
 ---

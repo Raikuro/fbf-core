@@ -10,8 +10,8 @@
 #   bond_10y_tr_real.csv  10-Year Bond Market real returns (monthly)
 #
 # Run (dry-run / real construction check):
-#   sim-retire --data-dir data/ern run --dry-run examples/studies/ern_grid.yaml
-#   sim-retire --data-dir data/ern run examples/studies/ern_grid.yaml \
+#   sim-retire --data-dir data/inputs/ern run --dry-run examples/studies/ern_grid.yaml
+#   sim-retire --data-dir data/inputs/ern run examples/studies/ern_grid.yaml \
 #     --no-persist --summary-only
 
 metadata:

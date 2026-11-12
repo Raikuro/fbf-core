@@ -42,7 +42,7 @@ from tests.support.ern.verified_manifest import verified_manifest_path
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 MANIFEST_PATH = verified_manifest_path()
 EXPERIMENT_A_AUDIT_PATH = Path(
     "tests/fixtures/ern_part19_experiment_a_e2e_audit.yaml"

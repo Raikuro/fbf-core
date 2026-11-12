@@ -126,8 +126,8 @@ def test_build_manifest_file_builds_effective_manifest(tmp_path: Path) -> None:
 
 
 def test_manifest_output_is_deterministic() -> None:
-    first = manifest_builder.build_manifest_file(Path("data/ern"))
-    second = manifest_builder.build_manifest_file(Path("data/ern"))
+    first = manifest_builder.build_manifest_file(Path("data/inputs/ern"))
+    second = manifest_builder.build_manifest_file(Path("data/inputs/ern"))
     assert first == second
 
 

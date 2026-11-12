@@ -22,7 +22,7 @@
 #   ffr.csv                   Federal Funds Rate (monthly, for FFR scenarios)
 #
 # Run example:
-#   sim-retire --data-dir data/ern run examples/studies/ern_part52.yaml \
+#   sim-retire --data-dir data/inputs/ern run examples/studies/ern_part52.yaml \
 #     --no-persist --summary-only
 
 metadata:

@@ -26,7 +26,7 @@ from fbf.core.persistence.studies.sqlite.errors import StudyNotFoundError
 
 class TestCanonicalDatasetLoader:
     def test_load_from_data_dir(self) -> None:
-        loader = CanonicalDatasetLoader("data/ern")
+        loader = CanonicalDatasetLoader("data/inputs/ern")
         dataset = loader.load()
         assert dataset.frequency == "monthly"
         assert len(dataset) > 0
@@ -44,13 +44,13 @@ class TestCanonicalDatasetLoader:
 
 class TestCreatePersistenceContext:
     def test_factory_returns_valid_context(self) -> None:
-        ctx = create_persistence_context("data/ern")
+        ctx = create_persistence_context("data/inputs/ern")
         assert isinstance(ctx, PersistenceReconstructionContext)
         assert isinstance(ctx.dataset_loader, CanonicalDatasetLoader)
         assert ctx.simulation_result_codec is not None
 
     def test_factory_loads_dataset(self) -> None:
-        ctx = create_persistence_context("data/ern")
+        ctx = create_persistence_context("data/inputs/ern")
         dataset = ctx.dataset_loader.load()
         assert dataset.frequency == "monthly"
         assert len(dataset) > 0

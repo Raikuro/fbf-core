@@ -22,7 +22,7 @@ gross-survival counts are diagnostic, not canonical acceptance targets.
 
 The FFR conversion formula is resolved (see
 docs/ERN_METHODOLOGY.md §3 and §6). FFR data-fidelity limitations are documented
-in `DATASETS.md` and `data/ern/ffr.provenance.json`; validation semantics are
+in `DATASETS.md` and `data/inputs/ern/ffr.provenance.json`; validation semantics are
 separate from the conversion formula.
 
 Canonical Configuration Matrix (from ERN Part 52 primary source):
@@ -93,7 +93,7 @@ from fbf.core.study import (
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 FINAL_VALUE_TARGET = Decimal("0.25")  # $250K terminal net-worth
 LTV_LIMIT = Decimal("0.50")

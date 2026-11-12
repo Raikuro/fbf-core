@@ -11,7 +11,7 @@
 #   bond_10y_tr_real.csv  10-Year Bond Market real returns (monthly)
 #
 # Run example:
-#   sim-retire --data-dir data/ern run examples/studies/ern_part42.yaml \
+#   sim-retire --data-dir data/inputs/ern run examples/studies/ern_part42.yaml \
 #     --no-persist --summary-only
 
 metadata:

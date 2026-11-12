@@ -15,10 +15,10 @@ import pytest
 
 from tools.ern import extract_ffr_from_workbook as ffr
 
-_DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
+_DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "inputs" / "ern"
 _ARTIFACT = _DATA_DIR / "ffr.csv"
 _PROVENANCE = _DATA_DIR / "ffr.provenance.json"
-_EXTENSION_SOURCE = _DATA_DIR / "raw" / "FEDFUNDS.csv"
+_EXTENSION_SOURCE = _DATA_DIR / "extraction" / "FEDFUNDS.csv"
 
 
 def _months(start: date, end: date) -> list[date]:

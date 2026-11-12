@@ -1,6 +1,8 @@
 """ERN SWR replication: constants and oracle-table access.
 
-Pinned oracle matrices in ``data/ern/`` (see docs/ERN_METHODOLOGY.md):
+Canonical production inputs live in ``data/inputs/ern/``; auxiliary extraction
+inputs live in ``data/inputs/ern/extraction/``. Pinned oracle matrices and
+regression fixtures remain in ``data/ern/`` pending fixture migration.
 
 - ``p49_oracle_table.csv``                pinned historical published-ERN oracle matrix.
 - ``workbook_oracle_table.csv``           pinned workbook-conformance oracle matrix.
@@ -15,9 +17,10 @@ import os
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = _REPO_ROOT / "data" / "ern"
-ORACLE_CSV = DATA_DIR / "p49_oracle_table.csv"
-WORKBOOK_ORACLE_CSV = DATA_DIR / "workbook_oracle_table.csv"
+CANONICAL_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
+FIXTURE_DATA_DIR = _REPO_ROOT / "data" / "ern"
+ORACLE_CSV = FIXTURE_DATA_DIR / "p49_oracle_table.csv"
+WORKBOOK_ORACLE_CSV = FIXTURE_DATA_DIR / "workbook_oracle_table.csv"
 
 # ---------------------------------------------------------------------------
 # E2E worker selection

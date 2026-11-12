@@ -861,8 +861,8 @@ class TestProductionBuilderHorizon:
         initial_wealth = Money(Decimal("1000000"), Currency.EUR)
 
         # Build the study plan using the production builder
-        # Uses canonical ERN dataset from data/ern
-        built_study = build_study_plan(config, "data/ern", initial_wealth)
+        # Uses canonical ERN dataset from data/inputs/ern
+        built_study = build_study_plan(config, "data/inputs/ern", initial_wealth)
         plan = built_study.plan
 
         # Verify the plan has units (at least 2 cohorts)
@@ -898,7 +898,7 @@ class TestProductionBuilderHorizon:
         config = self._make_config()
         initial_wealth = Money(Decimal("1000000"), Currency.EUR)
 
-        built_study = build_study_plan(config, "data/ern", initial_wealth)
+        built_study = build_study_plan(config, "data/inputs/ern", initial_wealth)
         plan = built_study.plan
 
         unit = plan.units[0]
@@ -1146,7 +1146,7 @@ class TestCohortFilter:
         dataset = _make_monthly_dataset()
         built = build_study_plan(
             _make_filter_config(),
-            "data/ern",
+            "data/inputs/ern",
             Money(Decimal("1000000"), Currency.EUR),
             dataset=dataset,
             cohort_filter=lambda cohort: cohort.start_date.year == 2000,
@@ -1166,7 +1166,7 @@ class TestCohortFilter:
         expected = CohortGenerator.generate_rolling_monthly(dataset, 61)[1:]
         built = build_study_plan(
             _make_filter_config(),
-            "data/ern",
+            "data/inputs/ern",
             Money(Decimal("1000000"), Currency.EUR),
             dataset=dataset,
         )
@@ -1182,7 +1182,7 @@ class TestCohortFilter:
         with pytest.raises(ValueError, match="cohort_filter excluded all"):
             build_study_plan(
                 _make_filter_config(),
-                "data/ern",
+                "data/inputs/ern",
                 Money(Decimal("1000000"), Currency.EUR),
                 dataset=_make_monthly_dataset(),
                 cohort_filter=lambda _: False,
@@ -1194,7 +1194,7 @@ class TestCohortFilter:
 
         result = run_study(
             _make_filter_config(),
-            "data/ern",
+            "data/inputs/ern",
             Money(Decimal("1000000"), Currency.EUR),
             dataset=_make_monthly_dataset(),
             cohort_filter=lambda cohort: cohort.start_date.year == 2000,
@@ -1288,7 +1288,7 @@ class TestCohortDateConfiguration:
 
         built = build_study_plan(
             self._config(start_date=date(2000, 2, 1), end_date=date(2000, 6, 1)),
-            "data/ern",
+            "data/inputs/ern",
             Money(Decimal("1000000"), Currency.EUR),
             dataset=_make_monthly_dataset(),
         )
@@ -1311,7 +1311,7 @@ class TestCohortDateConfiguration:
         expected = CohortGenerator.generate_rolling_monthly(dataset, 61)[1:]
         built = build_study_plan(
             self._config(),
-            "data/ern",
+            "data/inputs/ern",
             Money(Decimal("1000000"), Currency.EUR),
             dataset=dataset,
         )
@@ -1325,7 +1325,7 @@ class TestCohortDateConfiguration:
 
         built = build_study_plan(
             self._config(start_date=date(2000, 6, 1)),
-            "data/ern",
+            "data/inputs/ern",
             Money(Decimal("1000000"), Currency.EUR),
             dataset=_make_monthly_dataset(),
         )
@@ -1339,7 +1339,7 @@ class TestCohortDateConfiguration:
 
         built = build_study_plan(
             self._config(end_date=date(2000, 6, 1)),
-            "data/ern",
+            "data/inputs/ern",
             Money(Decimal("1000000"), Currency.EUR),
             dataset=_make_monthly_dataset(),
         )
@@ -1354,7 +1354,7 @@ class TestCohortDateConfiguration:
 
         built = build_study_plan(
             self._config(end_date=date(2009, 12, 1)),
-            "data/ern",
+            "data/inputs/ern",
             Money(Decimal("1000000"), Currency.EUR),
             dataset=_make_monthly_dataset(),
         )
@@ -1372,7 +1372,7 @@ class TestCohortDateConfiguration:
                     start_date=date(2005, 1, 1),
                     end_date=date(2005, 6, 1),
                 ),
-                "data/ern",
+                "data/inputs/ern",
                 Money(Decimal("1000000"), Currency.EUR),
                 dataset=_make_monthly_dataset(),
             )
@@ -1399,7 +1399,7 @@ class TestInjectedDatasetCutoff:
         with pytest.raises(ValueError, match="FFR historical cutoff is required"):
             build_study_plan(
                 config,
-                "data/ern",
+                "data/inputs/ern",
                 Money(Decimal("1000000"), Currency.EUR),
                 dataset=_make_monthly_dataset(),
             )

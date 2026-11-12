@@ -14,7 +14,7 @@ from fbf.core.study import StudyConfiguration
 
 def test_run_study_uses_injected_canonical_dataset() -> None:
     """Injection smoke test against current canonical data, not 2016 vintage."""
-    dataset = load_canonical_dataset(Path("data/ern"))
+    dataset = load_canonical_dataset(Path("data/inputs/ern"))
     config = StudyConfiguration(
         name="canonical-injection-smoke",
         description="",

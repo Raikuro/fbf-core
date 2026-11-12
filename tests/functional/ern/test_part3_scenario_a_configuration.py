@@ -17,7 +17,7 @@ from fbf.core.research.part3_pipeline import execute_part3_pipeline
 from fbf.core.research.part3_study import build_part3_plan_from_configuration
 from fbf.core.study.builder import StudyConfiguration
 
-_DATA_DIR = Path("data/ern")
+_DATA_DIR = Path("data/inputs/ern")
 _INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 

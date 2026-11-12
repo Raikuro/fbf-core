@@ -18,7 +18,7 @@ from fbf.core.optimization.part52_evaluator import (
     Part52EvaluatorConfig,
 )
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 

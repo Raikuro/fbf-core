@@ -41,7 +41,7 @@ from tests.support.ern.constants import (
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = _REPO_ROOT / "data" / "ern"
+DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
 PART2_YAML = _REPO_ROOT / "examples" / "studies" / "ern_part2.yaml"
 
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)

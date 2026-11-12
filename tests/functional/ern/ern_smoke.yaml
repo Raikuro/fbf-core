@@ -8,7 +8,7 @@ metadata:
   version: "1.0"
   description: "Minimal ERN smoke: 1x1x1x1 with FV=0.0 control anchor"
 
-# Canonical data: sim-retire --data-dir data/ern run ...
+# Canonical data: sim-retire --data-dir data/inputs/ern run ...
 
 cohorts:
   horizon_years: [30]

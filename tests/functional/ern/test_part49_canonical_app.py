@@ -48,7 +48,7 @@ class CanonicalResult(TypedDict):
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 # Canonical ERN Part 49 grid: 2 equity × 3 interest = 6 cells

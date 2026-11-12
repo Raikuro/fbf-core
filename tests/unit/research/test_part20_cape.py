@@ -170,7 +170,7 @@ class TestCapeBinaryCohortStart:
         import csv
         from pathlib import Path
 
-        with open(Path("data/ern/cape_shiller.csv"), newline="") as f:
+        with open(Path("data/inputs/ern/cape_shiller.csv"), newline="") as f:
             reader = csv.reader(f)
             next(reader)
             cape_map = {row[0]: Decimal(row[1]) for row in reader}

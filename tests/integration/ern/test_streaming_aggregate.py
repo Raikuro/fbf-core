@@ -37,8 +37,8 @@ from fbf.core.persistence.studies.sqlite import (
 from fbf.core.persistence.studies.sqlite.sqlite_repository import ExperimentIdentity
 from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 from tests.support.ern.constants import (
+    CANONICAL_DATA_DIR,
     COHORTS_PER_CELL,
-    DATA_DIR,
     WORKBOOK_ORACLE_CSV,
     OracleTable,
     load_oracle_table,
@@ -91,7 +91,7 @@ def _build_subset_plan() -> BuiltStudy:
         final_value_target_values=(_FV_TARGET,),
         expense_ratio=Decimal("0.0005"),
     )
-    return build_study_plan(config, str(DATA_DIR), INITIAL_WEALTH)
+    return build_study_plan(config, str(CANONICAL_DATA_DIR), INITIAL_WEALTH)
 
 
 def _cell_key(unit: Any) -> _AggregateKey:

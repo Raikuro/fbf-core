@@ -21,20 +21,20 @@ from fbf.core.research.cohort_manifest import (
     manifest_to_dict,
 )
 from fbf.core.research.part3_planner import PART3_EXPENSE_RATIO
-from tests.support.ern.constants import DATA_DIR
+from tests.support.ern.constants import CANONICAL_DATA_DIR
 
 
 @lru_cache(maxsize=1)
 def verified_manifest_data() -> dict[str, Any]:
     """Return the effective manifest built from canonical historical inputs."""
     prepared = prepare_ern_dataset(
-        DATA_DIR,
+        CANONICAL_DATA_DIR,
         required_through=date(2075, 12, 1),
     )
     manifest = build_effective_manifest(
         dataset=prepared.dataset,
         metadata=prepared.metadata,
-        cape_rows=load_cape_rows(DATA_DIR),
+        cape_rows=load_cape_rows(CANONICAL_DATA_DIR),
         cohort_start=date(1871, 2, 1),
         cohort_end=date(2015, 12, 1),
         fee=PART3_EXPENSE_RATIO,

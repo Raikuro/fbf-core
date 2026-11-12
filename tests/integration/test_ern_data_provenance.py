@@ -23,7 +23,21 @@ from fbf.core.datasets.ern import load_cape_rows, prepare_ern_dataset
 from fbf.core.research.cohort_manifest import build_effective_manifest
 from tools.ern import extract_workbook_returns as workbook_returns
 
-_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "ern"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
+_EXTRACTION_DIR = _DATA_DIR / "extraction"
+_FIXTURE_DIR = _REPO_ROOT / "data" / "ern"
+
+_EXTRACTION_CSVS = frozenset({"spx_tr.csv", "bm10.csv"})
+_FIXTURE_CSVS = frozenset({"workbook_returns.csv"})
+
+
+def _csv_path(csv_name: str) -> Path:
+    if csv_name in _EXTRACTION_CSVS:
+        return _EXTRACTION_DIR / csv_name
+    if csv_name in _FIXTURE_CSVS:
+        return _FIXTURE_DIR / csv_name
+    return _DATA_DIR / csv_name
 _SWR_WORKBOOK_SHA256 = (
     "d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6"
 )
@@ -50,7 +64,7 @@ def _sha256(path: Path) -> str:
 
 
 def _load_provenance(csv_name: str) -> dict[str, Any]:
-    path = _DATA_DIR / csv_name.replace(".csv", ".provenance.json")
+    path = _csv_path(csv_name).with_suffix(".provenance.json")
     return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
 
@@ -79,7 +93,7 @@ def _read_ffr_rows(path: Path) -> list[dict[str, str]]:
 
 def _read_raw_fedfunds() -> list[dict[str, str]]:
     with open(
-        _DATA_DIR / "raw" / "FEDFUNDS.csv", newline="", encoding="utf-8"
+        _EXTRACTION_DIR / "FEDFUNDS.csv", newline="", encoding="utf-8"
     ) as source:
         return list(csv.DictReader(source))
 
@@ -88,7 +102,7 @@ def test_market_provenance_pins_artifact_and_workbook() -> None:
     for csv_name, (source_field, source_cells, observation_count) in (
         _MARKET_PROVENANCE.items()
     ):
-        artifact = _DATA_DIR / csv_name
+        artifact = _csv_path(csv_name)
         provenance = _load_provenance(csv_name)
         rows = _read_csv_rows(artifact)
 
@@ -117,9 +131,7 @@ def test_market_artifacts_match_workbook_extraction(tmp_path: Path) -> None:
     workbook_returns.write_outputs(data, tmp_path)
 
     for csv_name in _MARKET_PROVENANCE:
-        assert (tmp_path / csv_name).read_bytes() == (
-            _DATA_DIR / csv_name
-        ).read_bytes()
+        assert (tmp_path / csv_name).read_bytes() == _csv_path(csv_name).read_bytes()
         generated = json.loads(
             (tmp_path / csv_name.replace(".csv", ".provenance.json")).read_text(
                 encoding="utf-8"
@@ -235,7 +247,7 @@ def test_ffr_provenance_defines_separate_segments() -> None:
     assert historical["fallback"]["source_column"] == "N"
 
     raw_rows = _read_raw_fedfunds()
-    raw_path = _DATA_DIR / "raw" / "FEDFUNDS.csv"
+    raw_path = _EXTRACTION_DIR / "FEDFUNDS.csv"
     assert extension["source_series_id"] == "FEDFUNDS"
     assert extension["source_url"] == "https://fred.stlouisfed.org/series/FEDFUNDS"
     assert extension["source_sha256"] == _sha256(raw_path)

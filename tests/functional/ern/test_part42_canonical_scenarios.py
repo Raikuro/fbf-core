@@ -53,7 +53,7 @@ from fbf.core.research.part42_pipeline import (
     run_fixed_swr,
 )
 from fbf.core.study.builder import BuiltStudy
-from tests.support.ern.constants import DATA_DIR
+from tests.support.ern.constants import CANONICAL_DATA_DIR
 from tests.support.ern.part42_recurrence import (
     Part42RecurrenceResult,
     simulate_part42_cohort,
@@ -310,7 +310,7 @@ def _build_scenario_contract(
 
 @pytest.fixture(scope="session")
 def canonical_inventory() -> CanonicalInventory:
-    dataset = load_canonical_dataset(Path(DATA_DIR))
+    dataset = load_canonical_dataset(Path(CANONICAL_DATA_DIR))
     date_index = {
         snapshot.date: index for index, snapshot in enumerate(dataset.snapshots)
     }
@@ -331,7 +331,7 @@ def canonical_inventory() -> CanonicalInventory:
             summary = run_fixed_swr(
                 config,
                 cohort_dates=(),
-                data_dir=str(DATA_DIR),
+                data_dir=str(CANONICAL_DATA_DIR),
                 options=ExecutionOptions(summary_only=True),
             )
             assert len(captured) == 1

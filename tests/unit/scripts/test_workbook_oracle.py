@@ -10,7 +10,9 @@ import pytest
 
 from tools.ern import workbook_oracle as wo
 
-_DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_FIXTURE_DATA_DIR = _REPO_ROOT / "data" / "ern"
+_CANONICAL_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
 
 
 def _write_returns(path: Path, rows: list[tuple[str, str, str]]) -> None:
@@ -40,10 +42,10 @@ def test_load_real_returns_stops_after_june_2026(tmp_path: Path) -> None:
 
 def test_projection_matches_workbook_phase_boundary_and_end() -> None:
     """Projection starts July 2026, switches after month 120, and ends Nov 2075."""
-    r_eq, r_bd = wo.load_real_returns(_DATA_DIR)
+    r_eq, r_bd = wo.load_real_returns(_FIXTURE_DATA_DIR)
     eq, bd = wo.build_extended(r_eq, r_bd)
 
-    with open(_DATA_DIR / "workbook_returns.csv", newline="", encoding="utf-8") as f:
+    with open(_FIXTURE_DATA_DIR / "workbook_returns.csv", newline="", encoding="utf-8") as f:
         historical_dates = [
             row["date"] for row in csv.DictReader(f) if row["date"] < wo._HISTORICAL_END
         ]
@@ -115,11 +117,11 @@ def test_expense_ratio_is_additive_to_weighted_monthly_return() -> None:
 
 def test_workbook_fixture_matches_canonical_production_columns() -> None:
     """The combined fixture and the production real-return CSVs stay in sync."""
-    with open(_DATA_DIR / "workbook_returns.csv", newline="", encoding="utf-8") as f:
+    with open(_FIXTURE_DATA_DIR / "workbook_returns.csv", newline="", encoding="utf-8") as f:
         combined = list(csv.DictReader(f))
-    with open(_DATA_DIR / "spx_tr_real.csv", newline="", encoding="utf-8") as f:
+    with open(_CANONICAL_DATA_DIR / "spx_tr_real.csv", newline="", encoding="utf-8") as f:
         equity = list(csv.DictReader(f))
-    with open(_DATA_DIR / "bond_10y_tr_real.csv", newline="", encoding="utf-8") as f:
+    with open(_CANONICAL_DATA_DIR / "bond_10y_tr_real.csv", newline="", encoding="utf-8") as f:
         bond = list(csv.DictReader(f))
 
     assert [row["date"] for row in combined] == [row["date"] for row in equity]
@@ -137,7 +139,7 @@ def test_workbook_fixture_matches_canonical_production_columns() -> None:
 
 def test_first_cohort_scr_matches_workbook_scr_time_series() -> None:
     """First cohort (75/25, 50y) matches the workbook's cached SCR value."""
-    r_eq, r_bd = wo.load_real_returns(_DATA_DIR)
+    r_eq, r_bd = wo.load_real_returns(_FIXTURE_DATA_DIR)
     eq, bd = wo.build_extended(r_eq, r_bd)
     scr = wo.compute_workbook_scr(eq, bd, Decimal("0.75"), 0, 600)
     assert scr.quantize(Decimal("0.0000000001")) == Decimal("0.0778554756")
@@ -145,7 +147,7 @@ def test_first_cohort_scr_matches_workbook_scr_time_series() -> None:
 
 def test_boundary_cell_matches_workbook_exact_returns() -> None:
     """0% equity / 30y / 3.25% is 77% with exact workbook returns."""
-    r_eq, r_bd = wo.load_real_returns(_DATA_DIR)
+    r_eq, r_bd = wo.load_real_returns(_FIXTURE_DATA_DIR)
     eq, bd = wo.build_extended(r_eq, r_bd)
     assert wo.success_rate(eq, bd, Decimal("0"), 360, Decimal("0.0325")) == 77
 
@@ -153,7 +155,7 @@ def test_boundary_cell_matches_workbook_exact_returns() -> None:
 def test_committed_workbook_oracle_table_uses_exact_fixture() -> None:
     """The pinned workbook matrix reflects the exact workbook returns."""
     with open(
-        _DATA_DIR / "workbook_oracle_table.csv", newline="", encoding="utf-8"
+        _FIXTURE_DATA_DIR / "workbook_oracle_table.csv", newline="", encoding="utf-8"
     ) as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 20

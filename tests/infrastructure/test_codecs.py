@@ -144,7 +144,7 @@ def test_reconstruction_context_creates_with_concrete_codecs() -> None:
 
 class TestCanonicalDatasetLoader:
     def test_load_returns_dataset(self) -> None:
-        loader = CanonicalDatasetLoader("data/ern")
+        loader = CanonicalDatasetLoader("data/inputs/ern")
         result = loader.load()
         assert result is not None
         assert len(result) > 0

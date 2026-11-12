@@ -30,7 +30,7 @@ from fbf.core.study import BuiltStudy, StudyConfiguration, build_study_plan
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "ern"
+DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "inputs" / "ern"
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 EXPECTED_EQUITY_ALLOCATIONS = (Decimal("0.75"), Decimal("1.0"))

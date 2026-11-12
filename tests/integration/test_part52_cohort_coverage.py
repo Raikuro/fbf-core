@@ -34,7 +34,9 @@ from fbf.core.study.builder import (
     load_ffr_rates,
 )
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
+EXTRACTION_DIR = DATA_DIR / "extraction"
+FIXTURE_DIR = Path("data/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 MARKET_HISTORY_END = date(2026, 6, 1)
 FFR_WORKBOOK_END = date(2021, 12, 1)
@@ -122,7 +124,7 @@ def _part52_config(*, ffr_spread: Decimal | None = None) -> StudyConfiguration:
 
 def _load_raw_fedfunds() -> dict[date, Decimal]:
     rates: dict[date, Decimal] = {}
-    with (DATA_DIR / "raw" / "FEDFUNDS.csv").open(encoding="utf-8") as handle:
+    with (EXTRACTION_DIR / "FEDFUNDS.csv").open(encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             raw_date = row["observation_date"]
             raw_value = row["FEDFUNDS"]
@@ -245,7 +247,7 @@ def test_historical_market_coverage_layers(
 
 
 def test_historical_market_source_end_is_2026_06() -> None:
-    assert _last_csv_date(DATA_DIR / "workbook_returns.csv") == MARKET_HISTORY_END
+    assert _last_csv_date(FIXTURE_DIR / "workbook_returns.csv") == MARKET_HISTORY_END
     assert _last_csv_date(DATA_DIR / "cpi.csv") == MARKET_HISTORY_END
 
 
@@ -298,7 +300,7 @@ def test_ffr_artifact_is_frozen_and_hash_pinned() -> None:
     assert artifact_sha == ("98591457d5d03867bd81992d43b57a6cabc4ce967f3ec9324676216abbf2f5f1")
 
     provenance = json.loads((DATA_DIR / "ffr.provenance.json").read_text(encoding="utf-8"))
-    raw_sha = hashlib.sha256((DATA_DIR / "raw" / "FEDFUNDS.csv").read_bytes()).hexdigest()
+    raw_sha = hashlib.sha256((EXTRACTION_DIR / "FEDFUNDS.csv").read_bytes()).hexdigest()
 
     assert provenance["artifact_sha256"] == artifact_sha
     assert provenance["historical"]["source_sha256"] == (

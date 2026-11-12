@@ -252,7 +252,7 @@ class TestCohortPopulations:
 
         from fbf.core.datasets import load_canonical_dataset
 
-        trajectory = load_canonical_dataset(Path("data/ern"))
+        trajectory = load_canonical_dataset(Path("data/inputs/ern"))
         ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)
 
         assert ctx.effective_horizon("2015-12-01", 721) == 721
@@ -279,7 +279,7 @@ class TestCohortPopulations:
         from fbf.core.datasets import load_canonical_dataset
         from fbf.core.research.part20_strategies import part20_strategy_universe
 
-        trajectory = load_canonical_dataset(Path("data/ern"))
+        trajectory = load_canonical_dataset(Path("data/inputs/ern"))
         ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)
         strategy = next(
             s for s in part20_strategy_universe() if s.id == "static_080"
@@ -312,7 +312,7 @@ class TestWorkbookAlignmentExecution:
         from fbf.core.datasets import load_canonical_dataset
         from fbf.core.research.part20_strategies import part20_strategy_universe
 
-        trajectory = load_canonical_dataset(Path("data/ern"))
+        trajectory = load_canonical_dataset(Path("data/inputs/ern"))
         ctx = Part20ExecutionContext.create(MANIFEST_PATH, trajectory)
         strategy = next(
             s for s in part20_strategy_universe() if s.id == "static_080"

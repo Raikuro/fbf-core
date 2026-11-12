@@ -23,7 +23,9 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from tools.ern import workbook_oracle as wo
 
-_DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "ern"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_CANONICAL_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
+_FIXTURE_DATA_DIR = _REPO_ROOT / "data" / "ern"
 _DEFAULT_TOLERANCE = Decimal("1e-24")
 _FEE_ANNUAL = Decimal("0.0005")
 _HORIZON_MONTHS = 360
@@ -69,7 +71,7 @@ def _assert_close(
 
 @pytest.fixture(scope="module")
 def dataset() -> Dataset:
-    return load_ern_dataset(_DATA_DIR)
+    return load_ern_dataset(_CANONICAL_DATA_DIR)
 
 
 def test_base_snapshot_is_raw_february_implied_level(dataset: Dataset) -> None:
@@ -161,7 +163,7 @@ def test_first_cohort_scr_matches_workbook_oracle(
         for m in range(_HORIZON_MONTHS)
     ]
 
-    r_eq, r_bd = wo.load_real_returns(_DATA_DIR)
+    r_eq, r_bd = wo.load_real_returns(_FIXTURE_DATA_DIR)
     workbook_eq, workbook_bd = wo.build_extended(r_eq, r_bd)
 
     actual = wo.compute_workbook_scr(

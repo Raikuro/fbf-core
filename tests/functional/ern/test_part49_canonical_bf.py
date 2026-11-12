@@ -37,7 +37,7 @@ from fbf.core.study.internal.cohort.specification import CohortSpecification
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PART49_YAML = _REPO_ROOT / "examples" / "studies" / "ern_part49.yaml"
-_DATA_DIR = _REPO_ROOT / "data" / "ern"
+_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
 _INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 _ZERO = Decimal("0")

@@ -129,7 +129,7 @@ def integration_repo(integration_db_path: Path) -> Iterator[SQLiteRepository]:
 
 @pytest.fixture
 def persistence_context() -> PersistenceReconstructionContext:
-    return create_persistence_context("data/ern")
+    return create_persistence_context("data/inputs/ern")
 
 
 @pytest.fixture
@@ -140,7 +140,7 @@ def persistence_context_with_dataset(
         def load(self) -> Dataset:
             return sample_dataset
 
-    ref_ctx = create_persistence_context("data/ern")
+    ref_ctx = create_persistence_context("data/inputs/ern")
     return PersistenceReconstructionContext(
         dataset_loader=_TestLoader(),
         policy_codecs=ref_ctx.policy_codecs,
@@ -246,7 +246,7 @@ def ern_dataset() -> Dataset:
     """Load the canonical ERN SWR h720 dataset."""
     from fbf.core.datasets import load_canonical_dataset
 
-    return load_canonical_dataset(Path("data/ern"))
+    return load_canonical_dataset(Path("data/inputs/ern"))
 
 
 @pytest.fixture

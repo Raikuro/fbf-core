@@ -47,7 +47,7 @@ from fbf.core.study import StudyConfiguration
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("data/ern")
+DATA_DIR = Path("data/inputs/ern")
 INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 
 COHORTS_PER_CELL = 1739
