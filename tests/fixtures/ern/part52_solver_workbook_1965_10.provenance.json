@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "source_file": "Timing-Leverage-Calc.xlsx",
+  "source_sha256": "e0a0dbea11543809b2f2e8544cc84e21a19e0ca864d8ef3664135b945bbcda38",
+  "source_sheet": "Return Data",
+  "source_rows": "1141:1501",
+  "source_columns": {
+    "date": "A (year) and B (month)",
+    "cpi": "C",
+    "spx_tr": "E",
+    "bond_10y": "F",
+    "ffr": "K"
+  },
+  "date_range": "1965-10-01 to 1995-10-01",
+  "observation_count": 361,
+  "extraction_method": "Direct cached-value extraction; no formula re-evaluation, rounding, or normalization.",
+  "cohort_note": "Calc OFFSET uses 'Return Data'!A$3 as its base, so Calc row 40 maps to Return Data row 1141 (1965-10). This is the workbook's effective Solver cohort: 360 withdrawal months plus a terminal valuation month. The published/tested anchor starts one month later at 1965-11.",
+  "artifact_sha256": "93355b4a6cec56e104d8cd55eb1f3b47b21a377125f7d4f23e490da58ae6cdd7"
+}

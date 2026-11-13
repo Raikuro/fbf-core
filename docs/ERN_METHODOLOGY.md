@@ -173,9 +173,22 @@ surface:
 | A3 | `1965-11` | Gross survival plus all three workbook feasibility conditions |
 | A10 | `1929-09` | Gross survival plus all three workbook feasibility conditions |
 
-The published optimized WR/Borrow% values are Solver outputs. Reproducing them
-is **deferred**; fixed-parameter feasibility at those values is regression
-protection, not Solver replication.
+The published optimized WR/Borrow% values are Solver outputs. A test-only
+reproduction in
+`tests/integration/ern/test_part52_workbook_solver_reproduction.py` recovers
+the workbook's Solver model: maximize `Calc!B12` (monthly consumption),
+equivalently WR (`Calc!B11`), over WR and Borrow% (`Calc!B21`), subject to
+`S32 >= 1000`, `S33 >= 250000`, `B29 <= 0.50`, and `B21 <= 1`. The workbook's
+OFFSET base maps its effective cohort to `1965-10..1995-10` (360 withdrawal
+months plus a terminal valuation), one month before the canonical `1965-11`
+anchor; the two conventions are intentionally separate.
+
+A deterministic nested bisection on the exact cached `Return Data` fixture
+reproduces the recorded `WR = 3.9083138465%` and
+`Borrow% = 41.0775049508%` within `1e-6`. This reproduces the recorded
+optimum; it does not replay GRG's iteration path or prove global optimality of
+the original run. Canonical acceptance remains the A2/A3/A10 fixed-parameter
+feasibility surface.
 
 Full-universe results are diagnostics, not canonical acceptance:
 
@@ -219,7 +232,9 @@ expected values automatically when implementation or canonical inputs change.
   validation.
 - **Part 52**: canonical acceptance is the A2/A3/A10 published-anchor
   feasibility surface; full-universe reporting is diagnostic-only.
-- **Part 52 Solver reproduction**: deferred.
+- **Part 52 Solver reproduction**: completed as a test-only deterministic
+  reproduction of the recorded workbook optimum; it does not prove global
+  optimality or replay GRG's iteration path.
 - **UI timeline persistence**: completed in `fbf-ui`; it requires no Core
   execution change.
 - **Euro-area reference rates**: research-only candidates; no euro dataset,

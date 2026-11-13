@@ -78,11 +78,18 @@ Do not silently map annual to monthly.
 
 ## Part 52 Solver Reproduction
 
-**Classification:** deferred
+**Classification:** completed (test-only)
 
-Published Part 52 WR/Borrow% values are Solver outputs. Canonical acceptance is
-the A2/A3/A10 fixed-parameter feasibility surface; it does not reproduce the
-Solver. Do not treat fixed-parameter feasibility as Solver replication.
+The workbook's recorded Solver optimum is reproduced by
+`tests/integration/ern/test_part52_workbook_solver_reproduction.py` using the
+exact cached `Return Data` fixture and the production Part 52 evaluator. The
+deterministic nested bisection recovers WR and Borrow% within `1e-6` of the
+recorded values on the workbook-effective `1965-10` cohort.
+
+Limitations: this reproduces the recorded optimum, not GRG's iteration history
+or a global-optimality proof. Canonical acceptance remains the A2/A3/A10
+fixed-parameter feasibility surface on the `1965-11` anchor; the one-month
+cohort difference is intentional and must not be conflated.
 
 ---
 
