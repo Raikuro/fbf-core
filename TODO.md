@@ -7,28 +7,6 @@ acceptance anchors, and project conclusions are in
 
 ---
 
-## Canonical Data Regeneration and Revalidation
-
-**Classification:** final validation task; deferred until explicitly authorized
-
-Several canonical comparisons still use provisional anchors or research
-datasets whose vintage relative to the authorized workbooks has not been
-re-established. Existing numerical evidence is valid only for the data actually
-used, not as a final canonical-data conclusion.
-
-Required sequence:
-
-1. Re-extract required source data from the authorized workbooks.
-2. Regenerate affected datasets and derived research artifacts.
-3. Re-run affected Part 3, 19/20, and 49 comparisons.
-4. Reassess the Part 20 A/B/C conclusions using regenerated data.
-5. Update structural populations and published-anchor comparisons, classifying
-   every difference. Do not silently re-baseline anchors.
-
-Part 52 Solver reproduction and the euro-area analogue are outside this task.
-
----
-
 ## Part 3 Published-Anchor Mismatch
 
 **Classification:** deferred investigation; published anchors frozen
