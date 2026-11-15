@@ -50,10 +50,12 @@ forward assumptions. Monthly forward rates use `(1 + annual_rate) ** (1/12) - 1`
 
 ### CAPE conditioning
 
-Four-level regimes: `BELOW_15` (<15), `MODERATE` (15-20), `HIGH` (20-30), and
-`EXTREME` (>=30). Part 3 four-regime classification uses the previous month's
-Shiller CAPE (`CAPE_{t-1}`), matching the workbook's `CAPE (lag 1M)`
-convention. The binary Part 19/20 population also uses `CAPE at t-1 > 20`
+Four-level regimes: `BELOW_15` (<15), `MODERATE` (15-<20), `HIGH` (20-<30), and
+`EXTREME` (>=30). Part 3 states that cohorts are classified by CAPE at the start
+of retirement but does not explicitly document a lag. The previous-month Shiller
+CAPE (`CAPE_{t-1}`) convention is established by the author-published workbook's
+`CAPE (lag 1M)` layout and is used by production. The binary Part 19/20
+population also uses `CAPE at t-1 > 20`
 (`HIGH`), falling back to the first cohort's own CAPE when no prior observation
 exists. A cohort lacking a prior-month observation receives no four-regime
 classification and is excluded from four-regime statistics. `cape_available`
@@ -65,7 +67,8 @@ metadata, not necessarily missing cohort-month CAPE. `require_cape` continues
 to govern cohort-month CAPE availability independently. In the canonical
 universe the first cohort (`1871-02`) has a prior observation (`1871-01`), so
 no cohort is excluded. CAPE is the workbook-only series defined in
-`DATASETS.md`.
+`DATASETS.md`; it is not evidence of the exact 2016 Shiller data vintage (see
+[Historical CAPE provenance](#historical-cape-provenance-and-2016-vintage)).
 
 ### Part 52 FFR treatment
 
@@ -166,17 +169,51 @@ recurrence and `SCR time series` indexing. All six published anchor counts match
 the independently recalculated workbook. The A/30Y and B/60Y overall-only
 differences observed in the initial comparison were caused by the
 cutoff/projection-start mismatch documented in the return-timing section below;
-they are not an implementation discrepancy. Remaining uncertainties are the
-original 2016 GNU Octave implementation, the article's exact cohort eligibility,
-the historical CAPE vintage, and the origin and applicability of each published
-value. The canonical 2026 configuration remains a separate study and is not
-expected to reproduce the 2016 article anchors without the article-era
-assumptions above. Its E2E tests assert deterministic canonical regression
-snapshots, not the historical 2016 anchors; comparisons with the published
-values are diagnostic only.
+they are not an implementation discrepancy. The 2016 cohort eligibility is
+resolved to `1,739` monthly starts from `1871-02` through `2015-12`; Part 1's
+December 2016 wording is an error, as documented below. The controlled
+archived-vintage experiment bounds CAPE-vintage sensitivity at `0.28`
+percentage points; all anchors remain within 1 point. Historical limitations are
+the unidentified exact 2016 Shiller CAPE vintage and the undocumented pre-1881
+workbook CAPE values, documented in the provenance section below. The original
+GNU Octave implementation is unavailable; the published specification and
+independent workbook are sufficient to verify the documented methodology, but
+they cannot prove source-code identity with the original engine. The canonical
+2026 configuration remains a separate study and is not expected to reproduce the
+2016 article anchors without the article-era assumptions above. Its E2E tests
+assert deterministic canonical regression snapshots, not the historical 2016
+anchors; comparisons with the published values are diagnostic only.
 
 The current v2.0 workbook is a methodological reference, not proof that every
 detail of the original 2016 GNU Octave research engine has been reproduced.
+
+#### Primary-source methodology evidence
+
+The relevant published sources are:
+
+- Part 1, [The Ultimate Guide to Safe Withdrawal Rates, Part 1](https://earlyretirementnow.com/2016/12/07/the-ultimate-guide-to-safe-withdrawal-rates-part-1-intro/) (2016-12-07).
+- Part 3, [The Ultimate Guide to Safe Withdrawal Rates, Part 3](https://earlyretirementnow.com/2016/12/21/the-ultimate-guide-to-safe-withdrawal-rates-part-3-equity-valuation/) (2016-12-21).
+- Part 8, [The Ultimate Guide to Safe Withdrawal Rates, Part 8](https://earlyretirementnow.com/2017/02/01/the-ultimate-guide-to-safe-withdrawal-rates-part-8-technical-appendix/) (2017-02-01).
+
+Part 1 documents monthly inflation-adjusted total returns from January 1871
+through September 2016. It states that the initial withdrawal is taken at the
+previous month's closing price, the remaining portfolio grows through the
+current month, and the next withdrawal and rebalancing occur at month-end. Part
+8 formalizes beginning-of-month withdrawals and shows that the final month's
+withdrawal still earns the final month's return. Part 3 identifies Shiller CAPE
+as the valuation measure and defines the four CAPE buckets.
+
+| Convention | Published evidence | Verification |
+|---|---|---|
+| Withdrawal at the previous month's close, before the cohort-month return | Part 1; Part 8 beginning-of-month formula | Planner starts at `W-1`; kernel withdraws before growth; workbook `Case Study`/`SCR time series` indexing |
+| Monthly target-weight rebalancing | Part 1 end-of-month rebalancing; Part 8 monthly return formulas | Constant-weight growth factor; workbook weighted portfolio return |
+| Annual fee drag | Part 1 specifies `0.05%` | Articles do not state monthly placement; workbook `Asset Returns!AF` subtracts `0.0005/12` from the blended return; production follows |
+| CAPE buckets `<15`, `15-20`, `20-30`, `>30` | Part 3 | Production uses the prior month's workbook CAPE and classifies exact `30` as `EXTREME`; Part 3 does not state the lag explicitly |
+| Terminal wealth target | Parts 1, 3, and 8 | Success requires terminal wealth at least the target fraction of initial wealth; production applies the target at the end of the final month |
+
+The specification supports verification of the documented method. It does not
+establish source-code identity with the unavailable original Octave engine, and
+it does not identify the exact Shiller data vintage used in 2016.
 
 #### Controlled decomposition of the canonical 2026 C divergence
 
@@ -243,15 +280,160 @@ matches `cape_shiller.csv` across 1,865 monthly real-return observations and
 workbook and production therefore consume identical historical inputs for these
 columns.
 
-#### Article cohort-count inconsistency
+#### Cohort date range and count reconciliation
 
 Part 1 describes "1,739 possible retirement start dates between February 1,
-1871, and December 1, 2016." That range is internally inconsistent: 1,739
-inclusive months from February 1871 end at December 2015. Extending the range
-through December 2016 would produce 1,751 cohorts. The "1871-2015" chart heading
-and the canonical universe both agree with the December 2015 endpoint. The
-December 2016 wording is treated as an article ambiguity or typographical
-error, not as a dataset discrepancy.
+1871, and December 1, 2016." That range is internally inconsistent. February
+1871 through December 2015 inclusive is exactly `1,739` months; extending
+through December 2016 would produce `1,751`. The article's "1871-2015" chart
+heading, Part 8's "1,700+ retirement cohorts (starting between 1871 and 2015)",
+and the workbook's `SCR time series` rows `8:1746` all support the December 2015
+endpoint. The workbook's first row is `1871-02` and its last row is `2015-12`.
+No month in that interval is excluded, and the September 2016 data end is return
+coverage, not the cohort-start endpoint. The December 2016 wording is treated as
+a typographical error.
+
+#### Historical CAPE provenance and 2016 vintage
+
+Part 3 identifies Shiller CAPE and links Shiller's `ie_data.xls`, and reports
+that the `2016-09-30` CAPE was just under 27. It does not identify a download
+date, file version, or historical data vintage.
+
+A Wayback Machine snapshot of `ie_data.xls` (`20161202223950`) provides a
+recoverable contemporaneous source. It contains data through December 2016 and
+reports `26.770189...` for September 2016, consistent with the article's
+qualitative statement. This establishes a recovery path for a contemporaneous
+Shiller file, not proof of the exact file the author used.
+
+The current v2.0 workbook CAPE series is not that 2016 vintage. Across the
+`1,632` overlapping months from 1881 through 2016, every value differs from the
+archived Shiller snapshot; the mean absolute difference is `0.241` CAPE points
+and the maximum is `3.973` (`1929-10`). Using prior-month CAPE, `38` cohort
+regime classifications change among starts from `1881-02` through `2015-12`.
+The archived file marks `1871-1880` CAPE as `NA`, while the workbook
+contains values from 1871 and does not document their derivation. The exact 2016
+CAPE vintage is therefore not reproduced. The controlled experiment below
+bounds the effect of the reproduced-vintage difference, but the archive must not
+be substituted for the canonical series or treated as the exact 2016 source.
+
+#### Controlled CAPE-vintage sensitivity experiment
+
+A controlled experiment isolated the CAPE vintage by replacing only the CAPE
+observation series and holding every other input, plan, and configuration fixed.
+The current run uses the canonical workbook extraction. The archived run uses
+the verified Wayback snapshot of Shiller's `ie_data.xls` captured at
+`20161202223950`.
+
+| Vintage | Source and range | Observations used through `2016-09` | CAPE CSV SHA-256 |
+|---|---|---|---:|
+| Current | `SWR_Toolbox_v2.0.xlsx`, `Asset Returns!O6:O1871`; `1871-01..2026-06` | 1,749 | `8b486b95f4ec332923c71a8abef306b89d5d0eddc2dd1755541c66fddd9d8c59` |
+| Archived | Original `ie_data.xls`, Wayback `20161202223950`; `1871-01..2016-12` | 1,629 numeric | `e2dcc4e66e7107e44d36569a1fbcee9244907ff0d870978cdbd0889afb239a68` |
+
+The current workbook is `SWR_Toolbox_v2.0.xlsx` with SHA-256
+`d393e898a918e179d381768b187c8d5b54f58050500190b9e69403321acdf2c6`. The
+archived original `.xls` has SHA-1 Base32
+`BSJOZ733VM3HS4TIM5QJ2MNBPISJAN4W`, matching the Wayback CDX digest, and was
+last saved `2016-12-02 22:35:17`. Its `Data` sheet has 1,752 monthly rows from
+`1871-01` through `2016-12`; CAPE is `NA` for the 120 months `1871-01..1880-12`
+and numeric for the 1,632 months `1881-01..2016-12`.
+The archive reports `26.7701890837232` for September 2016; the current workbook
+reports `26.90111014`; the article states only that the value was just under 27.
+The archived file is a verified contemporaneous snapshot, not proof of the exact
+file or download date used by the author.
+
+Both runs used `part3_2016.yaml`, the `1,739` cohorts from `1871-02` through
+`2015-12`, 168 parameter configurations, 21 equity weights, 2 horizons, and 4
+experiments: 292,152 simulation units per vintage. Cohort membership, plan
+units, per-unit datasets, horizons, fees, and terminal targets were identical;
+only the CAPE CSV differed. The current run reproduced the validated baseline
+counts. The outcome digest was identical across both runs: **0 success/failure
+changes and 0 final-wealth changes across all 292,152 units**.
+
+| Anchor | Current vintage | Archived vintage | Vintage Δ pp | Published |
+|---|---:|---:|---:|---:|
+| A/30Y/CAPE20-30 | `321/358` (89.66%) | `320/358` (89.39%) | -0.28 | 89% |
+| A/60Y/CAPE20-30 | `258/358` (72.07%) | `258/358` (72.07%) | 0.00 | 72% |
+| B/60Y/CAPE20-30 | `255/358` (71.23%) | `255/358` (71.23%) | 0.00 | 71% |
+| C/60Y/overall | `1674/1739` (96.26%) | `1674/1739` (96.26%) | 0.00 | 96% |
+| C/60Y/CAPE20-30 | `318/358` (88.83%) | `317/358` (88.55%) | -0.28 | 88% |
+| D/60Y/CAPE20-30 | `348/358` (97.21%) | `347/358` (96.93%) | -0.28 | 97% |
+
+All six anchors remain within the one-percentage-point acceptance tolerance.
+The maximum published-anchor change is `0.28` percentage points. The A/30Y raw
+value moves from `89.66%` to `89.39%`, so its nearest-integer display changes
+from `90%` to `89%`; both remain within `0.66` and `0.39` points of the
+published `89%`. The published subgroup-count differences arise from cohort
+classification, not from different financial simulation outcomes.
+
+Among the `1,619` cohorts with observations in both series (`1881-02` through
+`2015-12`):
+
+| Population | BELOW_15 | MODERATE | HIGH | EXTREME | Unclassified |
+|---|---:|---:|---:|---:|---:|
+| Current, all 1,739 | 803 | 520 | 358 | 58 | 0 |
+| Archived, all 1,739 | 690 | 514 | 358 | 57 | 120 |
+| Current, common 1,619 | 694 | 509 | 358 | 58 | 0 |
+| Archived, common 1,619 | 690 | 514 | 358 | 57 | 0 |
+
+`38` cohorts change regime. HIGH membership remains `358`, with `11` cohorts
+entering and `11` leaving. The other `16` changes are between `BELOW_15` and
+`MODERATE` and do not affect the published HIGH anchors.
+
+- Entered HIGH: `1901-01`, `1929-08`, `1930-10`, `1937-05`, `1962-05`,
+  `1994-07`, `1994-12`, `1997-06`, `2008-10`, `2010-02`, `2010-06`.
+- Left HIGH: `1928-04`, `1937-08`, `1961-04`, `1963-08`, `1968-04`, `1992-08`,
+  `1992-12`, `1995-01`, `2002-02`, `2010-03`, `2010-08`.
+
+`1929-08` fails every anchor cell after entering HIGH; all other entering
+cohorts succeed. `1968-04` fails A/60Y and B/60Y after leaving HIGH; all other
+leaving cohorts succeed in every anchor cell. The net anchor-count effects are:
+A/30Y `-1`, A/60Y `0`, B/60Y `0`, C/60Y overall `0`, C/60Y CAPE20-30 `-1`, and
+D/60Y CAPE20-30 `-1`.
+
+Restricting the C/60Y overall denominator to the `1,619` common cohorts yields
+`1554/1619` (95.99%) under both vintages. The CAPE-conditioned anchor counts in
+that restricted population are identical to the archived all-cohort results
+above. The vintage effects are therefore not caused by the archived missing
+early observations.
+
+The archive has no CAPE from `1871-01` through `1880-12`. In the full universe,
+`119` cohorts starting `1871-02..1880-12` lack a cohort-month CAPE value, and
+`120` cohorts starting `1871-02..1881-01` lack a prior-month CAPE value;
+`1881-01` has a CAPE observation but no prior month. With `require_cape=True`,
+construction fails at `1871-02`; with the existing supported
+`require_cape=False` behavior, those cohorts remain in overall metrics but are
+excluded from four-regime statistics. No imputation, forward-fill, or
+interpolation was used.
+
+The workbook's 120 early CAPE values are numeric constants in
+`Asset Returns!O6:O125`, with no formulas, comments, or documented derivation.
+They are not validated historical Shiller observations. Under the current
+series they comprise `109` `BELOW_15` and `10` `MODERATE` cohorts, and all `120`
+early C/60Y cohorts (`1871-02..1881-01`) succeed. This is why the archive's
+missing early CAPE does not change C/60Y overall.
+
+#### Historical uncertainty assessment
+
+**Exact 2016 CAPE vintage.** Available evidence cannot identify the author's
+exact Shiller file or download date. Part 3 gives no date or version; the
+archived file is contemporaneous but not proven identical; the current workbook
+differs from it across every overlapping month; and both the archived and
+current Shiller files omit pre-1881 CAPE. No practical recovery path remains
+beyond unverifiable speculation, so this is a historical provenance limitation,
+not an active research task.
+
+**1871-1880 CAPE values.** The workbook's 120 early values have no documented
+source, formula, or derivation. The available Shiller files mark this period
+`NA`, and the underlying Shiller price/earnings series begin in 1871, so a
+ten-year CAPE for 1871-1880 cannot be reconstructed without an undocumented
+pre-1871 earnings history. A speculative reconstruction from external pre-1871
+earnings could produce a candidate series, but it could not establish the
+workbook's actual source. This is an unresolved data-provenance limitation.
+It affects only the earliest cohorts' CAPE-regime membership; those cohorts
+remain in overall metrics and are excluded from CAPE-conditioned statistics
+when no prior CAPE exists. The controlled experiment shows the published
+anchors are robust to the archive's missing early CAPE, so the limitation does
+not invalidate the current published-anchor replication.
 
 #### Return-timing correction and D reconciliation
 
@@ -408,6 +590,10 @@ expected values automatically when implementation or canonical inputs change.
   beyond the four listed above. The 65% and 95% values are Part 1
   cross-references, the warm-up values are already pinned, and remaining
   article figures are aggregate or qualitative.
+- **Part 3 CAPE vintage sensitivity**: the archived 2016 Shiller snapshot
+  changes no simulation outcomes and at most `0.28` percentage points of any
+  published anchor; all six remain within 1 point. The exact 2016 vintage and
+  the pre-1881 workbook CAPE values remain historical limitations.
 - **Part 42**: retired; structural/oracle coverage only.
 - **Part 49.1**: analytical reconstruction, not canonical market-data
   validation.
