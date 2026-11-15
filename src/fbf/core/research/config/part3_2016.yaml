@@ -1,0 +1,77 @@
+metadata:
+  name: "ERN Part 3 — 2016 Historical Replication"
+  version: "1.0"
+  description: >
+    Historical replication of the Part 3 CAPE-regime study. Four explicit
+    experiments A-D, 21 equity weights, 30-year and 60-year horizons.
+    Retirement cohorts match the canonical Part 3 universe, with historical
+    observations ending at the September 2016 article-era cutoff. Forward
+    projections use the article-era assumptions: 6.6% real equity, bonds at
+    0% real for the first 120 projection months and 2.6% thereafter. This
+    configuration is a historical comparison, not a claim of exact
+    reproduction of the December 2016 article methodology.
+
+cohorts:
+  start_date: "1871-02-01"
+  end_date: "2015-12-01"
+  horizon_years: [30, 60]
+  cohort_horizon_years: 60
+
+allocation_policy:
+  type: ConstantAllocationPolicy
+  equity_allocation:
+    - 0.0
+    - 0.05
+    - 0.10
+    - 0.15
+    - 0.20
+    - 0.25
+    - 0.30
+    - 0.35
+    - 0.40
+    - 0.45
+    - 0.50
+    - 0.55
+    - 0.60
+    - 0.65
+    - 0.70
+    - 0.75
+    - 0.80
+    - 0.85
+    - 0.90
+    - 0.95
+    - 1.0
+
+withdrawal_policy:
+  type: FixedRealWithdrawalPolicy
+
+experiments:
+  - id: A
+    withdrawal_rate: 0.04
+    final_value_target: 0.0
+  - id: B
+    withdrawal_rate: 0.04
+    final_value_target: 0.5
+  - id: C
+    withdrawal_rate: 0.035
+    final_value_target: 0.5
+  - id: D
+    withdrawal_rate: 0.0325
+    final_value_target: 0.5
+
+dataset:
+  historical_data_cutoff: "2016-09-01"
+  projection:
+    phase_months: 120
+    equity:
+      annual_real_return: 0.066
+      annual_real_return_after: 0.066
+    bonds:
+      annual_real_return: 0.0
+      annual_real_return_after: 0.026
+    inflation:
+      mode: zero
+    ffr:
+      policy: last_observed_at_cutoff
+
+expense_ratio: 0.0005

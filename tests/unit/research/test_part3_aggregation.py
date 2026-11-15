@@ -553,6 +553,30 @@ class TestCapeUnavailableExclusion:
         assert regimes[CapeRegime.HIGH].total_cohorts == 1
         assert regimes[CapeRegime.BELOW_15].total_cohorts == 1
 
+    def test_prior_regime_included_without_current_cape(self) -> None:
+        """A prior-derived regime is included even when current CAPE is absent."""
+        cohorts = [
+            _cohort("2000-04-01"),  # no current CAPE, prior regime HIGH
+            _cohort("2000-05-01"),  # no current or prior regime
+        ]
+        params = [_params(30, "1.0", "0.04")] * 2
+        cape = {
+            _D("2000-04-01"): (None, "HIGH"),
+            _D("2000-05-01"): (None, None),
+        }
+        results = [_result(True), _result(True)]
+
+        agg = aggregate_part3_results(
+            tuple(cohorts), tuple(params), tuple(results), _make_get_cape(cape)
+        )
+
+        assert agg.total_units == 2
+        assert agg.excluded_no_cape == 1
+        by_regime = {a.cape_regime: a for a in agg.regime_aggregations}
+        assert by_regime[CapeRegime.HIGH].total_cohorts == 1
+        assert by_regime[CapeRegime.HIGH].successful_cohorts == 1
+        assert sum(a.total_cohorts for a in agg.regime_aggregations) == 1
+
     def test_regime_populations_sum_to_cape_eligible(self) -> None:
         """Regime totals must equal CAPE-eligible count, not total count."""
         cohorts = [

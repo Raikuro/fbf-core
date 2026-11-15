@@ -50,9 +50,21 @@ assumptions. Monthly forward rates use `(1 + annual_rate) ** (1/12) - 1`:
 ### CAPE conditioning
 
 Four-level regimes: `BELOW_15` (<15), `MODERATE` (15-20), `HIGH` (20-30), and
-`EXTREME` (>=30). The binary Part 19/20 population uses `CAPE at t-1 > 20`
+`EXTREME` (>=30). Part 3 four-regime classification uses the previous month's
+Shiller CAPE (`CAPE_{t-1}`), matching the workbook's `CAPE (lag 1M)`
+convention. The binary Part 19/20 population also uses `CAPE at t-1 > 20`
 (`HIGH`), falling back to the first cohort's own CAPE when no prior observation
-exists. CAPE is the workbook-only series defined in `DATASETS.md`.
+exists. A cohort lacking a prior-month observation receives no four-regime
+classification and is excluded from four-regime statistics. `cape_available`
+and `cape_value` describe cohort-month CAPE and are independent of
+`cape_regime`, so `(cape_value=None, cape_regime="EXTREME")` is valid.
+`cape_regime_unavailable` counts entries without a usable prior-month CAPE
+observation. Part 3's `excluded_no_cape` counts units without four-regime
+metadata, not necessarily missing cohort-month CAPE. `require_cape` continues
+to govern cohort-month CAPE availability independently. In the canonical
+universe the first cohort (`1871-02`) has a prior observation (`1871-01`), so
+no cohort is excluded. CAPE is the workbook-only series defined in
+`DATASETS.md`.
 
 ### Part 52 FFR treatment
 
@@ -105,11 +117,62 @@ withdrawal): 5.66% (30Y, FV 0%), 4.79% (30Y, FV 50%), 4.33% (60Y, FV 0%),
 | B (4% SWR, 50% TV) | 60Y | 100% | 20-30 | 71% |
 | C (3.5% SWR, 50% TV) | 60Y | 100% | overall | 96% |
 | C (3.5% SWR, 50% TV) | 60Y | 100% | 20-30 | 88% |
-| D (3.25% SWR, 50% TV) | 60Y | 100% | overall | 97% |
+| D (3.25% SWR, 50% TV) | 60Y | 100% | 20-30 | 97% |
 
 Acceptance: within 1 percentage point. The 2023 article erratum changes the
 CAPE failure threshold from 20 to 15; it does not change the four regime
 boundaries.
+
+The published D value is the `CAPE 20-30` result. The D overall-population
+result is a diagnostic only and must not be compared with 97%.
+
+#### 2016 historical replication configuration
+
+`src/fbf/core/research/config/part3_2016.yaml` is a separate, non-canonical
+configuration for the December 2016 article's Part 3 assumptions. It retains the
+canonical `1,739`-cohort universe (`1871-02` through `2015-12`) and the 30-year
+and 60-year simulation horizons, but uses a `2016-09-01` historical cutoff.
+
+The forward projection uses `6.6%` real equity throughout, `0%` real bonds for
+the first 120 projection months and `2.6%` thereafter, zero inflation, and a
+`0.05%` additive annual expense ratio. With the September 2016 cutoff, the
+first projection phase covers October 2016 through September 2026; the second
+phase begins in October 2026.
+
+Under this configuration, all six published anchors are within the one
+percentage-point tolerance:
+
+| Anchor | Simulated | Published |
+|---|---:|---:|
+| A/30Y/CAPE20-30 | 89.66% (`321/358`) | 89% |
+| A/60Y/CAPE20-30 | 72.07% (`258/358`) | 72% |
+| B/60Y/CAPE20-30 | 71.23% (`255/358`) | 71% |
+| C/60Y/overall | 96.26% (`1674/1739`) | 96% |
+| C/60Y/CAPE20-30 | 88.83% (`318/358`) | 88% |
+| D/60Y/CAPE20-30 | 96.93% (`347/358`) | 97% |
+
+The D/60Y overall diagnostic is `99.08%` (`1723/1739`) and is not a published
+anchor. The prior-month CAPE convention changes regime membership: under the
+canonical universe the HIGH denominator is `358`, not `359`, and `BELOW_15`
+contains `803` rather than `802` cohorts. Published article percentages are
+rounded, so rounded headline agreement does not imply exact count reproduction.
+
+This is a historical replication, not a claim of exact reproduction of the
+article methodology. Published anchors are approximate integer or chart-derived
+values. Remaining uncertainties are the article's exact cohort eligibility and
+historical calculation conventions, including fee ordering, withdrawal timing,
+and aggregation; CAPE data vintage; and the origin and applicability of each
+published value. The engine's timing convention is effectively one month later
+than the literal "previous month's closing price" description and empirically
+matches the A/60Y and B anchors better, but it has not been conclusively
+established as the article's convention. The canonical 2026 configuration
+remains a separate study and is not expected to reproduce the 2016 article
+anchors without the article-era assumptions above. Its E2E tests assert
+deterministic canonical regression snapshots, not the historical 2016 anchors;
+comparisons with the published values are diagnostic only.
+
+The current v2.0 workbook is a methodological reference, not proof that every
+detail of the original 2016 GNU Octave research engine has been reproduced.
 
 ### Part 19 — Equity Glidepaths
 

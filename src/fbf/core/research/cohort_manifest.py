@@ -2,6 +2,13 @@
 
 The manifest is derived from historical CAPE observations and a prepared
 market dataset.  It is never persisted with projection-dependent horizons.
+
+Four-regime Part 3 classification uses the previous month's Shiller CAPE
+(``CAPE_{t-1}``), matching the workbook's ``CAPE (lag 1M)`` convention.
+``cape_available`` and ``cape_value`` describe cohort-month CAPE, while
+``cape_regime`` is independently determined by prior-month CAPE.  A cohort
+without a prior-month observation receives no four-regime classification;
+Part 3 aggregation excludes it from regime-specific denominators.
 """
 
 from __future__ import annotations
@@ -77,7 +84,11 @@ def build_effective_manifest(
 
     CAPE is historical-only.  Cohorts after the historical cutoff may be
     present only when ``require_cape`` is false; callers that condition on
-    CAPE must pass ``require_cape=True`` and fail if any cohort lacks CAPE.
+    CAPE must pass ``require_cape=True`` and fail if any cohort lacks
+    cohort-month CAPE.  Four-regime classification depends only on prior-month
+    CAPE, so a cohort may have ``cape_value=None`` and a non-``None``
+    ``cape_regime``.  A cohort without prior-month CAPE remains in the
+    manifest without a four-regime classification.
     """
     cutoff = metadata.historical_data_cutoff
     historical_dates = tuple(
@@ -126,13 +137,14 @@ def build_effective_manifest(
         if cape_value is None:
             missing_cape.append(cohort_date)
         cape_available = cape_value is not None
+        prior_cape = cape_map.get(_previous_month(cohort_date))
+
         regime_name: str | None = None
-        if cape_value is not None:
-            regime = classify_cape_regime(cape_value)
+        if prior_cape is not None:
+            regime = classify_cape_regime(prior_cape)
             regime_name = regime.name
             cape_regime_counts[regime_name] += 1
 
-        prior_cape = cape_map.get(_previous_month(cohort_date))
         if prior_cape is None and cohort_date == cohort_dates[0]:
             prior_cape = cape_value
         if prior_cape is not None:
@@ -196,6 +208,13 @@ def build_effective_manifest(
             "market_available": len(entries),
             "cape_available": cape_available_count,
             "cape_regimes": cape_regime_counts,
+            "cape_regime_semantics": (
+                "CAPE at t-1 only; cohorts without a prior-month CAPE "
+                "observation are excluded from four-regime statistics"
+            ),
+            "cape_regime_unavailable": sum(
+                1 for entry in entries if entry.cape_regime is None
+            ),
             "horizon_eligibility": horizon_eligibility,
             "binary_cape_regimes": binary_counts,
             "binary_cape_semantics": (

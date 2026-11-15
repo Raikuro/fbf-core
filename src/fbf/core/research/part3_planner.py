@@ -108,8 +108,11 @@ def build_cape_registry(
     """Build a deterministic CAPE lookup from the manifest.
 
     Returns a callable that maps a ``CohortSpecification`` to its
-    ``(cape_value, cape_regime)`` pair from the manifest.  Cohorts
-    not present in the manifest return ``(None, None)``.
+    ``(cape_value, cape_regime)`` pair from the manifest.  ``cape_value`` is
+    the cohort-month observation retained for binary/legacy consumers;
+    ``cape_regime`` is independently derived from the prior-month observation.
+    A manifest entry may therefore yield ``(None, <regime>)``.  Cohorts not
+    present in the manifest return ``(None, None)``.
 
     The registry resolves CAPE once at construction time.  Subsequent
     lookups are pure dictionary accesses — no repeated CAPE computation.
@@ -281,7 +284,7 @@ def materialize_part3_plan(
         return alloc, withdraw
 
     def target_resolver(param_config: ParameterConfiguration) -> Decimal | None:
-        raw = param_config.get("final_value_target")
+        raw = param_config.values.get("final_value_target")
         if raw is None:
             return None
         return Decimal(str(raw))
@@ -312,11 +315,7 @@ def materialize_part3_plan(
         for param_config in param_configs:
             effective_horizon = cohort_aware_horizon_resolver(param_config, cohort)
             alloc_policy, withdrawal_policy = policy_resolver(param_config)
-            final_value_target = (
-                target_resolver(param_config)
-                if config.final_value_targets is not None
-                else None
-            )
+            final_value_target = target_resolver(param_config)
             cache_key = (cohort.start_date.isoformat(), effective_horizon)
             if cache_key not in dataset_cache:
                 dataset_cache[cache_key] = canonical_trajectory.slice(

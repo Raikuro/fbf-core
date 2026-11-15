@@ -29,8 +29,10 @@ def _add_months(value: date, months: int) -> date:
     return date(year, month_index + 1, 1)
 
 
-def load_packaged_part3_configuration() -> StudyConfiguration:
-    """Load the packaged canonical Part 3 YAML configuration."""
+def load_packaged_part3_configuration(
+    config_name: str = "part3_canonical.yaml",
+) -> StudyConfiguration:
+    """Load a packaged Part 3 YAML configuration."""
     from importlib import resources
 
     try:
@@ -41,7 +43,7 @@ def load_packaged_part3_configuration() -> StudyConfiguration:
         ) from err
     text = (
         resources.files("fbf.core.research.config")
-        .joinpath("part3_canonical.yaml")
+        .joinpath(config_name)
         .read_text(encoding="utf-8")
     )
     raw: Any = yaml.safe_load(text)

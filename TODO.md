@@ -7,34 +7,60 @@ acceptance anchors, and project conclusions are in
 
 ---
 
-## Part 3 Published-Anchor Mismatch
+## Part 3 Published-Anchor Classification
 
-**Classification:** deferred investigation; published anchors frozen
+**Classification:** open; canonical 2026 C divergence and exact 2016 methodology
+reproduction unresolved
 
-The Part 3 canonical E2E is NOT PASSING. The complete 292,152-unit execution
-completes successfully, but four of six published anchors differ by more than
-the one-percentage-point tolerance. The mismatch predates the runtime-manifest
-migration and persists with the current canonical dataset and cohort semantics,
-so it has not been demonstrated to result from that migration.
+### Canonical 2026 C Divergence
 
-| Anchor | Canonical | Published | Delta |
-|---|---:|---:|---:|
-| A/30Y/HIGH | 89.69% | 89% | +0.69pp |
-| A/60Y/HIGH | 72.14% | 72% | +0.14pp |
-| B/60Y/HIGH | 72.14% | 71% | +1.14pp |
-| C/60Y/HIGH | 93.87% | 88% | +5.87pp |
-| C/60Y/overall | 98.33% | 96% | +2.33pp |
-| D/60Y/overall | 99.37% | 97% | +2.37pp |
+The canonical 2026 Part 3 study executes all 292,152 units. Two of the six
+published anchors differ by more than the one-percentage-point tolerance:
 
-Do not update, re-baseline, weaken, or remove the anchors or assertions. A
-future investigation must reproduce the discrepancy and identify its cause
-before proposing any implementation or anchor change. Scope:
+| Anchor | Canonical 2026 | Published | Delta | Result |
+|---|---:|---:|---:|---|
+| A/30Y/CAPE20-30 | 89.66% | 89% | +0.66pp | pass |
+| A/60Y/CAPE20-30 | 72.07% | 72% | +0.07pp | pass |
+| B/60Y/CAPE20-30 | 71.51% | 71% | +0.51pp | pass |
+| C/60Y/CAPE20-30 | 91.62% | 88% | +3.62pp | fail |
+| C/60Y/overall | 97.76% | 96% | +1.76pp | fail |
+| D/60Y/CAPE20-30 | 97.21% | 97% | +0.21pp | pass |
 
-- Data vintage and source-series semantics.
-- CAPE projection inputs and projection boundaries.
-- Cohort-window definitions and population membership.
-- Part 3 calculation and aggregation methodology.
-- The origin and applicability of each published anchor.
+The published D value is the CAPE 20-30 anchor. The D/60Y overall diagnostic is
+99.31% and is not compared with 97%. The canonical E2E asserts deterministic
+canonical counts as regression snapshots; it does not assert the historical
+2016 anchors. The comparison table above is diagnostic.
+
+The canonical 2026 configuration is not expected to reproduce the 2016 article
+anchors without the article-era cutoff and projection assumptions. Determine
+whether the canonical 2026 C divergence requires any change beyond that expected
+era/configuration difference.
+
+### Exact 2016 Methodology Reproduction
+
+The historical 2016 Part 3 implementation and validation are complete. The
+dedicated `part3_2016.yaml` configuration reproduces all six published article
+anchors within 1pp. This is not an exact reproduction claim.
+
+Exact reproduction remains unconfirmed. The original GNU Octave research engine
+is unavailable. The current v2.0 workbook is a methodological reference, not a
+four-regime Part 3 oracle: it exposes binary CAPE groups rather than the Part 3
+CAPE 20-30 output, so the six published anchors have no workbook-backed
+numerical comparison.
+
+Remaining open questions:
+
+- Confirm the article's exact cohort eligibility rules.
+- Verify historical calculation conventions, including fee ordering,
+  withdrawal timing, and aggregation.
+- Verify the historical CAPE vintage and confirm the origin and applicability
+  of each published anchor.
+- Establish whether the engine's one-month-later timing convention is the
+  article's convention; it currently matches A/60Y and B better but is not
+  conclusively established.
+
+Do not update, re-baseline, weaken, or remove the anchors or assertions without
+explicit approval.
 
 ---
 

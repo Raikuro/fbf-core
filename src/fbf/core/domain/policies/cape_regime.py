@@ -16,8 +16,9 @@ Boundary behaviour is explicit:
     - Four-level: CAPE exactly 20.00 falls in HIGH (min_inclusive=20)
     - Binary: CAPE exactly 20.00 falls in LOW (max_inclusive=20)
 
-The classification uses the CAPE value known at the retirement start date,
-never future CAPE values, to avoid look-ahead bias.
+The classifier operates on the observation supplied by the caller.  Part 3
+supplies the previous month's Shiller CAPE (``CAPE_{t-1}``), matching the
+workbook's ``CAPE (lag 1M)`` convention, never a future CAPE value.
 """
 
 from __future__ import annotations
@@ -49,7 +50,8 @@ class CapeRegimeClassification:
 
     Attributes:
         regime: The CAPE regime category.
-        cape_value: The CAPE value at the retirement start date, or None if unavailable.
+        cape_value: The CAPE observation used for classification, or None if
+            unavailable.
     """
 
     regime: CapeRegime
@@ -69,7 +71,8 @@ def classify_cape_regime(cape: Decimal) -> CapeRegime:
         - CAPE > 30           -> EXTREME
 
     Args:
-        cape: The CAPE value at the retirement start date.
+        cape: The CAPE observation to classify.  Part 3 callers pass the
+            previous month's value.
 
     Returns:
         The corresponding CapeRegime enum value.

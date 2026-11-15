@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from fbf.core.datasets import prepare_ern_dataset
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
@@ -29,6 +30,7 @@ from fbf.core.research.part3_planner import (
     load_manifest,
     materialize_part3_plan,
 )
+from fbf.core.research.part3_study import load_packaged_part3_configuration
 from fbf.core.study.builder import StudyExperiment
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from tests.support.ern.verified_manifest import verified_manifest_path
@@ -463,6 +465,143 @@ class TestPart3PlanMaterialization:
             materialize_part3_plan(manifest, trajectory, config, WEALTH)
 
 
+class TestPart3FinalValueTargetPropagation:
+    def test_explicit_experiment_targets_reach_all_units(self) -> None:
+        """Each explicit experiment's declared target reaches its units."""
+        manifest = _make_minimal_manifest()
+        trajectory = _make_minimal_trajectory(24)
+        experiments = (
+            StudyExperiment("A", Decimal("0.04"), Decimal("0.0")),
+            StudyExperiment("B", Decimal("0.04"), Decimal("0.5")),
+            StudyExperiment("C", Decimal("0.035"), Decimal("0.5")),
+            StudyExperiment("D", Decimal("0.0325"), Decimal("0.5")),
+        )
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("1.0"),),
+            withdrawal_rates=(Decimal("0.04"),),
+            horizon_years=(1,),
+            final_value_targets=None,
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+            experiments=experiments,
+        )
+        result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=config,
+            initial_wealth=WEALTH,
+        )
+        declared = {
+            experiment.id: experiment.final_value_target
+            for experiment in experiments
+        }
+        seen: dict[str, set[Decimal]] = {experiment.id: set() for experiment in experiments}
+        for unit in result.plan:
+            experiment_id = str(unit.parameter_config.values["experiment_id"])
+            target = unit.final_value_target
+            assert target is not None
+            assert target == declared[experiment_id]
+            parameter_target = unit.parameter_config.values["final_value_target"]
+            assert target == Decimal(str(parameter_target))
+            seen[experiment_id].add(target)
+        assert seen == {
+            experiment_id: {target} for experiment_id, target in declared.items()
+        }
+
+    def test_no_target_preserved_for_legacy_cartesian_config(self) -> None:
+        """Legacy configurations without a target axis still produce None."""
+        manifest = _make_minimal_manifest()
+        trajectory = _make_minimal_trajectory(24)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("1.0"),),
+            withdrawal_rates=(Decimal("0.04"),),
+            horizon_years=(1,),
+            final_value_targets=None,
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        )
+        result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=config,
+            initial_wealth=WEALTH,
+        )
+        assert all(unit.final_value_target is None for unit in result.plan)
+
+
+class TestPart3PackagedConfigurations:
+    def test_canonical_configuration_remains_current_era(self) -> None:
+        config = load_packaged_part3_configuration()
+        assert config.cohort_start_date == date(1871, 2, 1)
+        assert config.cohort_end_date == date(2015, 12, 1)
+        assert config.horizon_years == (30, 60)
+        assert config.cohort_horizon_years == 60
+        assert config.projection_config is not None
+        assert config.projection_config.historical_data_cutoff == date(2026, 6, 1)
+
+    def test_2016_configuration_uses_independent_cohort_and_cutoff(self) -> None:
+        config = load_packaged_part3_configuration("part3_2016.yaml")
+        assert config.cohort_start_date == date(1871, 2, 1)
+        assert config.cohort_end_date == date(2015, 12, 1)
+        assert config.horizon_years == (30, 60)
+        assert config.cohort_horizon_years == 60
+        projection = config.projection_config
+        assert projection is not None
+        assert projection.historical_data_cutoff == date(2016, 9, 1)
+        assert projection.phase_months == 120
+        assert projection.equity_annual == Decimal("0.066")
+        assert projection.equity_annual_after == Decimal("0.066")
+        assert projection.bond_annual == Decimal("0.0")
+        assert projection.bond_annual_after == Decimal("0.026")
+        assert config.experiments is not None
+        assert {
+            experiment.id: experiment.final_value_target
+            for experiment in config.experiments
+        } == {
+            "A": Decimal("0.0"),
+            "B": Decimal("0.5"),
+            "C": Decimal("0.5"),
+            "D": Decimal("0.5"),
+        }
+
+    def test_2016_projection_phase_boundary_matches_article(self) -> None:
+        config = load_packaged_part3_configuration("part3_2016.yaml")
+        projection = config.projection_config
+        assert projection is not None
+        prepared = prepare_ern_dataset(
+            Path("data/inputs/ern"),
+            config=projection,
+            required_through=date(2075, 12, 1),
+        )
+        snapshots = {snapshot.date: snapshot for snapshot in prepared.dataset}
+
+        def level(when: date, asset_id: str) -> Decimal:
+            snapshot = snapshots[when]
+            return next(
+                value
+                for asset, value in snapshot.index_levels.items()
+                if asset.id == asset_id
+            )
+
+        def ratio(later: date, earlier: date, asset_id: str) -> float:
+            return float(level(later, asset_id) / level(earlier, asset_id))
+
+        equity_monthly = (1.066) ** (1 / 12)
+        bond_second_phase_monthly = (1.026) ** (1 / 12)
+        assert ratio(date(2026, 9, 1), date(2026, 8, 1), "bond") == pytest.approx(1.0)
+        assert ratio(date(2026, 10, 1), date(2026, 9, 1), "bond") == pytest.approx(
+            bond_second_phase_monthly, rel=1e-12
+        )
+        for later, earlier in (
+            (date(2016, 10, 1), date(2016, 9, 1)),
+            (date(2026, 9, 1), date(2026, 8, 1)),
+            (date(2026, 10, 1), date(2026, 9, 1)),
+        ):
+            assert ratio(later, earlier, "equity") == pytest.approx(
+                equity_monthly, rel=1e-12
+            )
+
+
 class TestPart3ExpenseRatio:
     def test_default_canonical_expense_ratio_propagates_to_units(self) -> None:
         manifest = _make_minimal_manifest()
@@ -545,10 +684,10 @@ class TestPart3ErnIntegration:
         manifest = load_manifest(MANIFEST_PATH)
         from collections import Counter
         regimes = Counter(c.cape_regime for c in manifest.cohorts if c.cape_available)
-        # Verified v2.0 manifest built from the canonical CSV artifacts
-        assert regimes["BELOW_15"] == 802
+        # Verified v2.0 manifest with prior-month (CAPE t-1) classification.
+        assert regimes["BELOW_15"] == 803
         assert regimes["MODERATE"] == 520
-        assert regimes["HIGH"] == 359
+        assert regimes["HIGH"] == 358
         assert regimes["EXTREME"] == 58
 
 

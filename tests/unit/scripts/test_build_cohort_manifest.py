@@ -201,10 +201,10 @@ def test_real_workbook_pipeline_reports_canonical_migration_counts(
     assert manifest["statistics"]["total_cohorts"] == 1739
     assert manifest["statistics"]["cape_available"] == 1739
     assert manifest["statistics"]["cape_regimes"] == {
-        "HIGH": 359,
+        "HIGH": 358,
         "MODERATE": 520,
         "LOW": 0,
-        "BELOW_15": 802,
+        "BELOW_15": 803,
         "EXTREME": 58,
     }
     assert manifest["statistics"]["binary_cape_regimes"] == {

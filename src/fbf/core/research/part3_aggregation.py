@@ -50,7 +50,12 @@ class RegimeAggregation:
 
 @dataclass(frozen=True)
 class Part3AggregationResult:
-    """Complete aggregation of Part 3 simulation results by CAPE regime."""
+    """Complete aggregation of Part 3 simulation results by CAPE regime.
+
+    ``excluded_no_cape`` counts units without four-regime metadata, which is
+    determined by prior-month CAPE and is not necessarily missing
+    cohort-month CAPE.
+    """
 
     regime_aggregations: tuple[RegimeAggregation, ...]
     total_units: int
@@ -155,9 +160,9 @@ def aggregate_part3_results(
         # Look up CAPE metadata from the manifest
         _cape_value, cape_regime_str = get_cape_metadata(cohort)
         if cape_regime_str is None:
-            # CAPE-unavailable cohorts are excluded from regime statistics.
-            # They are counted separately in excluded_no_cape but never
-            # assigned an artificial regime.
+            # Cohorts without four-regime metadata are excluded from regime
+            # statistics.  They are counted separately in excluded_no_cape but
+            # never assigned an artificial regime.
             excluded_no_cape += 1
             continue
         regime = CapeRegime[cape_regime_str]

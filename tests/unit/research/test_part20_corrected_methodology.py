@@ -81,7 +81,7 @@ class TestCorrectedMethodology:
             "1998-12-01": "EXTREME",   # was LOW
             "2000-12-01": "EXTREME",   # was LOW
             "2001-01-01": "EXTREME",   # was LOW
-            "2001-09-01": "HIGH",      # was LOW
+            "2001-09-01": "EXTREME",   # prior-month CAPE was >= 30
         }
 
         for cohort_date, expected_regime in key_cohorts.items():
