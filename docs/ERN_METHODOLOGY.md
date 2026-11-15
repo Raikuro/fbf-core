@@ -37,10 +37,11 @@ production expected values.
 
 Persisted market/CPI data are historical only and end at `2026-06` by default;
 projection begins `2026-07`. Runtime coverage is derived from the latest
-included cohort plus its maximum horizon, so canonical Part 3 (last cohort
-`2015-12`, 60-year horizon) extends through `2075-12` (`2,460` snapshots).
-Studies may configure an earlier historical cutoff and their own forward
-assumptions. Monthly forward rates use `(1 + annual_rate) ** (1/12) - 1`:
+included cohort plus its maximum horizon. The canonical dataset therefore
+contains `2,460` monthly snapshots through `2075-12`; under the `W-1` cohort
+window the last 60-year path consumes snapshots from `2015-11` through
+`2075-11`. Studies may configure an earlier historical cutoff and their own
+forward assumptions. Monthly forward rates use `(1 + annual_rate) ** (1/12) - 1`:
 
 | Asset | Months 1-120 | Month 121 onward |
 |---|---:|---:|
@@ -149,7 +150,7 @@ percentage-point tolerance:
 | B/60Y/CAPE20-30 | 71.23% (`255/358`) | 71% |
 | C/60Y/overall | 96.26% (`1674/1739`) | 96% |
 | C/60Y/CAPE20-30 | 88.83% (`318/358`) | 88% |
-| D/60Y/CAPE20-30 | 96.93% (`347/358`) | 97% |
+| D/60Y/CAPE20-30 | 97.21% (`348/358`) | 97% |
 
 The D/60Y overall diagnostic is `99.08%` (`1723/1739`) and is not a published
 anchor. The prior-month CAPE convention changes regime membership: under the
@@ -159,20 +160,137 @@ rounded, so rounded headline agreement does not imply exact count reproduction.
 
 This is a historical replication, not a claim of exact reproduction of the
 article methodology. Published anchors are approximate integer or chart-derived
-values. Remaining uncertainties are the article's exact cohort eligibility and
-historical calculation conventions, including fee ordering, withdrawal timing,
-and aggregation; CAPE data vintage; and the origin and applicability of each
-published value. The engine's timing convention is effectively one month later
-than the literal "previous month's closing price" description and empirically
-matches the A/60Y and B anchors better, but it has not been conclusively
-established as the article's convention. The canonical 2026 configuration
-remains a separate study and is not expected to reproduce the 2016 article
-anchors without the article-era assumptions above. Its E2E tests assert
-deterministic canonical regression snapshots, not the historical 2016 anchors;
-comparisons with the published values are diagnostic only.
+values. The corrected production path values the portfolio at `W-1`, withdraws,
+and then applies the cohort-month return, matching the workbook's `Case Study`
+recurrence and `SCR time series` indexing. All six published anchor counts match
+the independently recalculated workbook. The A/30Y and B/60Y overall-only
+differences observed in the initial comparison were caused by the
+cutoff/projection-start mismatch documented in the return-timing section below;
+they are not an implementation discrepancy. Remaining uncertainties are the
+original 2016 GNU Octave implementation, the article's exact cohort eligibility,
+the historical CAPE vintage, and the origin and applicability of each published
+value. The canonical 2026 configuration remains a separate study and is not
+expected to reproduce the 2016 article anchors without the article-era
+assumptions above. Its E2E tests assert deterministic canonical regression
+snapshots, not the historical 2016 anchors; comparisons with the published
+values are diagnostic only.
 
 The current v2.0 workbook is a methodological reference, not proof that every
 detail of the original 2016 GNU Octave research engine has been reproduced.
+
+#### Controlled decomposition of the canonical 2026 C divergence
+
+The run labels A-C in this subsection are decomposition labels, not Part 3
+experiments A-C. All runs use experiment C (`3.5%` withdrawal, `50%` final
+target, `100%` equity, 60-year horizon). Because C is 100% equity, its results
+are independent of the bond projection; the relevant differences are the
+historical cutoff and the equity projection.
+
+| Run | Historical cutoff | Equity projection | Overall | CAPE 20-30 |
+|---|---|---|---:|---:|
+| A | 2016-09-01 | 6.6% | 96.26% (`1674/1739`) | 88.83% (`318/358`) |
+| B | 2026-06-01 | 6.6% | 97.99% (`1704/1739`) | 91.62% (`328/358`) |
+| C | 2016-09-01 | 4.0% then 5.5% | 95.69% (`1664/1739`) | 88.27% (`316/358`) |
+| Canonical (both changes) | 2026-06-01 | 4.0% then 5.5% | 97.76% (`1700/1739`) | 91.62% (`328/358`) |
+
+Relative to the 2016 run, extending the historical cutoff to June 2026 alone
+adds about `1.73` percentage points overall and `2.79` points in CAPE 20-30.
+The lower canonical equity projection alone subtracts about `0.58` points
+overall and `0.56` points in CAPE 20-30. The combined canonical run is `1.50`
+points above the 2016 overall result and `2.79` points above its CAPE 20-30
+result.
+
+The cutoff effect is caused by replacing projected returns with realized
+returns. From October 2016 through June 2026, the canonical SPX real-return
+series compounds to `2.950x` (`11.74%` annualized) versus `1.865x` under the
+6.6% assumption. Relative to the 2016 run, 26 cohorts change from failure to
+success, all starting in 1965-69, the 1990s, or the 2000s; 10 are in CAPE 20-30
+and 16 are in CAPE above 30. The canonical C divergence is therefore an expected
+consequence of the 2026 data vintage and projection assumptions, not a
+C-specific implementation defect.
+
+#### Independent workbook recalculation
+
+Copies of `SWR_Toolbox_v2.0.xlsx` were recalculated with LibreOffice using the
+workbook's own `Asset Returns` and `SCR time series` formulas. The workbook does
+not expose the Part 3 four-regime table directly; its per-cohort SCR values
+(`SCR time series!E8:E1746`) were aggregated externally using prior-month
+Shiller CAPE (`Asset Returns!O`) with `20 < CAPE <= 30`. This is an independent
+workbook recurrence path, not an export from the production engine.
+
+The 2016 comparison used a workbook copy with historical data through
+`2016-06` and projection beginning `2016-07`; the canonical 2026 comparison uses
+the full v2.0 history through `2026-06`. Production's `part3_2016.yaml` uses a
+`2016-09` historical cutoff and projection beginning `2016-10`. Comparisons of
+overall results require aligned historical cutoffs and projection start dates.
+The 2016 C comparisons below are insensitive to this three-month difference; the
+A/30Y and B/60Y boundary comparisons are not, as documented in the return-timing
+section.
+
+The workbook exactly reproduces the four C comparisons:
+
+| C comparison | Production | Workbook |
+|---|---:|---:|
+| 2016 overall | `1674/1739` | `1674/1739` |
+| 2016 CAPE 20-30 | `318/358` | `318/358` |
+| 2026 overall | `1700/1739` | `1700/1739` |
+| 2026 CAPE 20-30 | `328/358` | `328/358` |
+
+The workbook's historical inputs also agree exactly with the canonical
+datasets: `Asset Returns!Q` matches `spx_tr_real.csv` and `Asset Returns!O`
+matches `cape_shiller.csv` across 1,865 monthly real-return observations and
+1,866 CAPE observations, with a maximum absolute difference of `0.0`. The
+workbook and production therefore consume identical historical inputs for these
+columns.
+
+#### Article cohort-count inconsistency
+
+Part 1 describes "1,739 possible retirement start dates between February 1,
+1871, and December 1, 2016." That range is internally inconsistent: 1,739
+inclusive months from February 1871 end at December 2015. Extending the range
+through December 2016 would produce 1,751 cohorts. The "1871-2015" chart heading
+and the canonical universe both agree with the December 2015 endpoint. The
+December 2016 wording is treated as an article ambiguity or typographical
+error, not as a dataset discrepancy.
+
+#### Return-timing correction and D reconciliation
+
+The workbook values the portfolio at the previous month-end, withdraws, and then
+applies the return for cohort month `W`. `Case Study!H26` resolves to
+`Asset Returns!AF` for month `W`, and `SCR time series!E_r` uses the cumulative
+factors from row `r-1`. Production previously sliced the dataset at `W`, so its
+first factor was `W -> W+1`, one month late. Part 3 now starts at the manifest's
+prior-month snapshot (`W-1`) and still consumes `T+1` snapshots, yielding return
+intervals `W-1 -> W` through `W+T-2 -> W+T-1`.
+
+After the correction the 2016 C and D per-cohort success classifications match
+the independently recalculated workbook for all `1,739` cohorts:
+
+| 2016 comparison | Production | Workbook |
+|---|---:|---:|
+| C/60Y overall | `1674/1739` | `1674/1739` |
+| C/60Y CAPE 20-30 | `318/358` | `318/358` |
+| D/60Y overall | `1723/1739` | `1723/1739` |
+| D/60Y CAPE 20-30 | `348/358` | `348/358` |
+
+The former five-cohort D/CAPE boundary disagreement was therefore caused by the
+one-month offset, not by float64 sensitivity or formula-evaluation differences.
+The canonical D/60Y/CAPE20-30 regression snapshot moves from `348/358` to
+`349/358`; canonical overall remains `1727/1739`. The 2016 A/30Y, A/60Y, and
+B/60Y CAPE 20-30 counts continue to match the workbook (`321`, `258`, and `255`).
+
+The five A/30Y and B/60Y overall-only status differences are fully explained by
+a cutoff and projection-start mismatch. The workbook copy used in the initial
+2016 comparison contained historical data through `2016-06` and began
+projection in `2016-07`; `part3_2016.yaml` uses a `2016-09` historical cutoff
+and begins projection in `2016-10`. The affected cohorts are A/30Y `1999-05`,
+`1999-11`, `2000-11` and B/60Y `1969-12`, `1972-07`; their first divergence is
+`2016-07-01`. All five lie outside CAPE 20-30, so no published anchor is
+affected. Aligning the workbook projection start to October 2016 removes all
+five per-cohort differences. The aligned workbook reproduces production exactly:
+A/30Y `1688/1739` overall and `321/358` in CAPE 20-30, and B/60Y `1529/1739`
+overall and `255/358` in CAPE 20-30. No unresolved A/30Y or B/60Y engine
+discrepancy remains.
 
 ### Part 19 — Equity Glidepaths
 

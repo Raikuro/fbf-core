@@ -223,7 +223,10 @@ def materialize_part3_plan(
         for entry in market_cohorts
     )
 
-    # Step 3: Build per-cohort max horizon lookup
+    # Step 3: Build per-cohort manifest lookup
+    cohort_entries: dict[str, CohortManifestEntry] = {
+        entry.cohort_date: entry for entry in market_cohorts
+    }
     cohort_max_horizon: dict[str, int] = {
         entry.cohort_date: entry.max_horizon_months
         for entry in market_cohorts
@@ -318,8 +321,16 @@ def materialize_part3_plan(
             final_value_target = target_resolver(param_config)
             cache_key = (cohort.start_date.isoformat(), effective_horizon)
             if cache_key not in dataset_cache:
+                # ERN applies the first cohort-month return to the portfolio
+                # valued at the previous month-end.  Start at the manifest's
+                # prior-month snapshot; ``effective_horizon`` snapshots then
+                # provide the base plus one snapshot per return.
+                entry = cohort_entries[cohort.start_date.isoformat()]
+                base_date = canonical_trajectory.snapshots[
+                    entry.start_month_index
+                ].date
                 dataset_cache[cache_key] = canonical_trajectory.slice(
-                    cohort.start_date, effective_horizon
+                    base_date, effective_horizon
                 )
             cohort_dataset = dataset_cache[cache_key]
             # Build a per-cohort portfolio so that

@@ -473,7 +473,7 @@ class TestPart3CanonicalERNReplication(_Part3ReplicationBase):
         self, part3_metrics: _Part3Metrics
     ) -> None:
         """Canonical D/60Y/CAPE20-30 regression snapshot."""
-        _assert_counts("D/60Y/CAPE20-30", part3_metrics.d60_high, 348, 358)
+        _assert_counts("D/60Y/CAPE20-30", part3_metrics.d60_high, 349, 358)
 
     def test_canonical_D_60Y_overall(self, part3_metrics: _Part3Metrics) -> None:
         """Canonical D/60Y/overall diagnostic regression snapshot."""
@@ -536,5 +536,5 @@ class TestPart32016ERNReplication(_Part3ReplicationBase):
         _assert_counts("B/60Y/CAPE20-30", part3_metrics.b60_high, 255, 358)
         _assert_counts("C/60Y/overall", part3_metrics.c60_overall, 1674, 1739)
         _assert_counts("C/60Y/CAPE20-30", part3_metrics.c60_high, 318, 358)
-        _assert_counts("D/60Y/CAPE20-30", part3_metrics.d60_high, 347, 358)
+        _assert_counts("D/60Y/CAPE20-30", part3_metrics.d60_high, 348, 358)
         _assert_counts("D/60Y/overall", part3_metrics.d60_overall, 1723, 1739)

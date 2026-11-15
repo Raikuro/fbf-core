@@ -74,7 +74,7 @@ def _make_minimal_manifest(
                 "cape_value": 25.0,
                 "cape_regime": "HIGH",
                 "start_month_index": 0,
-                "max_horizon_months": 240,
+                "max_horizon_months": 23,
             },
             {
                 "cohort_date": "2000-02-01",
@@ -83,7 +83,7 @@ def _make_minimal_manifest(
                 "cape_value": 14.0,
                 "cape_regime": "BELOW_15",
                 "start_month_index": 1,
-                "max_horizon_months": 239,
+                "max_horizon_months": 22,
             },
             {
                 "cohort_date": "2000-03-01",
@@ -92,7 +92,7 @@ def _make_minimal_manifest(
                 "cape_value": None,
                 "cape_regime": None,
                 "start_month_index": 2,
-                "max_horizon_months": 238,
+                "max_horizon_months": 21,
             },
         ]
     entries = tuple(CohortManifestEntry(**c) for c in cohorts)
@@ -110,13 +110,14 @@ def _make_minimal_manifest(
 def _make_minimal_trajectory(num_months: int = 24) -> Dataset:
     """Build a minimal monthly dataset trajectory for testing.
 
-    Creates snapshots on the first of each month starting from 2000-01-01.
-    This matches the cohort start dates from the minimal manifest.
+    Creates snapshots on the first of each month starting from 1999-12-01,
+    one month before the first minimal-manifest cohort (2000-01-01).
     """
     snapshots = []
     for i in range(num_months):
-        month = (i % 12) + 1
-        year = 2000 + (i // 12)
+        total_month = 1999 * 12 + 11 + i
+        year, month_index = divmod(total_month, 12)
+        month = month_index + 1
         snapshots.append(
             MarketSnapshot(
                 date=date(year, month, 1),
@@ -449,6 +450,31 @@ class TestPart3PlanMaterialization:
         dates = [u.cohort.start_date for u in result.plan]
         # Within each parameter config, cohorts should be in manifest order
         assert dates == sorted(dates)
+
+    def test_dataset_starts_at_prior_month(self) -> None:
+        """The dataset begins at W-1 so the first return is W-1 -> W."""
+        manifest = _make_minimal_manifest()
+        trajectory = _make_minimal_trajectory(24)
+        config = Part3PlannerConfig(
+            equity_allocations=(Decimal("0.5"),),
+            withdrawal_rates=(Decimal("0.04"),),
+            horizon_years=(1,),
+            final_value_targets=None,
+            allocation_policy_type="ConstantAllocationPolicy",
+            withdrawal_policy_type="FixedRealWithdrawalPolicy",
+        )
+        result = materialize_part3_plan(
+            manifest=manifest,
+            canonical_trajectory=trajectory,
+            config=config,
+            initial_wealth=WEALTH,
+        )
+        unit = result.plan[0]
+        assert unit.cohort.start_date == date(2000, 1, 1)
+        assert unit.dataset.snapshots[0].date == date(1999, 12, 1)
+        assert unit.dataset.snapshots[-1].date == date(2000, 12, 1)
+        assert unit.horizon_months == 13
+        assert len(unit.dataset.snapshots) == 13
 
     def test_empty_manifest_raises(self) -> None:
         manifest = _make_minimal_manifest(cohorts=[])
