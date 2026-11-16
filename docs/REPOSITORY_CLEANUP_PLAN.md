@@ -1,22 +1,45 @@
 # Repository Cleanup Plan
 
-**Status:** Batch 1, Batch 2a, Batch 2b, Batch 3a, and Batch 3b are complete.
-The Batch 4a documentation audit and Batch 4b documentation corrections are
-complete; the remaining cleanup and decision batches are awaiting authorization.
+**Status:** Batch 1, Batch 2a, Batch 2b, Batch 3a, Batch 3b, Batch 4a, Batch
+4b, and Batch 5 are implemented. Batches 1-4b are committed in
+`93220f746a08152d4c9bdc65508145fff25fa6b7`. Batch 5 is complete in the working
+tree but remains uncommitted: `examples/studies/ern_part52.yaml`,
+`tests/unit/study/test_part52_example.py`, and this plan. The remaining cleanup
+and decision items are awaiting authorization.
 
-**Input:** `docs/REPOSITORY_FILE_AUDIT.md` (untracked audit report, 136,192 bytes).
+**Input:** `docs/REPOSITORY_FILE_AUDIT.md` (tracked audit report, 136,192 bytes;
+committed in `93220f7`).
 
 **Baseline:** `main` at `20b7879c8c71404a10cbc002757d38cff4635bbf`.
+Current HEAD after Batches 1-4b: `93220f746a08152d4c9bdc65508145fff25fa6b7`.
+Batch 5 implementation changes are uncommitted above this HEAD.
 
 **Date:** 2026-11-16. Last updated after Batch 1, Batch 2a, the Batch 2b
 retention decision, the Batch 3a test move, the Batch 3b persistence test move
-and validation, the Batch 4a documentation audit, and the Batch 4b corrections.
+and validation, the Batch 4a documentation audit, the Batch 4b corrections, the
+Batch 5 Part 52 example validation investigation and implementation, and the
+Batch 5a cleanup-plan status corrections.
 
 ---
 
 ## 1. Executive Summary
 
-The repository inventory is internally consistent: 370 project files are tracked and the audit found no untracked or ignored files inside the agreed inventory scope. The cleanup work is therefore mostly targeted hygiene, one removed orphan module, one retained compatibility surface, two completed test-organization corrections, and several stale documentation references. The Batch 4a documentation audit found no broken Markdown links or anchors; the substantive issue is outdated reference content, not link rot.
+The repository inventory was internally consistent at plan creation: 370
+project files were tracked and the audit found no untracked or ignored files
+inside the agreed inventory scope. The cleanup work is therefore mostly targeted
+hygiene, one removed orphan module, one retained compatibility surface, two
+completed test-organization corrections, and several stale documentation
+references. The Batch 4a documentation audit found no broken Markdown links or
+anchors; the substantive issue is outdated reference content, not link rot.
+
+Tracked-file count reconciliation:
+
+- Original pre-cleanup baseline: 370 tracked files.
+- Additions in `93220f7`: `docs/REPOSITORY_CLEANUP_PLAN.md` and
+  `docs/REPOSITORY_FILE_AUDIT.md` (+2).
+- Removal in `93220f7`: `src/fbf/core/research/cape_aggregation.py` (-1).
+- Test moves in `93220f7`: no net change.
+- Current repository count: 371 tracked files (370 + 2 - 1).
 
 Recommended disposition:
 
@@ -30,46 +53,52 @@ Recommended disposition:
 | 6 | Move `tests/infrastructure/` to `tests/integration/persistence/` | Completed (Batch 3b) |
 | 7 | Audit documentation contents, links, duplication, and placement | Completed (Batch 4a) |
 | 8 | Correct stale documentation claims and references | Completed (Batch 4b) |
-| 9 | Decide the validation status of `examples/studies/ern_part52.yaml` | Needs decision |
+| 9 | Validate and correct `examples/studies/ern_part52.yaml`; add smoke coverage | Completed (Batch 5) |
 | 10 | Decide whether the debt-fixture self-test should be retired | Needs decision |
 | 11 | Keep `TODO.md` empty and keep the two independent debt oracles | Do not change |
 
-Batch 1, Batch 2a, Batch 3a, Batch 3b, Batch 4a, and Batch 4b have been
-executed. `cape_aggregation.py` was removed after verification; it was never
-imported and never appeared in a tagged release.
+Batches 1-4b have been committed in `93220f7`, and Batch 5 has been implemented
+but remains uncommitted. `cape_aggregation.py` was removed after verification; it
+was never imported and never appeared in a tagged release.
 `domain/optimizer/optimizer.py` has shipped since `v0.1.0` as a directly
 importable Tier 3 module and is retained as a compatibility surface. It is not
 automatically removable as “low-risk dead code.”
 
-No supported source behavior changed. Batch 2a removed only an orphan module;
-Batch 2b made no code change; Batch 3a moved one test module without changing
-its contents; Batch 3b moved a test package and updated one internal import;
-Batch 4a changed only this plan; Batch 4b corrected documentation only and did
-not modify source, tests, fixtures, examples, or configuration. Deletions and
-moves should be made only after explicit authorization, as separate
-implementation batches, with the quality gate run after each batch.
+No supported source or production behavior changed. Batch 2a removed only an
+orphan module; Batch 2b made no code change; Batch 3a moved one test module
+without changing its contents; Batch 3b moved a test package and updated one
+internal import; Batch 4a changed only this plan; Batch 4b corrected
+documentation only; Batch 5 corrected the Part 52 example and added a focused
+smoke test without changing production source. Deletions and moves should be
+made only after explicit authorization, as separate implementation batches,
+with the quality gate run after each batch.
 
 ---
 
 ## 2. Verified Repository State
 
 - Repository root: `/mnt/datos/workspace/fbf/fbf-core`.
-- Branch: `main`; HEAD: `20b7879c8c71404a10cbc002757d38cff4635bbf`.
-- Working tree at plan creation: no tracked modifications; only `?? docs/REPOSITORY_FILE_AUDIT.md`.
+- Baseline at plan creation: `main`; HEAD `20b7879c8c71404a10cbc002757d38cff4635bbf`.
+- Current HEAD after Batches 1-4b: `93220f746a08152d4c9bdc65508145fff25fa6b7`.
+  Batch 5 implementation is present in the working tree but uncommitted.
+- Historical working tree at plan creation: no tracked modifications; the audit
+  report was present but not yet tracked (`?? docs/REPOSITORY_FILE_AUDIT.md`).
 - `docs/REPOSITORY_CLEANUP_PLAN.md` was absent before this plan.
 - The audit report is the authoritative input for this plan and was not modified.
 - Excluded from the inventory as before: `.git/`, `.venv/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, and generated/install metadata.
-- Tracked project inventory: 370 files. Categories: production 114, tests 204, resources 34, documentation 12, other 6.
-- No material divergence was found between the audited state and the current checkout.
+- Tracked project inventory at plan creation: 370 files. Categories: production 114, tests 204, resources 34, documentation 12, other 6.
+- Current tracked inventory: 371 files; see section 1 for the reconciliation.
+- No material divergence was found between the audited state and the checkout at plan creation.
 - No cleanup, move, rename, deletion, merge, or content edit to existing project files was performed while preparing the original plan.
-- Current state after Batch 1, Batch 2a, the Batch 2b decision, Batch 3a, and
-  Batch 3b: `M .gitignore`, ` D src/fbf/core/research/cape_aggregation.py`,
+- Historical snapshot after Batch 3b, before the Batches 1-4b commit:
+  `M .gitignore`, ` D src/fbf/core/research/cape_aggregation.py`,
   ` D tests/fixtures/test_debt_fixtures.py`, ten
   ` D tests/infrastructure/...` entries,
   `?? docs/REPOSITORY_CLEANUP_PLAN.md`, `?? docs/REPOSITORY_FILE_AUDIT.md`,
   `?? tests/unit/execution/test_debt_fixtures.py`, and
   `?? tests/integration/persistence/`; `canonical/` and
-  `tests/infrastructure/` are absent.
+  `tests/infrastructure/` were absent. This state is superseded by commit
+  `93220f7`.
 - Batch 1 removed only the stale `.gitignore` rule and the empty `canonical/`
   directory. Batch 1 validation passed: contract tests `21 passed in 1.44s`,
   `git check-ignore` reported no matching rule, `test ! -e canonical` passed,
@@ -107,10 +136,27 @@ implementation batches, with the quality gate run after each batch.
   recorded the results in section 3.11. It did not change source, tests,
   fixtures, examples, configuration, either `SimulationState` implementation,
   or any package export. The audit report remains unchanged.
+- The Batch 5 investigation modified no source, test, fixture, example,
+  configuration, or documentation file other than this plan. Validation used the
+  public Core API only: YAML parsing, `StudyConfiguration.from_yaml()`, and
+  `build_study_plan()` against `data/inputs/ern`. The `sim-retire` binary was
+  not invoked, per the repository rule confining external CLI-binary use to
+  `tests/functional/`. The audit report remains unchanged at `136,192` bytes
+  with SHA-256
+  `3051764112593f9f9e9d838a6f5df5c73d54fa19a105a9874ce834da4dea4206`.
+- Batch 5 changed only `examples/studies/ern_part52.yaml`, added
+  `tests/unit/study/test_part52_example.py`, and updated this plan. It did not
+  change production source, other examples, datasets, fixtures, `TODO.md`, or
+  deferred documentation items. The audit report remains byte-for-byte
+  unchanged. The Batch 5 changes remain uncommitted; nothing has been staged,
+  committed, or pushed for Batch 5.
 - The Phase 2 investigation modified no source, test, fixture, export, or
   configuration file. Phase 2 read-only validation covered optimization, Part 3
   aggregation/pipeline, and contract tests: `103 passed in 16.69s`.
-- No staging, commit, push, or history rewrite has been performed.
+- The historical investigation records in this section describe no staging,
+  commit, push, or history rewrite during those investigations. Commit
+  `93220f7` was subsequently created after explicit authorization for Batches
+  1-4b; Batch 5 remains uncommitted.
 
 ---
 
@@ -239,8 +285,8 @@ test ! -e canonical
 **Evidence**
 
 - The file is zero bytes.
-- It was intentionally emptied in the current HEAD commit `20b7879` after its
-  remaining 45 lines were resolved.
+- It was intentionally emptied in commit `20b7879` after its remaining 45 lines
+  were resolved.
 - `AGENTS.md` and `README.md` still describe it as the canonical register of
   unresolved technical work.
 - The instructions already say to remove items once resolved, which makes an
@@ -258,7 +304,7 @@ consistent with the documented removal rule.
 
 ### 3.5 `examples/studies/ern_part52.yaml`
 
-**Evidence**
+**Original evidence**
 
 - The file is a complete, documented Part 52 example with a run command.
 - No automated test, tool, or documentation reference loads it.
@@ -268,20 +314,126 @@ consistent with the documented removal rule.
   as functional scenarios executed through the public boundary, which creates an
   expectation of validation that this file does not currently meet.
 
-**Recommendation:** Keep the file. Choose one of:
+**Batch 5 investigation (2026-11-16)**
 
-1. Add a lightweight parse/build smoke test for this example, or for all example
-   YAMLs, without executing the full ERN workload; or
-2. Explicitly document it as an illustrative, non-validated example.
+The investigation was read-only. It inspected the example, the current
+`StudyConfiguration` parser and plan builder, the canonical Part 52 tests, the
+Part 52 numba executor and kernel contract, the ERN methodology, and the
+consumer CLI option definitions. It ran only public Core API validation against
+`data/inputs/ern`; it did not execute the full study or invoke the `sim-retire`
+binary.
 
-Deleting it is not recommended because it is a user-facing example and already
-contains the run instructions.
+**Confirmed valid behavior**
 
-**Classification:** **Needs decision.** The correct choice depends on whether
-examples are a supported, tested surface or illustrative documentation.
+- The YAML is syntactically valid and `StudyConfiguration.from_yaml()` accepts
+  every declared field.
+- The parsed configuration is: `Part52WithdrawalPolicy`, 30-year horizon,
+  75% equity, one withdrawal rate (`0.0358`), two `borrow_pct` values
+  (`0.0`, `0.4108`), three `drawdown_threshold` values (`0.20`, `0.25`,
+  `0.35`), `ltv_limit = 0.50`, `ffr.spread = 0.005`, `final_value_target =
+  0.25`, and `expense_ratio = 0.0005`.
+- `build_study_plan()` succeeds and produces exactly 6 parameter combinations
+  and 2,099 cohorts, for 12,594 planned units. Each unit receives a
+  361-month FFR-derived interest-rate schedule.
+- The example’s comment that the default 30-year cohort universe is 2,099
+  cohorts is accurate. An in-memory variant with `cohort_horizon_years: 60`
+  builds 1,739 cohorts and 10,434 units, confirming the comment’s stated way to
+  match the canonical cohort set.
+- The documented run command uses real CLI options. `--data-dir` is a global
+  `sim-retire` option, and `run` defines both `--no-persist` and
+  `--summary-only`.
 
-**Tests to update:** If option 1 is chosen, add a fast test that parses the YAML
-and builds a plan; do not add it to the heavyweight ERN suite.
+**Confirmed defects**
+
+1. **Non-canonical LTV enforcement.** The example sets
+   `debt.ltv_enforcement: true` and its header says “LTV limit: 50% (enforced)”.
+   The current canonical Part 52 replication path explicitly uses
+   `ltv_enforcement=False`; the numba kernel documents `False` as “ERN canonical
+   replication mode”. With `True`, the kernel performs forced liquidation and
+   returns a margin-call failure instead of observing the workbook feasibility
+   constraint. The example therefore contradicts its own “ERN Part 52
+   replication” claim. This is a semantic defect, not a schema error.
+2. **Inaccurate metadata description.** The metadata description says
+   “Fixed-rate scenarios only (FFR scenarios require historical rate coverage)”,
+   but the example declares only `debt.ffr.spread` and no
+   `debt.interest_rate`; accordingly, the built plan uses the FFR-plus-spread
+   schedule. The file’s header and required-data list already describe FFR use.
+   The description is stale and contradicted by the configuration.
+
+**Suspicious or undocumented choices (not confirmed defects)**
+
+- The example omits `cohorts.cohort_horizon_years: 60`, unlike the Part 2 and
+  Part 49 examples. The file documents this difference and how to change it, so
+  it is an explicit choice rather than an error, but the resulting 2,099-cohort
+  universe is a superset of the canonical 1,739.
+- The example uses one withdrawal rate (`0.0358`) across leverage thresholds and
+  borrow percentages. The canonical Part 52 matrix pairs different published
+  withdrawal rates with different scenarios. The example is internally
+  consistent and executable, but the label “replication” may overstate its
+  fidelity to the canonical A1-A11 matrix.
+- The example configures `final_value_target: [0.25]`. The canonical
+  functional test leaves the target unset for gross-survival reporting and
+  evaluates the $250,000 target through the separate feasibility helper. Using
+  the target in the study is a legitimate stricter interpretation, not a broken
+  field.
+
+**Validation outcome:** the example is structurally valid and executable, but
+it contains two confirmed inaccuracies relative to the repository’s canonical
+Part 52 definition. It remains an adequate user-facing example only after those
+inaccuracies are corrected or the example is explicitly relabeled as a
+non-canonical variant.
+
+**Approved implementation scope (Batch 5)**
+
+1. Correct the example’s canonical semantics:
+   - Set `debt.ltv_enforcement: false`.
+   - Replace the header claim “LTV limit: 50% (enforced)” with wording that the
+     limit is observed as a feasibility condition and is not force-liquidated.
+   - Correct the metadata description so it describes FFR-plus-spread
+     scenarios, not fixed-rate scenarios.
+2. Add `cohort_horizon_years: 60` to match the canonical 1,739-cohort set and
+   remove the obsolete note.
+3. Add a fast smoke test that loads this YAML and builds a plan without
+   executing it.
+4. Do not change production source, other examples, or unrelated tests. Do not
+   run the heavyweight ERN suite.
+
+**Batch 5 implementation record (2026-11-16)**
+
+- `examples/studies/ern_part52.yaml` now declares
+  `debt.ltv_enforcement: false`; its header says LTV is observed and not
+  force-liquidated. The metadata description now states “FFR-plus-spread
+  scenarios (FFR + 0.50% spread)”. `cohorts.cohort_horizon_years: 60` was added,
+  and the obsolete 2,099-versus-1,739 note was replaced with the resulting
+  canonical-cohort statement.
+- `tests/unit/study/test_part52_example.py` loads the committed example through
+  `load_yaml()` and `StudyConfiguration.from_yaml()`, builds the plan via
+  `build_study_plan()` against `data/inputs/ern`, and asserts:
+  - raw and parsed LTV enforcement are both false;
+  - the configured and parsed cohort horizon is 60;
+  - the withdrawal policy is `Part52WithdrawalPolicy`;
+  - exactly 6 parameter combinations, 1,739 cohorts, and 10,434 planned units;
+  - every planned unit is observation-only for LTV;
+  - every planned unit has a non-`None` FFR-derived schedule of 361 months.
+  The test does not execute simulations, persist data, or access the network.
+- Validation: the new smoke test passed (`4 passed in 9.75s`);
+  `tests/unit/study` plus the debt-fixture test passed
+  (`316 passed in 11.35s`); `ruff check tests/unit/study/test_part52_example.py`
+  passed; `mypy --strict tests/unit/study/test_part52_example.py` passed;
+  `git diff --check` is clean.
+- Scope confirmation: no production source, unrelated example, dataset, debt
+  fixture, `TODO.md`, `SimulationState` implementation/export, or deferred
+  documentation item changed. The audit report remains byte-for-byte unchanged
+  at SHA-256
+  `3051764112593f9f9e9d838a6f5df5c73d54fa19a105a9874ce834da4dea4206`.
+  For Batch 5, nothing has been staged, committed, or pushed.
+
+**Classification:** **Completed (Batch 5 implementation); uncommitted.** The
+example is now canonically scoped and automatically covered by a fast smoke test.
+
+**Tests added:** `tests/unit/study/test_part52_example.py`. No heavyweight or
+E2E test was added.
+
 
 ### 3.6 `src/fbf/core/domain/optimizer/optimizer.py`
 
@@ -562,9 +714,9 @@ and `ruff`/`mypy`.
 - The audit report is an input artifact, not documentation to consolidate into
   the normal documentation set.
 - The `examples/studies/` and fixture YAML files are data/config material, not
-  prose documentation. `ern_part52.yaml` still needs the Batch 5 decision;
-  `ern_part19.yaml` is documentation/support-only rather than an automated
-  functional scenario.
+  prose documentation. `ern_part52.yaml` was subsequently investigated in Batch
+  5 (section 3.5); `ern_part19.yaml` is documentation/support-only rather than an
+  automated functional scenario.
 
 **Substantive corrections proposed**
 
@@ -635,8 +787,8 @@ and `ruff`/`mypy`.
      `test_ern_part2.py:207`, and `test_part42_replication.py:115`). Qualify
      the statement to say that YAML is the preferred/canonical representation or
      that scenarios may also be constructed programmatically. The separate
-     `examples/studies/ern_part52.yaml` validation question remains a Batch 5
-     decision.
+     `examples/studies/ern_part52.yaml` validation question was investigated in
+     Batch 5 (section 3.5).
 
 6. **`EXECUTION_MODES.md`: example import.**
    - The example around lines 162-175 uses `ExecutionStrategy.SEQUENTIAL`
@@ -674,7 +826,7 @@ and `ruff`/`mypy`.
   test-only reproduction.
 - Qualifying the examples claim must not accidentally state that every YAML
   example is validated. Functional scenarios and illustrative examples are
-  separate; the Part 52 example decision remains with Batch 5.
+  separate; the Part 52 example was investigated in Batch 5 (section 3.5).
 - Moving documentation to fix placement would change anchors and links for no
   current functional benefit; no move is recommended in this cleanup.
 
@@ -748,9 +900,10 @@ beyond the documented frozen datasets and test fixtures.
 
 ### 4.5 Audit report disposition
 
-The untracked audit report is an input to this plan, not a cleanup target. Its
-eventual disposition (keep as a transient report, archive, or discard) is a
-separate decision. Do not delete it while the plan is being reviewed.
+The audit report is tracked in commit `93220f7` and is an input to this plan,
+not a cleanup target. Its eventual disposition (keep, archive, or remove from
+version control) is a separate decision. Do not delete it while the plan is
+being reviewed.
 
 ### 4.6 Remaining policy-lifecycle documentation
 
@@ -805,6 +958,8 @@ fbf-core/
 │   ├── unit/
 │   │   ├── execution/
 │   │   │   └── test_debt_fixtures.py   # moved from tests/fixtures/ (Batch 3a)
+│   │   ├── study/
+│   │   │   └── test_part52_example.py  # added by Batch 5
 │   │   └── ...
 │   ├── integration/
 │   │   ├── ern/
@@ -835,7 +990,7 @@ needed in `AGENTS.md`.
 | Repair stale source/test references | None intended; some evidence strings change wording. | Re-run affected suites. | Revert text edits. |
 | Move `test_debt_fixtures.py` | Completed in Batch 3a; no production impact. | Node IDs change; 25-test collection count unchanged. | Move file back. |
 | Move `tests/infrastructure/` | Completed in Batch 3b; no production impact. | Updated one absolute import; 180-test collection unchanged; node IDs changed. | Move directory back and restore import. |
-| Add Part 52 example smoke test | None. | Adds a fast parse/build test if approved. | Remove the test. |
+| Add Part 52 example smoke test | Completed in Batch 5; no production impact. | Adds a fast parse/build test; `4 passed`. | Remove the test. |
 | Retire debt fixture suite | None. | Removes fixture-only tests, not production coverage. | Restore both files. |
 
 No production dependency, public Tier 1 symbol, or Tier 2 export was changed.
@@ -961,20 +1116,44 @@ changed; both `SimulationState` implementations and their exports are unchanged;
 `git diff --check` is clean. No `RUN_ERN_E2E` command was run because no
 execution/test code changed.
 
-### Batch 5: Decision items
+### Batch 5: Part 52 example validation — Completed (uncommitted)
 
-1. Decide whether to add a Part 52 example smoke test or document the example as
-   illustrative.
-2. Decide whether the debt-fixture self-test and `tests/fixtures/debt.py` should
+The investigation and implementation record are in section 3.5. Batch 5
+implementation is complete in the working tree but remains uncommitted. In
+summary:
+
+1. Corrected the example to canonical Part 52 LTV semantics
+   (`debt.ltv_enforcement: false`; LTV observed, not force-liquidated) and
+   updated the header wording.
+2. Corrected the metadata description from fixed-rate wording to
+   FFR-plus-spread wording.
+3. Added `cohorts.cohort_horizon_years: 60`, yielding the canonical 1,739
+   cohorts, 6 parameter combinations, and 10,434 planned units.
+4. Added `tests/unit/study/test_part52_example.py`, a fast parse/build smoke
+   test that does not execute simulations or persist data.
+5. Validation passed: new test `4 passed in 9.75s`; `tests/unit/study` plus the
+   debt-fixture test `316 passed in 11.35s`; `ruff` and `mypy --strict` passed
+   for the new test; `git diff --check` is clean. No heavyweight ERN or
+   `RUN_ERN_E2E` command was run.
+
+Separate decision items remain outside this Batch 5 scope:
+
+1. Decide whether the debt-fixture self-test and `tests/fixtures/debt.py` should
    be retained or retired.
-3. If desired, add one sentence to the documentation stating that an empty
+2. If desired, add one sentence to the documentation stating that an empty
    `TODO.md` is the valid no-open-items state.
 
-Do not execute these until the owner chooses the intended behavior.
+Do not execute these separate items until the owner chooses the intended
+behavior.
 
 ### Batch 6: Final quality gate
 
-Run from a clean checkout after the approved batches:
+**Status: pending.** This gate must run from a clean checkout after Batch 5 is
+committed and the working tree is clean. That prerequisite is not currently
+satisfied because Batch 5 remains uncommitted. Do not start Batch 6 before the
+Batch 5 commit is authorized and created.
+
+Run from the clean checkout described above:
 
 ```bash
 ruff check .
@@ -1055,9 +1234,10 @@ infrastructure path should be restored or reintroduced.
    `fbf.core.domain.optimizer`; the owner chose to retain it as a compatibility
    surface. Any future removal requires a deliberate API deprecation/breaking
    change, not routine cleanup.
-2. **Part 52 example status.** The file is useful and well documented but has no
-   automated reference. The owner must choose between smoke coverage and
-   illustrative-status documentation.
+2. **Part 52 example status.** Resolved in Batch 5. The example now uses
+   canonical observation-only LTV semantics, the canonical 1,739-cohort horizon,
+   and accurate FFR-plus-spread metadata. It is covered by a fast parse/build
+   smoke test and is no longer an unvalidated orphan.
 3. **Debt-fixture retirement.** The fixture self-test is deliberately maintained
    but does not exercise production code. It was moved in Batch 3a; retire it
    only with explicit confirmation.
@@ -1080,18 +1260,22 @@ infrastructure path should be restored or reintroduced.
 8. **ERN cross-repo status.** `ERN_METHODOLOGY.md:605-608` contains current
    cross-repo project status. Keeping it is acceptable; moving it requires a
    stable destination and owner approval.
-9. **Audit report disposition.** The untracked audit report is not part of the
-   cleanup scope. Its eventual retention or removal is a separate decision.
-10. **Commit authorization.** No batch may be committed until the owner
-    authorizes it. The normal rule is one commit per approved phase.
+9. **Audit report disposition.** The audit report is tracked in `93220f7` and is
+   not part of the cleanup scope. Its eventual retention or removal is a separate
+   decision.
+10. **Commit authorization.** Batches 1-4b were committed in `93220f7` after
+    explicit authorization. Batch 5 remains uncommitted. No further batch may be
+    committed until the owner authorizes it. The normal rule is one commit per
+    approved phase.
 
 ---
 
 ## 11. Final Statement
 
 This plan is based on the current repository state and the completed file audit.
-Batch 1, Batch 2a, the Batch 2b decision, Batch 3a, Batch 3b, Batch 4a, and
-Batch 4b are complete. Batch 2a removed only
+Batch 1, Batch 2a, the Batch 2b decision, Batch 3a, Batch 3b, Batch 4a, Batch
+4b, and Batch 5 are implemented. Batches 1-4b are committed in `93220f7`;
+Batch 5 remains uncommitted. Batch 2a removed only
 `src/fbf/core/research/cape_aggregation.py`; Batch 2b retained the optimizer
 module and exports unchanged; Batch 3a moved only
 `tests/fixtures/test_debt_fixtures.py` to
@@ -1101,11 +1285,28 @@ Batch 4a modified only this plan and found no broken Markdown links or anchors;
 Batch 4b corrected `ARCHITECTURE.md`, `DATASETS.md`, `docs/DECISIONS.md`,
 `docs/DEVELOPMENT.md`, `docs/DOMAIN.md`, and `docs/EXECUTION_MODES.md`.
 
-No production source, test logic, assertions, fixtures, examples, configuration,
-`SimulationState` implementation/export, or other unauthorized documentation
-file was modified in Batch 4b. Nothing was staged, committed, or pushed.
+The Batch 5 investigation validated `examples/studies/ern_part52.yaml` through
+the public Core API and found two confirmed defects: non-canonical LTV
+enforcement and a stale fixed-rate metadata description. Batch 5 then corrected
+the example to observation-only LTV semantics, accurate FFR-plus-spread
+metadata, and the canonical 60-year cohort horizon, and added
+`tests/unit/study/test_part52_example.py`. The example now builds exactly 6
+parameter combinations, 1,739 cohorts, and 10,434 units; every planned unit has
+a 361-month FFR-derived schedule. The new smoke test passed
+(`4 passed in 9.75s`), the relevant study suite passed
+(`316 passed in 11.35s`), and `ruff`, `mypy --strict`, and `git diff --check`
+passed.
 
-Recommended next step: authorize the remaining decision-item batches separately.
-The `SimulationState` ownership question and `ern_part52.yaml` validation remain
-unresolved and require explicit decisions. Defer Batch 2b follow-up unless the
-owner explicitly chooses a future deprecation/breaking change.
+No production source, other example, dataset, debt fixture, `TODO.md`,
+`SimulationState` implementation/export, or deferred documentation item was
+modified in Batch 5. The audit report remains byte-for-byte unchanged. For
+Batch 5, nothing has been staged, committed, or pushed; Batches 1-4b were
+committed separately in `93220f7`.
+
+Recommended next step: authorize exactly one Batch 5 commit containing this
+plan, the example, and the smoke test; then run Batch 6 from a clean checkout.
+Request separate authorization for any remaining cleanup or decision item. The
+`SimulationState` ownership question, the debt-fixture retirement decision, the
+empty-`TODO.md` wording, and the deferred `docs/DESIGN.md` lifecycle passage
+remain unresolved. Defer Batch 2b follow-up unless the owner explicitly chooses
+a future deprecation/breaking change.

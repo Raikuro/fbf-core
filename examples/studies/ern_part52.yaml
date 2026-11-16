@@ -9,7 +9,7 @@
 #   - 30-year horizon
 #   - Drawdown trigger: 20%+ below real S&P 500 TR all-time high (index-level)
 #   - Repayment: double withdrawal at fresh ATH, excess repays margin loan
-#   - LTV limit: 50% (enforced)
+#   - LTV limit: 50% (observed, not force-liquidated)
 #   - Final net-worth target: $250,000 (0.25 × initial)
 #   - Interest rate: FFR + 0.50% spread, CPI-adjusted (canonical ERN formula)
 #
@@ -31,10 +31,11 @@ metadata:
   description: >
     Early Retirement Now Part 52 replication:
     drawdown-triggered leverage with repayment at fresh ATH.
-    Fixed-rate scenarios only (FFR scenarios require historical rate coverage).
+    FFR-plus-spread scenarios (FFR + 0.50% spread).
 
 cohorts:
   horizon_years: [30]
+  cohort_horizon_years: 60
 
 allocation_policy:
   type: "ConstantAllocationPolicy"
@@ -49,7 +50,7 @@ debt:
   ffr:
     spread: 0.005
   ltv_limit: 0.50
-  ltv_enforcement: true
+  ltv_enforcement: false
   borrow_pct: [0.0, 0.4108]
   drawdown_threshold: [0.20, 0.25, 0.35]
 
@@ -58,6 +59,5 @@ final_value_target: [0.25]
 # Annual expense ratio (applied monthly). Canonical ERN value: 0.0005.
 expense_ratio: 0.0005
 
-# Note: The 30-year horizon generates 2,099 cohorts (superset of the
-# canonical 1,739).  To match the canonical grid, add
-# `cohort_horizon_years: 60` to the cohorts block.
+# Note: The 60-year cohort horizon generates the canonical 1,739 cohorts for
+# the 30-year simulations.
