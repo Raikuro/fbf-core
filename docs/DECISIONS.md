@@ -454,7 +454,11 @@ the extension's effect.
 
 **Consequence:** Full-universe reports must state the layer and dataset vintage,
 report 1,506 alongside the 1,453 sensitivity, and never present either as
-canonical acceptance. Solver replication remains a separate deferred milestone.
+canonical acceptance. Full Solver replication remains a separate deferred
+milestone. A test-only deterministic reproduction of the recorded workbook
+optimum is complete; it does not prove global optimality or replay GRG's
+iteration path. See [`ERN_METHODOLOGY.md`](ERN_METHODOLOGY.md) for the
+reproduction contract.
 
 ---
 

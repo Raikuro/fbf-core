@@ -22,16 +22,19 @@ empirically validated.
 
 ## 2. Repository Overview
 
-The FBF system is split into two standalone Git repositories that are
+The FBF ecosystem is split into three standalone Git repositories that are
 **peers with no parent Git repository**:
 
 ```
 /workspace/
 ├── fbf-core/          — simulation engine and research library (this repo)
-└── <consumer>/        — external consumer (e.g. a CLI, web app, or notebook)
+├── fbf-cli/           — terminal command-line interface
+└── fbf-ui/            — web interface, orchestration, and visualization
 ```
 
-There is **no umbrella `fbf/.git`** and no monorepo layer.
+`fbf-cli` and `fbf-ui` are independent peers. Both depend directly on
+`fbf-core`; neither depends on the other. There is **no umbrella `fbf/.git`**
+and no monorepo layer.
 
 ---
 
@@ -57,8 +60,8 @@ There is **no umbrella `fbf/.git`** and no monorepo layer.
 * **Sequential execution** — Numba workloads execute sequentially. Parallel
   execution is rejected because it was measured as counterproductive.
 * **Simulation executor** — application-layer coordinator only. No financial
-  model and no statistics. One public operation: `execute(experiment) →
-  ExperimentResult`.
+  model and no statistics. One public operation:
+  `execute(definition: ExperimentDefinition) -> ExperimentRun`.
 * **Study planning** — cohort generation, parameter sweeps, experiment
   definitions. Plans are fully materialized before execution; no plan
   construction during execution.
@@ -88,13 +91,12 @@ front-ends, web applications, notebooks, and other Python libraries.
 The dependency direction is strictly one-way:
 
 ```
-External consumers
+External consumers (fbf-cli, fbf-ui, notebooks, libraries)
        │
        ▼
    fbf-core
-       │
-       ▼
-Python stdlib only
+       ├──► Python stdlib (base package)
+       └──► optional NumPy + Numba extra (production execution)
 ```
 
 Core never imports from any consumer. Consumers import through Tier 1 or
@@ -140,11 +142,18 @@ by `fbf.core.research.__all__` are stable Tier 2 API; every submodule below it
 ## 6. Dependency Direction
 
 ```
-External consumers  ──depends on──►  fbf-core  ──► Python stdlib only
+fbf-cli ──depends on──► fbf-core
+fbf-ui  ──depends on──► fbf-core
+
+fbf-core (base)        ──► Python stdlib
+fbf-core[numba] extra  ──► NumPy + Numba (production execution)
 ```
 
-* `fbf-core` has **zero third-party runtime dependencies**. It runs exclusively
-  on the Python 3.13 standard library.
+* `fbf-core` has **no required third-party dependencies** in its package
+  metadata. The base domain, planning, persistence, and oracle APIs are
+  importable using the Python 3.13 standard library.
+* Production study execution requires the optional `numba` extra, which
+  provides NumPy and Numba: `pip install "fbf-core[numba]"`.
 * The dependency arrow is **strictly one-directional**. Core never imports
   from any consumer.
 
@@ -152,10 +161,10 @@ External consumers  ──depends on──►  fbf-core  ──► Python stdlib
 
 | Importer | May import |
 |----------|-----------|
-| `fbf.core.*` | Python stdlib; other `fbf.core.*` submodules (no upward domain violations) |
+| `fbf.core.*` | Python stdlib; other `fbf.core.*` submodules (no upward domain violations); optional NumPy/Numba in modules that require the `numba` extra |
 | External consumers | Python stdlib; `fbf.core` Tier 1 & Tier 2; consumer-owned dependencies |
 | Consumer tests | Same as external consumers |
-| Core tests | Python stdlib; all of `fbf.core.*` including Tier 3 |
+| Core tests | Python stdlib; all of `fbf.core.*` including Tier 3; optional NumPy/Numba for execution tests |
 
 ---
 
@@ -180,13 +189,14 @@ These rules are enforced by automated AST contract tests in each repository's
 `fbf-core` is an independently installable Python package:
 
 ```bash
-pip install fbf-core    # installs simulation engine only
+pip install fbf-core            # base package: planning, domain, persistence, oracles
+pip install "fbf-core[numba]"   # adds the production execution engine
 ```
 
 For local development:
 
 ```bash
-pip install -e .
+pip install -e ".[numba]"
 ```
 
 Consumers declare their own dependency on `fbf-core` with an appropriate
@@ -206,7 +216,8 @@ validation, and release builds are documented in
 ## 10. Key Invariants
 
 1. `fbf-core` is usable without any specific consumer installed.
-2. `fbf-core` has zero third-party runtime dependencies.
+2. `fbf-core` has no required third-party runtime dependencies. Production
+   execution requires the optional `numba` extra.
 3. Monetary values use `decimal.Decimal` — no `float` for `Money` objects or
    monetary domain operations. Derived statistical metrics may use other numeric
    representations where explicitly appropriate.
@@ -214,7 +225,7 @@ validation, and release builds are documented in
    workloads fail explicitly and never fall back to a second engine.
 5. ERN oracle acceptance matrix passes with exact `Decimal` equality (no float tolerance).
 6. External consumers import exclusively through the public Core API (Tier 1 and Tier 2).
-7. No history is rewritten in either repository after the initial migration commit.
+7. No history is rewritten in any FBF repository after the initial migration commit.
 8. **Execution determinism:** the production Numba path is single-process and
    deterministic. The low-level test-only helper additionally guarantees
    `parallel_execute(plan, workers=k) ≡ sequential_execute(plan)` for all k ≥ 1;
@@ -231,8 +242,9 @@ Datasets are not shipped in the wheel. They are external local artifacts. The
 study builder loads the canonical ERN CSV series through
 `load_canonical_dataset(Path(data_dir))`, or accepts an already-loaded `Dataset`
 from its caller. There is no generic JSON dataset resolver, identifier/version
-lookup, or process-local dataset cache. The CLI only passes through `--data-dir`.
-See [DATASETS.md](./DATASETS.md) for canonical sources, filenames, and provenance.
+lookup, or process-local dataset cache. `fbf-cli` exposes `--data-dir`;
+`fbf-ui` resolves its configured dataset directory. See
+[DATASETS.md](./DATASETS.md) for canonical sources, filenames, and provenance.
 
 ---
 
@@ -241,9 +253,9 @@ See [DATASETS.md](./DATASETS.md) for canonical sources, filenames, and provenanc
 Simulation execution operates on materialized, immutable dataset data prepared
 before task execution.
 
-Workers operate on the materialized experiment data supplied by the execution
-layer and do not independently resolve or reload datasets from persistence for
-individual simulation tasks.
+Each planned simulation consumes the materialized dataset slice and portfolio
+supplied by the planning boundary; execution does not independently resolve or
+reload datasets from persistence for individual simulation tasks.
 
 Simulation execution does not access persistence or SQL. Persistence is a
 separate concern outside the simulation execution path.
@@ -269,11 +281,11 @@ properties:
 * **Domain independence:** The domain never knows persistence implementation.
   SQLite is swappable for PostgreSQL, DuckDB, Parquet, or CSV by implementing
   new Repository adapters.
-* **Schema ownership:** The infrastructure layer owns the schema. The domain
+* **Schema ownership:** The persistence layer owns the schema. The domain
   never references table names, columns, or SQL.
 * **Write serialization:** SQLite allows one writer at a time. Writes are
-  serialized; reads are parallelized. WAL mode and synchronous NORMAL provide
-  durability.
+  serialized, and WAL mode permits concurrent readers while writes are in
+  progress. The repository configures WAL mode and synchronous NORMAL.
 * **Incremental execution:** An execution result has an explicit lifecycle
   (`executing`, `completed`, `failed`, `abandoned`) and an attempt token.
   Completed slices are committed with their counters in one transaction;
@@ -315,10 +327,9 @@ Policies make decisions. Services execute those decisions. Policies should not
 contain execution actions merely to simplify a particular implementation.
 This separation keeps strategies swappable without touching execution logic.
 
-Policy lifecycle: `before_simulation → before_month → decide → PolicyDecision
-→ after_month → after_simulation`. Same `DecisionContext` must produce
-identical `PolicyDecision`. Policies are stateless; all state resides in
-`DecisionContext` (immutable snapshot).
+Policy contract: `decide(context: DecisionContext) -> PolicyDecision`. The
+same `DecisionContext` must produce an identical `PolicyDecision`. Policies are
+stateless; all state resides in `DecisionContext` (immutable snapshot).
 
 ### Deterministic Execution
 

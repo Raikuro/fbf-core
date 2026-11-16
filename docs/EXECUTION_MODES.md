@@ -159,7 +159,12 @@ resolved once at the execution boundary and propagated to executors. See
 ## 6. Configuration Examples
 
 ```python
-from fbf.core.execution import ExecutionBackend, ExecutionOptions, execute_study_plan
+from fbf.core.execution import (
+    ExecutionBackend,
+    ExecutionOptions,
+    ExecutionStrategy,
+    execute_study_plan,
+)
 
 # Default: AUTO dispatch through the Numba backend
 execute_study_plan(built)

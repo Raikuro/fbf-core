@@ -167,7 +167,7 @@ source, fallback, or extension.
   re-derived.
 
 Euro-area reference rates are research-only; no euro dataset, loader, or Part
-52 path exists. See [`TODO.md`](TODO.md).
+52 path exists.
 
 ---
 

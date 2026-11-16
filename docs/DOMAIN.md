@@ -23,23 +23,31 @@ This separation ensures the engine is reusable for any retirement research.
 
 ## Core Concepts
 
-### Study (ExperimentDefinition)
+### Study Configuration (`StudyConfiguration`)
 
-A complete experiment specification: name, description, dataset reference,
-horizon, allocation policies, withdrawal policies, and optimization targets.
-Immutable once created. Contains no results, no portfolio state, and no
+A complete study specification: metadata, allocation and withdrawal policy
+axes, horizon axes, optional cohort bounds, and optional final-value targets.
+`StudyConfiguration` is the normalized YAML interpretation layer and is
+immutable once constructed. It contains no results, portfolio state, or
 statistics.
+
+Planning materializes the configuration into a `ResearchPlan` of
+`PlannedSimulationUnit` values. Execution consumes a pipeline
+`ExperimentDefinition`, which carries an ordered tuple of simulation contexts
+and does not itself own results.
 
 ### Cohort
 
 A historical start date within a study. Each cohort represents a different
 starting point in the dataset, enabling analysis across market conditions.
 
-### SimulationUnit
+### Planned Simulation Unit (`PlannedSimulationUnit`)
 
-One independent simulation: a single combination of cohort, allocation
-policy, withdrawal policy, and target. Units are independent — the order
-in which they execute never affects results.
+One materialized simulation request within a `ResearchPlan`: a cohort, scalar
+parameter configuration, concrete allocation and withdrawal policies, an
+initial portfolio, a cohort-sliced dataset, and a horizon. Optional fields carry
+evaluation targets, cash-flow schedules, and Part 49 debt parameters. Units are
+independent — the order in which they execute never affects results.
 
 ### Portfolio
 
@@ -68,9 +76,9 @@ Withdrawals, rebalances, and market evolution are executed by the domain service
 
 ### AssetClass
 
-An abstract category of financial asset (e.g. ACWI Total Return EUR, Euro
-Government Bonds). Identifies a time series within a Dataset. Never stores
-money or portfolio state and contains no simulation logic.
+An abstract category of financial asset, such as an equity or government-bond
+index. Identifies a time series within a Dataset. Never stores money or
+portfolio state and contains no simulation logic.
 
 ### Dataset and MarketSnapshot
 
@@ -96,24 +104,17 @@ current state) and returns a `PolicyDecision`.
 ### What Policies Must Not Do
 
 * Modify Portfolio
-* Access the full Dataset
 * Touch SQLite or any persistence layer
-* Perform financial operations
+* Perform portfolio operations
 * Depend on execution or infrastructure
 
-### Policy Lifecycle
+### Policy Contract
 
-```
-before_simulation(context)    — initialization
-       ↓
-before_month(decision_context) — pre-month setup
-       ↓
-decide(decision_context)       — returns PolicyDecision (immutable)
-       ↓
-after_month(decision_context)  — post-month bookkeeping
-       ↓
-after_simulation(context)      — finalization
-```
+The current policy contract is a single operation:
+`decide(context: DecisionContext) -> PolicyDecision`. The earlier lifecycle
+hooks are not present in the implementation. Policies may read the dataset
+through the supplied `DecisionContext`, but they return decisions rather than
+mutating portfolio or persistence state.
 
 Given the same `DecisionContext`, a Policy must produce the exact same
 `PolicyDecision`. This is the determinism contract.
@@ -123,27 +124,37 @@ Given the same `DecisionContext`, a Policy must produce the exact same
 Decides the target allocation (which percentage of wealth should be in each
 asset class). Returns an `AllocationDecision`.
 
-Built-in implementations: Constant Allocation, Passive Glidepath, Active
-Glidepath.
+Current implementations are `ConstantAllocationPolicy`,
+`GlidepathAllocationPolicy`, and `BuyAndHoldAllocationPolicy`. The YAML-visible
+`AllocationPolicyType` enum exposes `CONSTANT`, `GLIDEPATH`, and
+`BUY_AND_HOLD`.
 
 ### WithdrawalPolicy
 
 Decides the withdrawal amount (nominal and real). Returns a
 `WithdrawalDecision`.
 
-Built-in implementation: Constant Inflation-Adjusted Withdrawal.
+Current implementations are `FixedRealWithdrawalPolicy`,
+`ConstantWithdrawalPolicy`, `Part49WithdrawalPolicy`,
+`Part52WithdrawalPolicy`, and `EscalatingWithdrawalPolicy`. The YAML-visible
+`WithdrawalPolicyType` enum exposes `FIXED_REAL`, `CONSTANT`, `PART49`,
+`PART52`, and `ESCALATING`.
 
 ---
 
 ## Simulation State
 
-**SimulationState** is the mutable heart of a simulation. It represents only
-the current instant: current date, period number, Portfolio, current
-Allocation, AllocationTarget, AllocationDrift, current WithdrawalDecision,
-current MarketSnapshot, current wealth, peak wealth.
+Two mutable `SimulationState` classes are currently exported:
 
-It never stores historical results, statistics, or timeline. It is one of
-very few mutable domain objects.
+* `fbf.core.domain.model.simulation.SimulationState` — domain-model state.
+* `fbf.core.execution.pipeline.simulation.SimulationState` — execution-pipeline
+  state.
+
+No current production Numba executor references either class directly. The
+execution pipeline supplies the immutable request and result types used by
+executors; the relationship between the two exported state classes and the
+kernel execution path is unresolved. Neither class is documented here as
+obsolete, and consolidating or removing either requires a separate API decision.
 
 ---
 
@@ -157,22 +168,24 @@ simulated month. No duplicates, no gaps.
 ### MonthlyResult
 
 A complete immutable snapshot of a simulation at the end of a period:
-time, market state, portfolio state, operations, statistics, and events.
-Must contain everything needed to reconstruct the simulation state at
-any point in time.
+time, market state, portfolio state, allocation and withdrawal decisions,
+return and drawdown metrics, events, and optional debt or net-cash-flow data.
+It contains the information needed to reconstruct the simulation at that point.
 
 ### SimulationResult
 
-Constructed exactly once at simulation end and never modified. Contains
-SimulationContext (immutable config snapshot), SimulationStatistics,
-SimulationTimeline, Summary, and Diagnostics.
+The final immutable result of one simulation. The execution-pipeline
+`SimulationResult` contains a `SimulationTimeline` and
+`SimulationStatistics`; the domain-model result additionally carries context,
+summary, and diagnostics. An `ExperimentRun` aggregates results for an
+`ExperimentDefinition`.
 
 ### SimulationStatistics
 
-Aggregate metrics: simulated months, withdrawals, rebalances, capital
-withdrawn, capital traded, peak and minimum wealth, max drawdown, CAGR,
-execution time. Updated automatically during simulation; policies never
-touch it.
+Aggregate metrics such as simulated months, withdrawals, rebalances, capital
+withdrawn and traded, peak and minimum wealth, max drawdown, CAGR, and execution
+time. `SimulationStatistics` is frozen and assembled from the completed
+simulation; policies never touch it.
 
 ---
 
@@ -187,7 +200,8 @@ representations where explicitly appropriate.
 
 ## Reproducibility
 
-Given the same code, Dataset, Configuration, and ExperimentDefinition,
-results must be identical. Execution order of simulations never affects
-results. Parallelism never alters calculations. The database never modifies
-a result — it only stores information.
+Given the same code, Dataset, configuration, and execution definition, results
+must be identical. Execution order of simulations never affects results.
+Production execution is sequential; the low-level test-only parallel helper
+preserves sequential results. The database never modifies a result — it only
+stores information.

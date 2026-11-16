@@ -108,10 +108,11 @@ distinction remains documented in
 
 ## 5. Functional Validation
 
-Functional scenarios are committed YAML studies in `examples/studies/` and
-`tests/fixtures/`. They are executed through the public application boundary
-(`fbf.core.application.run_study`) or the `sim-retire` CLI, never through
-private simulation functions.
+Functional scenarios are defined as YAML studies in `examples/studies/` and
+`tests/fixtures/` when stored as files, or built directly as
+`StudyConfiguration` objects in test code. They are executed through the public
+application boundary (`fbf.core.application.run_study`) or the `sim-retire`
+CLI, never through private simulation functions.
 
 ```bash
 # Fast functional/supporting tests

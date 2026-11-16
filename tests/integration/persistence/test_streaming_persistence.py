@@ -19,7 +19,7 @@ from fbf.core.persistence.studies.sqlite import (
     StaleExecutionAttemptError,
 )
 from fbf.core.persistence.studies.sqlite.sqlite_repository import ExperimentIdentity
-from tests.infrastructure.test_sqlite_persistence import (
+from tests.integration.persistence.test_sqlite_persistence import (
     get_dummy_context,
     make_experiment,
     make_plan,
