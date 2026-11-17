@@ -12,7 +12,7 @@ Interpolation convention: not documented by ERN. The order statistic
 is at most ``p``.  Residual last-digit differences are classified under
 the audit protocol rather than by tuning the convention.
 
-Discrepancy protocol (audit §9, frozen):
+Discrepancy protocol (frozen):
 - exact match → REPRODUCED;
 - difference of exactly one display ULP → EXPLAINED DIFFERENCE;
 - difference of two or more display ULPs → UNEXPLAINED DIFFERENCE;
@@ -20,7 +20,7 @@ Discrepancy protocol (audit §9, frozen):
 
 Quantum is driven by the anchor unit (percent → 0.01, percent_1dp → 0.1,
 usd → 1).  UNEXPLAINED rows are recorded with full context, never failed
-silently (audit §12.3 allows explicitly recorded unexplained results).
+silently.
 
 Part 19/20 shared abstraction: DEFERRED (T2.1 architecture decision).
 """

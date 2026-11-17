@@ -92,7 +92,7 @@ def is_part49_buy_and_hold_eligible(context: SimulationContext) -> bool:
     - Part49WithdrawalPolicy with MONTHLY frequency
     - ``expense_ratio`` absent or zero (the legacy buy-and-hold fee applies a
       timing correction on a stale base without a periodic rebalance; non-zero
-      fees are rejected rather than approximated, see ``TODO.md``)
+      fees are rejected rather than approximated by this executor)
     - horizon_months >= 1
     - Dataset covers the full horizon
     - Exactly 2 holdings (one equity, one bond) covered by the dataset

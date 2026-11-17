@@ -1,6 +1,6 @@
 """Round-trip tests for the SQLite persistence layer (v0.4 Phase 2).
 
-Verifies the behavioral specification INFRASTRUCTURE_SQLITE_PERSISTENCE_SPECIFICATION.md:
+Verifies SQLite persistence behavior:
 - Round-trip: ExperimentDefinition metadata persisted and retrieved identically
 - Round-trip: ResearchPlan with PlannedSimulationUnit records round-trip losslessly
 - Round-trip: ResearchExecutionResult with SimulationResult records round-trip losslessly

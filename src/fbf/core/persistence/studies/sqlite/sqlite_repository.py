@@ -1,10 +1,8 @@
 """SQLite repository implementation.
 
-Implements the v0.4 SQLite persistence adapter according to the
-INFRASTRUCTURE_SQLITE_PERSISTENCE_SPECIFICATION.md specification.
+Implements the v0.4 SQLite persistence adapter.
 
-Uses the ReconstructionContext pattern for safe reconstruction and exposes
-the exact interface defined in Section 12.3.
+Uses the ReconstructionContext pattern for safe reconstruction.
 """
 
 from __future__ import annotations

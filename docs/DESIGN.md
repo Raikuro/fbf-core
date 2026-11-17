@@ -181,9 +181,8 @@ infrastructure.
 execution logic. A withdrawal policy can be changed without modifying the
 pipeline. An allocation policy can be tested in isolation.
 
-Policy lifecycle: `before_simulation → before_month → decide → after_month →
-after_simulation`. Same `DecisionContext` must produce identical
-`PolicyDecision`.
+Policy contract: `decide(context: DecisionContext) -> PolicyDecision`. The same
+`DecisionContext` must produce an identical `PolicyDecision`.
 
 ---
 

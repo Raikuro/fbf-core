@@ -55,7 +55,7 @@ class AuditMeta:
 
 @dataclass(frozen=True, slots=True)
 class StructuralCounts:
-    """Frozen structural expectations (audit §3–§7)."""
+    """Frozen structural expectations for the audit specification."""
 
     total_cohorts: int
     cape_available: int

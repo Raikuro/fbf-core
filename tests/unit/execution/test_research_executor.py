@@ -1,6 +1,6 @@
 """Unit and integration tests for ResearchExecutor and ResearchExecutionResult.
 
-Covers the full behavioural specification (RESEARCH_EXECUTOR_SPECIFICATION.md):
+Covers the following behavioural requirements:
 
 1. Constructor injection: accepts SimulationExecutor; rejects None or invalid.
 2. execute() delegates to SimulationExecutor exactly once per valid plan.

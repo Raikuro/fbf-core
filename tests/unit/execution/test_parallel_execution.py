@@ -1,6 +1,6 @@
 """Unit and integration tests for parallel execution engine (v0.4 Phase 1).
 
-Verifies the behavioral specification PARALLEL_EXECUTION_SPECIFICATION.md:
+Verifies parallel execution behavior:
 - Determinism: parallel execution ≡ sequential execution
 - Work distribution: deterministic work batching
 - Ordering preservation: exact 1-to-1 plan unit to result mapping

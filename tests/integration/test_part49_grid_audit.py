@@ -18,7 +18,7 @@ from fbf.core.study.builder import (
 )
 
 # ---------------------------------------------------------------------------
-# Grid axis values (from S4_ARCHITECTURAL_DESIGN_REVIEW.md C.4)
+# Grid axis values
 # ---------------------------------------------------------------------------
 
 EXPECTED_EQUITY_ALLOCATIONS = (Decimal("0.75"), Decimal("1.0"))

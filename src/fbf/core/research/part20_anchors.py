@@ -2,8 +2,8 @@
 
 Anchor values themselves live in the audit specification YAML
 (``tests/fixtures/ern_part20_e2e_audit.yaml``) — external reference data
-transcribed from ern_part20_replication.md §11–§15.4.  This module holds
-the structural checks and the unit-driven classification dispatch.
+transcribed from the published ERN Part 20 article.  This module holds the
+structural checks and the unit-driven classification dispatch.
 
 Part 19/20 shared abstraction: DEFERRED (T2.1 architecture decision).
 """

@@ -190,7 +190,7 @@ class SimulationResultCodec:
             data = json.loads(p)
             # Skip dummy markers inserted by SQLiteRepository._save_simulation_result
             # for empty timelines ({"dummy": True}). This couples the codec to the
-            # repository's internal convention; see NEXT_SESSION.md P3.1 TD-1.
+            # repository's internal convention.
             if not data.get("date"):
                 continue
             monthly_list.append(self._deserialize_monthly(data))

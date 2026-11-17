@@ -1,4 +1,4 @@
-"""Additional tests required by RESEARCH_STRATEGYCOMPARATOR_IMPLEMENTATION_HANDOFF.md"""
+"""Additional StrategyComparator behavior tests."""
 
 from collections.abc import Mapping, Sequence
 from decimal import Decimal

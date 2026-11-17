@@ -1,6 +1,6 @@
 """T2.1 Part 20 baseline E2E audit (gated RUN_ERN_E2E=1).
 
-Data-driven implementation of ern_part20_e2e_audit.md Experiments A–E.
+Data-driven implementation of the Part 20 baseline audit Experiments A–E.
 The experiment matrix and published anchors are loaded from
 ``tests/fixtures/ern_part20_e2e_audit.yaml`` (single authoritative
 representation); this file only orchestrates execution, structural
@@ -9,8 +9,7 @@ checks, anchor comparison, classification, and invariants.
 Gating: centralized RUN_ERN_E2E=1 (tests/conftest.py).  This test is
 intentionally excluded from routine validation.
 
-Preserves tests/functional/ern/test_part20_replication.py (320-cell CLI
-regression) unchanged.
+The 320-cell CLI regression is covered by examples/studies/ern_part20.yaml.
 """
 
 from __future__ import annotations
@@ -551,7 +550,7 @@ def _finalize_state(state: T21AuditState) -> T21AuditState:
     not MANIFEST_PATH.is_file(), reason="Canonical manifest not present"
 )
 class TestPart20T21BaselineAudit:
-    """T2.1: full baseline audit against ern_part20_e2e_audit.md.
+    """T2.1: full baseline audit against the audit specification YAML.
 
     Selection: `-k` selects test methods; shared class-scoped ``audit_state``
     runs the full workload once per session (A–E fixtures prepare each
@@ -608,9 +607,9 @@ class TestPart20T21BaselineAudit:
         assert exp_a_results
         assert exp_a_anchors
         # All A anchors classified; non-exact recorded with context.
-        # These are historical T2.1 audit-contract evidence strings. The
-        # documentation now calls the same §10 scope "difference-attribution
-        # variants (A/B/C)"; "variant isolation" is the legacy runtime term.
+        # These are historical T2.1 audit-contract evidence strings. Current
+        # terminology is "difference-attribution variants (A/B/C)";
+        # "variant isolation" is the legacy runtime term.
         for c in exp_a_anchors:
             assert c.calculation_path
             kind = c.classification.kind
