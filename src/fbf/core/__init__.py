@@ -44,7 +44,7 @@ from fbf.core.study import (
     build_study_plan,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "AllocationPolicyType",

@@ -462,6 +462,43 @@ reproduction contract.
 
 ---
 
+## Simulation Contract Ownership
+
+**Decision:** The execution pipeline owns mutable simulation state and the
+simulation result/experiment contracts. `fbf.core.domain.model.simulation` and
+its parallel `SimulationState`, timeline, result, statistics, and experiment
+types are removed. `fbf.core.execution.pipeline.simulation.SimulationState`
+remains the sole mutable simulation state.
+
+**Why:** The domain layer contains immutable value objects and policy
+contracts. Its simulation types had no consumers, duplicated execution-owned
+contracts with different shapes, and created an ambiguous public API. The
+execution pipeline is the layer that actually evolves state and produces
+results.
+
+**Consequence:** Consumers must import simulation state and results from the
+execution pipeline. This breaking Tier 2 API change required the Core `0.4.0`
+minor version; no compatibility aliases are provided.
+
+---
+
+## Legacy Debt Fixture Retirement
+
+**Decision:** The standalone Part 49 debt fixture layer is retired. Its unique
+known-answer month transitions and multi-month sequence now live in
+`tests/integration/ern/test_debt_oracle.py`, alongside the independent oracle.
+
+**Why:** The fixture module had no production consumer and its self-test
+validated the oracle against a parallel fixture table rather than production
+behaviour. The relocated tests preserve the independently derived exact
+expected values without maintaining a parallel fixture layer.
+
+**Consequence:** Add future debt known-answer cases directly to the oracle
+integration suite. The oracle implementation remains independently maintained
+and is not derived from production code.
+
+---
+
 ## Execution Backend: FAST-only
 
 **Decision:** `ExecutionBackend` exposes exactly one value, `FAST`. The

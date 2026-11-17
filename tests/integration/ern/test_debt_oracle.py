@@ -10,6 +10,7 @@ No imports from fbf.core are permitted in this module.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import NamedTuple
 
 import pytest
 
@@ -476,3 +477,219 @@ class TestDocumentationAssertions:
 
         # Test case 3: L = P (boundary)
         assert check_unsatisfiable_margin_call(Decimal("100"), Decimal("100")) is False
+
+
+# ---------------------------------------------------------------------------
+# Test: Independently established single-month known answers
+# ---------------------------------------------------------------------------
+
+class MonthKnownAnswer(NamedTuple):
+    """Exact expected outcome for one independent debt-month scenario."""
+
+    name: str
+    initial_portfolio_value: Decimal
+    initial_loan_balance: Decimal
+    annual_interest_rate: Decimal
+    ltv_limit: Decimal
+    market_return: Decimal
+    expected_portfolio_value: Decimal
+    expected_loan_balance: Decimal
+    expected_interest_accrued: Decimal
+    expected_liquidation_amount: Decimal
+    expected_net_worth: Decimal
+    expected_failure_state: FailureState
+
+
+SINGLE_MONTH_KNOWN_ANSWERS: tuple[MonthKnownAnswer, ...] = (
+    MonthKnownAnswer(
+        name="basic_borrowing",
+        initial_portfolio_value=Decimal("1000000"),
+        initial_loan_balance=Decimal("100000"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("0.01"),
+        expected_portfolio_value=Decimal("1010000"),
+        expected_loan_balance=Decimal("100500"),
+        expected_interest_accrued=Decimal("500"),
+        expected_liquidation_amount=Decimal("0"),
+        expected_net_worth=Decimal("909500"),
+        expected_failure_state=FailureState.NONE,
+    ),
+    MonthKnownAnswer(
+        name="margin_call",
+        initial_portfolio_value=Decimal("1000000"),
+        initial_loan_balance=Decimal("800000"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("-0.20"),
+        expected_portfolio_value=Decimal("0"),
+        expected_loan_balance=Decimal("4000"),
+        expected_interest_accrued=Decimal("4000"),
+        expected_liquidation_amount=Decimal("800000"),
+        expected_net_worth=Decimal("-4000"),
+        expected_failure_state=FailureState.DEPLETED,
+    ),
+    MonthKnownAnswer(
+        name="proportional_liquidation",
+        initial_portfolio_value=Decimal("1000000"),
+        initial_loan_balance=Decimal("800000"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("-0.10"),
+        expected_portfolio_value=Decimal("384000"),
+        expected_loan_balance=Decimal("288000"),
+        expected_interest_accrued=Decimal("4000"),
+        expected_liquidation_amount=Decimal("516000"),
+        expected_net_worth=Decimal("96000"),
+        expected_failure_state=FailureState.MARGIN_CALL_TERMINAL,
+    ),
+    MonthKnownAnswer(
+        name="zero_debt",
+        initial_portfolio_value=Decimal("1000000"),
+        initial_loan_balance=Decimal("0"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("0.01"),
+        expected_portfolio_value=Decimal("1010000"),
+        expected_loan_balance=Decimal("0"),
+        expected_interest_accrued=Decimal("0"),
+        expected_liquidation_amount=Decimal("0"),
+        expected_net_worth=Decimal("1010000"),
+        expected_failure_state=FailureState.NONE,
+    ),
+    MonthKnownAnswer(
+        name="zero_portfolio",
+        initial_portfolio_value=Decimal("0"),
+        initial_loan_balance=Decimal("100000"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("0"),
+        expected_portfolio_value=Decimal("0"),
+        expected_loan_balance=Decimal("100500"),
+        expected_interest_accrued=Decimal("500"),
+        expected_liquidation_amount=Decimal("0"),
+        expected_net_worth=Decimal("-100500"),
+        expected_failure_state=FailureState.DEPLETED,
+    ),
+    MonthKnownAnswer(
+        name="loan_equals_portfolio",
+        initial_portfolio_value=Decimal("1000000"),
+        initial_loan_balance=Decimal("1000000"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("0"),
+        expected_portfolio_value=Decimal("0"),
+        expected_loan_balance=Decimal("5000"),
+        expected_interest_accrued=Decimal("5000"),
+        expected_liquidation_amount=Decimal("1000000"),
+        expected_net_worth=Decimal("-5000"),
+        expected_failure_state=FailureState.DEPLETED,
+    ),
+    MonthKnownAnswer(
+        name="interest_accrual",
+        initial_portfolio_value=Decimal("1000000"),
+        initial_loan_balance=Decimal("100000"),
+        annual_interest_rate=Decimal("0.12"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("0"),
+        expected_portfolio_value=Decimal("1000000"),
+        expected_loan_balance=Decimal("101000"),
+        expected_interest_accrued=Decimal("1000"),
+        expected_liquidation_amount=Decimal("0"),
+        expected_net_worth=Decimal("899000"),
+        expected_failure_state=FailureState.NONE,
+    ),
+    MonthKnownAnswer(
+        name="ltv_at_limit",
+        initial_portfolio_value=Decimal("1000000"),
+        initial_loan_balance=Decimal("750000"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("0"),
+        expected_portfolio_value=Decimal("985000"),
+        expected_loan_balance=Decimal("738750"),
+        expected_interest_accrued=Decimal("3750"),
+        expected_liquidation_amount=Decimal("15000"),
+        expected_net_worth=Decimal("246250"),
+        expected_failure_state=FailureState.MARGIN_CALL_TERMINAL,
+    ),
+    MonthKnownAnswer(
+        name="large_gain",
+        initial_portfolio_value=Decimal("1000000"),
+        initial_loan_balance=Decimal("500000"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        market_return=Decimal("0.50"),
+        expected_portfolio_value=Decimal("1500000"),
+        expected_loan_balance=Decimal("502500"),
+        expected_interest_accrued=Decimal("2500"),
+        expected_liquidation_amount=Decimal("0"),
+        expected_net_worth=Decimal("997500"),
+        expected_failure_state=FailureState.NONE,
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "case",
+    SINGLE_MONTH_KNOWN_ANSWERS,
+    ids=[case.name for case in SINGLE_MONTH_KNOWN_ANSWERS],
+)
+def test_single_month_known_answer(case: MonthKnownAnswer) -> None:
+    """Each month transition matches an independently derived exact result."""
+    state = DebtOracleState(
+        portfolio_value=case.initial_portfolio_value,
+        loan_balance=case.initial_loan_balance,
+        annual_interest_rate=case.annual_interest_rate,
+        ltv_limit=case.ltv_limit,
+        month_index=0,
+    )
+
+    result = execute_month_transition(state, case.market_return)
+
+    assert result.portfolio_value == case.expected_portfolio_value
+    assert result.loan_balance == case.expected_loan_balance
+    assert result.interest_accrued == case.expected_interest_accrued
+    liquidation_amount = (
+        result.liquidation.liquidation_amount
+        if result.liquidation is not None
+        else Decimal("0")
+    )
+    assert liquidation_amount == case.expected_liquidation_amount
+    assert result.net_worth == case.expected_net_worth
+    assert result.failure_state is case.expected_failure_state
+    if case.expected_failure_state is FailureState.MARGIN_CALL_TERMINAL:
+        assert result.liquidation is not None
+        assert result.liquidation.new_ltv == case.ltv_limit
+
+
+def test_multi_month_known_answer() -> None:
+    """The gain/loss/recovery sequence matches independently derived values."""
+    state = DebtOracleState(
+        portfolio_value=Decimal("1000000"),
+        loan_balance=Decimal("600000"),
+        annual_interest_rate=Decimal("0.06"),
+        ltv_limit=Decimal("0.75"),
+        month_index=0,
+    )
+    monthly_returns = (
+        Decimal("0.02"),
+        Decimal("-0.15"),
+        Decimal("0.10"),
+    )
+
+    for month_index, market_return in enumerate(monthly_returns):
+        result = execute_month_transition(state, market_return)
+        state = DebtOracleState(
+            portfolio_value=result.portfolio_value,
+            loan_balance=result.loan_balance,
+            annual_interest_rate=Decimal("0.06"),
+            ltv_limit=Decimal("0.75"),
+            month_index=month_index + 1,
+        )
+
+    assert result.portfolio_value == Decimal("953700")
+    assert result.loan_balance == Decimal("609045.075")
+    assert result.interest_accrued == Decimal("3030.075")
+    assert result.net_worth == Decimal("344654.925")
+    assert result.failure_state is FailureState.NONE

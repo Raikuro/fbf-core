@@ -144,21 +144,22 @@ Current implementations are `FixedRealWithdrawalPolicy`,
 
 ## Simulation State
 
-Two mutable `SimulationState` classes are currently exported:
+Mutable simulation execution state belongs to the execution pipeline:
+`fbf.core.execution.pipeline.simulation.SimulationState`. It carries the
+execution context, portfolio and allocation state, decisions, status, debt
+state, and accumulated monthly results.
 
-* `fbf.core.domain.model.simulation.SimulationState` — domain-model state.
-* `fbf.core.execution.pipeline.simulation.SimulationState` — execution-pipeline
-  state.
-
-No current production Numba executor references either class directly. The
-execution pipeline supplies the immutable request and result types used by
-executors; the relationship between the two exported state classes and the
-kernel execution path is unresolved. Neither class is documented here as
-obsolete, and consolidating or removing either requires a separate API decision.
+The domain layer defines immutable value objects, policy contracts, and pure
+domain services. It does not define a parallel simulation state or parallel
+simulation result contracts.
 
 ---
 
 ## Timeline and Results
+
+The simulation timeline, result, statistics, and experiment contracts are
+defined by the execution pipeline in
+`fbf.core.execution.pipeline.simulation`.
 
 ### SimulationTimeline
 
@@ -174,18 +175,15 @@ It contains the information needed to reconstruct the simulation at that point.
 
 ### SimulationResult
 
-The final immutable result of one simulation. The execution-pipeline
-`SimulationResult` contains a `SimulationTimeline` and
-`SimulationStatistics`; the domain-model result additionally carries context,
-summary, and diagnostics. An `ExperimentRun` aggregates results for an
-`ExperimentDefinition`.
+The final immutable result of one simulation, containing a
+`SimulationTimeline` and `SimulationStatistics`. An `ExperimentRun` aggregates
+results for an `ExperimentDefinition`.
 
 ### SimulationStatistics
 
-Aggregate metrics such as simulated months, withdrawals, rebalances, capital
-withdrawn and traded, peak and minimum wealth, max drawdown, CAGR, and execution
-time. `SimulationStatistics` is frozen and assembled from the completed
-simulation; policies never touch it.
+Final wealth, maximum drawdown, success and failure state, failure month,
+simulated months, and execution time. `SimulationStatistics` is frozen and
+assembled from the completed simulation; policies never touch it.
 
 ---
 

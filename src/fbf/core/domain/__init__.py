@@ -9,13 +9,6 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
-from fbf.core.domain.model.simulation import (
-    MonthlyResult,
-    SimulationResult,
-    SimulationState,
-    SimulationStatistics,
-    SimulationTimeline,
-)
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.concrete import (
     ConstantAllocationPolicy,
@@ -39,11 +32,6 @@ __all__ = [
     "MarketSnapshot",
     "Allocation",
     "AllocationTarget",
-    "SimulationTimeline",
-    "SimulationResult",
-    "SimulationStatistics",
-    "MonthlyResult",
-    "SimulationState",
     "Policy",
     "AllocationPolicy",
     "WithdrawalPolicy",
