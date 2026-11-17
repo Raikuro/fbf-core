@@ -377,7 +377,7 @@ def _simulate_batch_constant_nominal_parallel(
     failure_months = np.empty(n_trajectories, dtype=np.int32)
     post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
 
-    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+    for i in numba.prange(n_trajectories):
         fv, ok, fm, pwv = _simulate_trajectory_constant_nominal(
             growth_factors,
             initial_values[i],
@@ -625,7 +625,7 @@ def _simulate_batch_escalating_parallel(
     failure_months = np.empty(n_trajectories, dtype=np.int32)
     post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
 
-    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+    for i in numba.prange(n_trajectories):
         fv, ok, fm, pwv = _simulate_trajectory_escalating(
             growth_factors,
             initial_values[i],
@@ -704,7 +704,7 @@ def _simulate_batch_buy_and_hold_parallel(
     failure_months = np.empty(n_trajectories, dtype=np.int32)
     post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
 
-    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+    for i in numba.prange(n_trajectories):
         fv, ok, fm, pwv = _simulate_trajectory_buy_and_hold(
             equity_growth,
             bond_growth,
@@ -783,7 +783,7 @@ def _simulate_batch_parallel(
     failure_months = np.empty(n_trajectories, dtype=np.int32)
     post_withdrawal_values = np.empty(n_trajectories, dtype=np.float64)
 
-    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+    for i in numba.prange(n_trajectories):
         fv, ok, fm, pwv = _simulate_trajectory(
             growth_factors,
             initial_values[i],
@@ -1979,7 +1979,7 @@ def _simulate_part52_batch(
     failure_months = np.empty(n_trajectories, dtype=np.int32)
     final_loan_balances = np.empty(n_trajectories, dtype=np.float64)
 
-    for i in numba.prange(n_trajectories):  # type: ignore[attr-defined, no-untyped-call]
+    for i in numba.prange(n_trajectories):
         h = int(horizons[i])
         off = int(offsets[i])
 

@@ -15,6 +15,13 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+To refresh an existing environment from the declared development dependencies,
+including unpinned tools such as Numba:
+
+```bash
+pip install --upgrade --upgrade-strategy eager -e ".[dev]"
+```
+
 The repository uses Python `>= 3.13`, `ruff`, `mypy --strict`, and `pytest`.
 
 ---

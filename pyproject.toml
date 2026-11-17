@@ -30,7 +30,7 @@ Repository = "https://github.com/Raikuro/fbf-core"
 [project.optional-dependencies]
 numba = [
     "numpy>=2.1",
-    "numba>=0.61",
+    "numba>=0.68",
 ]
 dev = [
     "pytest>=8",
