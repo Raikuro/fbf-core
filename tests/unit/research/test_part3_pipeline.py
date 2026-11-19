@@ -290,13 +290,13 @@ class TestExecutePart3Pipeline:
     @patch("fbf.core.research.part3_pipeline.execute_study_plan")
     def test_forwards_options(self, mock_exec: Any) -> None:
         """Pipeline forwards ExecutionOptions to execute_study_plan."""
-        from fbf.core.execution import ExecutionBackend, ExecutionOptions
+        from fbf.core.execution import ExecutionOptions
 
         cohorts = [_cohort("1980-01-01")]
         params = [_params(30, "1.0", "0.04")]
         cape = {_D("1980-01-01"): (Decimal("25"), "HIGH")}
         pr = _minimal_plan_result(cohorts, params, cape)
-        opts = ExecutionOptions(backend=ExecutionBackend.FAST)
+        opts = ExecutionOptions()
 
         mock_exec.return_value = _mock_execution_result(1)
 

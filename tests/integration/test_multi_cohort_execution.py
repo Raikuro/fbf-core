@@ -20,11 +20,8 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
 from fbf.core.execution.executor import ResearchExecutor
+from fbf.core.execution.plan_executor import execute_plan
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
-from fbf.core.execution.strategies.parallel_executor import (
-    parallel_execute,
-    sequential_execute,
-)
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
@@ -158,7 +155,7 @@ class TestMultiCohortExecution:
             assert res.statistics.success is True
             assert res.statistics.months_simulated == 12
 
-    def test_parallel_process_pool_multi_cohort_execution(self) -> None:
+    def test_plan_executor_multi_cohort_execution(self) -> None:
         exp = make_multi_cohort_experiment(horizon_months=12)
         portfolio = _make_portfolio()
 
@@ -171,18 +168,12 @@ class TestMultiCohortExecution:
             portfolio,
         )
 
-        sim_executor = NumbaSimulationExecutor()
+        result = execute_plan(
+            plan,
+            simulation_executor=NumbaSimulationExecutor(),
+        )
 
-        # Exercise ProcessPoolExecutor parallel execution
-        parallel_res = parallel_execute(plan, simulation_executor=sim_executor, max_workers=2)
-        assert len(parallel_res.results) == 6
-        for res in parallel_res.results:
-            assert res.statistics.success is True
-            assert res.statistics.months_simulated == 12
-
-        # Exercise sequential execution wrapper
-        seq_res = sequential_execute(plan, simulation_executor=sim_executor)
-        assert len(seq_res.results) == 6
-        for res in seq_res.results:
+        assert len(result.results) == 6
+        for res in result.results:
             assert res.statistics.success is True
             assert res.statistics.months_simulated == 12

@@ -13,11 +13,7 @@ from pathlib import Path
 import pytest
 
 from fbf.core.domain.model.asset import AssetClass
-from fbf.core.execution import (
-    ExecutionOptions,
-    ExecutionStrategy,
-    iter_execute_study_plan,
-)
+from fbf.core.execution import ExecutionOptions, iter_execute_study_plan
 from fbf.core.research.part3_planner import (
     CohortManifest,
     CohortManifestEntry,
@@ -336,11 +332,7 @@ class TestWorkbookAlignmentExecution:
             cohorts=bundle.cohorts,
             param_configs=bundle.param_configs,
         )
-        options = ExecutionOptions(
-            strategy=ExecutionStrategy.AUTO,
-            summary_only=True,
-            workers=1,
-        )
+        options = ExecutionOptions(summary_only=True)
         actual: Decimal | None = None
         for chunk in iter_execute_study_plan(built, options):
             actual = chunk.result.results[0].statistics.final_wealth.amount

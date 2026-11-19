@@ -14,7 +14,6 @@ The 320-cell CLI regression is covered by examples/studies/ern_part20.yaml.
 
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -66,25 +65,8 @@ _METRIC_INDEX: dict[str, int] = {
 }
 
 
-def _workers() -> int:
-    raw = os.environ.get("ERN_E2E_WORKERS", "").strip()
-    cpu = os.cpu_count() or 8
-    if not raw:
-        return min(8, cpu)
-    if raw.lower() == "max":
-        return cpu
-    try:
-        n = int(raw)
-    except ValueError:
-        return min(8, cpu)
-    return min(n, cpu) if n > 0 else min(8, cpu)
-
-
 def _options() -> ExecutionOptions:
-    return ExecutionOptions(
-        workers=_workers(),
-        summary_only=True,
-    )
+    return ExecutionOptions(summary_only=True)
 
 
 @dataclass

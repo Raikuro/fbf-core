@@ -23,12 +23,7 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from fbf.core.execution import (
-    ExecutionBackend,
-    ExecutionOptions,
-    ExecutionStrategy,
-    iter_execute_study_plan,
-)
+from fbf.core.execution import ExecutionOptions, iter_execute_study_plan
 from fbf.core.persistence.studies.sqlite import (
     AllocationPolicyCodec,
     PersistenceReconstructionContext,
@@ -183,8 +178,6 @@ def main() -> None:
     )
     materialize = bool(args.materialize)
     options = ExecutionOptions(
-        backend=ExecutionBackend.FAST,
-        strategy=ExecutionStrategy.SEQUENTIAL,
         materialize_timeline=materialize,
         summary_only=not materialize,
     )

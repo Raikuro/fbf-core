@@ -33,7 +33,7 @@ This design exists because:
 * A single production engine eliminates divergent recurrence implementations,
   fee/timing differences, and permanent fallback ambiguity.
 * Independent oracles make conformance verifiable without routing production
-  execution through a parallel implementation.
+  execution through the Numba implementation itself.
 
 The Numba engine is the sole production path. Unsupported workloads fail
 explicitly; they never fall back to a legacy or `Decimal` engine.
@@ -53,35 +53,23 @@ months) without any correctness sacrifice. Derived results reuse identical
 
 **Why slice-based dispatch is mandatory:** Whole-plan materialization would
 hold ~0.37 MiB per unit, extrapolating to ~110 GiB for a full grid. Sliced
-dispatch bounds peak per-worker memory. Slices are cohort-aligned (cohorts
+dispatch bounds peak memory. Slices are cohort-aligned (cohorts
 never split) to preserve horizon families. Result merging is
 order-preserving, making sliced execution equivalent to
 whole-plan.
 
 ---
 
-## Low-Level Parallel Helper
+## Plan Execution Orchestration
 
-Production execution is single-process. The low-level test-only helper retains
-the equivalence invariant:
+`execute_plan()` is the single low-level production orchestration path. It
+resolves one Numba executor for the complete plan, translates units through
+`ResearchExecutor`, and optionally strips per-month timelines for
+summary-only callers. It is not an execution-mode selector.
 
-```
-parallel_execute(plan, workers=k) ≡ sequential_execute(plan)   for all k ≥ 1
-```
-
-This guards the helper's correctness, not a production execution mode.
-
-**Why deterministic batching:** Work is distributed by batch (not individual
-units). `batch_size = ceil(len(units) / workers)`. Same plan + same worker
-count → same batch assignment → same results.
-
-**Why batch-order collection:** Results are collected in batch order (not
-completion order). This guarantees the final ordering matches `plan.units`
-exactly, regardless of worker scheduling.
-
-**Why worker isolation:** Worker processes are pure functions — no side
-effects, no database access, no inter-process communication. This prevents
-deadlock and ensures determinism.
+`iter_execute_study_plan()` slices the plan into cohort-aligned chunks and
+calls `execute_plan()` once per slice. Slices preserve horizon families and
+result order, so sliced execution is equivalent to whole-plan execution.
 
 ---
 
@@ -123,7 +111,7 @@ to the execution layer (for example
 `execution.pipeline.simulation.SimulationState`), not to domain value objects.
 
 **Why:** Immutability makes state transitions explicit and auditable. It
-prevents hidden mutation, enables safe sharing across workers (the same
+prevents hidden mutation, enables safe sharing across execution paths (the same
 `Dataset` and `MarketSnapshot` objects can be referenced by thousands of
 simulations without duplication), and makes the simulation deterministic by
 construction. Hidden mutation would make results depend on execution order,
@@ -233,9 +221,9 @@ and is therefore a semantic change, not a refactor.
 * **Opt-in only.** Explicit performance modes (multi-horizon derivation and
   timeline materialization) are activated deliberately and never alter default
   financial semantics.
-* **Memory boundedness.** Plan-build RSS is measured. The low-level test-only
-  parallel helper bounds memory by slice sizing. Whole-plan materialization is
-  explicitly prohibited when extrapolation exceeds available RAM.
+* **Memory boundedness.** Plan-build RSS is measured. Slice-based dispatch
+  bounds memory by slice sizing. Whole-plan materialization is explicitly
+  prohibited when extrapolation exceeds available RAM.
 
 ---
 
@@ -313,7 +301,7 @@ through the facade is subject to change without notice.
   and a high-throughput engine produced divergent semantics and fallback
   ambiguity. Numba is the sole production engine; independent `Decimal`
   oracles define expected results.
-* **Whole-plan sequential execution:** Rejected due to ~110 GiB memory
+* **Whole-plan materialization:** Rejected due to ~110 GiB memory
   extrapolation. Slice-based dispatch is mandatory.
 * **Base/fallback policy scalar duality:** Rejected in favour of a
   universal arrays-only model. The Cartesian product of three value arrays

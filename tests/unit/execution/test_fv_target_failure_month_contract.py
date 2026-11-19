@@ -142,14 +142,14 @@ def _plan_with_target(target: Decimal) -> ResearchPlan:
 
 def _execute_fixed_real(target: Decimal) -> SimulationStatistics:
     pytest.importorskip("numba")
+    from fbf.core.execution.plan_executor import execute_plan
     from fbf.core.execution.strategies.numba_executor import (
         NumbaSimulationExecutor,
     )
-    from fbf.core.execution.strategies.parallel_executor import sequential_execute
 
     executor: SimulationExecutor = NumbaSimulationExecutor()
 
-    run = sequential_execute(
+    run = execute_plan(
         _plan_with_target(target),
         simulation_executor=executor,
         summary_only=True,

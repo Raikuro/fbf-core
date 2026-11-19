@@ -13,9 +13,7 @@ import pytest
 import fbf.core.execution as execution_api
 from fbf.core.domain.policies import BuyAndHoldAllocationPolicy
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
-    ExecutionStrategy,
     execute_study_plan,
     iter_execute_study_plan,
 )
@@ -62,16 +60,12 @@ class TestStreamingEquivalence:
         [
             (
                 ExecutionOptions(
-                    backend=ExecutionBackend.FAST,
-                    strategy=ExecutionStrategy.SEQUENTIAL,
                     materialize_timeline=True,
                 ),
                 "numba-materialized",
             ),
             (
                 ExecutionOptions(
-                    backend=ExecutionBackend.FAST,
-                    strategy=ExecutionStrategy.SEQUENTIAL,
                     summary_only=True,
                 ),
                 "numba-summary",
@@ -81,8 +75,7 @@ class TestStreamingEquivalence:
     def test_slices_reproduce_full_plan(
         self, options: ExecutionOptions, label: str
     ) -> None:
-        if options.backend == ExecutionBackend.FAST:
-            pytest.importorskip("numba")
+        pytest.importorskip("numba")
         built = _built(make_plan(cohorts=2, horizons=[12, 24]))
         full = execute_study_plan(built, options)
         units, results, starts = _collect(
@@ -109,8 +102,6 @@ class TestStreamingEquivalence:
             )
         )
         options = ExecutionOptions(
-            backend=ExecutionBackend.FAST,
-            strategy=ExecutionStrategy.SEQUENTIAL,
             materialize_timeline=True,
         )
         full = execute_study_plan(built, options)
@@ -124,8 +115,6 @@ class TestStreamingEquivalence:
     def test_slice_plan_preserves_definition_and_unit_identity(self) -> None:
         built = _built(make_plan(cohorts=2, horizons=[12, 24]))
         options = ExecutionOptions(
-            backend=ExecutionBackend.FAST,
-            strategy=ExecutionStrategy.SEQUENTIAL,
             summary_only=True,
         )
         pytest.importorskip("numba")
@@ -150,8 +139,6 @@ class TestStreamingEquivalence:
         built = _built(make_plan(cohorts=2, horizons=[12]))
         events: list[tuple[int, int]] = []
         options = ExecutionOptions(
-            backend=ExecutionBackend.FAST,
-            strategy=ExecutionStrategy.SEQUENTIAL,
             summary_only=True,
             progress_callback=lambda done, total: events.append((done, total)),
         )
@@ -167,8 +154,6 @@ class TestMaterializationGuard:
     def test_full_plan_above_limit_raises(self) -> None:
         built = _built(make_plan(cohorts=2, horizons=[12, 24]))
         options = ExecutionOptions(
-            backend=ExecutionBackend.FAST,
-            strategy=ExecutionStrategy.SEQUENTIAL,
             materialize_timeline=True,
             max_materialized_units=3,
         )
@@ -181,8 +166,6 @@ class TestMaterializationGuard:
     def test_guard_can_be_disabled(self) -> None:
         built = _built(make_plan(cohorts=2, horizons=[12, 24]))
         options = ExecutionOptions(
-            backend=ExecutionBackend.FAST,
-            strategy=ExecutionStrategy.SEQUENTIAL,
             materialize_timeline=True,
             max_materialized_units=None,
         )
@@ -193,8 +176,6 @@ class TestMaterializationGuard:
     def test_summary_only_is_not_guarded(self) -> None:
         built = _built(make_plan(cohorts=2, horizons=[12, 24]))
         options = ExecutionOptions(
-            backend=ExecutionBackend.FAST,
-            strategy=ExecutionStrategy.SEQUENTIAL,
             summary_only=True,
             max_materialized_units=1,
         )
@@ -205,8 +186,6 @@ class TestMaterializationGuard:
     def test_streaming_ignores_full_plan_limit(self) -> None:
         built = _built(make_plan(cohorts=2, horizons=[12, 24]))
         options = ExecutionOptions(
-            backend=ExecutionBackend.FAST,
-            strategy=ExecutionStrategy.SEQUENTIAL,
             materialize_timeline=True,
             max_materialized_units=1,
         )
@@ -222,9 +201,11 @@ class TestMaterializationGuard:
 
 
 class TestStreamingSafety:
-    def test_backend_selection_happens_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_executor_selection_happens_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         built = _built(make_plan(cohorts=2, horizons=[12]))
-        original = execution_api._select_simulation_executor
+        original = execution_api._select_numba_executor
         calls = 0
 
         def counted(built_arg: Any, opt: ExecutionOptions) -> Any:
@@ -232,14 +213,12 @@ class TestStreamingSafety:
             calls += 1
             return original(built_arg, opt)
 
-        monkeypatch.setattr(execution_api, "_select_simulation_executor", counted)
+        monkeypatch.setattr(execution_api, "_select_numba_executor", counted)
         pytest.importorskip("numba")
         list(
             iter_execute_study_plan(
                 built,
                 ExecutionOptions(
-                    backend=ExecutionBackend.FAST,
-                    strategy=ExecutionStrategy.SEQUENTIAL,
                     summary_only=True,
                 ),
                 max_units_per_slice=1,
@@ -269,8 +248,6 @@ class TestStreamingSafety:
         iterator = iter_execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.FAST,
-                strategy=ExecutionStrategy.SEQUENTIAL,
             ),
             max_units_per_slice=2,
         )
@@ -283,8 +260,6 @@ class TestStreamingSafety:
         iterator = iter_execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.FAST,
-                strategy=ExecutionStrategy.SEQUENTIAL,
                 materialize_timeline=True,
             ),
             max_units_per_slice=2,
@@ -301,7 +276,7 @@ class TestStreamingSafety:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         built = _built(make_plan(cohorts=2, horizons=[12, 24]))
-        original = execution_api.sequential_execute
+        original = execution_api.execute_plan
         refs: list[weakref.ReferenceType[Any]] = []
 
         def wrapped(*args: Any, **kwargs: Any) -> Any:
@@ -312,12 +287,10 @@ class TestStreamingSafety:
                 assert refs[0]() is None
             return result
 
-        monkeypatch.setattr(execution_api, "sequential_execute", wrapped)
+        monkeypatch.setattr(execution_api, "execute_plan", wrapped)
         iterator = iter_execute_study_plan(
             built,
             ExecutionOptions(
-                backend=ExecutionBackend.FAST,
-                strategy=ExecutionStrategy.SEQUENTIAL,
             ),
             max_units_per_slice=2,
         )
@@ -334,8 +307,6 @@ class TestStreamingSafety:
                 iter_execute_study_plan(
                     built,
                     ExecutionOptions(
-                        backend=ExecutionBackend.FAST,
-                        strategy=ExecutionStrategy.SEQUENTIAL,
                     ),
                     max_units_per_slice=0,
                 )

@@ -44,7 +44,7 @@ import yaml
 
 from fbf.core.application import run_study
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionBackend, ExecutionOptions
+from fbf.core.execution import ExecutionOptions
 from fbf.core.study import StudyConfiguration
 from tests.support.ern.constants import (
     COHORTS_PER_CELL,
@@ -128,9 +128,7 @@ def canonical_execution(data_dir: Path) -> GridResult:
         data_dir=str(data_dir),
         initial_wealth=INITIAL_WEALTH,
         options=ExecutionOptions(
-            backend=ExecutionBackend.FAST,
             summary_only=True,
-            workers=None,  # Auto-detect
         ),
     )
     t_exec_end = time.perf_counter()
@@ -292,9 +290,7 @@ expense_ratio: 0.0005
         data_dir=str(data_dir),
         initial_wealth=INITIAL_WEALTH,
         options=ExecutionOptions(
-            backend=ExecutionBackend.FAST,
             summary_only=True,
-            workers=None,
         ),
     )
 

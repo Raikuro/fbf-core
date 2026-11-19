@@ -2,7 +2,7 @@
 
 These verify the routing contract at the ``execute_study_plan`` boundary:
 
-- FAST (explicit Numba backend) must reject any plan it cannot execute on
+- The Numba path must reject any plan it cannot execute on
   Numba, including schedule-less Part 52 configurations with no rate source
   and mixed plans, instead of silently routing them to the Decimal engine.
 - AUTO preserves graceful routing: a schedule-less fixed-rate Part 52 plan is
@@ -28,12 +28,11 @@ from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.concrete import ConstantWithdrawalPolicy
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
     NoOpProfiler,
     UnsupportedConfigurationError,
-    _auto_select_backend,
     _extract_simulation_contexts,
+    _select_numba_executor,
     execute_study_plan,
 )
 from fbf.core.execution.strategies.part52_numba_executor import Part52NumbaExecutor
@@ -165,7 +164,10 @@ class TestHorizonAgreement:
         # A schedule of exactly ``experiment.horizon_months`` entries must be
         # accepted, so AUTO routes this plan to the Part 52 Numba executor.
         assert isinstance(
-            _auto_select_backend(built, NoOpProfiler()), Part52NumbaExecutor
+            _select_numba_executor(
+                built, ExecutionOptions(profiler=NoOpProfiler())
+            ),
+            Part52NumbaExecutor,
         )
 
 
@@ -179,7 +181,7 @@ class TestFastStrictness:
 
         with pytest.raises(UnsupportedConfigurationError):
             execute_study_plan(
-                built, ExecutionOptions(backend=ExecutionBackend.FAST)
+                built, ExecutionOptions()
             )
 
     def test_mixed_plan_raises(self) -> None:
@@ -192,7 +194,7 @@ class TestFastStrictness:
 
         with pytest.raises(UnsupportedConfigurationError):
             execute_study_plan(
-                built, ExecutionOptions(backend=ExecutionBackend.FAST)
+                built, ExecutionOptions()
             )
 
     def test_schedule_less_with_rate_runs(self) -> None:
@@ -201,7 +203,7 @@ class TestFastStrictness:
         built = _built_plan((unit,))
 
         fast = execute_study_plan(
-            built, ExecutionOptions(backend=ExecutionBackend.FAST)
+            built, ExecutionOptions()
         )
 
         assert len(fast.experiment_result.simulation_results) == 1
@@ -215,5 +217,8 @@ class TestFastStrictness:
         built = _built_plan((unit,))
 
         assert isinstance(
-            _auto_select_backend(built, NoOpProfiler()), Part52NumbaExecutor
+            _select_numba_executor(
+                built, ExecutionOptions(profiler=NoOpProfiler())
+            ),
+            Part52NumbaExecutor,
         )

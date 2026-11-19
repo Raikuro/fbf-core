@@ -15,7 +15,7 @@ Architecture::
          └── ExecutionOptions(profiler=...)
                │
                ▼
-         execute_study_plan / sequential_execute / parallel_execute
+         execute_study_plan / execute_plan
                │
                ▼
          ResearchExecutor / SimulationExecutor

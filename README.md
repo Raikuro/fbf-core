@@ -69,7 +69,6 @@ Full setup, extraction, regeneration, and validation workflows are in
 | [`docs/DESIGN.md`](./docs/DESIGN.md) | Design rationale and rejected approaches |
 | [`docs/DECISIONS.md`](./docs/DECISIONS.md) | Durable architectural decisions |
 | [`docs/DOMAIN.md`](./docs/DOMAIN.md) | Domain model and simulation state |
-| [`docs/EXECUTION_MODES.md`](./docs/EXECUTION_MODES.md) | Backend and strategy selection |
 | [`docs/PROFILING.md`](./docs/PROFILING.md) | Profiling and timing instrumentation |
 | [`DATASETS.md`](./DATASETS.md) | Dataset inventory, source policy, and provenance |
 | [`docs/ERN_METHODOLOGY.md`](./docs/ERN_METHODOLOGY.md) | ERN methodology and published anchors |

@@ -113,7 +113,7 @@ classification check; it does not affect monthly state.
 
 The executor deduplicates contexts that share trajectory parameters but differ
 only in target. The final-value check runs per target after path evaluation.
-Measured worker time was nearly constant across 0, 1, 2, and 5 targets; the
+Measured compute time was nearly constant across 0, 1, 2, and 5 targets; the
 small total increase came from iterating expanded context lists, not from
 re-simulating trajectories.
 
@@ -499,23 +499,23 @@ and is not derived from production code.
 
 ---
 
-## Execution Backend: FAST-only
+## Execution Engine: Numba-only
 
-**Decision:** `ExecutionBackend` exposes exactly one value, `FAST`. The
-`DECIMAL_FAST_PATH` and `REFERENCE` values, the legacy Decimal engine, the
-Decimal fast path, the nine-step pipeline, and their public helpers are
-removed. Numba is the sole production engine.
+**Decision:** Numba is the sole production execution engine. The legacy
+`Decimal` engine, the Decimal fast path, the nine-step pipeline, execution
+backend/strategy selectors, worker-count options, and parallel executor helpers
+are removed.
 
 **Why:** Two engines produced divergent recurrence, fee/timing semantics, and
 permanent fallback ambiguity. Numba plus independent oracles removes that
 divergence and forces unsupported configurations to fail explicitly.
 
-**Alternatives rejected:** Deprecated aliases with no backend, a legacy AUTO
-fallback that hides capability gaps, and silent Numba approximation of
-unsupported workloads.
+**Alternatives rejected:** Deprecated selector aliases, a legacy AUTO fallback
+that hides capability gaps, and silent Numba approximation of unsupported
+workloads.
 
-**Consequence:** `FAST` and AUTO dispatch both route through Numba capability
-selection. Unsupported configurations raise `UnsupportedConfigurationError`;
-missing Numba raises an installation-guidance `ModuleNotFoundError`. The
-`PARALLEL` strategy is rejected for Numba workloads. This breaking API change
-required the Core `0.3.0` minor version.
+**Consequence:** One fail-closed capability dispatcher selects a Numba executor
+for the complete plan. Unsupported configurations raise
+`UnsupportedConfigurationError`; missing Numba raises an installation-guidance
+`ModuleNotFoundError`. This breaking API change required the Core `0.5.0` minor
+version.

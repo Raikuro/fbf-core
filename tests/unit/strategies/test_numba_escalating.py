@@ -28,7 +28,7 @@ from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, EscalatingWithdrawalPolicy
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
-from fbf.core.execution import _auto_select_backend
+from fbf.core.execution import ExecutionOptions, _select_numba_executor
 from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.simulation import (
     ExperimentDefinition as EngineExperimentDefinition,
@@ -591,5 +591,7 @@ class TestEscalatingRouting:
             param_configs=(),
         )
 
-        executor = _auto_select_backend(built, NoOpProfiler())
+        executor = _select_numba_executor(
+            built, ExecutionOptions(profiler=NoOpProfiler())
+        )
         assert isinstance(executor, NumbaSimulationExecutor)

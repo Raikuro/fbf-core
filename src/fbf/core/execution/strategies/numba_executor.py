@@ -205,7 +205,7 @@ def _initial_value_equals_wealth(context: SimulationContext) -> bool:
 
 
 def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
-    """Return True when *context* can use the Numba backend for constant nominal withdrawal.
+    """Return True when *context* can use the Numba executor for constant nominal withdrawal.
 
     Eligibility criteria: ConstantAllocationPolicy + ConstantWithdrawalPolicy,
     monthly frequency, sufficient dataset, two-asset portfolio.
@@ -238,7 +238,7 @@ def _is_constant_nominal_eligible(context: SimulationContext) -> bool:
 
 
 def _is_escalating_eligible(context: SimulationContext) -> bool:
-    """Return True when *context* can use the Numba backend for escalating withdrawal.
+    """Return True when *context* can use the Numba executor for escalating withdrawal.
 
     Eligibility criteria: ConstantAllocationPolicy + EscalatingWithdrawalPolicy,
     sufficient dataset, two-asset portfolio.
@@ -736,7 +736,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             key = _numba_group_key(context)
             if key is None or not is_numba_context_eligible(context):
                 raise UnsupportedConfigurationError(
-                    "Numba backend cannot execute this plan: a context is not "
+                    "Numba execution cannot run this plan: a context is not "
                     "supported by the generic Numba kernels; non-escalating "
                     "generic withdrawals require monthly frequency "
                     f"(cohort={context.cohort!r}, "

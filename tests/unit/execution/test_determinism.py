@@ -1,20 +1,10 @@
-"""Determinism and parallel-equivalence tests for the Numba engine.
-
-Establishes and validates the execution contracts:
-
-- Repeated sequential execution is bit-exact.
-- Process-parallel execution is bit-exact with sequential execution.
-"""
+"""Determinism tests for single-process Numba plan execution."""
 
 from __future__ import annotations
 
 from fbf.core.execution.pipeline.simulation import SimulationResult
+from fbf.core.execution.plan_executor import execute_plan
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
-from fbf.core.execution.strategies.parallel_executor import (
-    ExecutionConfig,
-    parallel_execute,
-    sequential_execute,
-)
 
 from .conftest import make_context, make_dataset, make_engine_def, make_plan
 
@@ -45,21 +35,21 @@ def _assert_result_identical(
 
 
 class TestNumbaRepeatability:
-    """Plan-level Numba execution is deterministic and parallel-safe."""
+    """Plan-level Numba execution is deterministic."""
 
-    def test_sequential_execute_repeated(self) -> None:
-        """Two sequential Numba runs produce identical results."""
+    def test_execute_plan_repeated(self) -> None:
+        """Two single-process Numba runs produce identical results."""
         plan = make_plan(cohorts=2, horizons=[361, 720])
         executor = NumbaSimulationExecutor()
 
-        result_a = sequential_execute(plan, simulation_executor=executor)
-        result_b = sequential_execute(plan, simulation_executor=executor)
+        result_a = execute_plan(plan, simulation_executor=executor)
+        result_b = execute_plan(plan, simulation_executor=executor)
 
         assert len(result_a.results) == len(result_b.results)
         for i, (a, b) in enumerate(
             zip(result_a.results, result_b.results, strict=True)
         ):
-            _assert_result_identical(a, b, f"numba sequential run {i}")
+            _assert_result_identical(a, b, f"numba execute_plan run {i}")
 
     def test_direct_execute_repeated(self) -> None:
         """Direct Numba execution produces identical results across calls."""
@@ -75,22 +65,3 @@ class TestNumbaRepeatability:
             zip(run_a.simulation_results, run_b.simulation_results, strict=True)
         ):
             _assert_result_identical(a, b, f"direct run {i}")
-
-    def test_parallel_matches_sequential(self) -> None:
-        """Parallel Numba execution is identical to sequential execution."""
-        plan = make_plan(cohorts=2, horizons=[361, 720])
-        seq_result = sequential_execute(
-            plan, simulation_executor=NumbaSimulationExecutor()
-        )
-        cfg = ExecutionConfig(use_processes=True, max_workers=2)
-        par_result = parallel_execute(
-            plan,
-            config=cfg,
-            simulation_executor=NumbaSimulationExecutor(),
-        )
-
-        assert len(seq_result.results) == len(par_result.results)
-        for i, (s, p) in enumerate(
-            zip(seq_result.results, par_result.results, strict=True)
-        ):
-            _assert_result_identical(s, p, f"numba parallel unit {i}")

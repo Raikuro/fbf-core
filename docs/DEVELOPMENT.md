@@ -128,13 +128,9 @@ CLI, never through private simulation functions.
 # Full canonical and research validation (manual only)
 RUN_ERN_E2E=1 .venv/bin/pytest tests/functional/ -v
 
-# Full grid with fast-path equivalence
-RUN_ERN_E2E=1 ERN_E2E_FAST_PATH=1 .venv/bin/pytest tests/functional/ -v
 ```
 
-`ERN_E2E_WORKERS` controls worker count (default
-`min(8, cpu_count)`; `max` uses all logical CPUs). `RUN_ERN_E2E=1` is the only
-gate for heavyweight ERN workloads.
+`RUN_ERN_E2E=1` is the only gate for heavyweight ERN workloads.
 
 Expected results are either published anchors, structural invariants, or
 canonical regression results. See

@@ -35,7 +35,6 @@ class TestPart52EvaluatorBenchmark:
             drawdown_threshold=Decimal("0.20"),
             debt_interest_rate=Decimal("0.015"),
             borrow_pcts=(Decimal("0"),),
-            workers=1,
         )
         evaluator = Part52Evaluator(config)
 
@@ -46,29 +45,3 @@ class TestPart52EvaluatorBenchmark:
         total = result.provenance["total_count"]
         print(f"\nPart52Evaluator single eval: {elapsed:.2f}s ({total} cohorts)")
         assert result.provenance["all_success"] in (True, False)
-
-    @pytest.mark.slow
-    def test_parallel_eval_performance(self) -> None:
-        """Verify parallel execution scales with worker count."""
-        for workers in (1, 2, 4):
-            config = Part52EvaluatorConfig(
-                data_dir=str(DATA_DIR),
-                initial_wealth=INITIAL_WEALTH,
-                drawdown_threshold=Decimal("0.20"),
-                debt_interest_rate=Decimal("0.015"),
-                borrow_pcts=(Decimal("0"),),
-                workers=workers,
-            )
-            evaluator = Part52Evaluator(config)
-
-            start = time.perf_counter()
-            result = evaluator.evaluate(Decimal("0.035"))
-            elapsed = time.perf_counter() - start
-
-            total = result.provenance["total_count"]
-            print(
-                f"\n  workers={workers}: {elapsed:.2f}s "
-                f"({total} cohorts, {elapsed / max(total, 1):.4f}s/cohort)"
-            )
-
-        assert True

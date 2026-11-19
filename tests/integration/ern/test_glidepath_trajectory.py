@@ -23,8 +23,8 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies import FixedRealWithdrawalPolicy
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
+from fbf.core.execution.plan_executor import execute_plan
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
-from fbf.core.execution.strategies.parallel_executor import sequential_execute
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
 from fbf.core.study.internal.parameter.configuration import ParameterConfiguration
@@ -124,7 +124,7 @@ def test_active_glidepath_controlled_trajectory() -> None:
     uw = [True, False, False, True, False, False, True, False, False, True, False, False]
     _dataset, plan = _build_plan("active", uw)
 
-    result = sequential_execute(
+    result = execute_plan(
         plan,
         summary_only=False,
         simulation_executor=NumbaSimulationExecutor(materialize_timeline=True),
@@ -155,7 +155,7 @@ def test_passive_glidepath_controlled_trajectory() -> None:
     uw = [True, False, False, True, False, False, True, False, False, True, False, False]
     _dataset, plan = _build_plan("passive", uw)
 
-    result = sequential_execute(
+    result = execute_plan(
         plan,
         summary_only=False,
         simulation_executor=NumbaSimulationExecutor(materialize_timeline=True),

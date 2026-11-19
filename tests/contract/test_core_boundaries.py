@@ -78,10 +78,9 @@ def test_cli_binary_usage_confined_to_functional_suite() -> None:
 
     The only test helper that locates/executes the external ``sim-retire``
     console script is ``tests/functional/cli_harness.py``.  Any test file importing
-    it must live under ``tests/functional/``; the worker-selection argv test inside
-    that suite uses an injected fake ``cli`` path (no binary required).  This is
-    the explicit classification boundary for "external black-box integration"
-    test requirements.
+    it must live under ``tests/functional/``.  This is the explicit
+    classification boundary for "external black-box integration" test
+    requirements.
     """
     importing_files: list[Path] = []
     for p in _iter_py_files(_TESTS_DIR):
@@ -190,8 +189,6 @@ def test_public_facade_symbols() -> None:
         "GlidepathCadence",
         "StudyConfiguration",
         "build_study_plan",
-        "ExecutionBackend",
-        "ExecutionStrategy",
         "ExecutionOptions",
         "execute_study_plan",
         "execute_deterministic_trajectory",
@@ -233,15 +230,13 @@ def test_public_facade_symbols() -> None:
     )
 
 
-def test_execution_backend_is_fast_only() -> None:
-    """The Numba FAST backend is the sole execution backend."""
+def test_execution_backend_selectors_removed() -> None:
+    """Execution backend and strategy selectors are no longer public."""
     import fbf.core.execution as execution
 
-    backend = execution.ExecutionBackend
-    assert list(backend) == [backend.FAST]
-    assert backend.FAST.value == "fast"
-    for name in ("DECIMAL_FAST_PATH", "REFERENCE"):
-        assert not hasattr(backend, name)
+    for name in ("ExecutionBackend", "ExecutionStrategy"):
+        assert name not in execution.__all__
+        assert not hasattr(execution, name)
 
 
 def test_legacy_reference_exports_removed_from_public_facade() -> None:

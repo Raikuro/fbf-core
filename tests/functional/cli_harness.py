@@ -140,7 +140,6 @@ class CliHarness:
     def run_study(
         self,
         study_yaml: Path,
-        workers: int = 4,
         timeout: int = 3600,
         persist: bool = True,
     ) -> CliResult:
@@ -153,7 +152,7 @@ class CliHarness:
             nothing is written to the study database and only aggregate
             statistics are kept in memory (the summary output is identical).
         """
-        argv = ["run", str(study_yaml), "--workers", str(workers)]
+        argv = ["run", str(study_yaml)]
         if not persist:
             argv += ["--no-persist", "--summary-only"]
         return self.run(argv, timeout=timeout)

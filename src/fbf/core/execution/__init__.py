@@ -1,10 +1,9 @@
-"""Simulation execution engine, runners, and execution strategies."""
+"""Simulation execution engine and Numba executor dispatch."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from fbf.core.execution.deterministic import (
@@ -14,6 +13,7 @@ from fbf.core.execution.deterministic import (
 )
 from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.executor import ResearchExecutor
+from fbf.core.execution.plan_executor import execute_plan
 from fbf.core.execution.profiling import (
     CompositeProfiler,
     CpuProfiler,
@@ -31,25 +31,7 @@ from fbf.core.study.builder import BuiltStudy
 from fbf.core.study.plan import ResearchPlan
 
 if TYPE_CHECKING:
-    import numpy as np
-    from numpy.typing import NDArray
-
     from fbf.core.execution.pipeline.simulation_context import SimulationContext
-    from fbf.core.execution.strategies.numba_executor import GlidepathGFKey
-
-
-def sequential_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
-    """Execute through the public sequential Core operation."""
-    from fbf.core.execution.strategies.parallel_executor import sequential_execute as implementation
-
-    return implementation(*args, **kwargs)
-
-
-def parallel_execute(*args: Any, **kwargs: Any) -> ResearchExecutionResult:
-    """Execute through the public parallel Core operation."""
-    from fbf.core.execution.strategies.parallel_executor import parallel_execute as implementation
-
-    return implementation(*args, **kwargs)
 
 
 def __getattr__(name: str) -> Any:
@@ -68,40 +50,6 @@ class ProgressEvent:
     total_units: int
 
 
-class ExecutionBackend(StrEnum):
-    """Public execution backend selection.
-
-    ``FAST`` executes with float64 numerical semantics for maximum throughput.
-    It is currently implemented with Numba.  Execution is fail-closed: workloads
-    the Numba kernels cannot execute raise ``UnsupportedConfigurationError``
-    rather than falling back to another engine.
-
-    When no backend is specified (the default ``None``), AUTO dispatch selects
-    the same Numba executor appropriate to the workload and raises if no Numba
-    kernel supports it.
-    """
-
-    FAST = "fast"
-
-
-class ExecutionStrategy(StrEnum):
-    """Execution strategy selection.
-
-    ``AUTO`` selects the Numba executor appropriate to the workload without
-    consulting host resources.  It is the default and always resolves to
-    single-process execution.
-
-    ``SEQUENTIAL`` explicitly forces single-process execution.
-
-    ``PARALLEL`` explicitly requests multiprocessing.  Not supported by the
-    Numba backend; raises ``ValueError``.
-    """
-
-    AUTO = "auto"
-    SEQUENTIAL = "sequential"
-    PARALLEL = "parallel"
-
-
 # Slice targets for the streaming API.  These are memory-control targets, not
 # hard bounds: a cohort is never split.  They are validated empirically by the
 # isolated memory benchmark.
@@ -115,22 +63,6 @@ class ExecutionOptions:
 
     Attributes
     ----------
-    backend:
-        Execution backend selection.  ``None`` (the default) enables AUTO
-        dispatch: the system selects the Numba executor appropriate to the
-        workload and raises if no Numba kernel supports it.  ``FAST``
-        explicitly requests the optimized float64 backend (currently Numba).
-        Default is ``None``.
-    strategy:
-        Execution strategy (``AUTO``, ``SEQUENTIAL``, or ``PARALLEL``).
-        ``PARALLEL`` is not supported by the ``FAST`` backend.
-        Default is ``AUTO``.
-    workers:
-        Retained for API compatibility.  Ignored: the Numba backend always
-        executes sequentially.
-    batch_size:
-        Retained for API compatibility.  Ignored: the Numba backend always
-        executes sequentially.
     progress_callback:
         Optional callback ``(completed_units, total_units)`` for progress
         reporting.
@@ -142,10 +74,9 @@ class ExecutionOptions:
         When ``True``, per-month timelines are stripped from the returned
         results after simulation completes.  Callers that only need
         aggregate statistics (success, failure month, final wealth) avoid
-        the cost of serializing hundreds of megabytes of monthly payloads
-        through IPC in the parallel path.  The simulation itself is
-        unchanged; only the returned ``SimulationResult`` objects carry
-        empty timelines.  Default is ``False`` to preserve existing
+        retaining hundreds of megabytes of monthly payloads.  The simulation
+        itself is unchanged; only the returned ``SimulationResult`` objects
+        carry empty timelines.  Default is ``False`` to preserve existing
         behaviour for callers that require full timeline data.
     materialize_timeline:
         When ``True``, the optimized (Numba) executors reconstruct the full
@@ -161,10 +92,6 @@ class ExecutionOptions:
         Default is ``1_000``.
     """
 
-    backend: ExecutionBackend | None = None
-    strategy: ExecutionStrategy = ExecutionStrategy.AUTO
-    workers: int | None = None
-    batch_size: int | None = None
     progress_callback: ProgressCallback | None = None
     profiler: Profiler = field(default_factory=NoOpProfiler)
     summary_only: bool = False
@@ -251,20 +178,15 @@ def _extract_simulation_contexts(
     return ()
 
 
-def _auto_select_backend(
-    built: Any,
-    profiler: Any,
-    glidepath_gf_cache: dict[GlidepathGFKey, NDArray[np.float64]] | None = None,
-    materialize_timeline: bool = False,
-) -> Any:
-    """AUTO dispatch: select the validated Numba executor for the workload.
+def _select_numba_executor(built: Any, opt: ExecutionOptions) -> Any:
+    """Select the single validated Numba executor for the complete plan.
 
-    Returns the SimulationExecutor for the selected workload.  Plans made
-    entirely of Part 52, Part 49, or Part 49 buy-and-hold units use the
-    dedicated executor for that workload.  Any other plan is admitted only
+    Plans made entirely of Part 52, Part 49, or Part 49 buy-and-hold units use
+    the dedicated executor for that workload.  Any other plan is admitted only
     when every unit is eligible for the generic Numba kernels, which may mix
     generic policy families in one executor.  Otherwise
-    ``UnsupportedConfigurationError`` is raised.
+    ``UnsupportedConfigurationError`` is raised.  There is no fallback to a
+    different numerical implementation.
     """
     try:
         import numba as _numba_mod  # noqa: F401
@@ -287,7 +209,8 @@ def _auto_select_backend(
         )
 
         return Part52NumbaExecutor(
-            profiler=profiler, materialize_timeline=materialize_timeline
+            profiler=opt.profiler,
+            materialize_timeline=opt.materialize_timeline,
         )
 
     from fbf.core.execution.strategies.part49_numba_executor import (
@@ -302,7 +225,8 @@ def _auto_select_backend(
         )
 
         return Part49NumbaExecutor(
-            profiler=profiler, materialize_timeline=materialize_timeline
+            profiler=opt.profiler,
+            materialize_timeline=opt.materialize_timeline,
         )
 
     from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
@@ -319,7 +243,8 @@ def _auto_select_backend(
         )
 
         return Part49BuyAndHoldNumbaExecutor(
-            profiler=profiler, materialize_timeline=materialize_timeline
+            profiler=opt.profiler,
+            materialize_timeline=opt.materialize_timeline,
         )
 
     from fbf.core.execution.strategies.numba_executor import (
@@ -329,9 +254,9 @@ def _auto_select_backend(
 
     if all(is_numba_context_eligible(ctx) for ctx in contexts):
         return NumbaSimulationExecutor(
-            profiler=profiler,
-            glidepath_gf_cache=glidepath_gf_cache,
-            materialize_timeline=materialize_timeline,
+            profiler=opt.profiler,
+            glidepath_gf_cache=opt.glidepath_gf_cache,
+            materialize_timeline=opt.materialize_timeline,
         )
 
     raise UnsupportedConfigurationError(
@@ -343,139 +268,6 @@ def _auto_select_backend(
     )
 
 
-def _select_simulation_executor(
-    built: Any,
-    opt: ExecutionOptions,
-) -> Any:
-    """Resolve the backend executor for a complete plan exactly once."""
-    profiler = opt.profiler
-    backend = opt.backend
-    sim_executor: Any = None
-    if backend is None:
-        # AUTO dispatch: capability-driven routing
-        sim_executor = _auto_select_backend(
-            built, profiler, opt.glidepath_gf_cache, opt.materialize_timeline
-        )
-    elif backend == ExecutionBackend.FAST:
-        try:
-            import numba as _numba_mod  # noqa: F401
-        except ModuleNotFoundError as exc:
-            raise ModuleNotFoundError(
-                "FAST backend requires the optional Numba dependency. "
-                "Install it with: pip install fbf-core[numba]"
-            ) from exc
-
-        # A plan containing any Part 52 workload must be entirely
-        # Part52-Numba-eligible, otherwise the request is rejected rather than
-        # routed to another engine.
-        from fbf.core.execution.strategies.part49_numba_executor import (
-            is_part49_context,
-            is_part49_eligible,
-        )
-        from fbf.core.execution.strategies.part52_numba_executor import (
-            is_part52_context,
-            is_part52_eligible,
-        )
-
-        fast_contexts = _extract_simulation_contexts(built.plan)
-        has_part52 = any(is_part52_context(ctx) for ctx in fast_contexts)
-        has_part49 = any(is_part49_context(ctx) for ctx in fast_contexts)
-
-        if has_part52:
-            if not all(is_part52_eligible(ctx) for ctx in fast_contexts):
-                raise UnsupportedConfigurationError(
-                    "FAST backend cannot execute this plan on Numba: it contains "
-                    "Part 52 workloads that are not Numba-eligible. Mixed plans "
-                    "(Part 52 combined with other policies), ANNUAL frequency, "
-                    "and schedule-less Part 52 configurations without a fixed "
-                    "interest_rate are unsupported by the FAST backend."
-                )
-            from fbf.core.execution.strategies.part52_numba_executor import (
-                Part52NumbaExecutor,
-            )
-
-            sim_executor = Part52NumbaExecutor(
-                profiler=profiler, materialize_timeline=opt.materialize_timeline
-            )
-        elif has_part49:
-            from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
-                is_part49_buy_and_hold_eligible,
-            )
-
-            if all(is_part49_eligible(ctx) for ctx in fast_contexts):
-                from fbf.core.execution.strategies.part49_numba_executor import (
-                    Part49NumbaExecutor,
-                )
-
-                sim_executor = Part49NumbaExecutor(
-                    profiler=profiler, materialize_timeline=opt.materialize_timeline
-                )
-            elif all(
-                is_part49_buy_and_hold_eligible(ctx) for ctx in fast_contexts
-            ):
-                from fbf.core.execution.strategies.part49_buy_and_hold_numba_executor import (
-                    Part49BuyAndHoldNumbaExecutor,
-                )
-
-                sim_executor = Part49BuyAndHoldNumbaExecutor(
-                    profiler=profiler, materialize_timeline=opt.materialize_timeline
-                )
-            else:
-                raise UnsupportedConfigurationError(
-                    "FAST backend cannot execute this plan on Numba: it contains "
-                    "Part 49 workloads that are not Numba-eligible. Mixed plans "
-                    "(Part 49 combined with other policies) and unsupported "
-                    "Part 49 configurations (ANNUAL frequency, non-zero expense "
-                    "ratio, explicit multi-asset allocations, an insufficient "
-                    "dataset, or no interest-rate source) are unsupported by the "
-                    "FAST backend."
-                )
-        else:
-            from fbf.core.execution.strategies.numba_executor import (
-                NumbaSimulationExecutor,
-                is_numba_context_eligible,
-            )
-
-            unsupported = next(
-                (
-                    ctx
-                    for ctx in fast_contexts
-                    if not is_numba_context_eligible(ctx)
-                ),
-                None,
-            )
-            if unsupported is not None:
-                raise UnsupportedConfigurationError(
-                    "FAST backend cannot execute this plan on Numba: a context "
-                    "is not supported by the generic Numba kernels "
-                    f"(cohort={unsupported.cohort!r}, "
-                    f"start_date={unsupported.start_date.isoformat()!r}). "
-                    "The FAST backend supports fixed-real, constant-nominal, "
-                    "escalating, buy-and-hold, and glidepath policies when the "
-                    "generic kernels' dataset, portfolio, and value invariants "
-                    "hold; non-escalating generic withdrawals require monthly "
-                    "frequency; debt and LTV configurations belong to the "
-                    "dedicated Part 49/52 executors."
-                )
-
-            sim_executor = NumbaSimulationExecutor(
-                profiler=profiler,
-                glidepath_gf_cache=opt.glidepath_gf_cache,
-                materialize_timeline=opt.materialize_timeline,
-            )
-    return sim_executor
-
-
-def _validate_execution_strategy(opt: ExecutionOptions) -> None:
-    """Reject unsupported execution strategies before dispatch."""
-    if opt.strategy == ExecutionStrategy.PARALLEL:
-        raise ValueError(
-            "The Numba backend does not support parallel execution. "
-            "Use strategy=ExecutionStrategy.AUTO or "
-            "strategy=ExecutionStrategy.SEQUENTIAL instead."
-        )
-
-
 def execute_study_plan(
     plan: BuiltStudy,
     options: ExecutionOptions | None = None,
@@ -483,26 +275,13 @@ def execute_study_plan(
     """High-level application service to execute a study plan.
 
     The ``profiler`` in ``options`` (default: ``NoOpProfiler``) is resolved
-    once and propagated to the underlying sequential or parallel execution.
-    When an ``ExecutionProfiler`` is provided, phase timings and metrics
-    are recorded and accessible via ``options.profiler.get_report()``.
+    once and propagated to the underlying execution path.  When an
+    ``ExecutionProfiler`` is provided, phase timings and metrics are recorded
+    and accessible via ``options.profiler.get_report()``.
 
-    Backend and strategy are read from ``options.backend`` and
-    ``options.strategy``.  ``PARALLEL`` is unsupported and raises
-    ``ValueError``.
-
-    Backend selection (``options.backend``):
-
-    - ``None`` (default): AUTO dispatch selects the Numba executor appropriate
-      to the workload.
-    - ``FAST``: explicitly request the optimized Numba backend.
-
-    Strategy selection (``options.strategy``):
-
-    - ``AUTO``: resolves to sequential.
-    - ``SEQUENTIAL``: force single-process execution.
-    - ``PARALLEL``: multiprocessing is not supported by the Numba backend;
-      raises ``ValueError``.
+    The Numba executor is selected once from the complete plan's workload
+    capabilities.  Unsupported plans fail closed with
+    ``UnsupportedConfigurationError``.
     """
     opt = options or ExecutionOptions()
     built = plan
@@ -524,24 +303,19 @@ def execute_study_plan(
 
     profiler.start("total")
 
-    # --- Backend selection ---
-    profiler.start("backend_selection")
-    sim_executor = _select_simulation_executor(built, opt)
-    profiler.stop("backend_selection")
+    profiler.start("executor_selection")
+    sim_executor = _select_numba_executor(built, opt)
+    profiler.stop("executor_selection")
 
-    # --- Strategy selection ---
-    profiler.start("strategy_selection")
-    _validate_execution_strategy(opt)
-    profiler.stop("strategy_selection")
-    profiler.start("sequential_dispatch")
-    result = sequential_execute(
+    profiler.start("execution_dispatch")
+    result = execute_plan(
         plan=built.plan,
         simulation_executor=sim_executor,
         progress_callback=opt.progress_callback,
         summary_only=opt.summary_only,
         profiler=profiler,
     )
-    profiler.stop("sequential_dispatch")
+    profiler.stop("execution_dispatch")
 
     profiler.record("total_units", len(built.plan.units))
     profiler.stop("total")
@@ -571,9 +345,9 @@ def iter_execute_study_plan(
 ) -> Iterator[ExecutionSlice]:
     """Execute a study plan lazily in cohort-aligned slices.
 
-    The backend and executor are resolved once for the complete plan.  Every
-    unit is validated before the first slice is yielded, preserving the
-    full-plan fail-fast guarantee without retaining translated contexts.  Each
+    The Numba executor is resolved once for the complete plan.  Every unit is
+    validated before the first slice is yielded, preserving the full-plan
+    fail-fast guarantee without retaining translated contexts.  Each
     yielded slice holds only its own results; the iterator never accumulates
     slices internally.
 
@@ -604,11 +378,9 @@ def iter_execute_study_plan(
 
     profiler.start("total")
     try:
-        profiler.start("backend_selection")
-        sim_executor = _select_simulation_executor(built, opt)
-        profiler.stop("backend_selection")
-
-        _validate_execution_strategy(opt)
+        profiler.start("executor_selection")
+        sim_executor = _select_numba_executor(built, opt)
+        profiler.stop("executor_selection")
 
         profiler.start("context_translation")
         ResearchExecutor(sim_executor).validate_units(built.plan)
@@ -624,7 +396,7 @@ def iter_execute_study_plan(
                 experiment_definition=built.plan.experiment_definition,
                 units=units,
             )
-            slice_result = sequential_execute(
+            slice_result = execute_plan(
                 plan=sub_plan,
                 simulation_executor=sim_executor,
                 progress_callback=None,
@@ -647,15 +419,12 @@ __all__ = [
     "DeterministicTrajectory",
     "DeterministicResult",
     "execute_deterministic_trajectory",
-    "ExecutionBackend",
-    "ExecutionStrategy",
     "ExecutionOptions",
     "ExecutionSlice",
     "execute_study_plan",
     "iter_execute_study_plan",
     "ResearchExecutionResult",
-    "parallel_execute",
-    "sequential_execute",
+    "execute_plan",
     "UnsupportedConfigurationError",
     "NumbaSimulationExecutor",
     "ProgressCallback",

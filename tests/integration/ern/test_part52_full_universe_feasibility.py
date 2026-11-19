@@ -30,7 +30,6 @@ import pytest
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import (
     ExecutionOptions,
-    ExecutionStrategy,
     _extract_simulation_contexts,
     execute_study_plan,
 )
@@ -152,8 +151,6 @@ def a10_full_universe() -> tuple[
     result = execute_study_plan(
         built,
         options=ExecutionOptions(
-            strategy=ExecutionStrategy.AUTO,
-            workers=None,
         ),
     )
     contexts = _extract_simulation_contexts(built.plan)

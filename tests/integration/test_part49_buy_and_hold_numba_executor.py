@@ -32,13 +32,11 @@ from fbf.core.domain.policies import (
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
-    ExecutionStrategy,
     NoOpProfiler,
     UnsupportedConfigurationError,
-    _auto_select_backend,
     _extract_simulation_contexts,
+    _select_numba_executor,
     execute_study_plan,
 )
 from fbf.core.execution.pipeline.simulation import (
@@ -816,7 +814,10 @@ class TestPart49BuyAndHoldDispatchContract:
         unit = _bh_unit(date(1965, 11, 1), 12, dataset)
         built = _built_plan((unit,))
         assert isinstance(
-            _auto_select_backend(built, NoOpProfiler()), Part49BuyAndHoldNumbaExecutor
+            _select_numba_executor(
+                built, ExecutionOptions(profiler=NoOpProfiler())
+            ),
+            Part49BuyAndHoldNumbaExecutor,
         )
 
     def test_fast_runs_part49_buy_and_hold_through_study_plan(self) -> None:
@@ -824,12 +825,7 @@ class TestPart49BuyAndHoldDispatchContract:
         unit = _bh_unit(date(1965, 11, 1), 12, dataset)
         built = _built_plan((unit,))
 
-        fast = execute_study_plan(
-            built,
-            ExecutionOptions(
-                backend=ExecutionBackend.FAST, strategy=ExecutionStrategy.SEQUENTIAL
-            ),
-        )
+        fast = execute_study_plan(built, ExecutionOptions())
         stats = fast.experiment_result.simulation_results[0].statistics
         assert stats.success is True
         assert stats.months_simulated == 12
@@ -841,13 +837,7 @@ class TestPart49BuyAndHoldDispatchContract:
         )
         built = _built_plan((unit,))
         with pytest.raises(UnsupportedConfigurationError):
-            execute_study_plan(
-                built,
-                ExecutionOptions(
-                    backend=ExecutionBackend.FAST,
-                    strategy=ExecutionStrategy.SEQUENTIAL,
-                ),
-            )
+            execute_study_plan(built, ExecutionOptions())
 
     def test_auto_unsupported_buy_and_hold_fails_explicitly(self) -> None:
         horizon = 120
@@ -861,12 +851,7 @@ class TestPart49BuyAndHoldDispatchContract:
         built = _built_plan((unit,), horizon_months=horizon)
 
         with pytest.raises(UnsupportedConfigurationError):
-            execute_study_plan(
-                built,
-                ExecutionOptions(
-                    backend=None, strategy=ExecutionStrategy.SEQUENTIAL
-                ),
-            )
+            execute_study_plan(built, ExecutionOptions())
 
     def test_auto_mixed_plan_fails_explicitly(self) -> None:
         dataset = _create_flat_dataset(12)
@@ -891,7 +876,7 @@ class TestPart49BuyAndHoldDispatchContract:
         contexts = _extract_simulation_contexts(built.plan)
         assert not all(is_part49_buy_and_hold_eligible(ctx) for ctx in contexts)
         with pytest.raises(UnsupportedConfigurationError):
-            _auto_select_backend(built, NoOpProfiler())
+            _select_numba_executor(built, ExecutionOptions(profiler=NoOpProfiler()))
 
 
 class TestPart49BuyAndHoldTimelineSpendingReporting:

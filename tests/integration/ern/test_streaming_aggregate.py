@@ -20,9 +20,7 @@ import pytest
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
-    ExecutionStrategy,
     execute_study_plan,
     iter_execute_study_plan,
 )
@@ -149,8 +147,6 @@ def test_streaming_aggregate_matches_workbook_oracle_and_persistence(
     built = _build_subset_plan()
     oracle = load_oracle_table(WORKBOOK_ORACLE_CSV)
     options = ExecutionOptions(
-        backend=ExecutionBackend.FAST,
-        strategy=ExecutionStrategy.SEQUENTIAL,
         summary_only=True,
     )
 

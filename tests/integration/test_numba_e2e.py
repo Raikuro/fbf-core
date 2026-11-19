@@ -1,7 +1,7 @@
 """R7.5.5 — Small black-box E2E: Numba executor through the real study path.
 
 Exercises the complete path:
-  ExperimentDefinition → ResearchPlan → Executor → Numba backend → Results
+  ExperimentDefinition → ResearchPlan → Executor → Numba execution → Results
 
 Verifies that the optimized backend matches the workbook oracle for the
 supported cases (static allocations with FixedRealWithdrawalPolicy).
@@ -17,7 +17,7 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, FixedRealWithdrawalPolicy
-from fbf.core.execution import ExecutionBackend, ExecutionOptions, execute_study_plan
+from fbf.core.execution import ExecutionOptions, execute_study_plan
 from fbf.core.execution.executor import ResearchExecutor
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
@@ -202,7 +202,7 @@ class TestNumbaE2EVsWorkbook:
             _assert_matches_workbook(oracle, numba, f"sequential_e2e[{i}]")
 
     def test_execute_study_plan_numba_mode_matches_workbook(self) -> None:
-        """Test the execute_study_plan API with backend=FAST against workbook oracle."""
+        """Test the execute_study_plan API against the workbook oracle."""
         _, plan = _build_plan(cohorts=1, weights=[0.6], rates=[0.04], horizons=[120])
 
         built = BuiltStudy(
@@ -215,7 +215,6 @@ class TestNumbaE2EVsWorkbook:
         numba_result = execute_study_plan(
             built,
             options=ExecutionOptions(
-                backend=ExecutionBackend.FAST, summary_only=True
             ),
         )
 

@@ -15,9 +15,7 @@ import fbf.core.research.part20_planner as planner
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies import GlidepathAllocationPolicy
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
-    ExecutionStrategy,
     execute_study_plan,
     iter_execute_study_plan,
 )
@@ -79,16 +77,8 @@ def test_part20_streaming_matches_whole_plan_and_releases_slices(
         cohorts=bundle.cohorts,
         param_configs=bundle.param_configs,
     )
-    options = ExecutionOptions(
-        backend=ExecutionBackend.FAST,
-        strategy=ExecutionStrategy.SEQUENTIAL,
-        summary_only=True,
-        workers=1,
-    )
-    full = execute_study_plan(
-        built,
-        replace(options, strategy=ExecutionStrategy.AUTO),
-    )
+    options = ExecutionOptions(summary_only=True)
+    full = execute_study_plan(built, options)
     expected = extract_successes(full.results)
     del full
     gc.collect()

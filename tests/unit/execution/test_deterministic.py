@@ -21,7 +21,6 @@ from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy, GlidepathCadence
 from fbf.core.execution import (
     DeterministicTrajectory,
-    ExecutionOptions,
     execute_deterministic_trajectory,
 )
 from fbf.core.execution.pipeline.schedule import ExecutionSchedule, StepCadence
@@ -567,30 +566,6 @@ class TestExecuteDeterministicTrajectory:
             # The currency comes from the withdrawal decisions or initial_wealth
             if mr.withdrawal_decision is not None:
                 assert mr.withdrawal_decision.nominal_amount.currency == Currency.EUR
-
-    def test_options_parameter(self) -> None:
-        """ExecutionOptions should be accepted."""
-        dataset = _make_flat_dataset(12)
-        trajectory = DeterministicTrajectory(
-            name="OptionsTest",
-            initial_wealth=Money(Decimal("1000000"), Currency.EUR),
-            initial_allocation=AllocationTarget(
-                weights={_EQUITY: Decimal("0.6"), _BOND: Decimal("0.4")}
-            ),
-            dataset=dataset,
-            allocation_policy=ConstantAllocationPolicy(equity_allocation=Decimal("0.6")),
-            withdrawal_policy=EscalatingWithdrawalPolicy(
-                withdrawal_rate=Decimal("0.04"),
-                frequency=WithdrawalFrequency.ANNUAL,
-            ),
-            horizon_months=12,
-        )
-
-        options = ExecutionOptions()
-        result = execute_deterministic_trajectory(trajectory, options)
-
-        assert result.success is True
-        assert len(result.timeline) == 12
 
 
 class TestDeterministicResult:

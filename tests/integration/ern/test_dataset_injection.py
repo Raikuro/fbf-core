@@ -8,7 +8,7 @@ from pathlib import Path
 from fbf.core.application import run_study
 from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionBackend, ExecutionOptions
+from fbf.core.execution import ExecutionOptions
 from fbf.core.study import StudyConfiguration
 
 
@@ -32,7 +32,6 @@ def test_run_study_uses_injected_canonical_dataset() -> None:
         data_dir="unused-data-dir",
         initial_wealth=Money(Decimal("1000000"), Currency.EUR),
         options=ExecutionOptions(
-            backend=ExecutionBackend.FAST,
             summary_only=True,
         ),
         dataset=dataset,

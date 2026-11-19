@@ -27,10 +27,7 @@ from fbf.core.domain.policies import ConstantAllocationPolicy
 from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
 from fbf.core.execution.executor import ResearchExecutor
 from fbf.core.execution.pipeline.simulation import SimulationResult
-from fbf.core.execution.strategies.parallel_executor import (
-    parallel_execute,
-    sequential_execute,
-)
+from fbf.core.execution.plan_executor import execute_plan
 from fbf.core.execution.strategies.part49_numba_executor import Part49NumbaExecutor
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
@@ -582,38 +579,43 @@ class TestExhaustiveInitialWealthInvariant:
 
 
 # ---------------------------------------------------------------------------
-# Test 9: Sequential vs parallel execution equivalence
+# Test 9: Repeated execution determinism
 # ---------------------------------------------------------------------------
 
 
-class TestSequentialVsParallelEquivalence:
-    """sequential_execute and parallel_execute produce identical results."""
+class TestRepeatedExecutionEquivalence:
+    """Repeated single-process executions produce identical results."""
 
-    def test_parallel_matches_sequential(self) -> None:
+    def test_repeated_execution_is_stable(self) -> None:
         dataset = _make_dataset()
         exp_def, cohorts = _build_experiment(dataset, n_cohorts=6)
 
         plan = _build_plan(dataset, cohorts, exp_def)
 
-        seq_executor = Part49NumbaExecutor(materialize_timeline=True)
-        par_executor = Part49NumbaExecutor(materialize_timeline=True)
-        seq_result = sequential_execute(plan, simulation_executor=seq_executor)
-        par_result = parallel_execute(
-            plan, simulation_executor=par_executor, max_workers=2
+        first_result = execute_plan(
+            plan,
+            simulation_executor=Part49NumbaExecutor(materialize_timeline=True),
+        )
+        second_result = execute_plan(
+            plan,
+            simulation_executor=Part49NumbaExecutor(materialize_timeline=True),
         )
 
-        assert len(seq_result.results) == len(par_result.results)
-        for i, (seq, par) in enumerate(zip(seq_result.results, par_result.results, strict=True)):
-            assert seq.statistics.success == par.statistics.success, (
+        assert len(first_result.results) == len(second_result.results)
+        for i, (first, second) in enumerate(
+            zip(first_result.results, second_result.results, strict=True)
+        ):
+            assert first.statistics.success == second.statistics.success, (
                 f"Unit {i}: success diverged"
             )
-            assert seq.statistics.failure_month == par.statistics.failure_month, (
+            assert first.statistics.failure_month == second.statistics.failure_month, (
                 f"Unit {i}: failure_month diverged"
             )
-            assert seq.statistics.months_simulated == par.statistics.months_simulated, (
-                f"Unit {i}: months_simulated diverged"
-            )
-            assert seq.statistics.final_wealth == par.statistics.final_wealth, (
+            assert (
+                first.statistics.months_simulated
+                == second.statistics.months_simulated
+            ), f"Unit {i}: months_simulated diverged"
+            assert first.statistics.final_wealth == second.statistics.final_wealth, (
                 f"Unit {i}: final_wealth diverged"
             )
 

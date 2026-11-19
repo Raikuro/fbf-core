@@ -57,7 +57,6 @@ def optimize_part52(
     domain_min: Decimal = Decimal("0.030"),
     domain_max: Decimal = Decimal("0.055"),
     precision: Decimal = Decimal("0.0001"),
-    workers: int | None = None,
 ) -> SWROptimizationResult:
     """Find maximum Part 52 withdrawal rate with timing leverage.
 
@@ -90,8 +89,6 @@ def optimize_part52(
         Maximum WR to search (default 5.5%).
     precision:
         WR precision for binary search convergence (default 0.01%).
-    workers:
-        Retained for API compatibility.  Ignored: execution is sequential.
 
     Returns
     -------
@@ -111,7 +108,6 @@ def optimize_part52(
         ltv_enforcement=ltv_enforcement,
         ffr_spread=ffr_spread,
         borrow_pcts=borrow_pcts if borrow_pcts is not None else DEFAULT_BORROW_PCTS,
-        workers=workers,
     )
     evaluator = Part52Evaluator(evaluator_config)
 

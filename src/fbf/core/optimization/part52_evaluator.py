@@ -15,11 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 from fbf.core.domain.model.money import Money
-from fbf.core.execution import (
-    ExecutionOptions,
-    ExecutionStrategy,
-    iter_execute_study_plan,
-)
+from fbf.core.execution import ExecutionOptions, iter_execute_study_plan
 from fbf.core.optimization.swr_optimizer import EvaluationOutcome
 from fbf.core.study import StudyConfiguration, build_study_plan
 
@@ -56,8 +52,6 @@ class Part52EvaluatorConfig:
         Simulation horizon in years.
     cohort_horizon_years:
         Cohort generation horizon (ERN uses 60y for comparability).
-    workers:
-        Retained for API compatibility.  Ignored: execution is sequential.
     """
 
     data_dir: str
@@ -70,7 +64,6 @@ class Part52EvaluatorConfig:
     borrow_pcts: tuple[Decimal, ...] = DEFAULT_BORROW_PCTS
     horizon_years: int = 30
     cohort_horizon_years: int = 60
-    workers: int | None = None
 
 
 class Part52Evaluator:
@@ -173,11 +166,7 @@ class Part52Evaluator:
 
         built = build_study_plan(study_config, config.data_dir, config.initial_wealth)
 
-        options = ExecutionOptions(
-            strategy=ExecutionStrategy.AUTO,
-            workers=config.workers,
-            materialize_timeline=True,
-        )
+        options = ExecutionOptions(materialize_timeline=True)
 
         total = 0
         successful = 0

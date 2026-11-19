@@ -21,7 +21,7 @@ from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionBackend, ExecutionOptions
+from fbf.core.execution import ExecutionOptions
 from fbf.core.study import StudyConfiguration
 
 _INITIAL_WEALTH = Decimal("1000000")
@@ -94,9 +94,7 @@ def test_warmup_matches_published_beginning_of_month_values() -> None:
         data_dir="unused",
         initial_wealth=Money(_INITIAL_WEALTH, Currency.EUR),
         options=ExecutionOptions(
-            backend=ExecutionBackend.FAST,
             summary_only=True,
-            workers=1,
         ),
         dataset=_constant_return_dataset(),
     )

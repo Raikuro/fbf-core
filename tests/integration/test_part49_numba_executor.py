@@ -25,12 +25,11 @@ from fbf.core.domain.policies.concrete import ConstantWithdrawalPolicy
 from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.part49_withdrawal import Part49WithdrawalPolicy
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
     NoOpProfiler,
     UnsupportedConfigurationError,
-    _auto_select_backend,
     _extract_simulation_contexts,
+    _select_numba_executor,
     execute_study_plan,
 )
 from fbf.core.execution.pipeline.simulation import (
@@ -642,7 +641,10 @@ class TestPart49DispatchContract:
         unit = _part49_unit(date(1965, 11, 1), 12, dataset)
         built = _built_plan((unit,))
         assert isinstance(
-            _auto_select_backend(built, NoOpProfiler()), Part49NumbaExecutor
+            _select_numba_executor(
+                built, ExecutionOptions(profiler=NoOpProfiler())
+            ),
+            Part49NumbaExecutor,
         )
 
     def test_fast_runs_part49_through_study_plan(self) -> None:
@@ -650,7 +652,7 @@ class TestPart49DispatchContract:
         unit = _part49_unit(date(1965, 11, 1), 12, dataset)
         built = _built_plan((unit,))
 
-        fast = execute_study_plan(built, ExecutionOptions(backend=ExecutionBackend.FAST))
+        fast = execute_study_plan(built, ExecutionOptions())
         stats = fast.experiment_result.simulation_results[0].statistics
         assert stats.success is True
         assert stats.months_simulated == 12
@@ -665,7 +667,7 @@ class TestPart49DispatchContract:
         )
         built = _built_plan((unit,))
         with pytest.raises(UnsupportedConfigurationError):
-            execute_study_plan(built, ExecutionOptions(backend=ExecutionBackend.FAST))
+            execute_study_plan(built, ExecutionOptions())
 
     def test_fast_rejects_nonzero_expense_ratio(self) -> None:
         dataset = _make_dataset(12)
@@ -674,7 +676,7 @@ class TestPart49DispatchContract:
         )
         built = _built_plan((unit,))
         with pytest.raises(UnsupportedConfigurationError):
-            execute_study_plan(built, ExecutionOptions(backend=ExecutionBackend.FAST))
+            execute_study_plan(built, ExecutionOptions())
 
     def test_fast_rejects_no_rate_source(self) -> None:
         dataset = _make_dataset(12)
@@ -683,7 +685,7 @@ class TestPart49DispatchContract:
         )
         built = _built_plan((unit,))
         with pytest.raises(UnsupportedConfigurationError):
-            execute_study_plan(built, ExecutionOptions(backend=ExecutionBackend.FAST))
+            execute_study_plan(built, ExecutionOptions())
 
     def test_fast_rejects_mixed_plan(self) -> None:
         dataset = _make_dataset(12)
@@ -693,7 +695,7 @@ class TestPart49DispatchContract:
         )
         built = _built_plan(units)
         with pytest.raises(UnsupportedConfigurationError):
-            execute_study_plan(built, ExecutionOptions(backend=ExecutionBackend.FAST))
+            execute_study_plan(built, ExecutionOptions())
 
     def test_auto_mixed_plan_fails_explicitly(self) -> None:
         dataset = _make_dataset(12)
@@ -705,7 +707,7 @@ class TestPart49DispatchContract:
         contexts = _extract_simulation_contexts(built.plan)
         assert not all(is_part49_eligible(ctx) for ctx in contexts)
         with pytest.raises(UnsupportedConfigurationError):
-            _auto_select_backend(built, NoOpProfiler())
+            _select_numba_executor(built, ExecutionOptions(profiler=NoOpProfiler()))
 
 
 class TestPart49TimelineSpendingReporting:

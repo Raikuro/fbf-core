@@ -1,4 +1,4 @@
-"""Simulation contracts shared by every execution strategy.
+"""Simulation contracts shared by every simulation executor.
 
 This package contains immutable simulation inputs and outputs plus the
 ``SimulationExecutor`` abstraction.  It has no execution engine of its own.

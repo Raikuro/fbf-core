@@ -85,7 +85,7 @@ class Part49BuyAndHoldNumbaReport:
 
 
 def is_part49_buy_and_hold_eligible(context: SimulationContext) -> bool:
-    """Return True when *context* can use the leveraged buy-and-hold Numba backend.
+    """Return True when *context* can use the leveraged buy-and-hold Numba executor.
 
     Eligibility requires:
     - BuyAndHoldAllocationPolicy (no periodic equity/bond rebalancing)

@@ -12,85 +12,12 @@ Production data is workbook-derived.
 from __future__ import annotations
 
 import csv
-import os
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 CANONICAL_DATA_DIR = _REPO_ROOT / "data" / "inputs" / "ern"
 FIXTURE_DATA_DIR = _REPO_ROOT / "tests" / "fixtures" / "ern"
 WORKBOOK_ORACLE_CSV = FIXTURE_DATA_DIR / "workbook_oracle_table.csv"
-
-# ---------------------------------------------------------------------------
-# E2E worker selection
-# ---------------------------------------------------------------------------
-# The ERN E2E runs the whole grid as ONE ``sim-retire run --workers <N>``
-# subprocess.  The CLI itself supports ``--workers max`` (every available
-# logical CPU) since P4.11; ``ERN_E2E_WORKERS`` remains an optional override
-# for hosts that want a pinned count:
-#
-# - ``ERN_E2E_WORKERS`` unset       -> conservative default min(8, cpu_count())
-# - ``ERN_E2E_WORKERS=N``           -> pass exactly N workers (capped to host CPUs)
-# - ``ERN_E2E_WORKERS=max``         -> pass ``--workers max`` (every logical CPU)
-
-ERN_E2E_WORKERS_ENV = "ERN_E2E_WORKERS"
-ERN_E2E_MAX_WORKERS = "max"
-ERN_E2E_WORKERS_BASELINE = 8
-
-
-def resolve_e2e_workers(
-    value: str | None = None,
-    host_cpu_count: int | None = None,
-) -> int:
-    """Resolve the ERN E2E worker count from the ``ERN_E2E_WORKERS`` value.
-
-    The default path (``None`` or empty) selects the conservative baseline
-    ``min(ERN_E2E_WORKERS_BASELINE, cpu_count())``; the literal ``"max"``
-    selects every available logical CPU (passed through to the CLI); a
-    positive integer selects exactly that count (capped to host CPUs).
-
-    Parameters
-    ----------
-    value:
-        Raw environment value (``os.environ.get("ERN_E2E_WORKERS")``).
-        ``None`` or empty selects the conservative baseline (8).  The literal
-        ``"max"`` (case-insensitive) selects every available logical CPU.
-        A positive integer selects exactly that many workers.
-    host_cpu_count:
-        Override of the host CPU count (used by unit tests for determinism).
-        Defaults to ``os.cpu_count()`` with a fallback of 8 when it is None.
-
-    Returns
-    -------
-    int
-        The worker count for the ``ERN_E2E_WORKERS`` value.
-
-    Raises
-    ------
-    ValueError
-        If *value* is neither empty, ``"max"`` nor a positive integer.
-    """
-    cpu_count = host_cpu_count or os.cpu_count() or ERN_E2E_WORKERS_BASELINE
-    if value is None:
-        value = ""
-    value = str(value).strip()
-    if value == "":
-        return min(ERN_E2E_WORKERS_BASELINE, cpu_count)
-    if value.lower() == ERN_E2E_MAX_WORKERS:
-        return cpu_count
-    try:
-        requested = int(value)
-    except ValueError:
-        raise ValueError(
-            f"{ERN_E2E_WORKERS_ENV} must be a positive integer or "
-            f"'{ERN_E2E_MAX_WORKERS}', got {value!r}"
-        ) from None
-    if requested <= 0:
-        raise ValueError(
-            f"{ERN_E2E_WORKERS_ENV} must be a positive integer or "
-            f"'{ERN_E2E_MAX_WORKERS}', got {value!r}"
-        )
-    return min(requested, cpu_count)
-
 
 # Pinned oracle matrix: {(weight, horizon_years): {rate: success_pct}}.
 type OracleTable = dict[tuple[float, int], dict[float, int]]

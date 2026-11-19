@@ -537,20 +537,13 @@ class TestDebtInterestRateRealProductionPropagation:
     def test_real_rate_flag_reaches_execution_path(
         self, is_real: bool, expected_terminal_loan: Decimal
     ) -> None:
-        from fbf.core.execution import (
-            ExecutionBackend,
-            ExecutionOptions,
-            execute_study_plan,
-        )
+        from fbf.core.execution import ExecutionOptions, execute_study_plan
 
         built = _make_debt_study(debt_interest_rate_is_real=is_real)
 
         result = execute_study_plan(
             built,
-            ExecutionOptions(
-                backend=ExecutionBackend.FAST,
-                materialize_timeline=True,
-            ),
+            ExecutionOptions(materialize_timeline=True),
         )
 
         sim_result = result.experiment_result.simulation_results[0]

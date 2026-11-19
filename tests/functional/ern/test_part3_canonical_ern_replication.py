@@ -49,7 +49,6 @@ from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.policies.cape_regime import CapeRegime
 from fbf.core.execution import (
     ExecutionOptions,
-    ExecutionStrategy,
     iter_execute_study_plan,
 )
 from fbf.core.research.part3_aggregation import aggregate_part3_results
@@ -267,7 +266,6 @@ def part3_metrics(request: pytest.FixtureRequest) -> _Part3Metrics:
         configuration=config,
     )
     options = ExecutionOptions(
-        strategy=ExecutionStrategy.AUTO, summary_only=True
     )
     pipeline_result = _execute_part3_streaming(plan_result, options)
     overall = _compute_overall_by_cell(plan_result, pipeline_result.results)

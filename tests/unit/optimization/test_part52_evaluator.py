@@ -31,7 +31,6 @@ INITIAL_WEALTH = Money(Decimal("1000000"), Currency.EUR)
 def _make_config(
     *,
     borrow_pcts: tuple[Decimal, ...] | None = None,
-    workers: int | None = 1,
 ) -> Part52EvaluatorConfig:
     """Create a minimal evaluator config for testing."""
     return Part52EvaluatorConfig(
@@ -42,7 +41,6 @@ def _make_config(
         ltv_limit=Decimal("0.50"),
         ltv_enforcement=True,
         borrow_pcts=borrow_pcts or (Decimal("0"),),
-        workers=workers,
     )
 
 
@@ -263,7 +261,6 @@ class TestPart52EvaluatorProvenance:
             drawdown_threshold=Decimal("0.20"),
             debt_interest_rate=Decimal("0.015"),
             borrow_pcts=(),
-            workers=1,
         )
         evaluator = Part52Evaluator(config)
         result = evaluator.evaluate(Decimal("0.035"))
@@ -330,7 +327,6 @@ class TestOptimizePart52API:
             domain_min=Decimal("0.030"),
             domain_max=Decimal("0.045"),
             precision=Decimal("0.005"),
-            workers=1,
         )
         assert result.candidate_value is not None
 
@@ -348,7 +344,6 @@ class TestOptimizePart52API:
             domain_min=Decimal("0.030"),
             domain_max=Decimal("0.045"),
             precision=Decimal("0.005"),
-            workers=1,
         )
         assert "withdrawal_rate" in result.provenance
         assert "borrow_pct" in result.provenance

@@ -37,11 +37,7 @@ from fbf.core.domain.model.portfolio import Portfolio
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
 from fbf.core.domain.policies.cape_regime import CapeBinary, classify_cape_binary
 from fbf.core.domain.policies.concrete import FixedRealWithdrawalPolicy
-from fbf.core.execution import (
-    ExecutionOptions,
-    ExecutionStrategy,
-    iter_execute_study_plan,
-)
+from fbf.core.execution import ExecutionOptions, iter_execute_study_plan
 from fbf.core.execution.pipeline.simulation import SimulationResult
 from fbf.core.execution.strategies.numba_executor import (
     GlidepathGFKey,
@@ -408,7 +404,6 @@ class Part20ExecutionContext:
         """Execute one bundle through the Numba path in bounded slices."""
         effective = replace(
             options,
-            strategy=ExecutionStrategy.AUTO,
             summary_only=True,
             glidepath_gf_cache=self.glidepath_gf_cache,
         )
@@ -436,8 +431,7 @@ class Part20ExecutionContext:
         """Execute *bundle* and return per-unit success flags in plan order.
 
         Every unit is executed through the Numba path, which may mix generic
-        policy families in one plan.  The caller's strategy is overridden with
-        AUTO because production parallel execution is unsupported.
+        policy families in one plan.
 
         Result order matches ``bundle.plan.units``.  Stats count one logical
         execution and the full logical unit count per call.

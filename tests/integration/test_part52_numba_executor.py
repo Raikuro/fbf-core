@@ -340,7 +340,7 @@ class TestPart52Eligibility:
         assert is_part52_eligible(ctx) is True
 
     def test_ineligible_without_any_rate_source(self) -> None:
-        """No schedule and no fixed rate is unsupported by the Numba backend."""
+        """No schedule and no fixed rate is unsupported by the Numba executor."""
         dataset = _create_dataset(12)
         ctx = SimulationContext(
             experiment_name="test",

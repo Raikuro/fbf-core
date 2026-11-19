@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
-    from fbf.core.execution import ExecutionOptions
     from fbf.core.execution.pipeline.simulation import MonthlyResult
     from fbf.core.execution.pipeline.simulation_context import SimulationContext
 
@@ -546,21 +545,18 @@ def _execute_deterministic_kernel(
 
 def execute_deterministic_trajectory(
     trajectory: DeterministicTrajectory,
-    options: ExecutionOptions | None = None,
 ) -> DeterministicResult:
     """Execute a deterministic trajectory.
 
     Supported two-asset configurations are executed by the dedicated Numba
     kernel.  Unsupported configurations raise
-    ``UnsupportedConfigurationError``; there is no fallback engine.
+    ``UnsupportedConfigurationError``; there is no fallback engine.  The
+    kernel path always materializes the full monthly timeline.
 
     Parameters
     ----------
     trajectory:
         The deterministic trajectory configuration.
-    options:
-        Accepted for API compatibility.  The kernel path always materializes
-        the full monthly timeline.
 
     Returns
     -------

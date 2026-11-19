@@ -13,8 +13,8 @@ Ownership Boundaries (Frozen)
 - ``ResearchPlan`` is consumed, never built or modified.
 - No planning logic, cohort generation, parameter generation, policy materialisation,
   aggregation, optimisation, or financial calculations are present in this module.
-- Parallelisation must be achieved externally by partitioning ``ResearchPlan`` instances
-  above this layer; ``ResearchExecutor`` is deterministic and single-threaded.
+- ``ResearchExecutor`` is deterministic and single-threaded; parallel acceleration
+  belongs inside the Numba kernels, not in this orchestration layer.
 """
 
 from __future__ import annotations

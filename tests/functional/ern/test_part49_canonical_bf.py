@@ -27,7 +27,6 @@ import yaml
 from fbf.core.application import run_study
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
     ResearchExecutionResult,
 )
@@ -77,7 +76,6 @@ def _run(
         data_dir=str(_DATA_DIR),
         initial_wealth=_INITIAL_WEALTH,
         options=ExecutionOptions(
-            backend=ExecutionBackend.FAST,
             materialize_timeline=materialize_timeline,
             summary_only=not materialize_timeline,
         ),

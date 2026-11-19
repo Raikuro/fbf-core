@@ -43,9 +43,8 @@ from fbf.core.domain.policies import (
     FixedRealWithdrawalPolicy,
 )
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
-    _auto_select_backend,
+    _select_numba_executor,
     execute_study_plan,
 )
 from fbf.core.execution.errors import UnsupportedConfigurationError
@@ -933,23 +932,24 @@ class TestBuyAndHoldRouting:
             param_configs=(),
         )
 
-    def test_auto_select_routes_buy_and_hold_to_numba(self) -> None:
+    def test_select_routes_buy_and_hold_to_numba(self) -> None:
         built = self._built_plan()
-        executor = _auto_select_backend(built, NoOpProfiler())
+        executor = _select_numba_executor(
+            built, ExecutionOptions(profiler=NoOpProfiler())
+        )
         assert isinstance(executor, NumbaSimulationExecutor)
 
-    def test_auto_select_routes_non_zero_fee_buy_and_hold_to_numba(self) -> None:
+    def test_select_routes_non_zero_fee_buy_and_hold_to_numba(self) -> None:
         built = self._built_plan(fee=Decimal("0.0005"))
-        executor = _auto_select_backend(built, NoOpProfiler())
+        executor = _select_numba_executor(
+            built, ExecutionOptions(profiler=NoOpProfiler())
+        )
         assert isinstance(executor, NumbaSimulationExecutor)
 
-    @pytest.mark.parametrize("backend", [None, ExecutionBackend.FAST])
-    def test_non_zero_fee_buy_and_hold_executes(
-        self, backend: ExecutionBackend | None
-    ) -> None:
+    def test_non_zero_fee_buy_and_hold_executes(self) -> None:
         fee = Decimal("0.0005")
         built = self._built_plan(fee=fee)
-        result = execute_study_plan(built, ExecutionOptions(backend=backend))
+        result = execute_study_plan(built, ExecutionOptions())
         assert len(result.results) == 1
 
         unit = built.plan.units[0]
@@ -967,18 +967,9 @@ class TestBuyAndHoldRouting:
         assert statistics.success is expected_ok
         assert abs(statistics.final_wealth.amount - expected) < _TOLERANCE
 
-    @pytest.mark.parametrize(
-        ("backend", "message"),
-        [
-            (None, "Execution requires the optional Numba"),
-            (ExecutionBackend.FAST, "FAST backend requires"),
-        ],
-    )
     def test_non_zero_fee_buy_and_hold_requires_numba(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        backend: ExecutionBackend | None,
-        message: str,
     ) -> None:
         import builtins
 
@@ -992,10 +983,12 @@ class TestBuyAndHoldRouting:
 
         monkeypatch.setattr(builtins, "__import__", _block_numba)
 
-        with pytest.raises(ModuleNotFoundError, match=message):
-            execute_study_plan(built, ExecutionOptions(backend=backend))
+        with pytest.raises(
+            ModuleNotFoundError, match="Execution requires the optional Numba"
+        ):
+            execute_study_plan(built, ExecutionOptions())
 
-    def test_auto_select_mixes_generic_policy_families(self) -> None:
+    def test_select_mixes_generic_policy_families(self) -> None:
         """Generic families may share one Numba executor in a mixed plan."""
         built = self._built_plan()
         unit = built.plan.units[0]
@@ -1021,6 +1014,8 @@ class TestBuyAndHoldRouting:
             param_configs=(),
         )
         # One buy-and-hold unit and one constant-allocation unit are both
-        # generic-Numba-eligible, so AUTO admits the mixed plan as a whole.
-        executor = _auto_select_backend(mixed_built, NoOpProfiler())
+        # generic-Numba-eligible, so the dispatcher admits the mixed plan.
+        executor = _select_numba_executor(
+            mixed_built, ExecutionOptions(profiler=NoOpProfiler())
+        )
         assert isinstance(executor, NumbaSimulationExecutor)

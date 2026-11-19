@@ -64,7 +64,7 @@ def adapt_part3_to_builtin(plan_result: Part3PlanResult) -> BuiltStudy:
     """Wrap a ``Part3PlanResult`` as a ``BuiltStudy`` for ``execute_study_plan``.
 
     The execution layer consumes ``BuiltStudy.plan`` (a ``ResearchPlan``)
-    to drive sequential/parallel execution.  This adapter preserves the
+    through the single Numba execution path.  This adapter preserves the
     exact ``ResearchPlan`` produced by the Part 3 planner without copying
     or re-materializing units.
 
@@ -102,7 +102,7 @@ def execute_part3_pipeline(
 
     Steps:
     1. Adapt ``Part3PlanResult`` → ``BuiltStudy`` for the execution layer.
-    2. Call ``execute_study_plan`` (sequential or parallel, per options).
+    2. Call ``execute_study_plan`` through the Numba execution path.
     3. Aggregate simulation results by CAPE regime using the plan's
        manifest-derived metadata.
 

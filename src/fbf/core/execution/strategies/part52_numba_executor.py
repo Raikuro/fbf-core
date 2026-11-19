@@ -78,7 +78,7 @@ def is_part52_context(context: SimulationContext) -> bool:
 
 
 def is_part52_eligible(context: SimulationContext) -> bool:
-    """Return True when *context* can use the Part52 Numba backend.
+    """Return True when *context* can use the Part 52 Numba executor.
 
     Eligibility requires:
     - ConstantAllocationPolicy (constant equity/bond target weights)

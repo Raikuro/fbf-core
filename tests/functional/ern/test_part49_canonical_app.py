@@ -20,7 +20,7 @@ from fbf.core.application import run_study
 from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionBackend, ExecutionOptions
+from fbf.core.execution import ExecutionOptions
 from fbf.core.execution.strategies.part49_numba_executor import (
     Part49NumbaExecutor,
 )
@@ -115,9 +115,7 @@ def canonical_execution(
             data_dir=str(data_dir),
             initial_wealth=INITIAL_WEALTH,
             options=ExecutionOptions(
-                backend=ExecutionBackend.FAST,
                 summary_only=True,
-                workers=None,  # Auto-detect
             ),
             dataset=canonical_dataset,
         )

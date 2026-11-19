@@ -7,11 +7,8 @@ asset model. They lock in:
 1. The initial portfolio must use ``equity``/``bond`` assets aligned with the
    dataset loader (the previous synthetic ``id="initial"`` asset was unpriced by
    the market universe and crashed real runs with "Missing market price").
-2. Sequential and process-parallel execution must preserve the plan's asset
-   model and produce identical results.
-
-The ``sequential`` case is the regression guard; the ``parallel`` case also
-exercises process-boundary serialization (mapping proxy pickling) of the plan.
+2. Single-process plan execution preserves the plan's asset model and produces
+   stable results across repeated runs.
 """
 
 from __future__ import annotations
@@ -19,15 +16,13 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-import pytest
-
 from fbf.core.domain.model.asset import AssetClass
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Money
 from fbf.core.domain.policies import ConstantAllocationPolicy, ConstantWithdrawalPolicy
+from fbf.core.execution.plan_executor import execute_plan
 from fbf.core.execution.strategies.numba_executor import NumbaSimulationExecutor
-from fbf.core.execution.strategies.parallel_executor import parallel_execute, sequential_execute
 from fbf.core.study.builder import build_initial_portfolio
 from fbf.core.study.internal.cohort.specification import CohortSpecification
 from fbf.core.study.internal.experiment.definition import ExperimentDefinition
@@ -100,13 +95,14 @@ def _build_plan(horizon_months: int = 12, param_sweep: int = 1) -> tuple[Dataset
     return dataset, plan
 
 
-class TestRealEngineSequential:
-    """Real ``sequential_execute`` through a CLI-built equity/bond plan."""
+class TestRealEnginePlanExecution:
+    """Real single-process plan execution through a CLI-built equity/bond plan."""
 
-    def test_sequential_execute_runs_to_success(self) -> None:
+    def test_execute_plan_runs_to_success(self) -> None:
         _, plan = _build_plan()
-        result = sequential_execute(
-            plan, simulation_executor=NumbaSimulationExecutor()
+        result = execute_plan(
+            plan,
+            simulation_executor=NumbaSimulationExecutor(),
         )
         assert len(result.results) == 1
         assert result.results[0].statistics.success is True
@@ -120,42 +116,42 @@ class TestRealEngineSequential:
             assert "initial" not in {a.id for a in assets}
             assert assets <= snapshot_keys
 
-
-class TestRealEngineParallel:
-    """Real ``parallel_execute`` (ProcessPoolExecutor) over a CLI-built plan."""
-
-    @pytest.mark.parametrize("param_sweep", [4])
-    def test_parallel_execution_serializes_and_runs(self, param_sweep: int) -> None:
-        _, plan = _build_plan(param_sweep=param_sweep)
-        expected = len(plan.units)
-        result = parallel_execute(
-            plan, simulation_executor=NumbaSimulationExecutor(), max_workers=2
+    def test_multi_unit_plan_runs(self) -> None:
+        _, plan = _build_plan(param_sweep=4)
+        result = execute_plan(
+            plan,
+            simulation_executor=NumbaSimulationExecutor(),
         )
-        assert len(result.results) == expected
+        assert len(result.results) == len(plan.units)
         assert all(r.statistics.success for r in result.results)
 
-    @pytest.mark.parametrize("param_sweep", [4])
-    def test_parallel_matches_sequential(self, param_sweep: int) -> None:
-        """parallel_execute matches sequential_execute results exactly."""
-        _, plan = _build_plan(param_sweep=param_sweep)
-        sequential = sequential_execute(
-            plan, simulation_executor=NumbaSimulationExecutor()
+    def test_repeated_execution_is_stable(self) -> None:
+        _, plan = _build_plan(param_sweep=4)
+        first = execute_plan(
+            plan,
+            simulation_executor=NumbaSimulationExecutor(),
         )
-        parallel = parallel_execute(
-            plan, simulation_executor=NumbaSimulationExecutor(), max_workers=2
+        second = execute_plan(
+            plan,
+            simulation_executor=NumbaSimulationExecutor(),
         )
 
-        assert len(sequential.results) == len(parallel.results)
-        for i, (seq, par) in enumerate(zip(sequential.results, parallel.results, strict=True)):
-            assert seq.statistics.success == par.statistics.success, (
-                f"Unit {i}: success diverged"
-            )
-            assert seq.statistics.failure_month == par.statistics.failure_month, (
-                f"Unit {i}: failure_month diverged"
-            )
-            assert seq.statistics.months_simulated == par.statistics.months_simulated, (
-                f"Unit {i}: months_simulated diverged"
-            )
-            assert seq.statistics.final_wealth == par.statistics.final_wealth, (
-                f"Unit {i}: final_wealth diverged"
-            )
+        assert len(first.results) == len(second.results)
+        for i, (first_result, second_result) in enumerate(
+            zip(first.results, second.results, strict=True)
+        ):
+            assert (
+                first_result.statistics.success == second_result.statistics.success
+            ), f"Unit {i}: success diverged"
+            assert (
+                first_result.statistics.failure_month
+                == second_result.statistics.failure_month
+            ), f"Unit {i}: failure_month diverged"
+            assert (
+                first_result.statistics.months_simulated
+                == second_result.statistics.months_simulated
+            ), f"Unit {i}: months_simulated diverged"
+            assert (
+                first_result.statistics.final_wealth
+                == second_result.statistics.final_wealth
+            ), f"Unit {i}: final_wealth diverged"

@@ -28,13 +28,11 @@ from fbf.core.domain.policies import (
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy
 from fbf.core.domain.policies.part52_withdrawal import Part52WithdrawalPolicy
 from fbf.core.execution import (
-    ExecutionBackend,
     ExecutionOptions,
-    ExecutionStrategy,
     NoOpProfiler,
     UnsupportedConfigurationError,
-    _auto_select_backend,
     _extract_simulation_contexts,
+    _select_numba_executor,
     execute_study_plan,
 )
 from fbf.core.execution.pipeline.simulation import (
@@ -150,11 +148,7 @@ def _make_built_study(
 
 
 def _fast_options() -> ExecutionOptions:
-    return ExecutionOptions(
-        backend=ExecutionBackend.FAST,
-        strategy=ExecutionStrategy.SEQUENTIAL,
-        summary_only=True,
-    )
+    return ExecutionOptions(summary_only=True)
 
 
 def _make_mixed_generic_built_study() -> BuiltStudy:
@@ -298,7 +292,7 @@ def test_annual_frequency_rejected_by_monthly_only_generic_kernels(
     with pytest.raises(UnsupportedConfigurationError):
         execute_study_plan(built, _fast_options())
     with pytest.raises(UnsupportedConfigurationError):
-        _auto_select_backend(built, NoOpProfiler())
+        _select_numba_executor(built, ExecutionOptions(profiler=NoOpProfiler()))
 
 
 def test_annual_part52_frequency_rejected_by_dispatch() -> None:
@@ -366,7 +360,7 @@ def test_unsupported_generic_workload_raises() -> None:
         dataset=_make_dataset(include_gold=True),
     )
 
-    with pytest.raises(UnsupportedConfigurationError, match="FAST backend"):
+    with pytest.raises(UnsupportedConfigurationError, match="No Numba executor"):
         execute_study_plan(built, _fast_options())
 
 
@@ -379,7 +373,7 @@ def test_auto_rejects_unsupported_workload() -> None:
     )
 
     with pytest.raises(UnsupportedConfigurationError):
-        _auto_select_backend(built, NoOpProfiler())
+        _select_numba_executor(built, ExecutionOptions(profiler=NoOpProfiler()))
 
 
 def test_fixed_real_static_uses_workbook_recurrence_regardless_of_target() -> None:
@@ -433,7 +427,7 @@ def test_executor_rejects_ineligible_context() -> None:
         simulation_contexts=contexts,
     )
 
-    with pytest.raises(UnsupportedConfigurationError, match="Numba backend"):
+    with pytest.raises(UnsupportedConfigurationError, match="Numba execution"):
         executor.execute(definition)
 
 
@@ -444,5 +438,5 @@ def test_debt_configuration_raises_for_generic_fast() -> None:
         loan_draw_rate=Decimal("0.01"),
     )
 
-    with pytest.raises(UnsupportedConfigurationError, match="FAST backend"):
+    with pytest.raises(UnsupportedConfigurationError, match="No Numba executor"):
         execute_study_plan(built, _fast_options())

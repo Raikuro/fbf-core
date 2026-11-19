@@ -22,7 +22,7 @@ from fbf.core.domain.model import Money
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency
 from fbf.core.domain.policies import FixedRealWithdrawalPolicy
-from fbf.core.execution import ExecutionBackend, ExecutionOptions
+from fbf.core.execution import ExecutionOptions
 from fbf.core.research.part20_aggregation import (
     to_displayed_failure_percent,
     to_displayed_percent,
@@ -216,7 +216,7 @@ class TestCorrectedMethodology:
             withdrawal_rates=(Decimal("0.04"),),
             final_value_target=Decimal("0"),
             population="HIGH",
-            options=ExecutionOptions(workers=1, summary_only=True),
+            options=ExecutionOptions(summary_only=True),
         )
         for c in cells:
             if c.strategy_id == "static_100" and c.withdrawal_rate == Decimal("0.04"):
@@ -240,7 +240,7 @@ class TestCorrectedMethodology:
             withdrawal_rates=(Decimal("0.04"),),
             final_value_target=Decimal("0"),
             population="HIGH",
-            options=ExecutionOptions(workers=1, summary_only=True),
+            options=ExecutionOptions(summary_only=True),
         )
         for c in cells:
             if c.strategy_id == strat.id and c.withdrawal_rate == Decimal("0.04"):
@@ -264,7 +264,7 @@ class TestCorrectedMethodology:
             withdrawal_rates=(Decimal("0.0375"),),
             final_value_target=Decimal("0"),
             population="HIGH",
-            options=ExecutionOptions(workers=1, summary_only=True),
+            options=ExecutionOptions(summary_only=True),
         )
         for c in cells:
             if c.strategy_id == "static_080" and c.withdrawal_rate == Decimal("0.0375"):
@@ -285,7 +285,6 @@ class TestCorrectedMethodology:
         from fbf.core.execution import (  # type: ignore[attr-defined]
             BuiltStudy,
             ExecutionOptions,
-            ExecutionStrategy,
             execute_study_plan,
         )
         from fbf.core.execution.result import ResearchExecutionResult
@@ -358,12 +357,9 @@ class TestCorrectedMethodology:
                 param_configs=(pc,),
             )
 
-            opts = ExecutionOptions(
-                workers=1, summary_only=True, backend=ExecutionBackend.FAST
-            )
+            opts = ExecutionOptions(summary_only=True)
             effective_opts = replace(
                 opts,
-                strategy=ExecutionStrategy.SEQUENTIAL,
                 summary_only=True,
                 glidepath_gf_cache=self.ctx.glidepath_gf_cache,
             )
@@ -402,9 +398,7 @@ class TestCorrectedMethodology:
             horizon_years=60,
             final_value_target=Decimal("0"),
             cape_regime="HIGH",
-            options=ExecutionOptions(
-                workers=1, summary_only=True, backend=ExecutionBackend.FAST
-            ),
+            options=ExecutionOptions(summary_only=True),
             step_label="regression_exp_a",
             cache=self.cache,
         )
@@ -420,9 +414,7 @@ class TestCorrectedMethodology:
             horizon_years=30,
             final_value_target=Decimal("0"),
             cape_regime="HIGH",
-            options=ExecutionOptions(
-                workers=1, summary_only=True, backend=ExecutionBackend.FAST
-            ),
+            options=ExecutionOptions(summary_only=True),
             step_label="regression_exp_b",
             cache=self.cache,
         )

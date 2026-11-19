@@ -114,7 +114,6 @@ def part20_full_grid(data_dir: Path) -> Part20GridResult:
         initial_wealth=INITIAL_WEALTH,
         options=ExecutionOptions(
             summary_only=True,
-            workers=None,  # Auto-detect
         ),
     )
     t_exec_end = time.perf_counter()
@@ -324,7 +323,7 @@ final_value_target: [0.0]
             config=StudyConfiguration.from_yaml(yaml.safe_load(minimal_yaml)),
             data_dir=str(data_dir),
             initial_wealth=INITIAL_WEALTH,
-            options=ExecutionOptions(summary_only=True, workers=None),
+            options=ExecutionOptions(summary_only=True),
         )
         rates: dict[CellKey, float] = {}
         for unit, r in zip(

@@ -10,8 +10,8 @@ InvalidResearchPlanError:
     Raised when a ResearchPlan fails structural or translation validation
     before execution begins.
 UnsupportedConfigurationError:
-    Raised when a workload cannot be executed by the requested backend because
-    its configuration is not supported by that backend.
+    Raised when a workload cannot be executed by a Numba executor because its
+    configuration is not supported.
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ class InvalidResearchPlanError(ResearchExecutionError):
 
 
 class UnsupportedConfigurationError(ResearchExecutionError):
-    """Raised when a workload cannot be executed by the requested backend.
+    """Raised when no Numba executor supports a workload.
 
-    Used to make backend routing explicit: an optimized backend must fail
-    loudly for a configuration it cannot execute rather than silently
-    delegating to a different numerical engine with different conventions.
+    The Numba path fails loudly for a configuration it cannot execute rather
+    than silently delegating to a different numerical engine with different
+    conventions.
     """

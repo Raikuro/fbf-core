@@ -37,8 +37,8 @@ def run_study(
     initial_wealth:
         The initial portfolio wealth for the study.
     options:
-        Execution options controlling backend, strategy, result materialization,
-        and profiling.
+        Execution options controlling result materialization, streaming,
+        progress reporting, and profiling.
     dataset:
         Optional pre-built dataset.  When supplied, it is used directly
         instead of loading CSV data from ``data_dir``.

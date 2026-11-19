@@ -17,9 +17,7 @@ from fbf.core.execution import (
     DeterministicResult,
     DeterministicTrajectory,
     EnhancedProfileReport,
-    ExecutionBackend,
     ExecutionProfiler,
-    ExecutionStrategy,
     MemoryProfiler,
     NestedPhaseTiming,
     NoOpProfiler,
@@ -44,7 +42,7 @@ from fbf.core.study import (
     build_study_plan,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "AllocationPolicyType",
@@ -63,8 +61,6 @@ __all__ = [
     "ParameterConfiguration",
     "ParameterAxis",
     "ExperimentDefinition",
-    "ExecutionBackend",
-    "ExecutionStrategy",
     "ExecutionOptions",
     "execute_study_plan",
     "execute_deterministic_trajectory",

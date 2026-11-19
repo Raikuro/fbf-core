@@ -11,7 +11,7 @@ import pytest
 
 from fbf.core.datasets.ern import load_cape_rows, prepare_ern_dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionOptions, ExecutionStrategy
+from fbf.core.execution import ExecutionOptions
 from fbf.core.research.cohort_manifest import build_effective_manifest
 from fbf.core.research.part3_pipeline import execute_part3_pipeline
 from fbf.core.research.part3_study import build_part3_plan_from_configuration
@@ -103,6 +103,6 @@ def test_scenario_a_executes_without_anchor_claims() -> None:
 
     result = execute_part3_pipeline(
         plan_result,
-        options=ExecutionOptions(strategy=ExecutionStrategy.AUTO),
+        options=ExecutionOptions(),
     )
     assert result.total_units == 1748

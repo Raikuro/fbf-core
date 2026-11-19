@@ -69,18 +69,21 @@ CLI / Consumer
            ▼
      execute_study_plan()
            │
-           ├── backend_selection
-           ├── strategy_selection
-           └── sequential_dispatch
+           ├── executor_selection
+           └── execution_dispatch
                  │
-                 └── ResearchExecutor
-                       ├── context_translation
-                       └── engine_execution
-                             └── Numba executor
-                                   ├── *_grouping
-                                   ├── *_growth_factors
-                                   ├── *_kernel_execution
-                                   └── *_assembly
+                 └── execute_plan()
+                       ├── execution_setup
+                       ├── execution
+                       │     └── ResearchExecutor
+                       │           ├── context_translation
+                       │           └── engine_execution
+                       │                 └── Numba executor
+                       │                       ├── *_grouping
+                       │                       ├── *_growth_factors
+                       │                       ├── *_kernel_execution
+                       │                       └── *_assembly
+                       └── execution_strip_timelines
 ```
 
 ## What Is Measured
@@ -90,10 +93,11 @@ CLI / Consumer
 | Phase | Granularity | Source |
 |-------|-------------|--------|
 | `total` | Full execution | `execute_study_plan()` |
-| `backend_selection` | Backend init | `execute_study_plan()` |
-| `strategy_selection` | Strategy routing | `execute_study_plan()` |
-| `sequential_setup` | Sequential init | `sequential_execute()` |
-| `sequential_execution` | Research executor | `sequential_execute()` |
+| `executor_selection` | Numba executor selection | `execute_study_plan()` |
+| `execution_dispatch` | Full execution dispatch | `execute_study_plan()` |
+| `execution_setup` | Executor setup | `execute_plan()` |
+| `execution` | Research executor | `execute_plan()` |
+| `execution_strip_timelines` | Summary-only result filtering | `execute_plan()` |
 | `context_translation` | Unit→Context | `ResearchExecutor` |
 | `engine_execution` | Executor dispatch | `ResearchExecutor` |
 | `numba_grouping` | Generic Numba grouping | `NumbaSimulationExecutor` |
@@ -116,7 +120,6 @@ CLI / Consumer
 | `numba_month_work`, `part49_month_work`, `part49_bh_month_work`, `part52_month_work` | Total month-work units |
 | `numba_gf_cache_hits`, `part49_gf_cache_hits`, `part49_bh_gf_cache_hits`, `part52_gf_cache_hits` | Growth-factor cache hits |
 | `numba_gf_cache_misses`, `part49_gf_cache_misses`, `part49_bh_gf_cache_misses`, `part52_gf_cache_misses` | Growth-factor cache misses |
-| `sequential_units` | Units in sequential execution |
 
 ### Per-Unit Timing
 
@@ -171,11 +174,10 @@ print(enhanced.format())
 #
 #Phase Tree:
 #  total                                 155.1234s (100.0%)
-#  ├── backend_selection                   0.0012s   (0.0%)
-#  ├── strategy_selection                  0.0001s   (0.0%)
-#  └── sequential_dispatch               155.1200s  (99.9%)
-#      ├── sequential_setup                0.0005s   (0.0%)
-#      └── sequential_execution          155.1195s  (99.9%)
+#  ├── executor_selection                  0.0012s   (0.0%)
+#  └── execution_dispatch                155.1200s  (99.9%)
+#      ├── execution_setup                0.0005s   (0.0%)
+#      └── execution                    155.1195s  (99.9%)
 #          ├── context_translation         0.0234s   (0.0%)
 #          └── engine_execution           154.8000s  (99.7%)
 #              └── numba_kernel_execution 154.5000s  (99.5%)
@@ -197,13 +199,6 @@ d = enhanced.to_dict()
 print(json.dumps(d, indent=2))
 ```
 
-## Low-Level Parallel Helper
-
-The high-level execution API rejects `PARALLEL` strategy for Numba workloads.
-The low-level `parallel_execute()` helper remains available to Core tests that
-validate process-parallel equivalence. Its profiler records parent overhead,
-worker computation, and result assembly in the parent process only.
-
 ## Limitations
 
 1. **Wall-clock timing includes OS scheduling delays** — a phase may
@@ -216,8 +211,5 @@ worker computation, and result assembly in the parent process only.
    allocations or per-object sizes. Use `tracemalloc` or external tools
    for allocation profiling.
 
-4. **Worker processes are not profiled** — the profiler runs in the parent
-   process. Worker computation time is inferred from wall-clock differences.
-
-5. **`execution_time_seconds` is excluded from equality** — this field
+4. **`execution_time_seconds` is excluded from equality** — this field
    is a runtime measurement and does not affect simulation semantics.

@@ -14,11 +14,7 @@ from fbf.core.domain import (
     MarketSnapshot,
     Money,
 )
-from fbf.core.execution import (
-    ExecutionBackend,
-    ExecutionOptions,
-    ExecutionStrategy,
-)
+from fbf.core.execution import ExecutionOptions
 from fbf.core.research import (
     CohortManifest,
     CohortManifestEntry,
@@ -141,10 +137,7 @@ def test_public_research_facade_supports_part3_workflow(tmp_path: Path) -> None:
 
     result = execute_part3_pipeline(
         plan_result,
-        ExecutionOptions(
-            backend=ExecutionBackend.FAST,
-            strategy=ExecutionStrategy.SEQUENTIAL,
-        ),
+        ExecutionOptions(),
     )
     assert isinstance(result, Part3ExecutionResult)
     assert result.total_units == 2

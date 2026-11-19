@@ -200,6 +200,5 @@ representations where explicitly appropriate.
 
 Given the same code, Dataset, configuration, and execution definition, results
 must be identical. Execution order of simulations never affects results.
-Production execution is sequential; the low-level test-only parallel helper
-preserves sequential results. The database never modifies a result — it only
+Production execution uses the single Numba plan executor. The database never modifies a result — it only
 stores information.

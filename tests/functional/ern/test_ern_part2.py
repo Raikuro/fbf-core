@@ -28,7 +28,7 @@ from fbf.core.application import run_study
 from fbf.core.datasets import load_canonical_dataset
 from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.money import Currency, Money
-from fbf.core.execution import ExecutionBackend, ExecutionOptions
+from fbf.core.execution import ExecutionOptions
 from fbf.core.study import StudyConfiguration
 from tests.support.ern.constants import (
     WORKBOOK_ORACLE_CSV,
@@ -106,9 +106,7 @@ def _run_part2(config: StudyConfiguration) -> Part2Execution:
         data_dir=str(DATA_DIR),
         initial_wealth=INITIAL_WEALTH,
         options=ExecutionOptions(
-            backend=ExecutionBackend.FAST,
             summary_only=True,
-            workers=None,
         ),
     )
     elapsed = time.perf_counter() - start
@@ -224,9 +222,7 @@ def test_part2_anchors_current_canonical_data(
         data_dir=str(DATA_DIR),
         initial_wealth=INITIAL_WEALTH,
         options=ExecutionOptions(
-            backend=ExecutionBackend.FAST,
             summary_only=True,
-            workers=None,
         ),
         dataset=canonical_dataset,
     )
