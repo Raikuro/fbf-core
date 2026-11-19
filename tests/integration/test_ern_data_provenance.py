@@ -295,3 +295,4 @@ def test_part3_effective_metadata_retains_all_source_fingerprints() -> None:
     assert source_metadata["source_sha256"] == fingerprints
     assert source_metadata["historical_data_cutoff"] == "2026-06-01"
     assert source_metadata["projection_end"] == "2075-12-01"
+    assert "legacy_mode" not in source_metadata

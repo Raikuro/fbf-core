@@ -162,7 +162,6 @@ class PreparedDatasetMetadata:
     inflation_annual_rate: Decimal
     ffr_policy: FfrFutureMode
     ffr_constant_rate: Decimal | None
-    legacy_mode: bool
     source_sha256: tuple[tuple[str, str], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
@@ -187,7 +186,6 @@ class PreparedDatasetMetadata:
                 if self.ffr_constant_rate is not None
                 else None
             ),
-            "legacy_mode": self.legacy_mode,
             "source_sha256": dict(self.source_sha256),
         }
 
@@ -496,7 +494,6 @@ def prepare_ern_dataset(
     *,
     config: ProjectionConfig | None = None,
     required_through: date | None = None,
-    legacy_mode: bool = False,
 ) -> PreparedErnDataset:
     """Prepare an in-memory ERN dataset from historical sources.
 
@@ -597,7 +594,6 @@ def prepare_ern_dataset(
         inflation_annual_rate=effective_config.inflation.annual_rate,
         ffr_policy=effective_config.ffr.mode,
         ffr_constant_rate=effective_config.ffr.constant_rate,
-        legacy_mode=legacy_mode,
         source_sha256=tuple(
             (name, _sha256(data_dir / name))
             for name in _SOURCE_FILES

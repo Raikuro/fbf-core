@@ -270,7 +270,6 @@ def _prepare_ffr_rates(
     *,
     cutoff: date | None,
     policy: FfrFuturePolicy,
-    legacy_mode: bool,
 ) -> tuple[tuple[tuple[date, Decimal], ...], bool, Decimal | None]:
     """Apply cutoff and explicit future policy to FFR observations."""
     if cutoff is None:
@@ -284,8 +283,6 @@ def _prepare_ffr_rates(
         raise ValueError(
             f"No FFR observation at or before historical cutoff {cutoff.isoformat()}"
         )
-    if legacy_mode:
-        return filtered, True, None
     if policy.mode == "fail":
         return filtered, False, None
     if policy.mode == "constant_rate":
@@ -332,21 +329,6 @@ def _parse_optional_date(
         raise ValueError(
             f"{prefix}.{key} is not a valid calendar date: {raw!r}"
         ) from exc
-
-
-def _parse_legacy_mode(data: Mapping[str, Any]) -> bool:
-    compatibility = data.get("compatibility")
-    if compatibility is not None:
-        if not isinstance(compatibility, Mapping):
-            raise ValueError("compatibility must be a mapping")
-        mode = compatibility.get("mode", "standard")
-        if not isinstance(mode, str) or mode not in ("standard", "legacy"):
-            raise ValueError("compatibility.mode must be 'standard' or 'legacy'")
-        return mode == "legacy"
-    raw_legacy = data.get("legacy_mode", False)
-    if not isinstance(raw_legacy, bool):
-        raise ValueError("legacy_mode must be a boolean")
-    return raw_legacy
 
 
 def _parse_experiments(data: Mapping[str, Any]) -> tuple[StudyExperiment, ...] | None:
@@ -863,7 +845,6 @@ class StudyConfiguration:
     cohort_end_date: date | None = None
     projection_config: ProjectionConfig | None = None
     experiments: tuple[StudyExperiment, ...] | None = None
-    legacy_mode: bool = False
     final_value_target_values: tuple[Decimal, ...] | None = None
     glidepath_start_values: tuple[Decimal, ...] | None = None
     glidepath_end_values: tuple[Decimal, ...] | None = None
@@ -904,15 +885,24 @@ class StudyConfiguration:
         ValueError
             For any structurally invalid or unsupported study declaration,
             including any leftover v0.5 ``parameters`` / ``window_years`` /
-            ``cohorts.type`` keys, or ambiguous simultaneous use of
-            ``configurations`` and axis-based policy parameters.
+            ``cohorts.type`` keys, removed ``legacy_mode`` / ``compatibility``
+            keys, or ambiguous simultaneous use of ``configurations`` and
+            axis-based policy parameters.
         """
         metadata = data.get("metadata", {})
         if not isinstance(metadata, dict):
             raise ValueError("metadata must be a mapping")
 
+        removed_keys = tuple(
+            key for key in ("legacy_mode", "compatibility") if key in data
+        )
+        if removed_keys:
+            raise ValueError(
+                f"{', '.join(removed_keys)} is no longer supported; configure "
+                "FFR behaviour with dataset.projection.ffr.policy"
+            )
+
         projection_config = _parse_dataset_configuration(data)
-        legacy_mode = _parse_legacy_mode(data)
 
         if "parameters" in data:
             raise ValueError(
@@ -1217,7 +1207,6 @@ class StudyConfiguration:
             cohort_end_date=cohort_end_date,
             projection_config=projection_config,
             experiments=experiments,
-            legacy_mode=legacy_mode,
             final_value_target_values=final_value_target_values,
             glidepath_start_values=glidepath_start_values,
             glidepath_end_values=glidepath_end_values,
@@ -1771,7 +1760,6 @@ def build_study_plan(
             Path(data_dir),
             config=config.projection_config,
             required_through=required_through,
-            legacy_mode=config.legacy_mode,
         )
         dataset = prepared.dataset
         dataset_metadata = prepared.metadata
@@ -1850,7 +1838,6 @@ def build_study_plan(
             raw_ffr_rates,
             cutoff=cutoff,
             policy=ffr_policy,
-            legacy_mode=config.legacy_mode,
         )
         ffr_spread = config.ffr_spread
 
@@ -2001,7 +1988,6 @@ def build_omy_study_plan(
         Path(data_dir),
         config=base_config.projection_config,
         required_through=required_through,
-        legacy_mode=base_config.legacy_mode,
     )
     dataset = prepared.dataset
     dataset_metadata = prepared.metadata

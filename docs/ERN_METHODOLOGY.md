@@ -48,6 +48,13 @@ forward assumptions. Monthly forward rates use `(1 + annual_rate) ** (1/12) - 1`
 | Equity | 4.0% | 5.5% |
 | Bonds | 2.5% | 2.25% |
 
+FFR observations beyond the effective historical cutoff are controlled
+explicitly by `dataset.projection.ffr.policy` in study YAML (or
+`ProjectionConfig.ffr` in the Core API). The supported policies are
+`last_observed_at_cutoff` (default), `constant_rate`, and `fail`. The configured
+policy is authoritative; there is no global compatibility or legacy switch that
+overrides it.
+
 ### CAPE conditioning
 
 Four-level regimes: `BELOW_15` (<15), `MODERATE` (15-<20), `HIGH` (20-<30), and

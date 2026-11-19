@@ -30,7 +30,6 @@ def load_canonical_dataset(
     *,
     config: ProjectionConfig | None = None,
     required_through: date | None = None,
-    legacy_mode: bool = False,
 ) -> Dataset:
     """Load the standard ERN dataset from canonical CSV sources.
 
@@ -46,8 +45,6 @@ def load_canonical_dataset(
         Latest snapshot date required by a study.  When supplied and no
         explicit projection end is configured, the projection is extended to
         cover it.
-    legacy_mode:
-        Record and use the explicitly selected legacy compatibility path.
 
     Returns
     -------
@@ -58,7 +55,6 @@ def load_canonical_dataset(
         data_dir,
         config=config,
         required_through=required_through,
-        legacy_mode=legacy_mode,
     ).dataset
 
 

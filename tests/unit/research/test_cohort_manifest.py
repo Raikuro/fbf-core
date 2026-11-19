@@ -65,7 +65,6 @@ def _metadata(dataset: Dataset) -> PreparedDatasetMetadata:
         inflation_annual_rate=Decimal("0"),
         ffr_policy="last_observed_at_cutoff",
         ffr_constant_rate=None,
-        legacy_mode=False,
     )
 
 

@@ -14,12 +14,15 @@ no ``sim-retire`` executable present.
 """
 
 import ast
+import inspect
 import os
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
 
 import fbf.core
+from fbf.core.datasets.ern import PreparedDatasetMetadata, prepare_ern_dataset
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC_DIR = _REPO_ROOT / "src"
@@ -228,6 +231,19 @@ def test_public_facade_symbols() -> None:
         f"Facade mismatch. Missing: {expected_symbols - actual_symbols}, "
         f"Unexpected: {actual_symbols - expected_symbols}"
     )
+
+
+def test_legacy_mode_removed_from_public_api() -> None:
+    """The obsolete global compatibility switch must not remain public."""
+    for function in (fbf.core.load_canonical_dataset, prepare_ern_dataset):
+        assert "legacy_mode" not in inspect.signature(function).parameters
+    assert "legacy_mode" not in {
+        field.name for field in fields(fbf.core.StudyConfiguration)
+    }
+    assert "legacy_mode" not in {
+        field.name for field in fields(PreparedDatasetMetadata)
+    }
+    assert "legacy_mode" not in fbf.core.__all__
 
 
 def test_execution_backend_selectors_removed() -> None:

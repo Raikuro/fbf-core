@@ -80,7 +80,6 @@ def build_part3_plan_from_configuration(
         data_dir,
         config=config.projection_config,
         required_through=required_through,
-        legacy_mode=config.legacy_mode,
     )
     manifest = build_effective_manifest(
         dataset=prepared.dataset,
@@ -100,7 +99,6 @@ def build_part3_plan_from_configuration(
         withdrawal_policy_type=config.withdrawal_policy_type,
         expense_ratio=config.expense_ratio or PART3_EXPENSE_RATIO,
         experiments=config.experiments,
-        legacy_cartesian=config.legacy_mode,
     )
     return materialize_part3_plan(
         manifest=manifest,

@@ -68,7 +68,6 @@ def test_scenario_a_full_coverage_metadata() -> None:
         _DATA_DIR,
         config=config.projection_config,
         required_through=date(2076, 9, 1),
-        legacy_mode=config.legacy_mode,
     )
 
     assert prepared.metadata.historical_data_cutoff == date(2016, 9, 1)
