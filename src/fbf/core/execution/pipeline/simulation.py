@@ -88,7 +88,7 @@ class MonthlyResult:
     allocation_drift: object | None
     withdrawal_decision: WithdrawalDecision | None
     rebalance_result: object | None
-    drawdown: float
+    drawdown: float | None
     cumulative_return: float
     cumulative_inflation: float
     events: Sequence[object]
@@ -128,7 +128,7 @@ class SimulationStatistics:
     """Derived metrics for a completed Simulation."""
 
     final_wealth: Money
-    max_drawdown: float
+    max_drawdown: float | None
     success: bool
     failure_month: int | None
     failure_state: str | None

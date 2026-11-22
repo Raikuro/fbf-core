@@ -165,14 +165,21 @@ def build_simulation_timeline(
     target_equity_weights: Sequence[Decimal] | None = None,
     loan_balances: NDArray[np.float64] | None = None,
     is_repayments: NDArray[np.bool_] | None = None,
+    drawdowns: Sequence[float | None] | None = None,
 ) -> SimulationTimeline:
     """Reconstruct a ``SimulationTimeline`` from captured kernel arrays.
 
-    ``values[m]`` is the portfolio value at ``context.dataset[m]`` (the point
-    the kernel records: post-withdrawal, pre-growth).  Only the first
-    ``n_months`` entries are consumed, which is exactly the number of months the
-    kernel simulated (``months_simulated``).
+    ``values[m]`` is the recorded portfolio value at ``context.dataset[m]``.
+    Its timing depends on the kernel: workbook and fixed-real trajectories
+    record end-of-period values, while the beginning-of-period kernels record
+    post-withdrawal values.  ``drawdowns`` carries the optional values computed
+    from that same path; ``None`` means unavailable, not zero.  Only the first
+    ``n_months`` entries are consumed, which is exactly the number of months
+    the kernel simulated (``months_simulated``).
     """
+    if drawdowns is not None and len(drawdowns) < n_months:
+        raise ValueError("drawdowns must contain at least n_months entries")
+
     asset_classes = canonical_asset_classes(context)
     monthly_results: list[MonthlyResult] = []
 
@@ -236,7 +243,7 @@ def build_simulation_timeline(
                 allocation_drift=None,
                 withdrawal_decision=withdrawal_decision,
                 rebalance_result=None,
-                drawdown=0.0,
+                drawdown=drawdowns[m] if drawdowns is not None else None,
                 cumulative_return=0.0,
                 cumulative_inflation=0.0,
                 events=(),

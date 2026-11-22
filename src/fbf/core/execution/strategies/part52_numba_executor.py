@@ -41,6 +41,11 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
+from fbf.core.execution.strategies.drawdown import FlowTiming
+from fbf.core.execution.strategies.drawdown_adapter import (
+    compute_optional_drawdown,
+    withdrawals_as_contribution_flows,
+)
 from fbf.core.execution.strategies.eligibility import (
     _dataset_token,
     _index_series,
@@ -617,16 +622,8 @@ class Part52NumbaExecutor(SimulationExecutor):
                 # Extract equity prices
                 eq_prices = _extract_equity_prices(sample_ctx, horizon)
 
-                out_values = (
-                    np.empty(horizon, dtype=np.float64)
-                    if self._materialize_timeline
-                    else None
-                )
-                out_loan = (
-                    np.empty(horizon, dtype=np.float64)
-                    if self._materialize_timeline
-                    else None
-                )
+                out_values = np.empty(horizon, dtype=np.float64)
+                out_loan = np.empty(horizon, dtype=np.float64)
                 out_repay = (
                     np.empty(horizon, dtype=np.bool_)
                     if self._materialize_timeline
@@ -681,21 +678,31 @@ class Part52NumbaExecutor(SimulationExecutor):
                         failure_state = None
                         months_simulated = horizon
 
+                    withdrawal_amounts = [Decimal(str(c))] * months_simulated
+                    if (
+                        success
+                        and months_simulated == horizon
+                        and withdrawal_amounts
+                    ):
+                        # The workbook's final row is a terminal valuation;
+                        # it applies growth/interest but no withdrawal.
+                        withdrawal_amounts[-1] = Decimal("0")
+
+                    net_worth = [
+                        float(out_values[m]) - float(out_loan[m])
+                        for m in range(months_simulated)
+                    ]
+                    drawdown_result = compute_optional_drawdown(
+                        net_worth,
+                        withdrawals_as_contribution_flows(withdrawal_amounts),
+                        flow_timing=FlowTiming.END,
+                    )
+
                     timeline = None
-                    if out_values is not None:
+                    if self._materialize_timeline:
                         from fbf.core.execution.strategies.trajectory import (
                             build_simulation_timeline,
                         )
-
-                        withdrawal_amounts = [Decimal(str(c))] * months_simulated
-                        if (
-                            success
-                            and months_simulated == horizon
-                            and withdrawal_amounts
-                        ):
-                            # The workbook's final row is a terminal valuation;
-                            # it applies growth/interest but no withdrawal.
-                            withdrawal_amounts[-1] = Decimal("0")
 
                         timeline = build_simulation_timeline(
                             ctx,
@@ -713,6 +720,7 @@ class Part52NumbaExecutor(SimulationExecutor):
                             else None,
                             is_repayments=out_repay,
                             loan_balances=out_loan,
+                            drawdowns=drawdown_result.drawdowns,
                         )
 
                     final_wealth = _money(final_value)
@@ -722,7 +730,7 @@ class Part52NumbaExecutor(SimulationExecutor):
                         or SimulationTimeline(monthly_results=()),
                         statistics=SimulationStatistics(
                             final_wealth=final_wealth,
-                            max_drawdown=0.0,
+                            max_drawdown=drawdown_result.max_drawdown,
                             success=success,
                             failure_month=failure_month,
                             failure_state=failure_state,

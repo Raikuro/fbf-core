@@ -91,6 +91,14 @@ from fbf.core.execution.pipeline.simulation import (
 )
 from fbf.core.execution.pipeline.simulation_context import SimulationContext
 from fbf.core.execution.profiling import NoOpProfiler, Profiler
+from fbf.core.execution.strategies.drawdown import (
+    FlowTiming,
+    flows_from_timeline_net_cash_flows,
+)
+from fbf.core.execution.strategies.drawdown_adapter import (
+    compute_optional_drawdown,
+    withdrawals_as_contribution_flows,
+)
 from fbf.core.execution.strategies.eligibility import (
     _dataset_token,
     _effective_fixed_real_withdrawal_base,
@@ -1063,11 +1071,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             # pre-retirement).
             periods = horizon - 1
             growth_factors_arr = growth_factors_full[:periods]
-            out_values = (
-                np.empty(periods + 1, dtype=np.float64)
-                if self._materialize_timeline
-                else None
-            )
+            out_values = np.empty(periods + 1, dtype=np.float64)
             if cash_flow_schedule is None:
                 final_value, success, fail_month, _ = _simulate_trajectory_workbook(
                     growth_factors_arr, v0, c, periods, out_values
@@ -1093,19 +1097,30 @@ class NumbaSimulationExecutor(SimulationExecutor):
             )
             captured = out_values
 
+            c_decimal = Decimal(str(c))
+            amounts = [Decimal("0")] + [c_decimal] * (months_simulated - 1)
+            net_cash_flows = None
+            if cash_flow_schedule is not None:
+                currency = sample_ctx.initial_wealth.currency
+                base_withdrawal = Money(c_decimal, currency)
+                net_cash_flows = [Money(Decimal("0"), currency)]
+                net_cash_flows.extend(
+                    base_withdrawal - cash_flow_schedule.amount_at(period)
+                    for period in range(months_simulated - 1)
+                )
+                drawdown_flows = flows_from_timeline_net_cash_flows(
+                    net_cash_flows
+                )
+            else:
+                drawdown_flows = withdrawals_as_contribution_flows(amounts)
+            drawdown_result = compute_optional_drawdown(
+                captured[:months_simulated],
+                drawdown_flows,
+                flow_timing=FlowTiming.BEGINNING,
+            )
+
             timeline = None
-            if captured is not None:
-                c_decimal = Decimal(str(c))
-                amounts = [Decimal("0")] + [c_decimal] * (months_simulated - 1)
-                net_cash_flows = None
-                if cash_flow_schedule is not None:
-                    currency = sample_ctx.initial_wealth.currency
-                    base_withdrawal = Money(c_decimal, currency)
-                    net_cash_flows = [Money(Decimal("0"), currency)]
-                    net_cash_flows.extend(
-                        base_withdrawal - cash_flow_schedule.amount_at(period)
-                        for period in range(months_simulated - 1)
-                    )
+            if self._materialize_timeline:
                 timeline = build_simulation_timeline(
                     sample_ctx,
                     captured,
@@ -1113,6 +1128,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
                     withdrawal_amounts=amounts,
                     net_cash_flows=net_cash_flows,
+                    drawdowns=drawdown_result.drawdowns,
                 )
 
             for ctx in h_contexts:
@@ -1127,7 +1143,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
-                        max_drawdown=0.0,
+                        max_drawdown=drawdown_result.max_drawdown,
                         success=success,
                         failure_month=failure_month,
                         failure_state=None if failure_month is None else "depleted",
@@ -1169,11 +1185,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             stats["month_work"] += horizon
             growth_factors_arr = growth_factors_full[:horizon]
 
-            out_values = (
-                np.empty(horizon, dtype=np.float64)
-                if self._materialize_timeline
-                else None
-            )
+            out_values = np.empty(horizon, dtype=np.float64)
             _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_constant_nominal(
                 growth_factors_arr, v0, rate_f, horizon, out_values
             )
@@ -1189,25 +1201,32 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 failure_month = None
                 months_simulated = horizon
 
+            rate_monthly = Decimal(str(rate_f)) / Decimal("12")
+            factor = Decimal("1") - rate_monthly
+            amounts = []
+            for m in range(months_simulated):
+                post = Decimal(str(float(out_values[m])))
+                amount = (
+                    post * rate_monthly / factor
+                    if factor != Decimal("0")
+                    else post
+                )
+                amounts.append(amount)
+            drawdown_result = compute_optional_drawdown(
+                out_values[:months_simulated],
+                withdrawals_as_contribution_flows(amounts),
+                flow_timing=FlowTiming.END,
+            )
+
             timeline = None
-            if out_values is not None:
-                rate_monthly = Decimal(str(rate_f)) / Decimal("12")
-                factor = Decimal("1") - rate_monthly
-                amounts = []
-                for m in range(months_simulated):
-                    post = Decimal(str(float(out_values[m])))
-                    amount = (
-                        post * rate_monthly / factor
-                        if factor != Decimal("0")
-                        else post
-                    )
-                    amounts.append(amount)
+            if self._materialize_timeline:
                 timeline = build_simulation_timeline(
                     sample_ctx,
                     out_values,
                     n_months=months_simulated,
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
                     withdrawal_amounts=amounts,
+                    drawdowns=drawdown_result.drawdowns,
                 )
 
             for ctx in h_contexts:
@@ -1222,7 +1241,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
-                        max_drawdown=0.0,
+                        max_drawdown=drawdown_result.max_drawdown,
                         success=success,
                         failure_month=failure_month,
                         failure_state=None if success else "depleted",
@@ -1270,11 +1289,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             stats["month_work"] += horizon
             growth_factors_arr = growth_factors_full[:horizon]
 
-            out_values = (
-                np.empty(horizon, dtype=np.float64)
-                if self._materialize_timeline
-                else None
-            )
+            out_values = np.empty(horizon, dtype=np.float64)
             _final_val, _kernel_success, fail_month, _ = _simulate_trajectory_escalating(
                 growth_factors_arr, v0, rate_f, escalation_f, horizon, annual, out_values
             )
@@ -1290,23 +1305,30 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 failure_month = None
                 months_simulated = horizon
 
+            amounts = []
+            for m in range(months_simulated):
+                escalated = (
+                    Decimal(str(v0))
+                    * Decimal(str(rate_f))
+                    * (Decimal("1") + Decimal(str(escalation_f)))
+                    ** (m // 12)
+                )
+                amounts.append(escalated if annual else escalated / Decimal("12"))
+            drawdown_result = compute_optional_drawdown(
+                out_values[:months_simulated],
+                withdrawals_as_contribution_flows(amounts),
+                flow_timing=FlowTiming.END,
+            )
+
             timeline = None
-            if out_values is not None:
-                amounts = []
-                for m in range(months_simulated):
-                    escalated = (
-                        Decimal(str(v0))
-                        * Decimal(str(rate_f))
-                        * (Decimal("1") + Decimal(str(escalation_f)))
-                        ** (m // 12)
-                    )
-                    amounts.append(escalated if annual else escalated / Decimal("12"))
+            if self._materialize_timeline:
                 timeline = build_simulation_timeline(
                     sample_ctx,
                     out_values,
                     n_months=months_simulated,
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
                     withdrawal_amounts=amounts,
+                    drawdowns=drawdown_result.drawdowns,
                 )
 
             for ctx in h_contexts:
@@ -1321,7 +1343,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
-                        max_drawdown=0.0,
+                        max_drawdown=drawdown_result.max_drawdown,
                         success=success,
                         failure_month=failure_month,
                         failure_state=None if success else "depleted",
@@ -1376,11 +1398,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             stats["month_work"] += horizon
             growth_factors_arr = growth_factors_full[:horizon]
 
-            out_values = (
-                np.empty(horizon, dtype=np.float64)
-                if self._materialize_timeline
-                else None
-            )
+            out_values = np.empty(horizon, dtype=np.float64)
             _final_val, _kernel_success, fail_month, _ = (
                 _simulate_trajectory_escalating(
                     growth_factors_arr,
@@ -1404,17 +1422,23 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 failure_month = None
                 months_simulated = horizon
 
+            amounts = []
+            for m in range(months_simulated):
+                escalated = (
+                    Decimal(str(v0))
+                    * Decimal(str(rate_f))
+                    * (Decimal("1") + Decimal(str(escalation_f)))
+                    ** (m // 12)
+                )
+                amounts.append(escalated if annual else escalated / Decimal("12"))
+            drawdown_result = compute_optional_drawdown(
+                out_values[:months_simulated],
+                withdrawals_as_contribution_flows(amounts),
+                flow_timing=FlowTiming.END,
+            )
+
             timeline = None
-            if out_values is not None:
-                amounts = []
-                for m in range(months_simulated):
-                    escalated = (
-                        Decimal(str(v0))
-                        * Decimal(str(rate_f))
-                        * (Decimal("1") + Decimal(str(escalation_f)))
-                        ** (m // 12)
-                    )
-                    amounts.append(escalated if annual else escalated / Decimal("12"))
+            if self._materialize_timeline:
                 is_underwater = _extract_is_underwater(
                     sample_ctx.dataset, horizon
                 )
@@ -1428,6 +1452,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
                     withdrawal_amounts=amounts,
                     target_equity_weights=equity_weights[:months_simulated],
+                    drawdowns=drawdown_result.drawdowns,
                 )
 
             for ctx in h_contexts:
@@ -1442,7 +1467,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
-                        max_drawdown=0.0,
+                        max_drawdown=drawdown_result.max_drawdown,
                         success=success,
                         failure_month=failure_month,
                         failure_state=None if success else "depleted",
@@ -1499,11 +1524,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             equity_growth = equity_growth_full[:horizon]
             bond_growth = bond_growth_full[:horizon]
 
-            out_values = (
-                np.empty(horizon, dtype=np.float64)
-                if self._materialize_timeline
-                else None
-            )
+            out_values = np.empty(horizon, dtype=np.float64)
             out_weights = (
                 np.empty(horizon, dtype=np.float64)
                 if self._materialize_timeline
@@ -1532,15 +1553,23 @@ class NumbaSimulationExecutor(SimulationExecutor):
                 failure_month = None
                 months_simulated = horizon
 
+            amounts = [Decimal(str(c))] * months_simulated
+            drawdown_result = compute_optional_drawdown(
+                out_values[:months_simulated],
+                withdrawals_as_contribution_flows(amounts),
+                flow_timing=FlowTiming.END,
+            )
+
             timeline = None
-            if out_values is not None:
+            if self._materialize_timeline:
                 timeline = build_simulation_timeline(
                     sample_ctx,
                     out_values,
                     n_months=months_simulated,
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
-                    withdrawal_amounts=[Decimal(str(c))] * months_simulated,
+                    withdrawal_amounts=amounts,
                     actual_equity_weights=out_weights,
+                    drawdowns=drawdown_result.drawdowns,
                 )
 
             for ctx in h_contexts:
@@ -1555,7 +1584,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
-                        max_drawdown=0.0,
+                        max_drawdown=drawdown_result.max_drawdown,
                         success=success,
                         failure_month=failure_month,
                         failure_state=None if success else "depleted",
@@ -1650,11 +1679,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
             periods = horizon - 1
             growth_factors_arr = growth_factors_full[:periods]
 
-            out_values = (
-                np.empty(periods + 1, dtype=np.float64)
-                if self._materialize_timeline
-                else None
-            )
+            out_values = np.empty(periods + 1, dtype=np.float64)
             final_value, traj_success, fail_month, _ = _simulate_trajectory_workbook(
                 growth_factors_arr, v0, c, periods, out_values
             )
@@ -1667,8 +1692,17 @@ class NumbaSimulationExecutor(SimulationExecutor):
             else:
                 months_simulated = horizon
 
+            amounts = [Decimal("0")] + [Decimal(str(c))] * (
+                months_simulated - 1
+            )
+            drawdown_result = compute_optional_drawdown(
+                out_values[:months_simulated],
+                withdrawals_as_contribution_flows(amounts),
+                flow_timing=FlowTiming.BEGINNING,
+            )
+
             timeline = None
-            if out_values is not None:
+            if self._materialize_timeline:
                 policy = cast(
                     GlidepathAllocationPolicy, sample_ctx.allocation_policy
                 )
@@ -1693,9 +1727,9 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     out_values,
                     n_months=months_simulated,
                     withdrawal_reason=type(sample_ctx.withdrawal_policy).__name__,
-                    withdrawal_amounts=[Decimal("0")]
-                    + [Decimal(str(c))] * (months_simulated - 1),
+                    withdrawal_amounts=amounts,
                     target_equity_weights=timeline_weights,
+                    drawdowns=drawdown_result.drawdowns,
                 )
 
             for ctx in h_contexts:
@@ -1710,7 +1744,7 @@ class NumbaSimulationExecutor(SimulationExecutor):
                     timeline=timeline or SimulationTimeline(monthly_results=()),
                     statistics=SimulationStatistics(
                         final_wealth=final_wealth,
-                        max_drawdown=0.0,
+                        max_drawdown=drawdown_result.max_drawdown,
                         success=success,
                         failure_month=failure_month,
                         failure_state=None if success else "depleted",

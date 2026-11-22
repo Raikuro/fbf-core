@@ -36,6 +36,11 @@ from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.glidepath import GlidepathAllocationPolicy, GlidepathCadence
 from fbf.core.execution.errors import UnsupportedConfigurationError
 from fbf.core.execution.pipeline.schedule import ExecutionSchedule, StepCadence
+from fbf.core.execution.strategies.drawdown import FlowTiming
+from fbf.core.execution.strategies.drawdown_adapter import (
+    compute_optional_drawdown,
+    withdrawals_as_contribution_flows,
+)
 from fbf.core.execution.strategies.trajectory import build_simulation_timeline
 
 if TYPE_CHECKING:
@@ -520,6 +525,11 @@ def _execute_deterministic_kernel(
             for month in range(months_simulated)
         )
 
+    drawdown_result = compute_optional_drawdown(
+        out_values[:months_simulated],
+        withdrawals_as_contribution_flows(withdrawal_amounts),
+        flow_timing=FlowTiming.END,
+    )
     timeline = build_simulation_timeline(
         context,
         out_values,
@@ -528,6 +538,7 @@ def _execute_deterministic_kernel(
         withdrawal_amounts=withdrawal_amounts,
         actual_equity_weights=out_actual_weights,
         target_equity_weights=inputs.target_weights,
+        drawdowns=drawdown_result.drawdowns,
     )
     monthly_results = tuple(timeline.monthly_results)
     checkpoints = {result.period_index: result for result in monthly_results}
