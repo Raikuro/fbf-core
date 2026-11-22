@@ -3,6 +3,8 @@
 This module deliberately does not import the production deterministic adapter
 or Numba kernel.  It computes the beginning-of-period recurrence with exact
 Decimal arithmetic so tests can validate the float64 kernel independently.
+Withdrawals in months without rebalancing reduce both holdings by the ratio of
+remaining to pre-withdrawal value, preserving actual weights.
 """
 
 from __future__ import annotations
@@ -132,9 +134,17 @@ def simulate_reference(
                     Decimal("0"),
                 )
 
+            pre_withdrawal_value = value
             value -= withdrawal
             if rebalance_flags[month]:
                 rebalance(month, value)
+            elif pre_withdrawal_value > 0:
+                scale = value / pre_withdrawal_value
+                equity_units *= scale
+                bond_units *= scale
+            else:
+                equity_units = Decimal("0")
+                bond_units = Decimal("0")
 
             values.append(value)
             withdrawals.append(withdrawal)

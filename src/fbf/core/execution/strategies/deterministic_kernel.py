@@ -12,6 +12,11 @@ where ``g_t`` is the portfolio return between ``t-1`` and ``t``.  This is the
 workbook convention used by ``SWR_Toolbox_v2.0.xlsx`` (``Case Study`` and
 ``Asset Returns``), not the legacy stale-base expense correction.
 
+When no rebalance is due, a withdrawal sells both holdings pro rata so their
+units fall by the ratio of remaining to pre-withdrawal value.  This preserves
+the actual portfolio weights immediately before the withdrawal and does not
+reset the target weights.
+
 The kernel records post-withdrawal, post-rebalance values.  Growth for the
 transition into month ``m`` is applied before the withdrawal at ``m``.  The
 last snapshot has no subsequent growth.
@@ -56,6 +61,10 @@ def simulate_deterministic_two_asset(
     a full annual rate at boundaries (``m % 12 == 0``) versus one twelfth every
     month.  The proportional withdrawal is based on the current portfolio value;
     fixed withdrawals are value-independent.
+
+    When no rebalance occurs, both holdings are reduced by
+    ``remaining_value / pre_withdrawal_value``, preserving the actual weights
+    immediately before the withdrawal.  Target weights are not reset.
 
     Returns ``(final_value, success, failure_month, months_completed)``.
     On success ``failure_month == -1`` and ``months_completed == horizon``.
@@ -140,6 +149,7 @@ def simulate_deterministic_two_asset(
         if withdrawal > value:
             return 0.0, False, m, m
 
+        pre_withdrawal_value = value
         value -= withdrawal
         if rebalance_flags[m]:
             if value > 0.0:
@@ -152,6 +162,13 @@ def simulate_deterministic_two_asset(
             else:
                 equity_units = 0.0
                 bond_units = 0.0
+        elif pre_withdrawal_value > 0.0:
+            scale = value / pre_withdrawal_value
+            equity_units *= scale
+            bond_units *= scale
+        else:
+            equity_units = 0.0
+            bond_units = 0.0
 
         out_values[m] = value
         out_target_equity_weights[m] = target_equity_weights[m]

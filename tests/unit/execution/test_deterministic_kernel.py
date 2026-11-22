@@ -98,6 +98,7 @@ def _trajectory(
     ),
     *,
     initial_equity: Decimal,
+    initial_wealth: Decimal = Decimal("1000000"),
     horizon: int | None = None,
     fee: Decimal = _FEE,
     schedule: ExecutionSchedule | None = None,
@@ -105,7 +106,7 @@ def _trajectory(
 ) -> DeterministicTrajectory:
     return DeterministicTrajectory(
         name="test",
-        initial_wealth=Money(Decimal("1000000"), Currency.EUR),
+        initial_wealth=Money(initial_wealth, Currency.EUR),
         initial_allocation=AllocationTarget(
             weights={_EQUITY: initial_equity, _BOND: Decimal("1") - initial_equity}
         ),
@@ -235,6 +236,25 @@ def _actual_equity_weight(checkpoint: MonthlyResult) -> Decimal:
 def _withdrawal_amount(checkpoint: MonthlyResult) -> Decimal:
     assert checkpoint.withdrawal_decision is not None
     return checkpoint.withdrawal_decision.nominal_amount.amount
+
+
+def _checkpoint_value(checkpoint: MonthlyResult) -> Decimal:
+    return sum(
+        (
+            holding.units
+            * checkpoint.market_snapshot.index_levels[holding.asset_class]
+            for holding in checkpoint.portfolio.holdings
+        ),
+        Decimal("0"),
+    )
+
+
+def _units(checkpoint: MonthlyResult, asset_id: str) -> Decimal:
+    return next(
+        holding.units
+        for holding in checkpoint.portfolio.holdings
+        if holding.asset_class.id == asset_id
+    )
 
 
 def _assert_matches_reference(
@@ -481,6 +501,289 @@ class TestRebalanceCadence:
                 Decimal("0.80"),
                 Decimal("1e-12"),
             )
+
+
+class TestNonRebalanceWithdrawalAccounting:
+    def test_flat_annual_rebalance_monthly_fixed_real_reproduction(self) -> None:
+        dataset = _make_dataset(13, pattern="flat")
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.60")),
+            FixedRealWithdrawalPolicy(
+                withdrawal_rate=Decimal("0.12"),
+                frequency=WithdrawalFrequency.MONTHLY,
+            ),
+            initial_equity=Decimal("0.60"),
+            initial_wealth=Decimal("100000"),
+            horizon=13,
+            fee=Decimal("0"),
+            schedule=_annual_schedule(),
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        assert result.success is True
+        _assert_close(
+            result.final_wealth.amount,
+            Decimal("87000"),
+            Decimal("0.000001"),
+        )
+        assert _withdrawal_amount(result.checkpoints[0]) == Decimal("1000")
+        assert _withdrawal_amount(result.checkpoints[1]) == Decimal("1000")
+
+    def test_flat_annual_rebalance_monthly_constant_withdrawal(self) -> None:
+        dataset = _make_dataset(13, pattern="flat")
+        rate = Decimal("0.12")
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.60")),
+            ConstantWithdrawalPolicy(
+                withdrawal_rate=rate,
+                frequency=WithdrawalFrequency.MONTHLY,
+            ),
+            initial_equity=Decimal("0.60"),
+            initial_wealth=Decimal("100000"),
+            horizon=13,
+            fee=Decimal("0"),
+            schedule=_annual_schedule(),
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        expected = Decimal("100000") * (
+            Decimal("1") - rate / Decimal("12")
+        ) ** 13
+        assert result.success is True
+        _assert_close(result.final_wealth.amount, expected, Decimal("0.000001"))
+
+    def test_flat_annual_rebalance_monthly_escalating_withdrawal(self) -> None:
+        dataset = _make_dataset(13, pattern="flat")
+        rate = Decimal("0.035")
+        escalation = Decimal("0.02")
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.60")),
+            EscalatingWithdrawalPolicy(
+                withdrawal_rate=rate,
+                escalation_rate=escalation,
+                frequency=WithdrawalFrequency.MONTHLY,
+            ),
+            initial_equity=Decimal("0.60"),
+            initial_wealth=Decimal("100000"),
+            horizon=13,
+            fee=Decimal("0"),
+            schedule=_annual_schedule(),
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        expected_final = Decimal("100000") - sum(
+            (
+                Decimal("100000")
+                * rate
+                * (Decimal("1") + escalation) ** (month // 12)
+                / Decimal("12")
+                for month in range(13)
+            ),
+            Decimal("0"),
+        )
+        assert result.success is True
+        _assert_close(
+            result.final_wealth.amount,
+            expected_final,
+            Decimal("0.000001"),
+        )
+
+    def test_volatile_non_rebalance_withdrawal_scales_units_proportionally(
+        self,
+    ) -> None:
+        dataset = _make_dataset(3)
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.60")),
+            FixedRealWithdrawalPolicy(
+                withdrawal_rate=Decimal("0.04"),
+                frequency=WithdrawalFrequency.MONTHLY,
+            ),
+            initial_equity=Decimal("0.60"),
+            horizon=3,
+            fee=Decimal("0"),
+            schedule=_annual_schedule(),
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        month_0 = result.checkpoints[0]
+        month_1 = result.checkpoints[1]
+        equity_0 = _units(month_0, "equity")
+        bond_0 = _units(month_0, "bond")
+        equity_price = dataset[1].index_levels[_EQUITY]
+        bond_price = dataset[1].index_levels[_BOND]
+        gross_value = equity_0 * equity_price + bond_0 * bond_price
+        withdrawal = _withdrawal_amount(month_1)
+        remaining_value = gross_value - withdrawal
+
+        assert withdrawal > Decimal("0")
+        assert remaining_value < gross_value
+        _assert_close(_checkpoint_value(month_1), remaining_value, Decimal("0.000001"))
+        _assert_close(
+            _units(month_1, "equity"),
+            equity_0 * remaining_value / gross_value,
+            Decimal("0.000001"),
+        )
+        _assert_close(
+            _units(month_1, "bond"),
+            bond_0 * remaining_value / gross_value,
+            Decimal("0.000001"),
+        )
+        _assert_close(
+            _actual_equity_weight(month_1),
+            equity_0 * equity_price / gross_value,
+            Decimal("0.000000001"),
+        )
+        assert month_1.allocation_target is not None
+        assert (
+            month_1.allocation_target.weights[_EQUITY] == Decimal("0.60")
+        )
+
+    def test_zero_value_non_rebalance_month_is_safe(self) -> None:
+        dataset = _make_dataset(2, pattern="flat")
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.60")),
+            FixedRealWithdrawalPolicy(
+                withdrawal_rate=Decimal("0"),
+                frequency=WithdrawalFrequency.MONTHLY,
+            ),
+            initial_equity=Decimal("0.60"),
+            initial_wealth=Decimal("0"),
+            horizon=2,
+            fee=Decimal("0"),
+            schedule=_annual_schedule(),
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        assert result.success is True
+        assert result.final_wealth.amount == Decimal("0")
+        for checkpoint in result.timeline:
+            assert all(
+                holding.units == Decimal("0")
+                for holding in checkpoint.portfolio.holdings
+            )
+
+    def test_exact_non_rebalance_depletion_zeroes_holdings(self) -> None:
+        dataset = _make_dataset(3, pattern="flat")
+        trajectory = DeterministicTrajectory(
+            name="exact-non-rebalance-depletion",
+            initial_wealth=Money(Decimal("2000"), Currency.EUR),
+            initial_allocation=AllocationTarget(
+                weights={_EQUITY: Decimal("0.60"), _BOND: Decimal("0.40")}
+            ),
+            dataset=dataset,
+            allocation_policy=ConstantAllocationPolicy(
+                equity_allocation=Decimal("0.60")
+            ),
+            withdrawal_policy=FixedRealWithdrawalPolicy(
+                withdrawal_rate=Decimal("6"),
+                frequency=WithdrawalFrequency.MONTHLY,
+            ),
+            horizon_months=3,
+            expense_ratio=Decimal("0"),
+            schedule=_annual_schedule(),
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        assert result.success is False
+        assert result.failure_period == 2
+        assert result.final_wealth.amount == Decimal("0")
+        assert len(result.timeline) == 2
+        assert all(
+            holding.units == Decimal("0")
+            for holding in result.checkpoints[1].portfolio.holdings
+        )
+
+    def test_withdrawal_exceeding_value_fails_without_negative_holdings(self) -> None:
+        dataset = _make_dataset(3, pattern="flat")
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.60")),
+            FixedRealWithdrawalPolicy(
+                withdrawal_rate=Decimal("7"),
+                frequency=WithdrawalFrequency.MONTHLY,
+            ),
+            initial_equity=Decimal("0.60"),
+            initial_wealth=Decimal("2000"),
+            horizon=3,
+            fee=Decimal("0"),
+            schedule=_annual_schedule(),
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        assert result.success is False
+        assert result.failure_period == 1
+        assert result.failure_state == "depleted"
+        assert result.final_wealth.amount == Decimal("0")
+        assert len(result.timeline) == 1
+        assert 1 not in result.checkpoints
+        assert all(
+            holding.units >= Decimal("0")
+            for checkpoint in result.timeline
+            for holding in checkpoint.portfolio.holdings
+        )
+
+    def test_annual_withdrawal_with_annual_rebalance_is_unchanged(self) -> None:
+        dataset = _make_dataset(13, pattern="flat")
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.60")),
+            FixedRealWithdrawalPolicy(
+                withdrawal_rate=Decimal("0.12"),
+                frequency=WithdrawalFrequency.ANNUAL,
+            ),
+            initial_equity=Decimal("0.60"),
+            initial_wealth=Decimal("100000"),
+            horizon=13,
+            fee=Decimal("0"),
+            schedule=_annual_schedule(),
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        _assert_close(
+            result.final_wealth.amount,
+            Decimal("76000"),
+            Decimal("0.000001"),
+        )
+        for month in range(13):
+            expected = Decimal("12000") if month % 12 == 0 else Decimal("0")
+            assert _withdrawal_amount(result.checkpoints[month]) == expected
+
+    def test_monthly_rebalance_with_monthly_withdrawal_is_unchanged(self) -> None:
+        dataset = _make_dataset(13, pattern="flat")
+        trajectory = _trajectory(
+            dataset,
+            ConstantAllocationPolicy(equity_allocation=Decimal("0.60")),
+            FixedRealWithdrawalPolicy(
+                withdrawal_rate=Decimal("0.12"),
+                frequency=WithdrawalFrequency.MONTHLY,
+            ),
+            initial_equity=Decimal("0.60"),
+            initial_wealth=Decimal("100000"),
+            horizon=13,
+            fee=Decimal("0"),
+            schedule=None,
+        )
+
+        result = execute_deterministic_trajectory(trajectory)
+
+        _assert_close(
+            result.final_wealth.amount,
+            Decimal("87000"),
+            Decimal("0.000001"),
+        )
 
 
 class TestWithdrawalAndFailureSemantics:
