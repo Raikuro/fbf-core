@@ -27,6 +27,23 @@ from fbf.core.domain.policies.frequency import WithdrawalFrequency
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 
 
+def validate_borrow_pct(value: Decimal, *, field: str = "borrow_pct") -> Decimal:
+    """Validate the Part 52 loan-funded budget fraction.
+
+    ``borrow_pct`` is the fraction of the monthly spending budget funded by
+    the margin loan.  The canonical workbook constrains it to ``[0, 1]``;
+    values outside that interval imply unmodelled residual cash or negative
+    borrowing.
+    """
+    if not isinstance(value, Decimal):
+        raise TypeError(f"{field} must be a Decimal, got {type(value).__name__}")
+    if not value.is_finite() or value < Decimal("0") or value > Decimal("1"):
+        raise ValueError(
+            f"{field} must be a finite decimal within [0, 1], got {value}"
+        )
+    return value
+
+
 class Part52WithdrawalPolicy(WithdrawalPolicy):
     """Withdrawal policy for Part 52 timing-leverage studies.
 
@@ -81,7 +98,7 @@ class Part52WithdrawalPolicy(WithdrawalPolicy):
     ) -> None:
         super().__init__(frequency=frequency)
         self.withdrawal_rate = withdrawal_rate
-        self.borrow_pct = borrow_pct
+        self.borrow_pct = validate_borrow_pct(borrow_pct)
         self.drawdown_threshold = drawdown_threshold
 
     def _decide_active(self, context: DecisionContext) -> WithdrawalDecision:

@@ -822,6 +822,93 @@ class TestPart52ParameterAxes:
         assert isinstance(policy, Part52WithdrawalPolicy)
         assert policy.borrow_pct == Decimal("0.4108")
 
+    def test_scalar_borrow_pct_rejects_out_of_range(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        with pytest.raises(
+            ValueError,
+            match=r"debt\.borrow_pct must be a finite decimal within \[0, 1\]",
+        ):
+            StudyConfiguration.from_yaml(
+                self._yaml(
+                    debt={
+                        "interest_rate": 0.015,
+                        "ltv_limit": 0.50,
+                        "borrow_pct": 1.01,
+                    }
+                )
+            )
+
+    def test_list_borrow_pct_reports_invalid_index(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        with pytest.raises(
+            ValueError,
+            match=r"debt\.borrow_pct\[1\] must be a finite decimal within \[0, 1\]",
+        ):
+            StudyConfiguration.from_yaml(
+                self._yaml(
+                    debt={
+                        "interest_rate": 0.015,
+                        "ltv_limit": 0.50,
+                        "borrow_pct": [0.1, -0.1],
+                    }
+                )
+            )
+
+    @pytest.mark.parametrize("value", [0.0, 1.0])
+    def test_borrow_pct_inclusive_boundaries(self, value: float) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        config = StudyConfiguration.from_yaml(
+            self._yaml(
+                debt={
+                    "interest_rate": 0.015,
+                    "ltv_limit": 0.50,
+                    "borrow_pct": value,
+                }
+            )
+        )
+        assert config.debt_borrow_pct == Decimal(str(value))
+
+    def test_direct_configuration_rejects_invalid_borrow_pct(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        with pytest.raises(
+            ValueError,
+            match=r"debt\.borrow_pct must be a finite decimal within \[0, 1\]",
+        ):
+            StudyConfiguration(
+                name="invalid-borrow",
+                description="",
+                version="1.0",
+                allocation_policy_type="ConstantAllocationPolicy",
+                allocation_policy_values=(Decimal("0.75"),),
+                withdrawal_policy_type="Part52WithdrawalPolicy",
+                withdrawal_policy_values=(Decimal("0.04"),),
+                horizon_years=(10,),
+                debt_borrow_pct=Decimal("1.5"),
+            )
+
+    def test_direct_configuration_rejects_invalid_borrow_pct_axis(self) -> None:
+        from fbf.core.study.builder import StudyConfiguration
+
+        with pytest.raises(
+            ValueError,
+            match=r"debt\.borrow_pct\[1\] must be a finite decimal within \[0, 1\]",
+        ):
+            StudyConfiguration(
+                name="invalid-borrow-axis",
+                description="",
+                version="1.0",
+                allocation_policy_type="ConstantAllocationPolicy",
+                allocation_policy_values=(Decimal("0.75"),),
+                withdrawal_policy_type="Part52WithdrawalPolicy",
+                withdrawal_policy_values=(Decimal("0.04"),),
+                horizon_years=(10,),
+                debt_borrow_pct_values=(Decimal("0.1"), Decimal("1.5")),
+            )
+
 
 class TestProductionBuilderHorizon:
     """Regression test for the production builder's horizon calculation.

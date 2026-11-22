@@ -12,6 +12,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.execution.pipeline.simulation import (
     SimulationStatistics,
@@ -119,6 +121,31 @@ class TestPart52EvaluatorConfig:
         custom = (Decimal("0.10"), Decimal("0.30"))
         config = _make_config(borrow_pcts=custom)
         assert config.borrow_pcts == custom
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            Decimal("-0.01"),
+            Decimal("1.01"),
+            Decimal("NaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+        ],
+    )
+    def test_custom_borrow_pcts_reject_invalid_values(
+        self, value: Decimal
+    ) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"borrow_pcts\[0\] must be a finite decimal within \[0, 1\]",
+        ):
+            _make_config(borrow_pcts=(value,))
+
+    def test_custom_borrow_pcts_accept_inclusive_boundaries(self) -> None:
+        config = _make_config(
+            borrow_pcts=(Decimal("0"), Decimal("1"))
+        )
+        assert config.borrow_pcts == (Decimal("0"), Decimal("1"))
 
 
 class TestPart52EvaluatorFeasibility:

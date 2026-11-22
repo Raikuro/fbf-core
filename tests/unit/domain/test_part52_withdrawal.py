@@ -565,3 +565,45 @@ class TestMonthlyLoanDrawSemantics:
         decision = policy.decide(context)
         assert decision.loan_draw_amount == Decimal("0")
         assert decision.is_repayment is False
+
+
+class TestBorrowPctValidation:
+    """Borrow% is a finite fraction of the budget within [0, 1]."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            Decimal("-0.01"),
+            Decimal("1.01"),
+            Decimal("NaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+        ],
+    )
+    def test_rejects_non_finite_or_out_of_range_values(self, value: Decimal) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"borrow_pct must be a finite decimal within \[0, 1\]",
+        ):
+            Part52WithdrawalPolicy(
+                withdrawal_rate=Decimal("0.04"),
+                borrow_pct=value,
+                drawdown_threshold=Decimal("0.20"),
+            )
+
+    @pytest.mark.parametrize("value", [Decimal("0"), Decimal("1")])
+    def test_accepts_inclusive_boundaries(self, value: Decimal) -> None:
+        policy = Part52WithdrawalPolicy(
+            withdrawal_rate=Decimal("0.04"),
+            borrow_pct=value,
+            drawdown_threshold=Decimal("0.20"),
+        )
+        assert policy.borrow_pct == value
+
+    def test_rejects_non_decimal_values(self) -> None:
+        with pytest.raises(TypeError, match="borrow_pct must be a Decimal"):
+            Part52WithdrawalPolicy(
+                withdrawal_rate=Decimal("0.04"),
+                borrow_pct=0.25,  # type: ignore[arg-type]
+                drawdown_threshold=Decimal("0.20"),
+            )

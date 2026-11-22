@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 from fbf.core.domain.model.money import Money
+from fbf.core.domain.policies.part52_withdrawal import validate_borrow_pct
 from fbf.core.execution import ExecutionOptions, iter_execute_study_plan
 from fbf.core.optimization.swr_optimizer import EvaluationOutcome
 from fbf.core.study import StudyConfiguration, build_study_plan
@@ -64,6 +65,11 @@ class Part52EvaluatorConfig:
     borrow_pcts: tuple[Decimal, ...] = DEFAULT_BORROW_PCTS
     horizon_years: int = 30
     cohort_horizon_years: int = 60
+
+    def __post_init__(self) -> None:
+        """Validate custom Borrow% grids at configuration construction."""
+        for index, value in enumerate(self.borrow_pcts):
+            validate_borrow_pct(value, field=f"borrow_pcts[{index}]")
 
 
 class Part52Evaluator:

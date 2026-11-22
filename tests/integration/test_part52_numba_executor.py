@@ -684,8 +684,8 @@ class TestPart52SchedulePrefixDerivation:
     """
 
     _WR = Decimal("0.1")
-    _BORROW_PCT = Decimal("2.0")
-    _LTV_LIMIT = Decimal("0.2")
+    _BORROW_PCT = Decimal("0.5")
+    _LTV_LIMIT = Decimal("0.05")
 
     @classmethod
     def _context(

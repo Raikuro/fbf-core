@@ -36,6 +36,7 @@ from fbf.core.domain.policies import (
     WithdrawalPolicyType,
 )
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
+from fbf.core.domain.policies.part52_withdrawal import validate_borrow_pct
 from fbf.core.domain.policies.withdrawal_policy import WithdrawalPolicy
 from fbf.core.study.internal.cohort.generator import CohortGenerator
 from fbf.core.study.internal.cohort.specification import CohortSpecification
@@ -876,6 +877,16 @@ class StudyConfiguration:
     # ERN Part 52 expense ratio (annual). None means no expense deduction.
     expense_ratio: Decimal | None = None
 
+    def __post_init__(self) -> None:
+        """Validate normalized Part 52 leverage values at construction."""
+        if self.debt_borrow_pct is not None:
+            validate_borrow_pct(self.debt_borrow_pct, field="debt.borrow_pct")
+        if self.debt_borrow_pct_values is not None:
+            for index, value in enumerate(self.debt_borrow_pct_values):
+                validate_borrow_pct(
+                    value, field=f"debt.borrow_pct[{index}]"
+                )
+
     @classmethod
     def from_yaml(cls, data: dict[str, Any]) -> StudyConfiguration:
         """Parse a validated ``StudyConfiguration`` from raw study YAML.
@@ -1165,12 +1176,28 @@ class StudyConfiguration:
             # Parse Part 52 timing-leverage parameters
             raw_borrow_pct = debt_data.get("borrow_pct")
             if isinstance(raw_borrow_pct, list):
-                debt_borrow_pct_values = tuple(
-                    Decimal(str(v)) for v in raw_borrow_pct
-                )
+                parsed_borrow_pcts: list[Decimal] = []
+                for index, raw_value in enumerate(raw_borrow_pct):
+                    field = f"debt.borrow_pct[{index}]"
+                    try:
+                        value = Decimal(str(raw_value))
+                    except (InvalidOperation, ValueError, TypeError):
+                        raise ValueError(
+                            f"{field} must be a valid decimal number"
+                        ) from None
+                    parsed_borrow_pcts.append(
+                        validate_borrow_pct(value, field=field)
+                    )
+                debt_borrow_pct_values = tuple(parsed_borrow_pcts)
             elif raw_borrow_pct is not None:
-                debt_borrow_pct = _parse_optional_decimal_scalar(
-                    debt_data, "borrow_pct"
+                try:
+                    debt_borrow_pct = Decimal(str(raw_borrow_pct))
+                except (InvalidOperation, ValueError, TypeError):
+                    raise ValueError(
+                        "debt.borrow_pct must be a valid decimal number"
+                    ) from None
+                validate_borrow_pct(
+                    debt_borrow_pct, field="debt.borrow_pct"
                 )
             raw_drawdown_threshold = debt_data.get("drawdown_threshold")
             if isinstance(raw_drawdown_threshold, list):
