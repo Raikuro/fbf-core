@@ -23,6 +23,23 @@ equivalent-field set.
 
 ---
 
+## Optional Maximum Drawdown
+
+**Decision:** Maximum drawdown and per-month drawdown are optional values.
+`None` denotes unavailable; `0.0` denotes a measured path with no decline.
+Aggregation excludes unavailable observations and returns `None` when no
+observation is usable. Consumers display `N/A`.
+
+**Why:** Some simulation shapes, such as single-month or empty paths, cannot
+establish a drawdown. Reporting them as zero would fabricate a measured value
+and distort cross-strategy comparisons.
+
+**Consequence:** Persistence and presentation code must preserve `None`.
+Historical records that stored zero before this distinction existed remain
+unchanged; they cannot be distinguished retroactively.
+
+---
+
 ## Arrays-Only Configuration Model
 
 **Decision:** Study configurations use arrays of values for parameterized

@@ -185,6 +185,15 @@ Final wealth, maximum drawdown, success and failure state, failure month,
 simulated months, and execution time. `SimulationStatistics` is frozen and
 assembled from the completed simulation; policies never touch it.
 
+Maximum drawdown is optional. `None` means the metric is unavailable for that
+simulation; `0.0` means it was measured and the portfolio never declined below
+its running peak. `MonthlyResult.drawdown` follows the same distinction. The
+first monthly observation is always unavailable because a drawdown requires a
+prior peak. Empty or single-observation paths, invalid initial values, and
+non-finite intermediate values also produce `None`. Availability is independent
+of success and failure state. Persistence, aggregation, and presentation must
+preserve this distinction rather than substituting zero.
+
 ---
 
 ## Numerical Precision
