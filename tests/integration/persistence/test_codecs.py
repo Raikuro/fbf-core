@@ -381,6 +381,30 @@ class TestSimulationResultCodec:
         )
         assert loaded.statistics.max_drawdown == 0.05
 
+    def test_round_trip_unavailable_max_drawdown_preserves_none(self) -> None:
+        codec = SimulationResultCodec()
+        original = self.make_sim_result()
+        original = SimulationResult(
+            timeline=original.timeline,
+            statistics=SimulationStatistics(
+                final_wealth=original.statistics.final_wealth,
+                max_drawdown=None,
+                success=True,
+                failure_month=None,
+                failure_state=None,
+                months_simulated=1,
+                execution_time_seconds=0.01,
+            ),
+        )
+
+        serialized = codec.dump(original)
+        loaded = codec.load(
+            serialized.statistics_payload_json,
+            serialized.monthly_payloads_json,
+        )
+
+        assert loaded.statistics.max_drawdown is None
+
     def test_decimal_precision_preserved(self) -> None:
         codec = SimulationResultCodec()
         precise = "123456789.987654321"
@@ -533,6 +557,62 @@ class TestSimulationResultCodec:
         assert loaded_mr.drawdown == 0.05
         assert loaded_mr.cumulative_return == 0.10
         assert loaded_mr.cumulative_inflation == 0.02
+
+    def test_monthly_unavailable_drawdown_preserves_none(self) -> None:
+        codec = SimulationResultCodec()
+        from fbf.core.execution.pipeline.simulation import MonthlyResult
+
+        snap = MarketSnapshot(
+            date=date(2000, 1, 1),
+            index_levels={_ASSET: Decimal("100.00")},
+            inflation=Decimal("0.00"),
+            inflation_cumulative=Decimal("0.00"),
+            is_ath=True,
+            is_underwater=False,
+            running_ath=Decimal("100.00"),
+        )
+        mr = MonthlyResult(
+            date=date(2000, 1, 1),
+            period_index=0,
+            market_snapshot=snap,
+            portfolio=Portfolio(
+                holdings=(
+                    AssetHolding(
+                        asset_class=_ASSET,
+                        units=Decimal("1"),
+                    ),
+                )
+            ),
+            allocation=None,
+            allocation_target=None,
+            allocation_drift=None,
+            withdrawal_decision=None,
+            rebalance_result=None,
+            drawdown=None,
+            cumulative_return=0.0,
+            cumulative_inflation=0.0,
+            events=(),
+        )
+        original = SimulationResult(
+            timeline=SimulationTimeline(monthly_results=(mr,)),
+            statistics=SimulationStatistics(
+                final_wealth=Money(Decimal("100"), Currency.EUR),
+                max_drawdown=None,
+                success=True,
+                failure_month=None,
+                failure_state=None,
+                months_simulated=1,
+                execution_time_seconds=0.0,
+            ),
+        )
+
+        serialized = codec.dump(original)
+        loaded = codec.load(
+            serialized.statistics_payload_json,
+            serialized.monthly_payloads_json,
+        )
+
+        assert loaded.timeline.monthly_results[0].drawdown is None
 
     def test_multiple_serializations_are_independent(self) -> None:
         codec = SimulationResultCodec()

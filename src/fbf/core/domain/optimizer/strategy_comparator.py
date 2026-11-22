@@ -77,7 +77,9 @@ class StrategyComparator:
             )
 
         # Aggregation structures (use Decimal for numeric sums)
-        aggregated: MutableMapping[str, MutableMapping[str, MutableMapping[str, Decimal]]] = {}
+        aggregated: MutableMapping[
+            str, MutableMapping[str, MutableMapping[str, Decimal]]
+        ] = {}
         provenance_map: MutableMapping[str, MutableMapping[str, Sequence[str]]] = {}
         diagnostics: MutableMapping[str, MutableMapping[str, str]] = {}
         counts: MutableMapping[str, MutableMapping[str, MutableMapping[str, int]]] = {}
@@ -125,11 +127,12 @@ class StrategyComparator:
                 for m in self._metrics:
                     val = ev.metrics.get(m)
                     if val is None:
-                        # missing metric treated as Decimal(0)
-                        val_d = Decimal(0)
-                    else:
-                        # ensure Decimal arithmetic
-                        val_d = val if isinstance(val, Decimal) else Decimal(str(val))
+                        # Unavailable metrics are excluded from the average;
+                        # they are not numeric zero and must not affect the
+                        # ranking of metrics that are actually observed.
+                        continue
+                    # ensure Decimal arithmetic
+                    val_d = val if isinstance(val, Decimal) else Decimal(str(val))
 
                     existing = aggregated[gkey][label].get(m)
                     if existing is None:
@@ -149,7 +152,7 @@ class StrategyComparator:
 
         # Finalize averages and prepare ranking
         final_aggregated: MutableMapping[
-            str, MutableMapping[str, MutableMapping[str, Decimal]]
+            str, MutableMapping[str, MutableMapping[str, Decimal | None]]
         ] = {}
         ranking_map: MutableMapping[str, Sequence[str]] = {}
 
@@ -159,23 +162,31 @@ class StrategyComparator:
             for label, metrics_map in per_label.items():
                 final_aggregated[gkey][label] = {}
                 for m, total in metrics_map.items():
-                    count = counts[gkey][label].get(m, 1)
+                    count = counts[gkey][label].get(m, 0)
                     final_aggregated[gkey][label][m] = (
-                        (total / Decimal(count)) if count > 0 else Decimal(0)
+                        (total / Decimal(count)) if count > 0 else None
                     )
+                for m in self._metrics:
+                    if m not in final_aggregated[gkey][label]:
+                        final_aggregated[gkey][label][m] = None
 
             # ranking: sort labels by primary metric descending, then tie_breakers, then label
             def sort_key(label_name: str, *, _group_key: str = gkey) -> tuple[Any, ...]:
-                primary = final_aggregated[_group_key][label_name].get(
-                    self._ranking_rule.primary_metric, Decimal(0)
-                )
-                tie_values = [
-                    final_aggregated[_group_key][label_name].get(tb, Decimal(0))
+                def rank_component(metric_name: str) -> tuple[bool, Decimal]:
+                    value = final_aggregated[_group_key][label_name].get(
+                        metric_name
+                    )
+                    if value is None:
+                        # Unavailable metrics sort after every measured value.
+                        return (True, Decimal(0))
+                    return (False, -value)
+
+                primary = rank_component(self._ranking_rule.primary_metric)
+                tie_values = tuple(
+                    rank_component(tb)
                     for tb in self._ranking_rule.tie_breakers
-                ]
-                # negative numeric values to sort descending; label_name ascending as final tiebreak
-                negs = (-primary, ) + tuple(-v for v in tie_values)
-                return negs + (label_name,)
+                )
+                return (primary, *tie_values, label_name)
 
             sorted_labels = sorted(final_aggregated[gkey].keys(), key=sort_key)
             ranking_map[gkey] = sorted_labels

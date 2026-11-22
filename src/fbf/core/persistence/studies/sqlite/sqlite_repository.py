@@ -1972,7 +1972,7 @@ class SQLiteRepository:
                 stats = json.loads(stats_json)
                 wealth = float(stats.get("final_wealth_amount", "0"))
                 wealth_values.append(wealth)
-                dd = stats.get("max_drawdown", 0.0)
+                dd = stats.get("max_drawdown")
                 if dd is not None:
                     drawdown_values.append(float(dd))
                 fm = stats.get("failure_month")
@@ -1983,7 +1983,7 @@ class SQLiteRepository:
             wealth_sorted = sorted(wealth_values)
             dd_sorted = sorted(drawdown_values)
 
-            def _aggregate(values: list[float]) -> dict[str, float]:
+            def _aggregate(values: list[float]) -> dict[str, float | None]:
                 if not values:
                     return {"min": 0.0, "max": 0.0, "mean": 0.0, "median": 0.0}
                 n = len(values)
@@ -1995,7 +1995,11 @@ class SQLiteRepository:
                 }
 
             wealth_agg = _aggregate(wealth_sorted)
-            dd_agg = _aggregate(dd_sorted)
+            dd_agg = (
+                _aggregate(dd_sorted)
+                if dd_sorted
+                else {"min": None, "max": None, "mean": None, "median": None}
+            )
 
             return {
                 "result_id": exec_result_id,

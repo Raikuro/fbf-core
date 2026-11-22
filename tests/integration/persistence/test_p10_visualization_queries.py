@@ -133,6 +133,7 @@ def _make_sim_result_with_timeline(
     failure_month: int | None = None,
     months_simulated: int = 12,
     portfolio_values: Sequence[float] | None = None,
+    max_drawdown: float | None = 0.05,
 ) -> SimulationResult:
     """Create a SimulationResult with a populated timeline.
 
@@ -144,7 +145,7 @@ def _make_sim_result_with_timeline(
             timeline=SimulationTimeline(monthly_results=()),
             statistics=SimulationStatistics(
                 final_wealth=Money(Decimal(final_wealth), Currency.EUR),
-                max_drawdown=0.05,
+                max_drawdown=max_drawdown,
                 success=success,
                 failure_month=failure_month,
                 failure_state=None,
@@ -192,7 +193,7 @@ def _make_sim_result_with_timeline(
         timeline=SimulationTimeline(monthly_results=tuple(monthly_results)),
         statistics=SimulationStatistics(
             final_wealth=Money(Decimal(final_wealth), Currency.EUR),
-            max_drawdown=0.05,
+            max_drawdown=max_drawdown,
             success=success,
             failure_month=failure_month,
             failure_state=None,
@@ -530,6 +531,47 @@ class TestGetResultStatistics:
         assert stats["total_units"] == 1
         assert stats["terminal_wealth"]["min"] == 500000.0
         assert stats["terminal_wealth"]["max"] == 500000.0
+
+    def test_max_drawdown_excludes_unavailable_values(
+        self, repo: SQLiteRepository
+    ) -> None:
+        plan = _make_plan(num_units=4)
+        ctx = _get_context(plan)
+        sim_results = (
+            _make_sim_result_with_timeline("500000", max_drawdown=0.10),
+            _make_sim_result_with_timeline("500000", max_drawdown=0.30),
+            _make_sim_result_with_timeline("500000", max_drawdown=None),
+            _make_sim_result_with_timeline("500000", max_drawdown=None),
+        )
+        result_id = _save_result(repo, plan, sim_results, ctx)
+
+        stats = repo.get_result_statistics(result_id)
+        assert stats is not None
+        dd = stats["max_drawdown"]
+        assert dd["min"] == pytest.approx(0.10)
+        assert dd["max"] == pytest.approx(0.30)
+        assert dd["mean"] == pytest.approx(0.20)
+        assert dd["median"] == pytest.approx(0.20)
+
+    def test_max_drawdown_is_none_when_all_values_unavailable(
+        self, repo: SQLiteRepository
+    ) -> None:
+        plan = _make_plan(num_units=2)
+        ctx = _get_context(plan)
+        sim_results = (
+            _make_sim_result_with_timeline("500000", max_drawdown=None),
+            _make_sim_result_with_timeline("500000", max_drawdown=None),
+        )
+        result_id = _save_result(repo, plan, sim_results, ctx)
+
+        stats = repo.get_result_statistics(result_id)
+        assert stats is not None
+        assert stats["max_drawdown"] == {
+            "min": None,
+            "max": None,
+            "mean": None,
+            "median": None,
+        }
 
 
 # ===========================================================================

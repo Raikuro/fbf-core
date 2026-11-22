@@ -146,3 +146,111 @@ def test_strategy_comparator_invalid_label() -> None:
     # This should work fine since we only have strategy1
     report = comparator.compare(strategy_map)
     assert isinstance(report, StrategyComparisonReport)
+
+
+def test_unavailable_metrics_are_excluded_from_average() -> None:
+    results = {
+        "strategy1": (
+            EvaluationResult(
+                label="strategy1",
+                metrics={
+                    "success_rate": Decimal("1"),
+                    "max_drawdown": Decimal("0.10"),
+                },
+                provenance={"parameter_config": ["p1"]},
+            ),
+            EvaluationResult(
+                label="strategy1",
+                metrics={
+                    "success_rate": Decimal("1"),
+                    "max_drawdown": None,
+                },
+                provenance={"parameter_config": ["p1"]},
+            ),
+            EvaluationResult(
+                label="strategy1",
+                metrics={
+                    "success_rate": Decimal("1"),
+                    "max_drawdown": Decimal("0.30"),
+                },
+                provenance={"parameter_config": ["p1"]},
+            ),
+        )
+    }
+    comparator = StrategyComparator(
+        metrics=["success_rate", "max_drawdown"],
+        ranking_rule=RankingRule(
+            primary_metric="success_rate",
+            tie_breakers=["max_drawdown"],
+        ),
+    )
+
+    report = comparator.compare(results)
+
+    metrics = report.aggregated_metrics["global"]["strategy1"]
+    assert metrics["success_rate"] == Decimal("1")
+    assert metrics["max_drawdown"] == Decimal("0.20")
+
+
+def test_all_unavailable_metrics_remain_none() -> None:
+    results = {
+        "strategy1": (
+            EvaluationResult(
+                label="strategy1",
+                metrics={"success_rate": Decimal("1"), "max_drawdown": None},
+                provenance={"parameter_config": ["p1"]},
+            ),
+        )
+    }
+    comparator = StrategyComparator(
+        metrics=["success_rate", "max_drawdown"],
+        ranking_rule=RankingRule(
+            primary_metric="success_rate",
+            tie_breakers=["max_drawdown"],
+        ),
+    )
+
+    report = comparator.compare(results)
+
+    assert report.aggregated_metrics["global"]["strategy1"]["max_drawdown"] is None
+
+
+def test_unavailable_tie_breaker_does_not_rank_as_zero() -> None:
+    results = {
+        "unavailable": (
+            EvaluationResult(
+                label="unavailable",
+                metrics={"success_rate": Decimal("1"), "max_drawdown": None},
+                provenance={"parameter_config": ["p1"]},
+            ),
+        ),
+        "drawdown_zero": (
+            EvaluationResult(
+                label="drawdown_zero",
+                metrics={"success_rate": Decimal("1"), "max_drawdown": Decimal("0")},
+                provenance={"parameter_config": ["p2"]},
+            ),
+        ),
+        "drawdown_measured": (
+            EvaluationResult(
+                label="drawdown_measured",
+                metrics={"success_rate": Decimal("1"), "max_drawdown": Decimal("0.20")},
+                provenance={"parameter_config": ["p3"]},
+            ),
+        ),
+    }
+    comparator = StrategyComparator(
+        metrics=["success_rate", "max_drawdown"],
+        ranking_rule=RankingRule(
+            primary_metric="success_rate",
+            tie_breakers=["max_drawdown"],
+        ),
+    )
+
+    report = comparator.compare(results)
+
+    assert report.ranking["global"] == [
+        "drawdown_measured",
+        "drawdown_zero",
+        "unavailable",
+    ]

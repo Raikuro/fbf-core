@@ -13,7 +13,7 @@ class EvaluationResult:
     """Evaluation result for a strategy label."""
 
     label: str
-    metrics: Mapping[str, Decimal]
+    metrics: Mapping[str, Decimal | None]
     provenance: Mapping[str, Sequence[str]]
 
 
@@ -50,7 +50,7 @@ GroupingDimension = Literal["parameter_config", "cohort", "global"]
 class StrategyComparisonReport:
     """Immutable report containing aggregated metrics, ranking, provenance, and diagnostics."""
 
-    aggregated_metrics: Mapping[str, Mapping[str, Mapping[str, Decimal]]]
+    aggregated_metrics: Mapping[str, Mapping[str, Mapping[str, Decimal | None]]]
     ranking: Mapping[str, Sequence[str]]
     provenance: Mapping[str, Mapping[str, Sequence[str]]]
     diagnostics: Mapping[str, Mapping[str, str]]
