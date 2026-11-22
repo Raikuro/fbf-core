@@ -12,6 +12,8 @@ from .types import (
     Evaluator,
     GroupingDimension,
     InvalidInputError,
+    MetricDefinition,
+    MetricDirection,
     RankingRule,
     StrategyComparisonReport,
 )
@@ -24,10 +26,13 @@ class StrategyComparator:
     Produces deterministic, auditable comparative analytics between labelled strategies.
     Each strategy is an externally defined label that maps to a set of evaluation
     artefacts or to an abstract evaluator capable of materialising them.
+
+    Ranking uses the explicit direction declared by each ``MetricDefinition``;
+    the comparator never infers whether a metric is maximized or minimized.
     """
 
-    def __init__(self, metrics: Sequence[str], ranking_rule: RankingRule):
-        self._metrics = metrics
+    def __init__(self, metrics: Sequence[MetricDefinition], ranking_rule: RankingRule):
+        self._metrics = tuple(metrics)
         self._ranking_rule = ranking_rule
 
     def compare(
@@ -57,6 +62,30 @@ class StrategyComparator:
 
         if group_by not in ("parameter_config", "cohort", "global"):
             raise InvalidInputError(f"invalid group_by: {group_by}")
+
+        metric_directions: dict[str, MetricDirection] = {}
+        for metric in self._metrics:
+            if metric.name in metric_directions:
+                raise InvalidInputError(
+                    f"duplicate metric definition: {metric.name!r}"
+                )
+            metric_directions[metric.name] = metric.direction
+
+        ranking_metrics = (
+            self._ranking_rule.primary_metric,
+            *self._ranking_rule.tie_breakers,
+        )
+        seen_ranking_metrics: set[str] = set()
+        for metric_name in ranking_metrics:
+            if metric_name in seen_ranking_metrics:
+                raise InvalidInputError(
+                    f"duplicate ranking metric: {metric_name!r}"
+                )
+            seen_ranking_metrics.add(metric_name)
+            if metric_name not in metric_directions:
+                raise InvalidInputError(
+                    f"ranking metric {metric_name!r} is not declared in metrics"
+                )
 
         # Helper to materialise evaluations for a strategy label
         def _materialise(label: str, source: Any) -> Sequence[EvaluationResult]:
@@ -124,8 +153,8 @@ class StrategyComparator:
                 counts[gkey].setdefault(label, {})
 
                 # accumulate metrics (simple average across evaluations per label/group)
-                for m in self._metrics:
-                    val = ev.metrics.get(m)
+                for metric in self._metrics:
+                    val = ev.metrics.get(metric.name)
                     if val is None:
                         # Unavailable metrics are excluded from the average;
                         # they are not numeric zero and must not affect the
@@ -134,15 +163,19 @@ class StrategyComparator:
                     # ensure Decimal arithmetic
                     val_d = val if isinstance(val, Decimal) else Decimal(str(val))
 
-                    existing = aggregated[gkey][label].get(m)
+                    existing = aggregated[gkey][label].get(metric.name)
                     if existing is None:
-                        aggregated[gkey][label][m] = val_d
-                        counts[gkey][label][m] = 1
-                        diagnostics[gkey][f"{label}:{m}:count"] = "1"
+                        aggregated[gkey][label][metric.name] = val_d
+                        counts[gkey][label][metric.name] = 1
+                        diagnostics[gkey][f"{label}:{metric.name}:count"] = "1"
                     else:
-                        aggregated[gkey][label][m] = existing + val_d
-                        counts[gkey][label][m] = counts[gkey][label].get(m, 1) + 1
-                        diagnostics[gkey][f"{label}:{m}:count"] = str(counts[gkey][label][m])
+                        aggregated[gkey][label][metric.name] = existing + val_d
+                        counts[gkey][label][metric.name] = (
+                            counts[gkey][label].get(metric.name, 1) + 1
+                        )
+                        diagnostics[gkey][f"{label}:{metric.name}:count"] = str(
+                            counts[gkey][label][metric.name]
+                        )
 
                 # append provenance ids
                 for prov_vals in ev.provenance.values():
@@ -166,11 +199,12 @@ class StrategyComparator:
                     final_aggregated[gkey][label][m] = (
                         (total / Decimal(count)) if count > 0 else None
                     )
-                for m in self._metrics:
-                    if m not in final_aggregated[gkey][label]:
-                        final_aggregated[gkey][label][m] = None
+                for metric in self._metrics:
+                    if metric.name not in final_aggregated[gkey][label]:
+                        final_aggregated[gkey][label][metric.name] = None
 
-            # ranking: sort labels by primary metric descending, then tie_breakers, then label
+            # ranking: sort labels by primary metric direction, then tie_breakers,
+            # then label
             def sort_key(label_name: str, *, _group_key: str = gkey) -> tuple[Any, ...]:
                 def rank_component(metric_name: str) -> tuple[bool, Decimal]:
                     value = final_aggregated[_group_key][label_name].get(
@@ -179,7 +213,9 @@ class StrategyComparator:
                     if value is None:
                         # Unavailable metrics sort after every measured value.
                         return (True, Decimal(0))
-                    return (False, -value)
+                    if metric_directions[metric_name] is MetricDirection.MAXIMIZE:
+                        return (False, -value)
+                    return (False, value)
 
                 primary = rank_component(self._ranking_rule.primary_metric)
                 tie_values = tuple(

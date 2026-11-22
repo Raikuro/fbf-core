@@ -40,6 +40,28 @@ unchanged; they cannot be distinguished retroactively.
 
 ---
 
+## Explicit Metric Direction in Strategy Ranking
+
+**Decision:** `StrategyComparator` ranks each metric according to an explicit
+`MetricDirection` (`MAXIMIZE` or `MINIMIZE`) declared in its
+`MetricDefinition`. The comparator never infers direction from metric names and
+applies no implicit default. Metrics referenced by a `RankingRule` must be
+declared exactly once; unavailable (`None`) values sort after every measured
+value regardless of direction.
+
+**Why:** Descending numeric ordering is correct for metrics such as success
+rate or final wealth, but wrong for loss magnitudes such as maximum drawdown.
+A single global ordering would silently invert the meaning of some metrics.
+Explicit per-metric direction keeps the ranking contract auditable and avoids
+metric-specific special cases.
+
+**Consequence:** Callers must declare a direction for every metric they rank.
+`max_drawdown` is declared `MINIMIZE` because it is a positive loss magnitude.
+Aggregation remains direction-independent: `None` observations are excluded
+from averages and an all-unavailable aggregate remains `None`.
+
+---
+
 ## Arrays-Only Configuration Model
 
 **Decision:** Study configurations use arrays of values for parameterized

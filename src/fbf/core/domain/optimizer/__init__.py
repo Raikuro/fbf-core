@@ -10,6 +10,8 @@ from .types import (
     EvaluationResult,
     Evaluator,
     InvalidInputError,
+    MetricDefinition,
+    MetricDirection,
     RankingRule,
     StrategyComparisonReport,
 )
@@ -19,6 +21,8 @@ __all__ = [
     "Evaluator",
     "InvalidInputError",
     "EvaluationError",
+    "MetricDefinition",
+    "MetricDirection",
     "Optimizer",
     "OptimizationResult",
     "RankingRule",

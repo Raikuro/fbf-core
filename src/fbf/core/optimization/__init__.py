@@ -10,6 +10,8 @@ from fbf.core.domain.optimizer.strategy_comparator import StrategyComparator
 from fbf.core.domain.optimizer.types import (
     EvaluationResult,
     GroupingDimension,
+    MetricDefinition,
+    MetricDirection,
     RankingRule,
     StrategyComparisonReport,
 )
@@ -129,6 +131,8 @@ __all__ = [
     "StrategyComparisonReport",
     "EvaluationResult",
     "GroupingDimension",
+    "MetricDefinition",
+    "MetricDirection",
     "RankingRule",
     "optimize_study_swr",
     "Part52Evaluator",

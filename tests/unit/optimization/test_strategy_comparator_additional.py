@@ -10,9 +10,15 @@ from fbf.core.domain.optimizer import (
     EvaluationResult,
     Evaluator,
     InvalidInputError,
+    MetricDefinition,
+    MetricDirection,
     RankingRule,
     StrategyComparator,
 )
+
+
+def _metric(name: str, direction: MetricDirection) -> MetricDefinition:
+    return MetricDefinition(name=name, direction=direction)
 
 
 class MockEvaluatorSeq(Evaluator):
@@ -46,7 +52,7 @@ def test_group_by_cohort() -> None:
 
     eval1 = MockEvaluatorSeq(results)
     comparator = StrategyComparator(
-        metrics=["m"],
+        metrics=[_metric("m", MetricDirection.MAXIMIZE)],
         ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
     )
 
@@ -72,7 +78,7 @@ def test_group_by_parameter_config() -> None:
 
     eval1 = MockEvaluatorSeq(results)
     comparator = StrategyComparator(
-        metrics=["m"],
+        metrics=[_metric("m", MetricDirection.MAXIMIZE)],
         ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
     )
 
@@ -89,7 +95,7 @@ def test_missing_provenance_raises() -> None:
 
     eval1 = MockEvaluatorSeq(results)
     comparator = StrategyComparator(
-        metrics=["m"],
+        metrics=[_metric("m", MetricDirection.MAXIMIZE)],
         ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
     )
 
@@ -111,7 +117,7 @@ def test_decimal_aggregation_exactness() -> None:
     )
 
     comparator = StrategyComparator(
-        metrics=["m"],
+        metrics=[_metric("m", MetricDirection.MAXIMIZE)],
         ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
     )
 
@@ -141,7 +147,10 @@ def test_deterministic_tiebreakers_and_label_tiebreak() -> None:
     )
 
     comparator = StrategyComparator(
-        metrics=["p", "t"],
+        metrics=[
+            _metric("p", MetricDirection.MAXIMIZE),
+            _metric("t", MetricDirection.MAXIMIZE),
+        ],
         ranking_rule=RankingRule(primary_metric="p", tie_breakers=["t"]),
     )
 
@@ -154,7 +163,7 @@ def test_deterministic_tiebreakers_and_label_tiebreak() -> None:
 
 def test_evaluator_error_wrapped() -> None:
     comparator = StrategyComparator(
-        metrics=["m"],
+        metrics=[_metric("m", MetricDirection.MAXIMIZE)],
         ranking_rule=RankingRule(primary_metric="m", tie_breakers=[]),
     )
     with pytest.raises(EvaluationError):

@@ -5,7 +5,43 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import Enum
 from typing import Literal, Protocol
+
+
+class InvalidInputError(ValueError):
+    """Raised when input validation fails."""
+
+    pass
+
+
+class EvaluationError(Exception):
+    """Raised when evaluation execution fails."""
+
+    pass
+
+
+class MetricDirection(Enum):
+    """Optimization direction for a ranked metric."""
+
+    MAXIMIZE = "maximize"
+    MINIMIZE = "minimize"
+
+
+@dataclass(frozen=True)
+class MetricDefinition:
+    """Definition of a metric participating in comparison and ranking."""
+
+    name: str
+    direction: MetricDirection
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise InvalidInputError("metric name must be a non-empty string")
+        if self.direction not in (MetricDirection.MAXIMIZE, MetricDirection.MINIMIZE):
+            raise InvalidInputError(
+                f"invalid direction for metric {self.name!r}: {self.direction!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -21,18 +57,6 @@ class Evaluator(Protocol):
     """Abstract evaluator to provide evaluation artifacts."""
 
     def get_evaluations(self, label: str) -> Sequence[EvaluationResult]: ...
-
-
-class InvalidInputError(ValueError):
-    """Raised when input validation fails."""
-
-    pass
-
-
-class EvaluationError(Exception):
-    """Raised when evaluation execution fails."""
-
-    pass
 
 
 @dataclass(frozen=True)
