@@ -25,6 +25,7 @@ from fbf.core.persistence.studies.sqlite.serializers import to_canonical_json
 
 if TYPE_CHECKING:
     from fbf.core.domain.model.dataset import Dataset
+    from fbf.core.domain.policies.decisions import WithdrawalDecision
     from fbf.core.execution.pipeline.simulation import MonthlyResult, SimulationResult
 
 from fbf.core.persistence.studies.sqlite.sqlite_repository import (
@@ -150,6 +151,7 @@ class SimulationResultCodec:
     - Date values preserved as ISO strings
     - Booleans, integers, floats preserved exactly
     - Monthly payload order preserved
+    - WithdrawalDecision fields preserved as structured values
     """
 
     def dump(self, result: SimulationResult) -> SerializedSimulationResult:
@@ -224,6 +226,53 @@ class SimulationResultCodec:
             monthly_payloads_json=monthly,
         )
 
+    @staticmethod
+    def _serialize_withdrawal_decision(
+        decision: WithdrawalDecision,
+    ) -> dict[str, Any]:
+        return {
+            "reason": decision.reason,
+            "nominal_amount": {
+                "amount": str(decision.nominal_amount.amount),
+                "currency": decision.nominal_amount.currency.value,
+            },
+            "real_amount": {
+                "amount": str(decision.real_amount.amount),
+                "currency": decision.real_amount.currency.value,
+            },
+            "loan_draw_amount": str(decision.loan_draw_amount),
+            "is_repayment": decision.is_repayment,
+            "spending_budget": str(decision.spending_budget),
+        }
+
+    @staticmethod
+    def _deserialize_withdrawal_decision(
+        data: Mapping[str, Any],
+    ) -> WithdrawalDecision:
+        from fbf.core.domain.model.money import Currency, Money
+        from fbf.core.domain.policies.decisions import WithdrawalDecision
+
+        if not isinstance(data, Mapping):
+            raise ValueError("withdrawal_decision payload must be a mapping")
+        nominal = data["nominal_amount"]
+        real = data["real_amount"]
+        if not isinstance(nominal, Mapping) or not isinstance(real, Mapping):
+            raise ValueError("withdrawal_decision amounts must be mappings")
+        return WithdrawalDecision(
+            reason=str(data["reason"]),
+            nominal_amount=Money(
+                amount=Decimal(str(nominal["amount"])),
+                currency=Currency(nominal["currency"]),
+            ),
+            real_amount=Money(
+                amount=Decimal(str(real["amount"])),
+                currency=Currency(real["currency"]),
+            ),
+            loan_draw_amount=Decimal(str(data["loan_draw_amount"])),
+            is_repayment=bool(data["is_repayment"]),
+            spending_budget=Decimal(str(data["spending_budget"])),
+        )
+
     def _serialize_monthly(self, mr: MonthlyResult) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "date": mr.date.isoformat(),
@@ -278,7 +327,9 @@ class SimulationResultCodec:
         if mr.allocation_drift is not None:
             payload["allocation_drift"] = str(mr.allocation_drift)
         if mr.withdrawal_decision is not None:
-            payload["withdrawal_decision"] = str(mr.withdrawal_decision)
+            payload["withdrawal_decision"] = (
+                self._serialize_withdrawal_decision(mr.withdrawal_decision)
+            )
         if mr.rebalance_result is not None:
             payload["rebalance_result"] = str(mr.rebalance_result)
 
@@ -390,6 +441,12 @@ class SimulationResultCodec:
                 is_repayment=ds.get("is_repayment", False),
             )
 
+        withdrawal_decision = None
+        if "withdrawal_decision" in data:
+            withdrawal_decision = self._deserialize_withdrawal_decision(
+                data["withdrawal_decision"]
+            )
+
         return MonthlyResult(
             date=date.fromisoformat(data["date"]),
             period_index=data["period_index"],
@@ -398,7 +455,7 @@ class SimulationResultCodec:
             allocation=allocation,
             allocation_target=allocation_target,
             allocation_drift=data.get("allocation_drift"),
-            withdrawal_decision=data.get("withdrawal_decision"),
+            withdrawal_decision=withdrawal_decision,
             rebalance_result=data.get("rebalance_result"),
             drawdown=data["drawdown"],
             cumulative_return=data["cumulative_return"],

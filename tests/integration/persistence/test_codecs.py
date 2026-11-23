@@ -558,6 +558,82 @@ class TestSimulationResultCodec:
         assert loaded_mr.cumulative_return == 0.10
         assert loaded_mr.cumulative_inflation == 0.02
 
+    def test_monthly_withdrawal_decision_round_trip_preserves_type_and_fields(
+        self,
+    ) -> None:
+        codec = SimulationResultCodec()
+        from fbf.core.execution.pipeline.simulation import MonthlyResult
+
+        snap = MarketSnapshot(
+            date=date(2000, 1, 1),
+            index_levels={_ASSET: Decimal("100.00")},
+            inflation=Decimal("0.00"),
+            inflation_cumulative=Decimal("0.00"),
+            is_ath=True,
+            is_underwater=False,
+            running_ath=Decimal("100.00"),
+        )
+        decision = WithdrawalDecision(
+            reason="scheduled",
+            nominal_amount=Money(Decimal("1000.00"), Currency.EUR),
+            real_amount=Money(Decimal("900.00"), Currency.EUR),
+            loan_draw_amount=Decimal("12.50"),
+            is_repayment=True,
+            spending_budget=Decimal("800.00"),
+        )
+        mr = MonthlyResult(
+            date=date(2000, 1, 1),
+            period_index=0,
+            market_snapshot=snap,
+            portfolio=Portfolio(
+                holdings=(
+                    AssetHolding(
+                        asset_class=_ASSET,
+                        units=Decimal("1000.00"),
+                    ),
+                )
+            ),
+            allocation=None,
+            allocation_target=None,
+            allocation_drift=None,
+            withdrawal_decision=decision,
+            rebalance_result=None,
+            drawdown=0.0,
+            cumulative_return=0.0,
+            cumulative_inflation=0.0,
+            events=(),
+        )
+        original = SimulationResult(
+            timeline=SimulationTimeline(monthly_results=(mr,)),
+            statistics=SimulationStatistics(
+                final_wealth=Money(Decimal("100000.00"), Currency.EUR),
+                max_drawdown=0.0,
+                success=True,
+                failure_month=None,
+                failure_state=None,
+                months_simulated=1,
+                execution_time_seconds=0.01,
+            ),
+        )
+
+        serialized = codec.dump(original)
+        loaded = codec.load(
+            serialized.statistics_payload_json,
+            serialized.monthly_payloads_json,
+        )
+
+        loaded_decision = loaded.timeline.monthly_results[0].withdrawal_decision
+        assert isinstance(loaded_decision, WithdrawalDecision)
+        assert loaded_decision == decision
+        assert loaded_decision.reason == "scheduled"
+        assert loaded_decision.nominal_amount.amount == Decimal("1000.00")
+        assert loaded_decision.nominal_amount.currency == Currency.EUR
+        assert loaded_decision.real_amount.amount == Decimal("900.00")
+        assert loaded_decision.real_amount.currency == Currency.EUR
+        assert loaded_decision.loan_draw_amount == Decimal("12.50")
+        assert loaded_decision.is_repayment is True
+        assert loaded_decision.spending_budget == Decimal("800.00")
+
     def test_monthly_unavailable_drawdown_preserves_none(self) -> None:
         codec = SimulationResultCodec()
         from fbf.core.execution.pipeline.simulation import MonthlyResult
@@ -807,3 +883,124 @@ def _build_sim_context(
         allocation_policy=unit.allocation_policy,
         withdrawal_policy=unit.withdrawal_policy,
     )
+
+
+def test_load_execution_result_preserves_withdrawal_decision(
+    tmp_path: Path,
+) -> None:
+    from fbf.core.execution.pipeline.simulation import (
+        ExperimentDefinition as EngineExperimentDefinition,
+        ExperimentRun,
+        MonthlyResult,
+    )
+    from fbf.core.execution.result import ResearchExecutionResult
+    from fbf.core.persistence.studies.sqlite import SQLiteRepository
+    from fbf.core.persistence.studies.sqlite.sqlite_repository import (
+        ExperimentIdentity,
+    )
+
+    class _StaticLoader:
+        def load(self) -> Dataset:
+            return _TEST_DATASET
+
+    ctx = PersistenceReconstructionContext(
+        dataset_loader=_StaticLoader(),
+        policy_codecs={
+            ("allocation", "AllocationPolicy"): AllocationPolicyCodec(),
+            ("withdrawal", "WithdrawalPolicy"): WithdrawalPolicyCodec(),
+        },
+        simulation_result_codec=SimulationResultCodec(),
+    )
+
+    repo = SQLiteRepository(str(tmp_path / "withdrawal_decision.db"))
+    experiment = _make_experiment(_TEST_DATASET)
+    exp_id = repo.save_experiment(
+        ExperimentIdentity(name=experiment.name, revision="v1"),
+        experiment,
+        ctx,
+    )
+    plan = _make_plan(experiment, num_units=1)
+    plan_id = repo.save_plan(plan, exp_id, ctx)
+
+    decision = WithdrawalDecision(
+        reason="scheduled",
+        nominal_amount=Money(Decimal("1000.00"), Currency.EUR),
+        real_amount=Money(Decimal("900.00"), Currency.EUR),
+        loan_draw_amount=Decimal("12.50"),
+        is_repayment=True,
+        spending_budget=Decimal("800.00"),
+    )
+    snapshot = MarketSnapshot(
+        date=date(2000, 1, 1),
+        index_levels={_ASSET: Decimal("100.00")},
+        inflation=Decimal("0.00"),
+        inflation_cumulative=Decimal("0.00"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100.00"),
+    )
+    monthly = MonthlyResult(
+        date=date(2000, 1, 1),
+        period_index=0,
+        market_snapshot=snapshot,
+        portfolio=Portfolio(
+            holdings=(
+                AssetHolding(asset_class=_ASSET, units=Decimal("1000.00")),
+            )
+        ),
+        allocation=None,
+        allocation_target=None,
+        allocation_drift=None,
+        withdrawal_decision=decision,
+        rebalance_result=None,
+        drawdown=0.0,
+        cumulative_return=0.0,
+        cumulative_inflation=0.0,
+        events=(),
+    )
+    sim_result = SimulationResult(
+        timeline=SimulationTimeline(monthly_results=(monthly,)),
+        statistics=SimulationStatistics(
+            final_wealth=Money(Decimal("100000.00"), Currency.EUR),
+            max_drawdown=0.0,
+            success=True,
+            failure_month=None,
+            failure_state=None,
+            months_simulated=1,
+            execution_time_seconds=0.01,
+        ),
+    )
+    sim_contexts = tuple(
+        _build_sim_context(unit, experiment) for unit in plan.units
+    )
+    engine_def = EngineExperimentDefinition(
+        name=experiment.name,
+        description=experiment.description,
+        simulation_contexts=sim_contexts,
+    )
+    experiment_run = ExperimentRun(
+        definition=engine_def,
+        simulation_results=(sim_result,),
+    )
+    research_result = ResearchExecutionResult(
+        plan=plan,
+        experiment_result=experiment_run,
+    )
+
+    result_id = repo.save_execution_result(
+        plan_id,
+        research_result,
+        ctx,
+        duration_seconds=0.5,
+    )
+    loaded = repo.load_execution_result(result_id, ctx)
+    loaded_decision = (
+        loaded.results[0].timeline.monthly_results[0].withdrawal_decision
+    )
+
+    assert isinstance(loaded_decision, WithdrawalDecision)
+    assert loaded_decision == decision
+    assert loaded_decision.nominal_amount.amount == Decimal("1000.00")
+    assert loaded_decision.loan_draw_amount == Decimal("12.50")
+    assert loaded_decision.is_repayment is True
+    assert loaded_decision.spending_budget == Decimal("800.00")

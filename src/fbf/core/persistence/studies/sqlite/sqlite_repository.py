@@ -16,6 +16,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -385,13 +386,48 @@ def validate_context(context: PersistenceReconstructionContext) -> None:
 
 
 def _compute_portfolio_value(monthly_payload: Mapping[str, Any]) -> str:
+    """Value holdings at their month's market index levels.
+
+    Portfolio value is the sum of ``units * index_levels[asset_class_id]``.
+    Decimal arithmetic is used end to end; the result is formatted without
+    exponent notation.
+    """
     holdings = monthly_payload.get("portfolio_holdings", [])
-    total = sum(float(h["units"]) for h in holdings)
-    return f"{total:.2f}"
+    index_levels = monthly_payload.get("market_snapshot", {}).get(
+        "index_levels", {}
+    )
+    total = Decimal("0")
+    for holding in holdings:
+        asset_class_id = holding["asset_class_id"]
+        if asset_class_id not in index_levels:
+            raise PersistenceError(
+                f"Missing index level for asset class {asset_class_id!r}"
+            )
+        total += Decimal(str(holding["units"])) * Decimal(
+            str(index_levels[asset_class_id])
+        )
+    return format(total, "f")
 
 
 def _compute_withdrawal_amount(monthly_payload: Mapping[str, Any]) -> str:
-    return str(monthly_payload.get("withdrawal_decision", "0"))
+    """Return the nominal withdrawal amount from a monthly payload.
+
+    The persisted WithdrawalDecision stores its nominal amount as a string
+    to preserve Decimal precision. ``0`` is returned when no decision exists.
+    """
+    decision = monthly_payload.get("withdrawal_decision")
+    if decision is None:
+        return "0"
+    if not isinstance(decision, Mapping):
+        raise PersistenceError(
+            "Malformed withdrawal_decision payload: expected a mapping"
+        )
+    nominal = decision.get("nominal_amount")
+    if not isinstance(nominal, Mapping) or "amount" not in nominal:
+        raise PersistenceError(
+            "Malformed withdrawal_decision payload: missing nominal amount"
+        )
+    return str(nominal["amount"])
 
 
 def _compute_linear_percentile(sorted_values: list[float], p: float) -> float:
@@ -1787,7 +1823,10 @@ class SQLiteRepository:
 
         Joins across experiments, research_plans, planned_units, cohorts,
         parameter_configurations, execution_results, and simulation_results
-        to produce flat rows. Does NOT use PersistenceReconstructionContext.
+        to produce flat rows. Each row's ``portfolio_value`` is computed from
+        holdings and the month's market index levels, and ``withdrawal`` is
+        the nominal amount of the persisted WithdrawalDecision. Does NOT use
+        PersistenceReconstructionContext.
         """
         with self._connect() as conn:
             exp_row = conn.execute(
@@ -2030,8 +2069,10 @@ class SQLiteRepository:
         """Compute percentile bands of portfolio value across all units per month.
 
         Reads all ``simulation_results`` rows for the given result, extracts
-        the portfolio value (sum of ``portfolio_holdings[].units``) from each
-        monthly payload, and computes percentile bands at each month_index.
+        the portfolio value (sum of
+        ``portfolio_holdings[].units * market_snapshot.index_levels[asset_class_id]``)
+        from each monthly payload, and computes percentile bands at each
+        month_index.
 
         Does NOT require a ``PersistenceReconstructionContext``.
 

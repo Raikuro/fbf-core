@@ -23,6 +23,7 @@ import pytest
 
 from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
+from fbf.core.domain.model.market_snapshot import MarketSnapshot
 from fbf.core.domain.model.money import Currency, Money
 from fbf.core.domain.model.portfolio import AssetHolding, Portfolio
 from fbf.core.domain.policies.allocation_policy import AllocationPolicy
@@ -203,6 +204,66 @@ def _make_sim_result_with_timeline(
     )
 
 
+def _make_multi_asset_monthly_result(
+    *,
+    month_index: int,
+    index_levels: dict[AssetClass, Decimal],
+    holdings: tuple[tuple[AssetClass, Decimal], ...],
+    withdrawal_decision: WithdrawalDecision | None = None,
+) -> Any:
+    from fbf.core.execution.pipeline.simulation import MonthlyResult
+
+    snapshot_date = date(2000, (month_index % 12) + 1, 1)
+    snapshot = MarketSnapshot(
+        date=snapshot_date,
+        index_levels=index_levels,
+        inflation=Decimal("0.00"),
+        inflation_cumulative=Decimal("0.00"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100.00"),
+    )
+    portfolio = Portfolio(
+        holdings=tuple(
+            AssetHolding(asset_class=asset_class, units=units)
+            for asset_class, units in holdings
+        )
+    )
+    return MonthlyResult(
+        date=snapshot_date,
+        period_index=month_index,
+        market_snapshot=snapshot,
+        portfolio=portfolio,
+        allocation=None,
+        allocation_target=None,
+        allocation_drift=None,
+        withdrawal_decision=withdrawal_decision,
+        rebalance_result=None,
+        drawdown=0.0,
+        cumulative_return=0.0,
+        cumulative_inflation=0.0,
+        events=(),
+    )
+
+
+def _make_sim_result_with_monthly_results(
+    final_wealth: str,
+    monthly_results: tuple[Any, ...],
+) -> SimulationResult:
+    return SimulationResult(
+        timeline=SimulationTimeline(monthly_results=monthly_results),
+        statistics=SimulationStatistics(
+            final_wealth=Money(Decimal(final_wealth), Currency.EUR),
+            max_drawdown=0.0,
+            success=True,
+            failure_month=None,
+            failure_state=None,
+            months_simulated=len(monthly_results),
+            execution_time_seconds=0.01,
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Plan / experiment helpers
 # ---------------------------------------------------------------------------
@@ -333,13 +394,13 @@ def _get_context(plan: ResearchPlan) -> PersistenceReconstructionContext:
     )
 
 
-def _save_result(
+def _save_result_with_ids(
     repo: SQLiteRepository,
     plan: ResearchPlan,
     sim_results: tuple[SimulationResult, ...],
     ctx: PersistenceReconstructionContext,
     name: str = "p10-test",
-) -> str:
+) -> tuple[str, str]:
     experiment_run = _make_experiment_run(plan, sim_results)
     research_result = ResearchExecutionResult(plan=plan, experiment_result=experiment_run)
     exp_id = repo.save_experiment(
@@ -349,7 +410,17 @@ def _save_result(
     )
     plan_id = repo.save_plan(plan, exp_id, ctx)
     result_id = repo.save_execution_result(plan_id, research_result, ctx, duration_seconds=0.5)
-    return result_id
+    return exp_id, result_id
+
+
+def _save_result(
+    repo: SQLiteRepository,
+    plan: ResearchPlan,
+    sim_results: tuple[SimulationResult, ...],
+    ctx: PersistenceReconstructionContext,
+    name: str = "p10-test",
+) -> str:
+    return _save_result_with_ids(repo, plan, sim_results, ctx, name)[1]
 
 
 # ---------------------------------------------------------------------------
@@ -700,7 +771,97 @@ class TestGetResultTrajectoryPercentiles:
 
 
 # ===========================================================================
-# 4. ERN-scale benchmark
+# 4. Portfolio valuation and export correctness
+# ===========================================================================
+
+
+class TestPortfolioValuation:
+    def test_trajectory_percentiles_use_units_times_index_levels(
+        self, repo: SQLiteRepository
+    ) -> None:
+        equity = AssetClass(id="equity", name="Equity", description="")
+        bond = AssetClass(id="bond", name="Bond", description="")
+        plan = _make_plan(num_units=2)
+        ctx = _get_context(plan)
+        index_levels = {
+            equity: Decimal("2.00"),
+            bond: Decimal("4.00"),
+        }
+        low_value = _make_multi_asset_monthly_result(
+            month_index=0,
+            index_levels=index_levels,
+            holdings=(
+                (equity, Decimal("10")),
+                (bond, Decimal("5")),
+            ),
+        )
+        high_value = _make_multi_asset_monthly_result(
+            month_index=0,
+            index_levels=index_levels,
+            holdings=(
+                (equity, Decimal("20")),
+                (bond, Decimal("10")),
+            ),
+        )
+        sim_results = (
+            _make_sim_result_with_monthly_results("40.00", (low_value,)),
+            _make_sim_result_with_monthly_results("80.00", (high_value,)),
+        )
+        result_id = _save_result(repo, plan, sim_results, ctx)
+
+        traj = repo.get_result_trajectory_percentiles(
+            result_id, percentiles=(50.0,)
+        )
+
+        assert traj is not None
+        assert traj["months"] == [0]
+        assert traj["series"]["p50"] == [60.0]
+
+
+class TestGetExportData:
+    def test_export_uses_market_prices_and_numeric_withdrawal(
+        self, repo: SQLiteRepository
+    ) -> None:
+        equity = AssetClass(id="equity", name="Equity", description="")
+        bond = AssetClass(id="bond", name="Bond", description="")
+        plan = _make_plan(num_units=1)
+        ctx = _get_context(plan)
+        decision = WithdrawalDecision(
+            reason="scheduled",
+            nominal_amount=Money(Decimal("1000.00"), Currency.EUR),
+            real_amount=Money(Decimal("900.00"), Currency.EUR),
+            loan_draw_amount=Decimal("12.50"),
+            is_repayment=True,
+            spending_budget=Decimal("800.00"),
+        )
+        monthly = _make_multi_asset_monthly_result(
+            month_index=0,
+            index_levels={
+                equity: Decimal("2.00"),
+                bond: Decimal("4.00"),
+            },
+            holdings=(
+                (equity, Decimal("10")),
+                (bond, Decimal("5")),
+            ),
+            withdrawal_decision=decision,
+        )
+        sim_result = _make_sim_result_with_monthly_results("40.00", (monthly,))
+        exp_id, _result_id = _save_result_with_ids(
+            repo, plan, (sim_result,), ctx
+        )
+
+        data = repo.get_export_data(exp_id)
+
+        assert data is not None
+        rows = data["rows"]
+        assert len(rows) == 1
+        assert rows[0]["portfolio_value"] == "40.00"
+        assert rows[0]["withdrawal"] == "1000.00"
+
+
+# ===========================================================================
+# 5. ERN-scale benchmark
 # ===========================================================================
 
 

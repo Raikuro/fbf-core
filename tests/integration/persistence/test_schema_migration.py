@@ -1,8 +1,8 @@
 """Schema compatibility tests for the SQLite persistence layer.
 
-Schema version 6 persists each planned unit's dataset start and effective
-horizon. Databases created by older schema versions are rejected rather than
-migrated because the missing unit provenance cannot be reconstructed safely.
+Schema version 7 persists WithdrawalDecision as a structured payload.
+Databases created by older schema versions are rejected rather than migrated
+because their payload format cannot be reconstructed safely.
 """
 
 from __future__ import annotations
@@ -47,20 +47,29 @@ def _schema_version(db_path: Path) -> int:
         conn.close()
 
 
+def _set_schema_version(db_path: Path, version: int) -> None:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("DELETE FROM schema_version")
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+            (version, "2024-01-01T00:00:00Z"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _make_v5_database(db_path: Path) -> None:
     SQLiteRepository(str(db_path))
     conn = sqlite3.connect(str(db_path))
     try:
         conn.execute("ALTER TABLE planned_units DROP COLUMN horizon_months")
         conn.execute("ALTER TABLE planned_units DROP COLUMN dataset_start_date")
-        conn.execute("DELETE FROM schema_version")
-        conn.execute(
-            "INSERT INTO schema_version (version, applied_at) VALUES (5, ?)",
-            ("2024-01-01T00:00:00Z",),
-        )
         conn.commit()
     finally:
         conn.close()
+    _set_schema_version(db_path, 5)
 
 
 def test_v5_database_is_rejected(tmp_path: Path) -> None:
@@ -69,6 +78,16 @@ def test_v5_database_is_rejected(tmp_path: Path) -> None:
     assert _schema_version(db_path) == 5
 
     with pytest.raises(CorruptedDatabaseError, match="version 5"):
+        SQLiteRepository(str(db_path))
+
+
+def test_v6_database_is_rejected(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy_v6.db"
+    SQLiteRepository(str(db_path))
+    _set_schema_version(db_path, 6)
+    assert _schema_version(db_path) == 6
+
+    with pytest.raises(CorruptedDatabaseError, match="version 6"):
         SQLiteRepository(str(db_path))
 
 

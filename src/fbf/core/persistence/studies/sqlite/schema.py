@@ -1,12 +1,11 @@
-"""SQLite schema DDL constants (v0.6).
+"""SQLite schema DDL constants (v0.7).
 
-Schema version 6 persists each planned unit's dataset start and effective
-horizon so plans can be reconstructed without re-deriving the retirement
-handoff from the cohort date.  Databases created by older schema versions are
-rejected rather than migrated; persisted plans must be regenerated.
+Schema version 7 persists WithdrawalDecision as a structured payload so every
+field round-trips losslessly. Databases created by older schema versions are
+rejected rather than migrated; persisted studies must be regenerated.
 """
 
-SCHEMA_VERSION: int = 6
+SCHEMA_VERSION: int = 7
 
 PRAGMA_FOREIGN_KEYS = "PRAGMA foreign_keys = ON"
 PRAGMA_WAL = "PRAGMA journal_mode = WAL"
