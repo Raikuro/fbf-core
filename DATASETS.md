@@ -33,8 +33,10 @@ regeneration commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
    explicitly. There is no built-in fetch or materialization step.
 6. There is no environment-variable or well-known-path fallback.
 
-`Dataset` requires at least one snapshot, chronological order, and unique dates.
-The loaded dataset is immutable and shared across simulations.
+`Dataset` requires at least one snapshot, chronological order, unique dates, and
+the same AssetClass index levels in every snapshot. Consistently empty asset
+sets are structurally valid. The loaded dataset is immutable and shared across
+simulations.
 
 ### Repository data layout
 

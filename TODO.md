@@ -17,15 +17,11 @@ decisions are separated from routine cleanup.
   - Add tests proving that external mutations cannot alter constructed domain
     objects.
 
-- [ ] **Dataset asset-set consistency.**
-  - `Dataset` currently validates only non-empty snapshots, date ordering, and
-    unique dates.
-  - Determine whether every snapshot must contain the same set of `AssetClass`
-    keys.
-  - Establish the appropriate enforcement boundary: `Dataset` constructor,
-    builder, or canonical loaders.
-  - Add validation and tests if confirmed as a domain invariant.
-  - Preserve existing empty-portfolio behavior where applicable.
+- [x] **Dataset asset-set consistency.**
+  - `Dataset.__post_init__` enforces exact `AssetClass` key-set equality across
+    all snapshots and reports the offending snapshot dates plus missing and
+    extra assets.
+  - Consistently empty asset sets remain structurally valid.
 
 - [ ] **Dataset frequency contract.**
   - `Dataset.frequency` is an unvalidated `str`, while `ReturnSequence`

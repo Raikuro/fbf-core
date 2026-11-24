@@ -11,12 +11,28 @@ from fbf.core.domain.model.dataset import Dataset
 from fbf.core.domain.model.market_snapshot import MarketSnapshot
 
 _ASSET = AssetClass(id="acwi", name="ACWI", description="Global equities")
+_ASSET_B = AssetClass(id="bond", name="Bond", description="Government bonds")
+_ASSET_C = AssetClass(id="gold", name="Gold", description="Gold")
 
 
 def _make_snapshot(day: date, level: str = "100.00") -> MarketSnapshot:
     return MarketSnapshot(
         date=day,
         index_levels={_ASSET: Decimal(level)},
+        inflation=Decimal("0.00"),
+        inflation_cumulative=Decimal("0.00"),
+        is_ath=True,
+        is_underwater=False,
+        running_ath=Decimal("100.00"),
+    )
+
+
+def _make_snapshot_with_assets(
+    day: date, assets: dict[AssetClass, str]
+) -> MarketSnapshot:
+    return MarketSnapshot(
+        date=day,
+        index_levels={asset: Decimal(level) for asset, level in assets.items()},
         inflation=Decimal("0.00"),
         inflation_cumulative=Decimal("0.00"),
         is_ath=True,
@@ -133,3 +149,124 @@ def test_empty_snapshots_are_rejected() -> None:
         match="Dataset must contain at least one MarketSnapshot",
     ):
         Dataset(snapshots=[], frequency="monthly")
+
+
+def test_consistent_two_asset_datasets_are_accepted() -> None:
+    dataset = Dataset(
+        snapshots=[
+            _make_snapshot_with_assets(
+                date(2000, 1, 1), {_ASSET: "100.00", _ASSET_B: "50.00"}
+            ),
+            _make_snapshot_with_assets(
+                date(2000, 2, 1), {_ASSET: "101.00", _ASSET_B: "51.00"}
+            ),
+        ],
+        frequency="monthly",
+    )
+
+    assert [set(snapshot.index_levels) for snapshot in dataset] == [
+        {_ASSET, _ASSET_B},
+        {_ASSET, _ASSET_B},
+    ]
+
+
+def test_consistent_three_asset_datasets_are_accepted() -> None:
+    dataset = Dataset(
+        snapshots=[
+            _make_snapshot_with_assets(
+                date(2000, 1, 1),
+                {_ASSET: "100.00", _ASSET_B: "50.00", _ASSET_C: "25.00"},
+            ),
+            _make_snapshot_with_assets(
+                date(2000, 2, 1),
+                {_ASSET: "101.00", _ASSET_B: "51.00", _ASSET_C: "26.00"},
+            ),
+        ],
+        frequency="monthly",
+    )
+
+    assert [set(snapshot.index_levels) for snapshot in dataset] == [
+        {_ASSET, _ASSET_B, _ASSET_C},
+        {_ASSET, _ASSET_B, _ASSET_C},
+    ]
+
+
+def test_later_snapshot_missing_asset_is_rejected() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        Dataset(
+            snapshots=[
+                _make_snapshot_with_assets(
+                    date(2000, 1, 1), {_ASSET: "100.00", _ASSET_B: "50.00"}
+                ),
+                _make_snapshot_with_assets(
+                    date(2000, 2, 1), {_ASSET: "101.00"}
+                ),
+            ],
+            frequency="monthly",
+        )
+
+    message = str(exc_info.value)
+    assert "2000-01-01" in message
+    assert "2000-02-01" in message
+    assert "missing" in message
+    assert "bond" in message
+
+
+def test_later_snapshot_additional_asset_is_rejected() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        Dataset(
+            snapshots=[
+                _make_snapshot_with_assets(date(2000, 1, 1), {_ASSET: "100.00"}),
+                _make_snapshot_with_assets(
+                    date(2000, 2, 1), {_ASSET: "101.00", _ASSET_B: "51.00"}
+                ),
+            ],
+            frequency="monthly",
+        )
+
+    message = str(exc_info.value)
+    assert "2000-01-01" in message
+    assert "2000-02-01" in message
+    assert "extra" in message
+    assert "bond" in message
+
+
+def test_consistently_empty_asset_sets_are_accepted() -> None:
+    dataset = Dataset(
+        snapshots=[
+            _make_snapshot_with_assets(date(2000, 1, 1), {}),
+            _make_snapshot_with_assets(date(2000, 2, 1), {}),
+        ],
+        frequency="monthly",
+    )
+
+    assert all(not snapshot.index_levels for snapshot in dataset)
+
+
+def test_single_snapshot_with_empty_asset_set_is_accepted() -> None:
+    dataset = Dataset(
+        snapshots=[_make_snapshot_with_assets(date(2000, 1, 1), {})],
+        frequency="monthly",
+    )
+
+    assert len(dataset) == 1
+    assert not dataset[0].index_levels
+
+
+def test_dataset_slice_preserves_asset_set_invariant() -> None:
+    dataset = Dataset(
+        snapshots=[
+            _make_snapshot_with_assets(
+                date(2000, month, 1), {_ASSET: "100.00", _ASSET_B: "50.00"}
+            )
+            for month in range(1, 5)
+        ],
+        frequency="monthly",
+    )
+
+    sliced = dataset.slice(date(2000, 2, 1), 2)
+
+    assert len(sliced) == 2
+    assert all(
+        set(snapshot.index_levels) == {_ASSET, _ASSET_B} for snapshot in sliced
+    )

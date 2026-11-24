@@ -83,8 +83,11 @@ portfolio state and contains no simulation logic.
 ### Dataset and MarketSnapshot
 
 A **Dataset** is a collection of historical time series (one per AssetClass),
-loaded and validated before simulation begins. Completely immutable and
-shared by all simulations.
+loaded and validated before simulation begins. Every snapshot must contain
+exactly the same set of AssetClass index levels; adding or omitting an asset
+class in any snapshot is rejected. Consistently empty asset sets are
+structurally valid at the domain-model level. Completely immutable and shared
+by all simulations.
 
 A **MarketSnapshot** is an immutable point-in-time market state for a single
 month: date, per-AssetClass index levels used to value holdings, monthly and

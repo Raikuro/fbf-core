@@ -30,6 +30,25 @@ class Dataset:
         if len(set(dates)) != len(dates):
             raise ValueError("Dataset snapshots must have unique dates")
 
+        reference_snapshot = snapshots[0]
+        reference_assets = set(reference_snapshot.index_levels)
+        for snapshot in snapshots[1:]:
+            asset_classes = set(snapshot.index_levels)
+            if asset_classes == reference_assets:
+                continue
+            missing = sorted(
+                asset_class.id for asset_class in reference_assets - asset_classes
+            )
+            extra = sorted(
+                asset_class.id for asset_class in asset_classes - reference_assets
+            )
+            raise ValueError(
+                "Dataset snapshots must contain identical asset classes; "
+                f"snapshot {snapshot.date.isoformat()} differs from first "
+                f"snapshot {reference_snapshot.date.isoformat()} "
+                f"(missing={missing}, extra={extra})"
+            )
+
     def __len__(self) -> int:
         return len(self.snapshots)
 
