@@ -192,3 +192,78 @@ def test_portfolio_withdrawal_service_is_deterministic() -> None:
     second = service.execute_withdrawal(portfolio, decision, snapshot)
 
     assert first == second
+
+
+NON_ROUND_PRICE = Decimal("1.1")
+NON_ROUND_UNITS = Decimal("949.617395382803410606004115")
+NON_ROUND_VALUE = Decimal("1044.579134921083751666604526")
+
+
+def make_non_round_portfolio_and_snapshot() -> tuple[Portfolio, MarketSnapshot]:
+    asset = AssetClass(id="a", name="Asset A", description="A")
+    portfolio = Portfolio((AssetHolding(asset_class=asset, units=NON_ROUND_UNITS),))
+    snapshot = DummyMarketSnapshot(
+        date=date(2000, 1, 1),
+        index_levels={asset: NON_ROUND_PRICE},
+        inflation=Decimal("0"),
+        inflation_cumulative=Decimal("0"),
+        is_ath=False,
+        is_underwater=False,
+        running_ath=NON_ROUND_PRICE,
+    )
+    return portfolio, snapshot
+
+
+@pytest.mark.parametrize(
+    ("nominal_amount", "expected_depleted", "expected_shortfall"),
+    [
+        pytest.param(NON_ROUND_VALUE, False, None, id="exact-boundary"),
+        pytest.param(
+            NON_ROUND_VALUE + Decimal("1"),
+            True,
+            Money(Decimal("1"), Money.ZERO.currency),
+            id="over-withdrawal",
+        ),
+    ],
+)
+def test_portfolio_withdrawal_service_fully_depletes_non_round_decimal_portfolio(
+    nominal_amount: Decimal,
+    expected_depleted: bool,
+    expected_shortfall: Money | None,
+) -> None:
+    assert NON_ROUND_UNITS * NON_ROUND_PRICE == NON_ROUND_VALUE
+    portfolio, snapshot = make_non_round_portfolio_and_snapshot()
+    service = PortfolioWithdrawalService()
+    decision = WithdrawalDecision(
+        reason="test",
+        nominal_amount=Money(nominal_amount, Money.ZERO.currency),
+        real_amount=Money(nominal_amount, Money.ZERO.currency),
+    )
+
+    result = service.execute_withdrawal(portfolio, decision, snapshot)
+
+    assert result.depleted is expected_depleted
+    assert result.shortfall == expected_shortfall
+    assert result.remaining_value == Money.ZERO
+    assert result.portfolio.holdings == (
+        AssetHolding(asset_class=portfolio.holdings[0].asset_class, units=Decimal("0")),
+    )
+
+
+def test_portfolio_withdrawal_service_preserves_non_zero_decimal_balance() -> None:
+    portfolio, snapshot = make_non_round_portfolio_and_snapshot()
+    service = PortfolioWithdrawalService()
+    decision = WithdrawalDecision(
+        reason="test",
+        nominal_amount=Money(Decimal("100"), Money.ZERO.currency),
+        real_amount=Money(Decimal("100"), Money.ZERO.currency),
+    )
+
+    result = service.execute_withdrawal(portfolio, decision, snapshot)
+
+    assert result.depleted is False
+    assert result.shortfall is None
+    assert result.portfolio.holdings[0].units == Decimal("858.7083044737125015150950240")
+    assert result.remaining_value == Money(
+        Decimal("944.5791349210837516666045264"), Money.ZERO.currency
+    )

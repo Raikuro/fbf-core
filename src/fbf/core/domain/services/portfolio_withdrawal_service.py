@@ -80,8 +80,7 @@ class PortfolioWithdrawalService:
                 new_holdings.append(holding)
                 continue
 
-            holding_withdrawal_value = Money(holding_value.amount * ratio, Money.ZERO.currency)
-            units_sold = holding_withdrawal_value.amount / price
+            units_sold = holding.units * ratio
             remaining_units = holding.units - units_sold
             if remaining_units < Decimal("0"):
                 remaining_units = Decimal("0")
