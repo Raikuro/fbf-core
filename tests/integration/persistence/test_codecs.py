@@ -17,7 +17,10 @@ from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
+
+import pytest
 
 from fbf.core.domain.model.allocation import AllocationTarget
 from fbf.core.domain.model.asset import AssetClass
@@ -557,6 +560,79 @@ class TestSimulationResultCodec:
         assert loaded_mr.drawdown == 0.05
         assert loaded_mr.cumulative_return == 0.10
         assert loaded_mr.cumulative_inflation == 0.02
+
+    def test_multi_asset_snapshot_round_trip_preserves_immutability(self) -> None:
+        codec = SimulationResultCodec()
+        from fbf.core.execution.pipeline.simulation import MonthlyResult
+
+        equity = AssetClass(
+            id="equity", name="equity", description="Reconstructed"
+        )
+        bond = AssetClass(id="bond", name="bond", description="Reconstructed")
+        levels = {
+            equity: Decimal("100.00"),
+            bond: Decimal("50.00"),
+        }
+        snapshot = MarketSnapshot(
+            date=date(2000, 1, 1),
+            index_levels=levels,
+            inflation=Decimal("0.00"),
+            inflation_cumulative=Decimal("0.00"),
+            is_ath=True,
+            is_underwater=False,
+            running_ath=Decimal("100.00"),
+            cape=Decimal("25.5"),
+        )
+        monthly = MonthlyResult(
+            date=date(2000, 1, 1),
+            period_index=0,
+            market_snapshot=snapshot,
+            portfolio=Portfolio(
+                holdings=(
+                    AssetHolding(asset_class=equity, units=Decimal("10")),
+                    AssetHolding(asset_class=bond, units=Decimal("20")),
+                )
+            ),
+            allocation=None,
+            allocation_target=None,
+            allocation_drift=None,
+            withdrawal_decision=None,
+            rebalance_result=None,
+            drawdown=0.0,
+            cumulative_return=0.0,
+            cumulative_inflation=0.0,
+            events=(),
+        )
+        original = SimulationResult(
+            timeline=SimulationTimeline(monthly_results=(monthly,)),
+            statistics=SimulationStatistics(
+                final_wealth=Money(Decimal("2000"), Currency.EUR),
+                max_drawdown=0.0,
+                success=True,
+                failure_month=None,
+                failure_state=None,
+                months_simulated=1,
+                execution_time_seconds=0.01,
+            ),
+        )
+
+        serialized = codec.dump(original)
+        loaded = codec.load(
+            serialized.statistics_payload_json,
+            serialized.monthly_payloads_json,
+        )
+
+        loaded_snapshot = loaded.timeline.monthly_results[0].market_snapshot
+        assert loaded_snapshot == snapshot
+        assert isinstance(loaded_snapshot.index_levels, MappingProxyType)
+        assert dict(loaded_snapshot.index_levels) == levels
+
+        levels[equity] = Decimal("999.00")
+        assert loaded_snapshot.index_levels[equity] == Decimal("100.00")
+
+        mutable_levels: Any = loaded_snapshot.index_levels
+        with pytest.raises(TypeError):
+            mutable_levels[bond] = Decimal("999.00")
 
     def test_monthly_withdrawal_decision_round_trip_preserves_type_and_fields(
         self,

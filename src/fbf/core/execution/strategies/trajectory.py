@@ -29,7 +29,7 @@ Reconstruction rules:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -104,7 +104,7 @@ def target_weights_for(
 
 def _build_portfolio(
     value: Decimal,
-    prices: dict[AssetClass, Decimal],
+    prices: Mapping[AssetClass, Decimal],
     weights: dict[AssetClass, Decimal],
     asset_classes: tuple[AssetClass, ...],
 ) -> Portfolio:

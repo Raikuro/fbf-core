@@ -20,9 +20,11 @@ class Dataset:
     frequency: str
 
     def __post_init__(self) -> None:
-        if not self.snapshots:
+        snapshots = tuple(self.snapshots)
+        object.__setattr__(self, "snapshots", snapshots)
+        if not snapshots:
             raise ValueError("Dataset must contain at least one MarketSnapshot")
-        dates = [snapshot.date for snapshot in self.snapshots]
+        dates = [snapshot.date for snapshot in snapshots]
         if dates != sorted(dates):
             raise ValueError("Dataset snapshots must be ordered by date")
         if len(set(dates)) != len(dates):
