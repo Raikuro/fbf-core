@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from .asset import AssetClass
 
@@ -32,9 +32,9 @@ class MarketSnapshot:
         if any(value is None for value in self.index_levels.values()):
             raise ValueError("MarketSnapshot index_levels must not contain None")
         if self.cape is not None:
-            try:
-                Decimal(str(self.cape))
-            except (InvalidOperation, ValueError):
-                raise ValueError(
-                    "MarketSnapshot cape must be a valid Decimal"
-                ) from None
+            if not isinstance(self.cape, Decimal):
+                raise TypeError(
+                    "MarketSnapshot cape must be a Decimal or None"
+                )
+            if not self.cape.is_finite():
+                raise ValueError("MarketSnapshot cape must be finite")
