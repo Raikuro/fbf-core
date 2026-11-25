@@ -36,7 +36,8 @@ regeneration commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 `Dataset` requires at least one snapshot, chronological order, unique dates, and
 the same AssetClass index levels in every snapshot. Consistently empty asset
 sets are structurally valid. The loaded dataset is immutable and shared across
-simulations.
+simulations. `Dataset` supports monthly frequency only; construction rejects any
+`frequency` value other than `"monthly"`. Calendar spacing is not validated.
 
 ### Repository data layout
 

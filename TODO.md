@@ -23,14 +23,12 @@ decisions are separated from routine cleanup.
     extra assets.
   - Consistently empty asset sets remain structurally valid.
 
-- [ ] **Dataset frequency contract.**
-  - `Dataset.frequency` is an unvalidated `str`, while `ReturnSequence`
-    independently enforces a monthly-only contract.
-  - Decide and document whether `Dataset` is strictly monthly.
-  - Review the current engine assumptions and the existing `ReturnSequence`
-    monthly-only contract.
-  - If monthly-only is confirmed, enforce it consistently and add tests.
-  - Do not impose this restriction until the specification decision is explicit.
+- [x] **Dataset frequency contract.**
+  - `Dataset.__post_init__` enforces exactly `"monthly"` and rejects every
+    other value with `ValueError`.
+  - `ReturnSequence` continues to enforce the same monthly-only contract.
+  - Calendar spacing is not validated; monthly is a semantic contract, not a
+    guarantee of exact month-to-month snapshot dates.
 
 - [ ] **Canonical loader consistency.**
   - Canonical loaders compute ATH/underwater flags and running-ATH values but do

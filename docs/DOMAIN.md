@@ -87,7 +87,9 @@ loaded and validated before simulation begins. Every snapshot must contain
 exactly the same set of AssetClass index levels; adding or omitting an asset
 class in any snapshot is rejected. Consistently empty asset sets are
 structurally valid at the domain-model level. Completely immutable and shared
-by all simulations.
+by all simulations. `Dataset.frequency` is always `"monthly"`; any other value
+is rejected at construction. Monthly is a semantic frequency contract, not a
+guarantee that consecutive snapshot dates are exactly one calendar month apart.
 
 A **MarketSnapshot** is an immutable point-in-time market state for a single
 month: date, per-AssetClass index levels used to value holdings, monthly and

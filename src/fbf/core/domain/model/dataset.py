@@ -20,6 +20,10 @@ class Dataset:
     frequency: str
 
     def __post_init__(self) -> None:
+        if self.frequency != "monthly":
+            raise ValueError(
+                f"Dataset frequency must be 'monthly', got {self.frequency!r}"
+            )
         snapshots = tuple(self.snapshots)
         object.__setattr__(self, "snapshots", snapshots)
         if not snapshots:

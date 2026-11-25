@@ -151,6 +151,43 @@ def test_empty_snapshots_are_rejected() -> None:
         Dataset(snapshots=[], frequency="monthly")
 
 
+def test_monthly_frequency_is_accepted() -> None:
+    dataset = Dataset(
+        snapshots=[_make_snapshot(date(2000, 1, 1))],
+        frequency="monthly",
+    )
+
+    assert dataset.frequency == "monthly"
+
+
+@pytest.mark.parametrize("frequency", ["annual", "weekly", "", "Monthly"])
+@pytest.mark.parametrize(
+    "snapshots",
+    [
+        [_make_snapshot(date(2000, 1, 1))],
+        [_make_snapshot(date(2000, 1, 1)), _make_snapshot(date(2000, 2, 1))],
+    ],
+    ids=["single_snapshot", "multiple_snapshots"],
+)
+def test_non_monthly_frequency_is_rejected(
+    snapshots: list[MarketSnapshot], frequency: str
+) -> None:
+    with pytest.raises(ValueError, match="frequency must be 'monthly'"):
+        Dataset(snapshots=snapshots, frequency=frequency)
+
+
+def test_monthly_frequency_does_not_require_calendar_spacing() -> None:
+    dataset = Dataset(
+        snapshots=[
+            _make_snapshot(date(2000, 1, 1)),
+            _make_snapshot(date(2000, 1, 2)),
+        ],
+        frequency="monthly",
+    )
+
+    assert len(dataset) == 2
+
+
 def test_consistent_two_asset_datasets_are_accepted() -> None:
     dataset = Dataset(
         snapshots=[
@@ -270,3 +307,14 @@ def test_dataset_slice_preserves_asset_set_invariant() -> None:
     assert all(
         set(snapshot.index_levels) == {_ASSET, _ASSET_B} for snapshot in sliced
     )
+
+
+def test_dataset_slice_preserves_monthly_frequency() -> None:
+    dataset = Dataset(
+        snapshots=[_make_snapshot(date(2000, month, 1)) for month in range(1, 5)],
+        frequency="monthly",
+    )
+
+    sliced = dataset.slice(date(2000, 2, 1), 2)
+
+    assert sliced.frequency == "monthly"
