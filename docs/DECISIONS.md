@@ -516,8 +516,8 @@ execution pipeline is the layer that actually evolves state and produces
 results.
 
 **Consequence:** Consumers must import simulation state and results from the
-execution pipeline. This breaking Tier 2 API change required the Core `0.4.0`
-minor version; no compatibility aliases are provided.
+execution pipeline. This breaking Tier 2 API change requires a Core minor
+version increment; no compatibility aliases are provided.
 
 ---
 
@@ -556,5 +556,5 @@ workloads.
 **Consequence:** One fail-closed capability dispatcher selects a Numba executor
 for the complete plan. Unsupported configurations raise
 `UnsupportedConfigurationError`; missing Numba raises an installation-guidance
-`ModuleNotFoundError`. This breaking API change required the Core `0.5.0` minor
-version.
+`ModuleNotFoundError`. This breaking API change requires a Core minor version
+increment.

@@ -76,6 +76,12 @@ Full setup, extraction, regeneration, and validation workflows are in
 | [`TODO.md`](./TODO.md) | Unresolved technical work |
 | [`AGENTS.md`](./AGENTS.md) | Contributor and coding-agent constraints |
 
+Documentation describes the current state of the project. Historical audits,
+completed roadmaps, progress snapshots, and implementation-history documents
+are not retained. Durable decisions live in
+[`docs/DECISIONS.md`](./docs/DECISIONS.md); unresolved work lives in
+[`TODO.md`](./TODO.md).
+
 Datasets are external to the wheel. Point `--data-dir` (CLI) or the `data_dir`
 Core API parameter at a directory containing the canonical CSV sources. The ERN
 loader reads the fixed filenames documented in [`DATASETS.md`](./DATASETS.md)

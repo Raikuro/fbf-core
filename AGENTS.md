@@ -137,10 +137,12 @@ and corresponding consumer dependency-pin updates.
 | Development and regeneration | `docs/DEVELOPMENT.md` |
 | Unresolved technical work | `TODO.md` |
 
-Documentation describes durable knowledge only. Do not add implementation
-reports, session notes, progress snapshots, investigation diaries, completed
-roadmaps, or duplicate copies of existing knowledge. Link to the authoritative
-source instead.
+Documentation must describe the current state of the project. Do not add or
+retain historical audit documents, completed roadmaps, progress snapshots,
+implementation reports, session notes, investigation diaries, or duplicate
+copies of existing knowledge. Durable design decisions belong in
+`docs/DECISIONS.md`; unresolved work belongs in `TODO.md`. Link to the
+authoritative source instead.
 
 ---
 
@@ -181,4 +183,4 @@ session, and specific enough for another contributor to act on.
 
 Do not add session notes, troubleshooting history, environment incidents,
 resolved issues, speculative improvements, or competing TODO lists. Remove
-items once resolved.
+items once resolved. Keep `TODO.md` empty when no unresolved work exists.
