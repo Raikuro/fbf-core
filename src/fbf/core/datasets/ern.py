@@ -28,10 +28,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, localcontext
+from itertools import pairwise
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from fbf.core.domain.model.dataset import Dataset
+
+if TYPE_CHECKING:
+    from fbf.core.domain.model.market_snapshot import MarketSnapshot
 
 # ---------------------------------------------------------------------------
 # Canonical CSV filenames
@@ -51,6 +55,8 @@ _SOURCE_FILES = (_EQUITY_CSV, _BOND_CSV, _CPI_CSV, _CAPE_CSV, _FFR_CSV)
 
 _EQUITY_BASE = Decimal("100")
 _BOND_BASE = Decimal("100")
+_CANONICAL_ASSET_IDS = frozenset({"equity", "bond"})
+_FIRST_HISTORICAL_RETURN_DATE = date(1871, 2, 1)
 
 # The dataset is fee-free; expense ratios are applied by the execution layer.
 # The base snapshot level is derived from the first workbook return so the
@@ -118,7 +124,10 @@ class FfrFuturePolicy:
 
 @dataclass(frozen=True)
 class ProjectionConfig:
-    """Historical cutoff and runtime projection assumptions for ERN data."""
+    """Historical cutoff and runtime projection assumptions for ERN data.
+
+    ``end_date``, when provided, must be the first day of a month.
+    """
 
     historical_data_cutoff: date | None = None
     end_date: date | None = None
@@ -216,6 +225,248 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(8192), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _require_month_start(value: date, *, field: str) -> None:
+    if value.day != 1:
+        raise ValueError(
+            f"Canonical {field} must be the first day of a month, "
+            f"got {value.isoformat()}"
+        )
+
+
+def _validate_source_dates(
+    rows: Sequence[tuple[str, Decimal]], *, label: str
+) -> list[date]:
+    parsed: list[date] = []
+    for raw_date, _ in rows:
+        try:
+            parsed.append(date.fromisoformat(raw_date))
+        except ValueError as exc:
+            raise ValueError(
+                f"Canonical {label} return date {raw_date!r} is not an ISO date"
+            ) from exc
+    for previous, current in pairwise(parsed):
+        if current <= previous:
+            raise ValueError(
+                f"Canonical {label} return dates must be strictly increasing: "
+                f"{previous.isoformat()} -> {current.isoformat()}"
+            )
+    return parsed
+
+
+def _validate_required_historical_dates(
+    dates: Sequence[date], *, cutoff: date, label: str
+) -> None:
+    required = [value for value in dates if value <= cutoff]
+    if not required:
+        raise ValueError(
+            f"Canonical {label} return coverage is empty through "
+            f"{cutoff.isoformat()}"
+        )
+    if required[0] != _FIRST_HISTORICAL_RETURN_DATE:
+        raise ValueError(
+            f"Canonical {label} return coverage must start at "
+            f"{_FIRST_HISTORICAL_RETURN_DATE.isoformat()}, "
+            f"got {required[0].isoformat()}"
+        )
+    for previous, current in pairwise(required):
+        if current != _next_month(previous):
+            raise ValueError(
+                f"Canonical {label} return coverage must be contiguous monthly "
+                f"dates: {previous.isoformat()} -> {current.isoformat()}"
+            )
+    if required[-1] != cutoff:
+        raise ValueError(
+            f"Canonical {label} return coverage must include historical cutoff "
+            f"{cutoff.isoformat()}, got {required[-1].isoformat()}"
+        )
+
+
+def _canonical_asset_ids(snapshot: MarketSnapshot) -> set[str]:
+    return {asset.id for asset in snapshot.index_levels}
+
+
+def _canonical_equity_level(snapshot: MarketSnapshot) -> Decimal:
+    for asset, level in snapshot.index_levels.items():
+        if asset.id == "equity":
+            return level
+    raise ValueError(
+        f"Canonical snapshot {snapshot.date.isoformat()} has no equity level"
+    )
+
+
+def _validate_canonical_assets(dataset: Dataset) -> None:
+    expected = sorted(_CANONICAL_ASSET_IDS)
+    for snapshot in dataset:
+        actual = _canonical_asset_ids(snapshot)
+        if len(snapshot.index_levels) != len(_CANONICAL_ASSET_IDS) or (
+            actual != _CANONICAL_ASSET_IDS
+        ):
+            raise ValueError(
+                "Canonical dataset must contain exactly asset classes "
+                f"{expected}; snapshot {snapshot.date.isoformat()} has "
+                f"{sorted(actual)}"
+            )
+
+
+def _validate_canonical_timeline(
+    dataset: Dataset, *, metadata: PreparedDatasetMetadata, cutoff: date
+) -> None:
+    if len(dataset) < 2:
+        raise ValueError(
+            "Canonical dataset must contain a base snapshot and at least one "
+            "historical return snapshot"
+        )
+
+    historical_dates = [
+        snapshot.date
+        for snapshot in dataset.snapshots[1:]
+        if snapshot.date <= cutoff
+    ]
+    if not historical_dates:
+        raise ValueError(
+            f"Canonical historical return coverage is empty through "
+            f"{cutoff.isoformat()}"
+        )
+    if historical_dates[0] != _FIRST_HISTORICAL_RETURN_DATE:
+        raise ValueError(
+            "Canonical historical return coverage must start at "
+            f"{_FIRST_HISTORICAL_RETURN_DATE.isoformat()}, "
+            f"got {historical_dates[0].isoformat()}"
+        )
+    for previous, current in pairwise(historical_dates):
+        if current != _next_month(previous):
+            raise ValueError(
+                "Canonical historical return coverage must be contiguous "
+                f"monthly dates: {previous.isoformat()} -> {current.isoformat()}"
+            )
+    if historical_dates[-1] != cutoff:
+        raise ValueError(
+            "Canonical historical return coverage must include historical "
+            f"cutoff {cutoff.isoformat()}, got {historical_dates[-1].isoformat()}"
+        )
+
+    projection_dates = [
+        snapshot.date
+        for snapshot in dataset
+        if snapshot.date >= metadata.projection_start
+    ]
+    if not projection_dates:
+        raise ValueError(
+            "Canonical projection coverage is empty from "
+            f"{metadata.projection_start.isoformat()}"
+        )
+    if projection_dates[0] != metadata.projection_start:
+        raise ValueError(
+            "Canonical projection coverage must start at "
+            f"{metadata.projection_start.isoformat()}, "
+            f"got {projection_dates[0].isoformat()}"
+        )
+    for previous, current in pairwise(projection_dates):
+        if current != _next_month(previous):
+            raise ValueError(
+                "Canonical projection coverage must be contiguous monthly "
+                f"dates: {previous.isoformat()} -> {current.isoformat()}"
+            )
+    if projection_dates[-1] != metadata.projection_end:
+        raise ValueError(
+            "Canonical projection coverage must end at metadata projection "
+            f"end {metadata.projection_end.isoformat()}, "
+            f"got {projection_dates[-1].isoformat()}"
+        )
+
+
+def _validate_canonical_metadata(
+    dataset: Dataset, *, metadata: PreparedDatasetMetadata, cutoff: date
+) -> None:
+    historical_count = sum(1 for snapshot in dataset if snapshot.date <= cutoff)
+    projected_count = len(dataset) - historical_count
+    if metadata.historical_data_cutoff != cutoff:
+        raise ValueError(
+            "Canonical metadata historical cutoff does not match the effective "
+            f"cutoff: {metadata.historical_data_cutoff.isoformat()} != "
+            f"{cutoff.isoformat()}"
+        )
+    if metadata.projection_start != _next_month(cutoff):
+        raise ValueError(
+            "Canonical metadata projection start does not match the month after "
+            f"the cutoff: {metadata.projection_start.isoformat()} != "
+            f"{_next_month(cutoff).isoformat()}"
+        )
+    if metadata.projection_end != dataset.end_date:
+        raise ValueError(
+            "Canonical metadata projection end does not match dataset end: "
+            f"{metadata.projection_end.isoformat()} != "
+            f"{dataset.end_date.isoformat()}"
+        )
+    if metadata.historical_snapshot_count != historical_count:
+        raise ValueError(
+            "Canonical metadata historical snapshot count does not match the "
+            f"dataset: {metadata.historical_snapshot_count} != {historical_count}"
+        )
+    if metadata.projected_snapshot_count != projected_count:
+        raise ValueError(
+            "Canonical metadata projected snapshot count does not match the "
+            f"dataset: {metadata.projected_snapshot_count} != {projected_count}"
+        )
+    if metadata.snapshot_count != len(dataset):
+        raise ValueError(
+            "Canonical metadata snapshot count does not match the dataset: "
+            f"{metadata.snapshot_count} != {len(dataset)}"
+        )
+
+
+def _validate_canonical_cpi(
+    dataset: Dataset, *, cutoff: date, cpi_levels: Mapping[str, Decimal]
+) -> None:
+    for snapshot in dataset.snapshots[1:]:
+        if snapshot.date > cutoff:
+            break
+        date_key = snapshot.date.isoformat()
+        if date_key not in cpi_levels:
+            raise ValueError(
+                f"Canonical historical snapshot {date_key} has no CPI observation"
+            )
+
+
+def _validate_canonical_ath(dataset: Dataset) -> None:
+    expected_ath = _canonical_equity_level(dataset.snapshots[1])
+    for snapshot in dataset.snapshots[1:]:
+        equity = _canonical_equity_level(snapshot)
+        expected_ath = max(expected_ath, equity)
+        if snapshot.running_ath != expected_ath:
+            raise ValueError(
+                f"Canonical running ATH mismatch at {snapshot.date.isoformat()}: "
+                f"expected {expected_ath}, got {snapshot.running_ath}"
+            )
+        expected_is_ath = equity >= expected_ath
+        if snapshot.is_ath is not expected_is_ath:
+            raise ValueError(
+                f"Canonical is_ath mismatch at {snapshot.date.isoformat()}: "
+                f"expected {expected_is_ath}, got {snapshot.is_ath}"
+            )
+        expected_is_underwater = equity < expected_ath
+        if snapshot.is_underwater is not expected_is_underwater:
+            raise ValueError(
+                "Canonical is_underwater mismatch at "
+                f"{snapshot.date.isoformat()}: expected "
+                f"{expected_is_underwater}, got {snapshot.is_underwater}"
+            )
+
+
+def _validate_canonical_dataset(
+    dataset: Dataset,
+    *,
+    metadata: PreparedDatasetMetadata,
+    cutoff: date,
+    cpi_levels: Mapping[str, Decimal],
+) -> None:
+    _validate_canonical_assets(dataset)
+    _validate_canonical_timeline(dataset, metadata=metadata, cutoff=cutoff)
+    _validate_canonical_metadata(dataset, metadata=metadata, cutoff=cutoff)
+    _validate_canonical_cpi(dataset, cutoff=cutoff, cpi_levels=cpi_levels)
+    _validate_canonical_ath(dataset)
 
 
 # ---------------------------------------------------------------------------
@@ -500,10 +751,20 @@ def prepare_ern_dataset(
     Historical observations remain in the canonical CSVs.  The cutoff is
     inclusive, projection starts in the following month, and the projection
     end is derived from ``required_through`` when it is supplied.  An explicit
-    configured end may be later than required but never earlier.
+    configured end may be later than required but never earlier.  Explicit
+    projection end dates and required-through dates must be the first day of a
+    month.
     """
     equity_returns, bond_returns, cpi_levels = _load_historical_series(data_dir)
     effective_config = config or ProjectionConfig()
+
+    if effective_config.end_date is not None:
+        _require_month_start(effective_config.end_date, field="projection.end_date")
+    if required_through is not None:
+        _require_month_start(required_through, field="required_through")
+
+    equity_dates = _validate_source_dates(equity_returns, label="equity")
+    bond_dates = _validate_source_dates(bond_returns, label="bond")
 
     default_cutoff = _default_historical_cutoff(
         equity_returns, bond_returns, cpi_levels
@@ -530,6 +791,11 @@ def prepare_ern_dataset(
         raise ValueError(f"No bond return at historical cutoff {cutoff_key}")
     if cutoff_key not in cpi_map:
         raise ValueError(f"No CPI observation at historical cutoff {cutoff_key}")
+
+    _validate_required_historical_dates(
+        equity_dates, cutoff=cutoff, label="equity"
+    )
+    _validate_required_historical_dates(bond_dates, cutoff=cutoff, label="bond")
 
     projection_start = _next_month(cutoff)
     if effective_config.end_date is not None:
@@ -599,6 +865,12 @@ def prepare_ern_dataset(
             for name in _SOURCE_FILES
             if (data_dir / name).is_file()
         ),
+    )
+    _validate_canonical_dataset(
+        dataset,
+        metadata=metadata,
+        cutoff=cutoff,
+        cpi_levels=cpi_map,
     )
     return PreparedErnDataset(dataset=dataset, metadata=metadata)
 

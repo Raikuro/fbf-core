@@ -41,7 +41,10 @@ included cohort plus its maximum horizon. The canonical dataset therefore
 contains `2,460` monthly snapshots through `2075-12`; under the `W-1` cohort
 window the last 60-year path consumes snapshots from `2015-11` through
 `2075-11`. Studies may configure an earlier historical cutoff and their own
-forward assumptions. Monthly forward rates use `(1 + annual_rate) ** (1/12) - 1`:
+forward assumptions. Explicit projection end dates and required-through dates
+must be the first day of a month; non-month-start values are rejected rather
+than silently changing the effective end. Monthly forward rates use
+`(1 + annual_rate) ** (1/12) - 1`:
 
 | Asset | Months 1-120 | Month 121 onward |
 |---|---:|---:|

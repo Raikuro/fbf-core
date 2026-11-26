@@ -130,6 +130,168 @@ class TestBuildPrescribedDataset:
         assert ds[12].date == date(1930, 9, 1)
         assert ds[119].date == date(1939, 8, 1)
 
+    @pytest.mark.parametrize(
+        ("field", "asset_id", "index", "expected_date"),
+        [
+            ("equity_returns", "equity", 0, date(1929, 9, 1)),
+            ("equity_returns", "equity", 5, date(1930, 2, 1)),
+            ("bond_returns", "bond", 0, date(1929, 9, 1)),
+            ("bond_returns", "bond", 5, date(1930, 2, 1)),
+        ],
+    )
+    def test_minus_one_zero_level_rejected(
+        self,
+        field: str,
+        asset_id: str,
+        index: int,
+        expected_date: date,
+    ) -> None:
+        eq_returns = [Decimal("0")] * 120
+        bond_returns = [Decimal("0")] * 120
+        target = eq_returns if field == "equity_returns" else bond_returns
+        target[index] = Decimal("-1")
+        seq = _make_sequence(eq_returns, bond_returns)
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                rf"Prescribed dataset {asset_id} level must be strictly "
+                rf"positive at {expected_date.isoformat()} "
+                rf"\(return index {index}\)"
+            ),
+        ):
+            build_prescribed_dataset(seq)
+
+    @pytest.mark.parametrize(
+        ("field", "asset_id"),
+        [
+            ("equity_returns", "equity"),
+            ("bond_returns", "bond"),
+        ],
+    )
+    def test_overflowing_compounded_level_rejected_as_non_finite(
+        self,
+        field: str,
+        asset_id: str,
+    ) -> None:
+        eq_returns = [Decimal("0")] * 120
+        bond_returns = [Decimal("0")] * 120
+        target = eq_returns if field == "equity_returns" else bond_returns
+        target[0] = Decimal("1e999999")
+        seq = _make_sequence(eq_returns, bond_returns)
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                rf"Prescribed dataset {asset_id} level must be finite "
+                rf"at 1929-09-01 \(return index 0\)"
+            ),
+        ):
+            build_prescribed_dataset(seq)
+
+    @pytest.mark.parametrize(
+        ("field", "asset_id"),
+        [
+            ("equity", "equity"),
+            ("bond", "bond"),
+        ],
+    )
+    def test_overflowing_initial_level_rejected_as_non_finite(
+        self,
+        field: str,
+        asset_id: str,
+    ) -> None:
+        seq = _make_sequence([Decimal("0")], [Decimal("0")])
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                rf"Prescribed dataset {asset_id} level must be finite "
+                rf"at 1929-09-01 \(return index 0\)"
+            ),
+        ):
+            if field == "equity":
+                build_prescribed_dataset(
+                    seq, initial_equity_level=Decimal("1e1000000")
+                )
+            else:
+                build_prescribed_dataset(
+                    seq, initial_bond_level=Decimal("1e1000000")
+                )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("equity", Decimal("0")),
+            ("equity", Decimal("-1")),
+            ("bond", Decimal("0")),
+            ("bond", Decimal("-1")),
+        ],
+    )
+    def test_non_positive_initial_level_rejected(
+        self,
+        field: str,
+        value: Decimal,
+    ) -> None:
+        seq = _make_sequence([Decimal("0")], [Decimal("0")])
+
+        with pytest.raises(
+            ValueError,
+            match=rf"Initial {field} level must be strictly positive",
+        ):
+            if field == "equity":
+                build_prescribed_dataset(seq, initial_equity_level=value)
+            else:
+                build_prescribed_dataset(seq, initial_bond_level=value)
+
+    @pytest.mark.parametrize("field", ["equity", "bond"])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            Decimal("NaN"),
+            Decimal("sNaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+        ],
+        ids=["nan", "snan", "infinity", "negative_infinity"],
+    )
+    def test_non_finite_initial_level_rejected(
+        self,
+        field: str,
+        value: Decimal,
+    ) -> None:
+        seq = _make_sequence([Decimal("0")], [Decimal("0")])
+
+        with pytest.raises(
+            ValueError,
+            match=rf"Initial {field} level must be finite",
+        ):
+            if field == "equity":
+                build_prescribed_dataset(seq, initial_equity_level=value)
+            else:
+                build_prescribed_dataset(seq, initial_bond_level=value)
+
+    def test_return_just_above_minus_one_builds_positive_level(self) -> None:
+        seq = _make_sequence([Decimal("-0.999999")], [Decimal("0")])
+
+        ds = build_prescribed_dataset(seq)
+
+        eq_asset = AssetClass(id="equity", name="", description="")
+        level = ds[0].index_levels[eq_asset]
+        assert level > Decimal("0")
+        assert level == Decimal("0.0001")
+
+    def test_all_zero_returns_build_positive_levels(self) -> None:
+        seq = _make_sequence([Decimal("0")] * 120, [Decimal("0")] * 120)
+
+        ds = build_prescribed_dataset(seq)
+
+        eq_asset = AssetClass(id="equity", name="", description="")
+        bond_asset = AssetClass(id="bond", name="", description="")
+        for snapshot in ds.snapshots:
+            assert snapshot.index_levels[eq_asset] > Decimal("0")
+            assert snapshot.index_levels[bond_asset] > Decimal("0")
+
     def test_invalid_sequence_length_raises(self) -> None:
         # ReturnSequence constructor validates length
         eq_returns = tuple(Decimal("0.01") for _ in range(119))

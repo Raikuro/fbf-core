@@ -21,7 +21,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, DecimalException
+
+_MIN_RETURN = Decimal("-1")
+
+
+def _validate_return_value(
+    value: object,
+    *,
+    context: str,
+    field: str,
+    index: int | None = None,
+) -> None:
+    """Validate one simple return against the supported mathematical domain."""
+    location = f"{context} {field}" if index is None else f"{context} {field}[{index}]"
+    if not isinstance(value, Decimal):
+        raise TypeError(f"{location} must be a Decimal")
+    if not value.is_finite():
+        raise ValueError(f"{location} must be finite")
+    if value < _MIN_RETURN:
+        raise ValueError(
+            f"{location} must be greater than or equal to -1"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +51,8 @@ class ReturnSequence:
 
     Represents monthly equity and bond returns derived from prescribed
     annual source data via the documented annual-to-monthly conversion.
+    Returns must be finite Decimal fractions greater than or equal to -1.
+    A return of exactly -1 is a mathematically valid total loss.
 
     Attributes
     ----------
@@ -66,6 +89,20 @@ class ReturnSequence:
             raise ValueError(
                 f"ReturnSequence frequency must be 'monthly', got {self.frequency!r}"
             )
+        for index, value in enumerate(self.equity_returns):
+            _validate_return_value(
+                value,
+                context="ReturnSequence",
+                field="equity_returns",
+                index=index,
+            )
+        for index, value in enumerate(self.bond_returns):
+            _validate_return_value(
+                value,
+                context="ReturnSequence",
+                field="bond_returns",
+                index=index,
+            )
 
     def reverse(self) -> ReturnSequence:
         """Return a new sequence with annual source reversed before monthly expansion.
@@ -89,6 +126,27 @@ class ReturnSequence:
         )
 
 
+def _convert_annual_to_monthly(
+    annual_return: Decimal,
+    *,
+    context: str,
+    field: str,
+    index: int | None = None,
+) -> Decimal:
+    """Apply the documented conversion, reporting context-range failures clearly."""
+    location = f"{context} {field}" if index is None else f"{context} {field}[{index}]"
+    try:
+        return (
+            (Decimal("1") + annual_return)
+            ** (Decimal("1") / Decimal("12"))
+            - Decimal("1")
+        )
+    except DecimalException as exc:
+        raise ValueError(
+            f"{location} cannot be converted under the active Decimal context"
+        ) from exc
+
+
 def annual_to_monthly(annual_return: Decimal) -> Decimal:
     """Convert an annual return to a monthly return using geometric compounding.
 
@@ -100,13 +158,30 @@ def annual_to_monthly(annual_return: Decimal) -> Decimal:
     ----------
     annual_return:
         Annual return as a Decimal fraction (e.g., Decimal("0.10") for 10%).
+        Must be finite and greater than or equal to -1.
 
     Returns
     -------
     Decimal
         Monthly return that compounds to the annual return over 12 months.
+
+    Notes
+    -----
+    The active Decimal context must be able to evaluate the documented
+    expression. A valid finite input can still overflow an intermediate
+    operation; this raises ``ValueError`` rather than leaking a raw decimal
+    exception. No arbitrary upper bound is applied to the input domain.
     """
-    return (Decimal("1") + annual_return) ** (Decimal("1") / Decimal("12")) - Decimal("1")
+    _validate_return_value(
+        annual_return,
+        context="annual_to_monthly",
+        field="annual_return",
+    )
+    return _convert_annual_to_monthly(
+        annual_return,
+        context="annual_to_monthly",
+        field="annual_return",
+    )
 
 
 def expand_annual_to_monthly(annual_returns: tuple[Decimal, ...]) -> tuple[Decimal, ...]:
@@ -118,19 +193,37 @@ def expand_annual_to_monthly(annual_returns: tuple[Decimal, ...]) -> tuple[Decim
     Parameters
     ----------
     annual_returns:
-        Tuple of 10 annual returns (Decimal fractions).
+        Tuple of 10 annual returns (Decimal fractions). Each value must be
+        finite and greater than or equal to -1.
 
     Returns
     -------
     tuple[Decimal, ...]
         Tuple of 120 monthly returns.
+
+    Notes
+    -----
+    Context-range failures are reported with the annual-return index.
     """
     if len(annual_returns) != 10:
         raise ValueError(f"Expected 10 annual returns, got {len(annual_returns)}")
 
+    for index, annual in enumerate(annual_returns):
+        _validate_return_value(
+            annual,
+            context="expand_annual_to_monthly",
+            field="annual_returns",
+            index=index,
+        )
+
     monthly = []
-    for annual in annual_returns:
-        monthly_return = annual_to_monthly(annual)
+    for index, annual in enumerate(annual_returns):
+        monthly_return = _convert_annual_to_monthly(
+            annual,
+            context="expand_annual_to_monthly",
+            field="annual_returns",
+            index=index,
+        )
         monthly.extend([monthly_return] * 12)
 
     if len(monthly) != 120:

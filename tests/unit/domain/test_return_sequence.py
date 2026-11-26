@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
@@ -44,6 +45,117 @@ class TestReturnSequence:
         assert seq.start_date == date(1929, 9, 1)
         assert seq.frequency == "monthly"
         assert seq.name == "Test_Sequence"
+
+    def test_exactly_minus_one_returns_accepted(self) -> None:
+        seq = ReturnSequence(
+            equity_returns=tuple(Decimal("-1") for _ in range(120)),
+            bond_returns=tuple(Decimal("-1") for _ in range(120)),
+            start_date=date(1929, 9, 1),
+        )
+
+        assert seq.equity_returns == tuple(Decimal("-1") for _ in range(120))
+        assert seq.bond_returns == tuple(Decimal("-1") for _ in range(120))
+
+    def test_large_finite_positive_returns_accepted(self) -> None:
+        eq_returns = [Decimal("0")] * 120
+        bond_returns = [Decimal("0")] * 120
+        eq_returns[17] = Decimal("1e100")
+        bond_returns[42] = Decimal("1e100")
+
+        seq = ReturnSequence(
+            equity_returns=tuple(eq_returns),
+            bond_returns=tuple(bond_returns),
+            start_date=date(1929, 9, 1),
+        )
+
+        assert seq.equity_returns[17] == Decimal("1e100")
+        assert seq.bond_returns[42] == Decimal("1e100")
+
+    @pytest.mark.parametrize("field", ["equity_returns", "bond_returns"])
+    @pytest.mark.parametrize("index", [0, 17, 119])
+    def test_returns_below_minus_one_rejected(
+        self,
+        field: str,
+        index: int,
+    ) -> None:
+        eq_returns = [Decimal("0")] * 120
+        bond_returns = [Decimal("0")] * 120
+        target = eq_returns if field == "equity_returns" else bond_returns
+        target[index] = Decimal("-1.0001")
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                rf"ReturnSequence {field}\[{index}\] must be greater than "
+                "or equal to -1"
+            ),
+        ):
+            ReturnSequence(
+                equity_returns=tuple(eq_returns),
+                bond_returns=tuple(bond_returns),
+                start_date=date(1929, 9, 1),
+            )
+
+    @pytest.mark.parametrize("field", ["equity_returns", "bond_returns"])
+    @pytest.mark.parametrize("index", [0, 42, 119])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            Decimal("NaN"),
+            Decimal("sNaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+        ],
+        ids=["nan", "snan", "infinity", "negative_infinity"],
+    )
+    def test_non_finite_returns_rejected(
+        self,
+        field: str,
+        index: int,
+        value: Decimal,
+    ) -> None:
+        eq_returns = [Decimal("0")] * 120
+        bond_returns = [Decimal("0")] * 120
+        target = eq_returns if field == "equity_returns" else bond_returns
+        target[index] = value
+
+        with pytest.raises(
+            ValueError,
+            match=rf"ReturnSequence {field}\[{index}\] must be finite",
+        ):
+            ReturnSequence(
+                equity_returns=tuple(eq_returns),
+                bond_returns=tuple(bond_returns),
+                start_date=date(1929, 9, 1),
+            )
+
+    @pytest.mark.parametrize("field", ["equity_returns", "bond_returns"])
+    @pytest.mark.parametrize("index", [0, 42, 119])
+    @pytest.mark.parametrize(
+        "value",
+        [0.01, 1, "0.01", True],
+        ids=["float", "int", "str", "bool"],
+    )
+    def test_non_decimal_returns_rejected(
+        self,
+        field: str,
+        index: int,
+        value: Any,
+    ) -> None:
+        eq_returns: list[Any] = [Decimal("0")] * 120
+        bond_returns: list[Any] = [Decimal("0")] * 120
+        target = eq_returns if field == "equity_returns" else bond_returns
+        target[index] = value
+
+        with pytest.raises(
+            TypeError,
+            match=rf"ReturnSequence {field}\[{index}\] must be a Decimal",
+        ):
+            ReturnSequence(
+                equity_returns=tuple(eq_returns),
+                bond_returns=tuple(bond_returns),
+                start_date=date(1929, 9, 1),
+            )
 
     def test_invalid_equity_returns_length(self) -> None:
         eq_returns = tuple(Decimal("0.01") for _ in range(119))
@@ -125,6 +237,22 @@ class TestReturnSequenceReverse:
         reversed_seq = seq.reverse()
         assert reversed_seq.name == "reversed"
 
+    def test_reverse_preserves_valid_boundary_returns(self) -> None:
+        eq_returns = [Decimal("0")] * 120
+        bond_returns = [Decimal("0")] * 120
+        eq_returns[0] = Decimal("-1")
+        bond_returns[119] = Decimal("-1")
+        seq = ReturnSequence(
+            equity_returns=tuple(eq_returns),
+            bond_returns=tuple(bond_returns),
+            start_date=date(1929, 9, 1),
+        )
+
+        reversed_seq = seq.reverse()
+
+        assert reversed_seq.equity_returns[119] == Decimal("-1")
+        assert reversed_seq.bond_returns[0] == Decimal("-1")
+
 
 class TestAnnualToMonthly:
     """Tests for the documented annual-to-monthly conversion.
@@ -150,6 +278,64 @@ class TestAnnualToMonthly:
         annual = Decimal("-0.20")  # -20%
         monthly = annual_to_monthly(annual)
         assert _compounds_to(monthly, annual)
+
+    def test_exactly_minus_one_return(self) -> None:
+        monthly = annual_to_monthly(Decimal("-1"))
+        assert monthly == Decimal("-1")
+
+    def test_large_finite_positive_return(self) -> None:
+        monthly = annual_to_monthly(Decimal("1e100"))
+        assert monthly.is_finite()
+        assert monthly > Decimal("0")
+
+    def test_context_overflow_rejected_with_intentional_error(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=(
+                "annual_to_monthly annual_return cannot be converted "
+                "under the active Decimal context"
+            ),
+        ):
+            annual_to_monthly(Decimal("1e1000000"))
+
+    def test_below_minus_one_return_rejected(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=(
+                "annual_to_monthly annual_return must be greater than "
+                "or equal to -1"
+            ),
+        ):
+            annual_to_monthly(Decimal("-1.0001"))
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            Decimal("NaN"),
+            Decimal("sNaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+        ],
+        ids=["nan", "snan", "infinity", "negative_infinity"],
+    )
+    def test_non_finite_return_rejected(self, value: Decimal) -> None:
+        with pytest.raises(
+            ValueError,
+            match="annual_to_monthly annual_return must be finite",
+        ):
+            annual_to_monthly(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [0.10, 1, "0.10", True],
+        ids=["float", "int", "str", "bool"],
+    )
+    def test_non_decimal_return_rejected(self, value: Any) -> None:
+        with pytest.raises(
+            TypeError,
+            match="annual_to_monthly annual_return must be a Decimal",
+        ):
+            annual_to_monthly(value)
 
     def test_exact_compounding_property(self) -> None:
         """Each 12-month block must compound exactly to source annual return."""
@@ -191,6 +377,84 @@ class TestExpandAnnualToMonthly:
         # Next 12 should be identical (from 5%)
         next_12 = monthly[12:24]
         assert all(m == next_12[0] for m in next_12)
+
+    def test_exactly_minus_one_annual_return_accepted(self) -> None:
+        annual_returns = (Decimal("-1"),) + (Decimal("0"),) * 9
+
+        monthly = expand_annual_to_monthly(annual_returns)
+
+        assert monthly[:12] == (Decimal("-1"),) * 12
+
+    def test_context_overflow_rejected_at_index(self) -> None:
+        annual_returns = [Decimal("0.10")] * 10
+        annual_returns[4] = Decimal("1e1000000")
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"expand_annual_to_monthly annual_returns\[4\] cannot be "
+                "converted under the active Decimal context"
+            ),
+        ):
+            expand_annual_to_monthly(tuple(annual_returns))
+
+    def test_below_minus_one_annual_return_rejected_at_index(self) -> None:
+        annual_returns = [Decimal("0.10")] * 10
+        annual_returns[3] = Decimal("-1.0001")
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"expand_annual_to_monthly annual_returns\[3\] must be "
+                "greater than or equal to -1"
+            ),
+        ):
+            expand_annual_to_monthly(tuple(annual_returns))
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            Decimal("NaN"),
+            Decimal("sNaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+        ],
+        ids=["nan", "snan", "infinity", "negative_infinity"],
+    )
+    def test_non_finite_annual_return_rejected_at_index(
+        self,
+        value: Decimal,
+    ) -> None:
+        annual_returns = [Decimal("0.10")] * 10
+        annual_returns[4] = value
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"expand_annual_to_monthly annual_returns\[4\] must be finite"
+            ),
+        ):
+            expand_annual_to_monthly(tuple(annual_returns))
+
+    @pytest.mark.parametrize(
+        "value",
+        [0.10, 1, "0.10", True],
+        ids=["float", "int", "str", "bool"],
+    )
+    def test_non_decimal_annual_return_rejected_at_index(
+        self,
+        value: Any,
+    ) -> None:
+        annual_returns: list[Any] = [Decimal("0.10")] * 10
+        annual_returns[5] = value
+
+        with pytest.raises(
+            TypeError,
+            match=(
+                r"expand_annual_to_monthly annual_returns\[5\] must be a Decimal"
+            ),
+        ):
+            expand_annual_to_monthly(tuple(annual_returns))
 
     def test_invalid_annual_count_raises(self) -> None:
         annual_returns = tuple(Decimal("0.10") for _ in range(9))

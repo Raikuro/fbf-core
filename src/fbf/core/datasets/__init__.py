@@ -40,11 +40,12 @@ def load_canonical_dataset(
         (``spx_tr_real.csv``, ``bond_10y_tr_real.csv``, ``cpi.csv``).
     config:
         Optional historical cutoff and runtime projection rules.  When omitted,
-        canonical runtime defaults are used.
+        canonical runtime defaults are used.  A configured ``end_date`` must be
+        the first day of a month.
     required_through:
         Latest snapshot date required by a study.  When supplied and no
         explicit projection end is configured, the projection is extended to
-        cover it.
+        cover it.  Must be the first day of a month.
 
     Returns
     -------

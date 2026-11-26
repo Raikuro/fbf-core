@@ -39,6 +39,18 @@ sets are structurally valid. The loaded dataset is immutable and shared across
 simulations. `Dataset` supports monthly frequency only; construction rejects any
 `frequency` value other than `"monthly"`. Calendar spacing is not validated.
 
+The canonical loader validates its own invariants after construction:
+historical return dates are strictly increasing and monthly-contiguous through
+the cutoff; projected dates are monthly-contiguous through the effective end;
+every historical return month has a CPI observation; ATH/underwater fields after
+the synthetic `1871-01-31` base snapshot match the real equity running maximum;
+and the asset universe is exactly `equity` and `bond`. The synthetic base
+snapshot is exempt from CPI and ATH consistency checks. These checks are
+canonical-loader-specific and are not applied by `Dataset`, `MarketSnapshot`, or
+prescribed/custom dataset builders. Explicit projection `end_date` and
+`required_through` values must be first-of-month dates; non-month-start values
+are rejected rather than silently normalized.
+
 ### Repository data layout
 
 | Location | Contents | Status |

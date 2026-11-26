@@ -30,20 +30,22 @@ decisions are separated from routine cleanup.
   - Calendar spacing is not validated; monthly is a semantic contract, not a
     guarantee of exact month-to-month snapshot dates.
 
-- [ ] **Canonical loader consistency.**
-  - Canonical loaders compute ATH/underwater flags and running-ATH values but do
-    not validate them at loader boundaries.
-  - Review whether these should be validated at canonical loader/factory
-    boundaries.
-  - Keep these checks out of the generic `MarketSnapshot` constructor unless the
-    domain specification is explicitly broadened.
-  - Identify the appropriate tests and enforcement points.
+- [x] **Canonical loader consistency.**
+  - `prepare_ern_dataset` validates historical and projection timeline
+    continuity, historical CPI coverage, ATH/underwater consistency after the
+    synthetic base snapshot, and the exact canonical equity/bond asset universe.
+  - The synthetic `1871-01-31` base snapshot is exempt from CPI and ATH checks.
+  - Explicit projection `end_date` and `required_through` values must be
+    first-of-month dates; non-month-start values are rejected.
+  - These checks remain at the canonical loader boundary and are not applied by
+    generic `Dataset`/`MarketSnapshot` constructors or prescribed/custom
+    dataset builders.
 
-- [ ] **`ReturnSequence` return-domain validation.**
-  - `ReturnSequence` validates lengths and frequency but not return values; it
-    accepts returns below -100%, which can produce negative index levels.
-  - Decide whether monthly returns must be bounded below by -100%.
-  - If confirmed, enforce the constraint at the appropriate input boundary and
-    add tests.
-  - Do not duplicate the `MarketSnapshot` non-negative index-level validation or
-    change it without evidence.
+- [x] **`ReturnSequence` return-domain validation.**
+  - `ReturnSequence` requires finite Decimal returns greater than or equal to
+    -100%; `-100%` remains a valid total loss.
+  - `annual_to_monthly` and `expand_annual_to_monthly` apply the same input
+    validation.
+  - `build_prescribed_dataset` rejects non-positive initial levels and
+    non-positive compounded levels because the engine requires strictly
+    positive prices.
